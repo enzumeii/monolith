@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = [
+    "apps/backoffice",
+    "apps/client-ui",
+    "services/api",
+    "crates/domain",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+dioxus = { version = "0.7.10", features = ["fullstack"] }
+dioxus-cli = "0.7.10"

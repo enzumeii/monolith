@@ -1,0 +1,10 @@
+[package]
+name = "api"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+domain = { path = "../../crates/domain" }
+
+[dev-dependencies]
+axum = "0.8.9"
