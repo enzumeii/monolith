@@ -1,0 +1,13 @@
+default_job = "clippy"
+
+[jobs.clippy]
+command = ["cargo", "clippy", "--all-targets", "--workspace"]
+
+[jobs.clippy-fix]
+command = ["cargo", "clippy", "--fix", "--allow-dirty", "--allow-staged"]
+
+[jobs.fmt]
+command = ["cargo", "fmt", "--all"]
+
+[jobs.check-all]
+command = ["cargo", "check", "--all-targets", "--workspace"]

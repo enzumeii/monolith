@@ -3,6 +3,9 @@ name = "models"
 version = "0.1.0"
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [features]
 default = ["dto"]
 dto = ["dep:serde", "dep:uuid", "dep:chrono"]

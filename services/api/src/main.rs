@@ -29,10 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         e
     })?;
 
-    let router = routes::create_router().with_state(AppState {
-        db: pool,
-        settings: settings,
-    });
+    let router = routes::create_router().with_state(AppState { db: pool, settings });
     axum::serve(listener, router).await.map_err(|e| {
         error!(error = %e,"Failed to start server on http://{}", addr);
         e
