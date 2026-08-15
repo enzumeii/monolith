@@ -1,11 +1,10 @@
 [package]
 name = "client-ui"
-version.workspace = true
+version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-dioxus = { workspace = true }
-dioxus-cli = { workspace = true }
+dioxus.workspace = true
 
 [features]
 default = []

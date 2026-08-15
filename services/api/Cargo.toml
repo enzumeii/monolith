@@ -1,10 +1,20 @@
 [package]
 name = "api"
-version.workspace = true
+version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-domain = { path = "../../crates/domain" }
-
-[dev-dependencies]
+models = { path = "../../crates/models", features = ["db"] }
+serde.workspace = true
+serde_json.workspace = true
+config.workspace = true
+dotenvy.workspace = true
+tracing.workspace = true
+sqlx.workspace = true
+chrono.workspace = true
+tracing-subscriber.workspace = true
+tokio = { version = "1.53.1", features = ["full"] }
 axum = "0.8.9"
+axum-auth = "0.8.1"
+jsonwebtoken = { version = "11.0.0", features = ["rust_crypto"] }
+argon2 = "0.5.3"
