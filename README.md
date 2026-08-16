@@ -35,3 +35,4 @@ JWT_SECRET = ...
 1. recreate database locally `sqlx database drop -y && sqlx database create` [In case you need to restart the migration]
 2. run migration script `sqlx migrate run`
 3. create new migration script `sqlx migrate add ${migration name}`
+4. `cargo sqlx prepare` to trigger SQL migration locally
