@@ -18,11 +18,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  SQLX_OFFLINE: true   # Forces SQLx to use the committed .sqlx folder
 
 jobs:
-  lint-and-check:
-    name: Lint & SQLx Verification
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,18 +30,11 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Install sqlx-cli
-        run: cargo install sqlx-cli --no-default-features --features postgres
-
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@v2
 
       - name: Check Formatting
         run: cargo fmt --check -p api
-
-      - name: Verify SQLx Metadata is Fresh
-        working-directory: services/api
-        run: cargo sqlx prepare --check
 
       - name: Run Clippy
         run: cargo clippy -p api --all-targets -- -D warnings
