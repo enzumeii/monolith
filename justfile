@@ -23,4 +23,4 @@ api *args:
 
 # Stop all database containers
 db-down:
-    docker compose -f docker-compose.yml down
+    cd services/api && docker compose -f docker-compose.yml down
