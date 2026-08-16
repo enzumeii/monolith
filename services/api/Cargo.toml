@@ -7,7 +7,7 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-models = { path = "../../crates/models", features = ["db"] }
+domain = { path = "../../crates/domain", features = ["db"] }
 serde.workspace = true
 serde_json.workspace = true
 config.workspace = true
@@ -20,4 +20,6 @@ tokio = { version = "1.53.1", features = ["full"] }
 axum = "0.8.9"
 axum-auth = "0.8.1"
 jsonwebtoken = { version = "11.0.0", features = ["rust_crypto"] }
-argon2 = "0.5.3"
+argon2 = { version = "0.5.3", features = ["std"] }
+thiserror = "2.0.20"
+anyhow = "1.0.104"

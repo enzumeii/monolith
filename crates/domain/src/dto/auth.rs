@@ -1,15 +1,15 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
-pub struct LoginPayload {
+pub struct AdminLoginRequest {
     pub username: String,
     pub password: String,
 }
 
 #[derive(Debug, Serialize)]
-pub struct AuthResponse {
-    pub token_type: String,
+pub struct AdminLoginResponse {
     pub access_token: String,
+    pub token_type: &'static str,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

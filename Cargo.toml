@@ -1,9 +1,9 @@
 [workspace]
 resolver = "3"
 members = [
+	"crates/domain",
 	"apps/backoffice",
   "apps/client-ui", 
-	"crates/models",
   "services/api",
 ]
 

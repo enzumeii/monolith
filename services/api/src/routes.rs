@@ -1,15 +1,12 @@
-mod admin;
-
-use axum::{Router, routing::get};
+mod healthz;
+mod v1;
 
 use crate::state::AppState;
+use axum::Router;
 
-async fn healthz() -> &'static str {
-    "OK"
-}
-
-pub fn create_router() -> Router<AppState> {
+pub fn create_router(state: AppState) -> Router {
     Router::new()
-        .route("/healthz", get(healthz))
-        .nest("/admin", admin::router())
+        .merge(healthz::router())
+        .nest("/v1", v1::router())
+        .with_state(state)
 }

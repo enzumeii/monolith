@@ -1,6 +1,9 @@
 mod config;
-mod db;
+mod error;
+mod handlers;
+mod repositories;
 mod routes;
+mod services;
 mod state;
 
 use config::Settings;
@@ -20,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         e
     })?;
 
-    let pool = db::create_pool(&settings).await?;
+    let pool = repositories::create_pool(&settings).await?;
     info!("Database connection pool established successfully");
 
     let addr = format!("{}:{}", settings.server.host, settings.server.port);
@@ -29,7 +32,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         e
     })?;
 
-    let router = routes::create_router().with_state(AppState { db: pool, settings });
+    let state = AppState { db: pool, settings };
+    let router = routes::create_router(state);
     axum::serve(listener, router).await.map_err(|e| {
         error!(error = %e,"Failed to start server on http://{}", addr);
         e
