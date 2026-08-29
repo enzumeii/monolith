@@ -1,12 +1,50 @@
 use crate::error::AppError;
+use async_trait::async_trait;
 use domain::entities::{Admin, AdminRole};
 use sqlx::PgPool;
+use std::fmt::Debug;
 
-pub struct AdminRepository;
+#[derive(Debug, Clone)]
+pub struct PgAdminRepository {
+    pool: PgPool,
+}
 
-impl AdminRepository {
-    #[tracing::instrument(skip(pool))]
-    pub async fn list(pool: &PgPool) -> Result<Vec<Admin>, AppError> {
+impl PgAdminRepository {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub trait AdminRepositoryTrait: Send + Sync + Debug {
+    async fn list(&self) -> Result<Vec<Admin>, AppError>;
+
+    async fn add(
+        &self,
+        username: String,
+        password_hash: String,
+        role: AdminRole,
+    ) -> Result<Admin, AppError>;
+
+    async fn update(
+        &self,
+        id: i64,
+        username: Option<String>,
+        password_hash: Option<String>,
+    ) -> Result<Option<Admin>, AppError>;
+
+    async fn find_by_username<'a>(&self, username: &'a str) -> Result<Option<Admin>, AppError>;
+
+    async fn find_by_id(&self, id: i64) -> Result<Option<Admin>, AppError>;
+
+    async fn delete(&self, id: i64) -> Result<Option<Admin>, AppError>;
+}
+
+#[async_trait]
+impl AdminRepositoryTrait for PgAdminRepository {
+    #[tracing::instrument(skip(self))]
+    async fn list(&self) -> Result<Vec<Admin>, AppError> {
         let admins = sqlx::query_as!(
             Admin,
             r#"
@@ -14,15 +52,15 @@ impl AdminRepository {
                 FROM admin
             "#
         )
-        .fetch_all(pool)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(admins)
     }
 
-    #[tracing::instrument(skip(pool, password_hash))]
-    pub async fn add(
-        pool: &PgPool,
+    #[tracing::instrument(skip(self, password_hash))]
+    async fn add(
+        &self,
         username: String,
         password_hash: String,
         role: AdminRole,
@@ -38,15 +76,15 @@ impl AdminRepository {
             password_hash,
             role as AdminRole
         )
-        .fetch_one(pool)
+        .fetch_one(&self.pool)
         .await?;
 
         Ok(admin)
     }
 
-    #[tracing::instrument(skip(pool, password_hash))]
-    pub async fn update(
-        pool: &PgPool,
+    #[tracing::instrument(skip(self, password_hash))]
+    async fn update(
+        &self,
         id: i64,
         username: Option<String>,
         password_hash: Option<String>,
@@ -66,17 +104,14 @@ impl AdminRepository {
             username,
             password_hash
         )
-        .fetch_optional(pool)
+        .fetch_optional(&self.pool)
         .await?;
 
         Ok(admin)
     }
 
-    #[tracing::instrument(skip(pool))]
-    pub async fn find_by_username(
-        pool: &PgPool,
-        username: &str,
-    ) -> Result<Option<Admin>, AppError> {
+    #[tracing::instrument(skip(self))]
+    async fn find_by_username<'a>(&self, username: &'a str) -> Result<Option<Admin>, AppError> {
         let admin = sqlx::query_as!(
             Admin,
             r#"
@@ -86,14 +121,14 @@ impl AdminRepository {
             "#,
             username
         )
-        .fetch_optional(pool)
+        .fetch_optional(&self.pool)
         .await?;
 
         Ok(admin)
     }
 
-    #[tracing::instrument(skip(pool))]
-    pub async fn find_by_id(pool: &PgPool, id: i64) -> Result<Option<Admin>, AppError> {
+    #[tracing::instrument(skip(self))]
+    async fn find_by_id(&self, id: i64) -> Result<Option<Admin>, AppError> {
         let admin = sqlx::query_as!(
             Admin,
             r#"
@@ -103,14 +138,14 @@ impl AdminRepository {
             "#,
             id
         )
-        .fetch_optional(pool)
+        .fetch_optional(&self.pool)
         .await?;
 
         Ok(admin)
     }
 
-    #[tracing::instrument(skip(pool))]
-    pub async fn delete(pool: &PgPool, id: i64) -> Result<Option<Admin>, AppError> {
+    #[tracing::instrument(skip(self))]
+    async fn delete(&self, id: i64) -> Result<Option<Admin>, AppError> {
         let admin = sqlx::query_as!(
             Admin,
             r#"
@@ -120,7 +155,7 @@ impl AdminRepository {
             "#,
             id
         )
-        .fetch_optional(pool)
+        .fetch_optional(&self.pool)
         .await?;
 
         Ok(admin)

@@ -1,6 +1,5 @@
-use axum::{Router, routing::get};
-
 use crate::state::AppState;
+use axum::{Router, routing::get};
 
 async fn healthz() -> &'static str {
     "OK"

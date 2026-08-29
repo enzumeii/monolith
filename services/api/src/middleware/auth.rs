@@ -5,7 +5,7 @@ use axum::{
 };
 use axum_auth::AuthBearer;
 use domain::{dto::Claims, entities::AdminRole};
-use jsonwebtoken::{DecodingKey, decode};
+use jsonwebtoken::{DecodingKey, Validation, decode};
 
 use crate::{error::AppError, state::AppState};
 
@@ -18,13 +18,12 @@ impl Middleware {
         mut req: Request,
         next: Next,
     ) -> Result<Response, AppError> {
-        let validation = jsonwebtoken::Validation {
+        let validation = Validation {
             validate_exp: true,
             leeway: 60,
             ..Default::default()
         };
 
-        // 2. Decode & validate
         let token_data = decode::<Claims>(
             &token,
             &DecodingKey::from_secret(state.settings.jwt.secret.as_bytes()),
@@ -44,7 +43,7 @@ impl Middleware {
             .ok_or(AppError::InvalidCredentials)?;
 
         if claims.role != AdminRole::SuperAdmin {
-            return Err(AppError::Forbidden); // 403 Forbidden
+            return Err(AppError::Forbidden);
         }
 
         Ok(next.run(req).await)

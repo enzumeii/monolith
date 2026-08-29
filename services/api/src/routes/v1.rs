@@ -1,6 +1,5 @@
 mod admins;
 mod auth;
-
 use crate::{middleware::auth::Middleware, state::AppState};
 use axum::{Router, middleware};
 
@@ -10,7 +9,6 @@ pub fn router(state: AppState) -> Router<AppState> {
     let super_admin_routes = Router::new()
         .nest("/admins", admins::super_admin_router())
         .layer(middleware::from_fn(Middleware::require_super_admin));
-
     let protected_routes = Router::new()
         .nest("/auth", auth::authed_router())
         .nest("/admins", admins::router())

@@ -1,3 +1,4 @@
+use crate::{error::AppError, state::AppState};
 use axum::{
     Extension, Json,
     extract::{Path, State},
@@ -5,17 +6,11 @@ use axum::{
 };
 use domain::dto::{AdminDTO, AdminListResponse, Claims, CreateAdminRequest, UpdateAdminRequest};
 
-use crate::{
-    error::AppError,
-    services::{admin::AdminService, auth::AuthService},
-    state::AppState,
-};
-
 pub struct AdminHandler;
 
 impl AdminHandler {
     pub async fn list(State(state): State<AppState>) -> Result<Json<AdminListResponse>, AppError> {
-        let response = AdminService::list(&state.db).await?;
+        let response = state.admin_service.list().await?;
         Ok(Json(response))
     }
 
@@ -23,7 +18,7 @@ impl AdminHandler {
         State(state): State<AppState>,
         Json(payload): Json<CreateAdminRequest>,
     ) -> Result<(StatusCode, Json<AdminDTO>), AppError> {
-        let response = AdminService::add(&state.db, payload).await?;
+        let response = state.admin_service.add(payload).await?;
 
         Ok((StatusCode::CREATED, Json(response)))
     }
@@ -38,8 +33,8 @@ impl AdminHandler {
             return Err(AppError::Forbidden);
         }
 
-        let response = AdminService::update(&state.db, id, payload).await?;
-        AuthService::logout(&state.db, claims.admin_id).await?;
+        let response = state.admin_service.update(id, payload).await?;
+        state.auth_service.logout(claims.admin_id).await?;
 
         Ok(Json(response))
     }
@@ -48,7 +43,7 @@ impl AdminHandler {
         State(state): State<AppState>,
         Path(id): Path<i64>,
     ) -> Result<Json<AdminDTO>, AppError> {
-        let response = AdminService::get(&state.db, id).await?;
+        let response = state.admin_service.get(id).await?;
 
         Ok(Json(response))
     }
@@ -57,8 +52,8 @@ impl AdminHandler {
         State(state): State<AppState>,
         Path(id): Path<i64>,
     ) -> Result<Json<AdminDTO>, AppError> {
-        let response = AdminService::delete(&state.db, id).await?;
-        AuthService::logout(&state.db, id).await?;
+        let response = state.admin_service.delete(id).await?;
+        state.auth_service.logout(id).await?;
 
         Ok(Json(response))
     }

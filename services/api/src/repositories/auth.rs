@@ -1,14 +1,46 @@
+use crate::error::AppError;
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::entities::{AdminRole, TokenRefreshRecord};
 use sqlx::{PgPool, types::Uuid};
+use std::fmt::Debug;
 
-use crate::error::AppError;
+#[derive(Debug, Clone)]
+pub struct PgAuthRepository {
+    pool: PgPool,
+}
 
-pub struct AuthRepository;
+impl PgAuthRepository {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
 
-impl AuthRepository {
-    pub async fn create_refresh_token(
-        pool: &PgPool,
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub trait AuthRepositoryTrait: Send + Sync + Debug {
+    async fn create_refresh_token(
+        &self,
+        admin_id: i64,
+        token_hash: &str,
+        expires_at: DateTime<Utc>,
+    ) -> Result<(), AppError>;
+
+    async fn find_refresh_token(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<TokenRefreshRecord>, AppError>;
+
+    async fn revoke_refresh_token(&self, token_id: Uuid) -> Result<(), AppError>;
+
+    async fn delete_all_refresh_tokens(&self, admin_id: i64) -> Result<(), AppError>;
+}
+
+#[async_trait]
+impl AuthRepositoryTrait for PgAuthRepository {
+    #[tracing::instrument(skip(self))]
+    async fn create_refresh_token(
+        &self,
         admin_id: i64,
         token_hash: &str,
         expires_at: DateTime<Utc>,
@@ -22,14 +54,15 @@ impl AuthRepository {
             token_hash,
             expires_at
         )
-        .execute(pool)
+        .execute(&self.pool)
         .await?;
 
         Ok(())
     }
 
-    pub async fn find_refresh_token(
-        pool: &PgPool,
+    #[tracing::instrument(skip(self))]
+    async fn find_refresh_token(
+        &self,
         token_hash: &str,
     ) -> Result<Option<TokenRefreshRecord>, AppError> {
         let record = sqlx::query_as!(
@@ -48,13 +81,14 @@ impl AuthRepository {
             "#,
             token_hash
         )
-        .fetch_optional(pool)
+        .fetch_optional(&self.pool)
         .await?;
 
         Ok(record)
     }
 
-    pub async fn revoke_refresh_token(pool: &PgPool, token_id: Uuid) -> Result<(), AppError> {
+    #[tracing::instrument(skip(self))]
+    async fn revoke_refresh_token(&self, token_id: Uuid) -> Result<(), AppError> {
         sqlx::query!(
             r#"
             UPDATE refresh_tokens
@@ -63,13 +97,14 @@ impl AuthRepository {
             "#,
             token_id
         )
-        .execute(pool)
+        .execute(&self.pool)
         .await?;
 
         Ok(())
     }
 
-    pub async fn delete_all_refresh_tokens(pool: &PgPool, admin_id: i64) -> Result<(), AppError> {
+    #[tracing::instrument(skip(self))]
+    async fn delete_all_refresh_tokens(&self, admin_id: i64) -> Result<(), AppError> {
         sqlx::query!(
             r#"
             DELETE FROM refresh_tokens
@@ -77,7 +112,7 @@ impl AuthRepository {
             "#,
             admin_id
         )
-        .execute(pool)
+        .execute(&self.pool)
         .await?;
 
         Ok(())
