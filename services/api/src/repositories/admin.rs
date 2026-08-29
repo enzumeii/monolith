@@ -6,6 +6,21 @@ pub struct AdminRepository;
 
 impl AdminRepository {
     #[tracing::instrument(skip(pool))]
+    pub async fn list_admins(pool: &PgPool) -> Result<Vec<Admin>, AppError> {
+        let admins = sqlx::query_as!(
+            Admin,
+            r#"
+                SELECT id, username, password_hash, created_at, updated_at
+                FROM admin
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(admins)
+    }
+
+    #[tracing::instrument(skip(pool))]
     pub async fn find_by_username(pool: &PgPool, username: &str) -> Result<Admin, AppError> {
         let admin = sqlx::query_as!(
             Admin,

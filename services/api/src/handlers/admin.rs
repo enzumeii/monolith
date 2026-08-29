@@ -1,20 +1,15 @@
 use axum::{Json, extract::State};
-use domain::dto::{AdminLoginRequest, AdminLoginResponse};
-use tracing::instrument;
+use domain::dto::AdminListResponse;
 
-use crate::{error::AppError, services::auth::AuthService, state::AppState};
+use crate::{error::AppError, services::admin::AdminService, state::AppState};
 
 pub struct AdminHandler;
 
 impl AdminHandler {
-    #[instrument(skip(state, payload), fields(username = %payload.username))]
-    pub async fn login_handler(
+    pub async fn list_admins(
         State(state): State<AppState>,
-        Json(payload): Json<AdminLoginRequest>,
-    ) -> Result<Json<AdminLoginResponse>, AppError> {
-        let response =
-            AuthService::login(&state.db, state.settings.jwt.secret.as_bytes(), payload).await?;
-
+    ) -> Result<Json<AdminListResponse>, AppError> {
+        let response = AdminService::list_admins(&state.db).await?;
         Ok(Json(response))
     }
 }

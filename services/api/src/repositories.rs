@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod auth;
 
 use crate::config::Settings;
 use sqlx::postgres::{PgPool, PgPoolOptions};

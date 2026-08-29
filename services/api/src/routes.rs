@@ -7,6 +7,6 @@ use axum::Router;
 pub fn create_router(state: AppState) -> Router {
     Router::new()
         .merge(healthz::router())
-        .nest("/v1", v1::router())
+        .nest("/v1", v1::router(state.clone()))
         .with_state(state)
 }
