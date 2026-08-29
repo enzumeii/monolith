@@ -21,6 +21,7 @@ pub struct TokenResponse {
     pub refresh_token: String,
     pub token_type: &'static str,
     pub expires_in: i64,
+    pub id: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -83,17 +83,18 @@ impl AuthService {
     ) -> Result<TokenResponse, AppError> {
         let access_token = Self::generate_jwt(jwt_secret, admin_id, username, role)?;
 
-        let raw_refresh_token = Self::generate_random_token();
-        let refresh_hash = Self::hash_token(&raw_refresh_token);
+        let rrefresh_token = Self::generate_random_token();
+        let refresh_hash = Self::hash_token(&rrefresh_token);
         let expires_at = Utc::now() + Duration::days(7);
 
         AuthRepository::create_refresh_token(pool, admin_id, &refresh_hash, expires_at).await?;
 
         Ok(TokenResponse {
             access_token,
-            refresh_token: raw_refresh_token,
+            refresh_token: rrefresh_token,
             token_type: "Bearer",
             expires_in: 600, // 15 minutes in seconds
+            id: admin_id,
         })
     }
 

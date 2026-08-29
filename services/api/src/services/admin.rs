@@ -2,7 +2,7 @@ use argon2::{
     Argon2, PasswordHasher,
     password_hash::{SaltString, rand_core::OsRng},
 };
-use domain::dto::{AdminDTO, AdminListResponse, CreateAdminRequest};
+use domain::dto::{AdminDTO, AdminListResponse, CreateAdminRequest, UpdateAdminRequest};
 use sqlx::PgPool;
 
 use crate::{error::AppError, repositories::admin::AdminRepository};
@@ -29,6 +29,31 @@ impl AdminService {
         let admin_entity =
             AdminRepository::add(pool, req.username, password_hash, req.role).await?;
         let admin_dto: AdminDTO = admin_entity.into();
+        Ok(admin_dto)
+    }
+
+    #[tracing::instrument(skip(pool, req), fields(username = ?req.username))]
+    pub async fn update(
+        pool: &PgPool,
+        id: i64,
+        req: UpdateAdminRequest,
+    ) -> Result<AdminDTO, AppError> {
+        let password_hash = if let Some(raw_password) = req.password {
+            let salt = SaltString::generate(&mut OsRng);
+            Some(
+                Argon2::default()
+                    .hash_password(raw_password.as_bytes(), &salt)?
+                    .to_string(),
+            )
+        } else {
+            None
+        };
+
+        let updated_entity = AdminRepository::update(pool, id, req.username, password_hash)
+            .await?
+            .ok_or(AppError::NotFound)?;
+
+        let admin_dto: AdminDTO = updated_entity.into();
         Ok(admin_dto)
     }
 

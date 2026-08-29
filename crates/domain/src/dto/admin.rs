@@ -10,6 +10,12 @@ pub struct CreateAdminRequest {
     pub role: AdminRole,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateAdminRequest {
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
 //////////////////////// RESPONSES ////////////////////////
 #[derive(Debug, Serialize)]
 pub struct AdminListResponse {
