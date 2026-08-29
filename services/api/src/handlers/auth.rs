@@ -33,7 +33,7 @@ impl AuthHandler {
         State(state): State<AppState>,
         Extension(claims): Extension<Claims>,
     ) -> Result<StatusCode, AppError> {
-        AuthService::logout(&state.db, claims.sub).await?;
+        AuthService::logout(&state.db, claims.admin_id).await?;
 
         Ok(StatusCode::NO_CONTENT)
     }

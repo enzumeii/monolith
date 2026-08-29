@@ -4,11 +4,14 @@ use crate::{
 };
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use chrono::{Duration, Utc};
-use domain::dto::{Claims, LoginRequest, RefreshRequest, TokenResponse};
+use domain::{
+    dto::{Claims, LoginRequest, RefreshRequest, TokenResponse},
+    entities::AdminRole,
+};
 use jsonwebtoken::{EncodingKey, Header, encode};
 use rand::RngExt;
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, types::Uuid};
+use sqlx::PgPool;
 
 pub struct AuthService;
 
@@ -19,7 +22,12 @@ impl AuthService {
         jwt_secret: &[u8],
         req: LoginRequest,
     ) -> Result<TokenResponse, AppError> {
-        let admin = AdminRepository::find_by_username(pool, &req.username).await?;
+        let admin = AdminRepository::find_by_username(pool, &req.username)
+            .await?
+            .ok_or_else(|| {
+                tracing::warn!("Authentication failed: admin not found");
+                AppError::InvalidCredentials
+            })?;
 
         let parsed_hash = PasswordHash::new(&admin.password_hash)?;
         if Argon2::default()
@@ -30,7 +38,7 @@ impl AuthService {
             return Err(AppError::InvalidCredentials);
         }
 
-        Self::issue_token_pair(pool, jwt_secret, admin.id, &admin.username).await
+        Self::issue_token_pair(pool, jwt_secret, admin.id, admin.username, admin.role).await
     }
 
     #[tracing::instrument(skip(pool, jwt_secret, req))]
@@ -55,22 +63,25 @@ impl AuthService {
             pool,
             jwt_secret,
             token_record.admin_id,
-            &token_record.username,
+            token_record.username,
+            token_record.role,
         )
         .await
     }
 
-    pub async fn logout(pool: &PgPool, admin_id: Uuid) -> Result<(), AppError> {
+    #[tracing::instrument(skip(pool))]
+    pub async fn logout(pool: &PgPool, admin_id: i64) -> Result<(), AppError> {
         AuthRepository::delete_all_refresh_tokens(pool, admin_id).await
     }
 
     async fn issue_token_pair(
         pool: &PgPool,
         jwt_secret: &[u8],
-        admin_id: Uuid,
-        username: &str,
+        admin_id: i64,
+        username: String,
+        role: AdminRole,
     ) -> Result<TokenResponse, AppError> {
-        let access_token = Self::generate_jwt(admin_id, username, jwt_secret)?;
+        let access_token = Self::generate_jwt(jwt_secret, admin_id, username, role)?;
 
         let raw_refresh_token = Self::generate_random_token();
         let refresh_hash = Self::hash_token(&raw_refresh_token);
@@ -82,22 +93,28 @@ impl AuthService {
             access_token,
             refresh_token: raw_refresh_token,
             token_type: "Bearer",
-            expires_in: 900, // 15 minutes in seconds
+            expires_in: 600, // 15 minutes in seconds
         })
     }
 
-    fn generate_jwt(admin_id: Uuid, username: &str, jwt_secret: &[u8]) -> Result<String, AppError> {
+    fn generate_jwt(
+        jwt_secret: &[u8],
+        admin_id: i64,
+        username: String,
+        role: AdminRole,
+    ) -> Result<String, AppError> {
         let expiration: u64 = Utc::now()
-            .checked_add_signed(Duration::minutes(15))
+            .checked_add_signed(Duration::minutes(10))
             .expect("valid timestamp")
             .timestamp()
             .try_into()
             .map_err(|_| anyhow::anyhow!("timestamp overflow"))?;
 
         let claims = Claims {
-            sub: admin_id,
-            username: username.to_string(),
-            exp: expiration,
+            admin_id,
+            username,
+            role,
+            expiration,
         };
 
         encode(

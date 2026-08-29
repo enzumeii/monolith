@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use domain::entities::TokenRefreshRecord;
+use domain::entities::{AdminRole, TokenRefreshRecord};
 use sqlx::{PgPool, types::Uuid};
 
 use crate::error::AppError;
@@ -9,7 +9,7 @@ pub struct AuthRepository;
 impl AuthRepository {
     pub async fn create_refresh_token(
         pool: &PgPool,
-        admin_id: Uuid,
+        admin_id: i64,
         token_hash: &str,
         expires_at: DateTime<Utc>,
     ) -> Result<(), AppError> {
@@ -39,6 +39,7 @@ impl AuthRepository {
                 rt.id AS token_id,
                 rt.admin_id,
                 a.username,
+                a.role AS "role: AdminRole",
                 rt.expires_at,
                 rt.revoked_at
             FROM refresh_tokens rt
@@ -68,7 +69,7 @@ impl AuthRepository {
         Ok(())
     }
 
-    pub async fn delete_all_refresh_tokens(pool: &PgPool, admin_id: Uuid) -> Result<(), AppError> {
+    pub async fn delete_all_refresh_tokens(pool: &PgPool, admin_id: i64) -> Result<(), AppError> {
         sqlx::query!(
             r#"
             DELETE FROM refresh_tokens

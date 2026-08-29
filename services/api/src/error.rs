@@ -14,6 +14,12 @@ pub enum AppError {
     #[error("Invalid or expired token")]
     InvalidToken,
 
+    #[error("Record Not found")]
+    NotFound,
+
+    #[error("Your account is forbidden to make this action")]
+    Forbidden,
+
     #[error("Database error")]
     Database(#[from] sqlx::Error),
 
@@ -38,6 +44,16 @@ impl IntoResponse for AppError {
             AppError::InvalidToken => (
                 StatusCode::UNAUTHORIZED,
                 [(axum::http::header::WWW_AUTHENTICATE, "Bearer")],
+                Json(json!({ "error": self.to_string() })),
+            )
+                .into_response(),
+            AppError::NotFound => (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": self.to_string() })),
+            )
+                .into_response(),
+            AppError::Forbidden => (
+                StatusCode::FORBIDDEN,
                 Json(json!({ "error": self.to_string() })),
             )
                 .into_response(),

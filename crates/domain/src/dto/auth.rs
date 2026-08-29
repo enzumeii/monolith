@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
+use crate::entities::AdminRole;
+
+//////////////////////// REQUESTS ////////////////////////
 #[derive(Debug, Deserialize)]
 pub struct LoginRequest {
     pub username: String,
@@ -12,6 +14,7 @@ pub struct RefreshRequest {
     pub refresh_token: String,
 }
 
+//////////////////////// RESPONSES ////////////////////////
 #[derive(Debug, Serialize)]
 pub struct TokenResponse {
     pub access_token: String,
@@ -22,7 +25,10 @@ pub struct TokenResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: Uuid,
+    #[serde(rename = "sub")]
+    pub admin_id: i64,
     pub username: String,
-    pub exp: u64,
+    pub role: AdminRole,
+    #[serde(rename = "exp")]
+    pub expiration: u64,
 }
