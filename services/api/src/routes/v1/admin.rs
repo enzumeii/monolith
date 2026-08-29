@@ -1,7 +1,8 @@
-use crate::handlers::admin::AdminHandler;
+mod auth;
+
 use crate::state::AppState;
-use axum::{Router, routing::post};
+use axum::Router;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/login", post(AdminHandler::login_handler))
+    Router::new().nest("/auth", auth::router())
 }
