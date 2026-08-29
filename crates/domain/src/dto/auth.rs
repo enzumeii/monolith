@@ -24,5 +24,5 @@ pub struct TokenResponse {
 pub struct Claims {
     pub sub: Uuid,
     pub username: String,
-    pub exp: usize,
+    pub exp: u64,
 }

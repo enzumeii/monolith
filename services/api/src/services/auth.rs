@@ -87,7 +87,7 @@ impl AuthService {
     }
 
     fn generate_jwt(admin_id: Uuid, username: &str, jwt_secret: &[u8]) -> Result<String, AppError> {
-        let expiration: usize = Utc::now()
+        let expiration: u64 = Utc::now()
             .checked_add_signed(Duration::minutes(15))
             .expect("valid timestamp")
             .timestamp()
