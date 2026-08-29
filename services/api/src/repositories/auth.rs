@@ -67,4 +67,18 @@ impl AuthRepository {
 
         Ok(())
     }
+
+    pub async fn delete_all_refresh_tokens(pool: &PgPool, admin_id: Uuid) -> Result<(), AppError> {
+        sqlx::query!(
+            r#"
+            DELETE FROM refresh_tokens
+            WHERE admin_id = $1
+            "#,
+            admin_id
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
 }

@@ -60,6 +60,10 @@ impl AuthService {
         .await
     }
 
+    pub async fn logout(pool: &PgPool, admin_id: Uuid) -> Result<(), AppError> {
+        AuthRepository::delete_all_refresh_tokens(pool, admin_id).await
+    }
+
     async fn issue_token_pair(
         pool: &PgPool,
         jwt_secret: &[u8],
