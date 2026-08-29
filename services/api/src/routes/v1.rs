@@ -1,11 +1,11 @@
-mod admin;
 mod admins;
+mod auth;
 
 use crate::state::AppState;
 use axum::Router;
 
 pub fn router(state: AppState) -> Router<AppState> {
     Router::new()
-        .nest("/admin", admin::router())
+        .nest("/auth", auth::router())
         .nest("/admins", admins::router(state))
 }
