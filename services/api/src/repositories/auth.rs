@@ -10,9 +10,8 @@ pub struct PgAuthRepository {
     pool: PgPool,
 }
 
-impl PgAuthRepository {
-    #[must_use]
-    pub fn new(pool: PgPool) -> Self {
+impl From<PgPool> for PgAuthRepository {
+    fn from(pool: PgPool) -> Self {
         Self { pool }
     }
 }

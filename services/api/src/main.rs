@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
 
     // Dependency Injection
-    let state = AppState::bind(&pool, settings);
+    let state = AppState::from((pool, settings));
 
     // Webserver builder
     let router = routes::router(state);

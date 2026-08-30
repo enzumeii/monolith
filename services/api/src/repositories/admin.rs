@@ -12,9 +12,8 @@ pub struct PgAdminRepository {
     pool: PgPool,
 }
 
-impl PgAdminRepository {
-    #[must_use]
-    pub fn new(pool: PgPool) -> Self {
+impl From<PgPool> for PgAdminRepository {
+    fn from(pool: PgPool) -> Self {
         Self { pool }
     }
 }

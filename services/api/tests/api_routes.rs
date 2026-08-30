@@ -1,8 +1,4 @@
-#![allow(
-    clippy::needless_pass_by_value,
-    clippy::struct_field_names,
-    clippy::unwrap_used
-)]
+#![allow(clippy::unwrap_used)]
 
 use std::sync::Arc;
 use std::sync::{
@@ -40,46 +36,46 @@ use tower::ServiceExt;
 const JWT_SECRET: &[u8] = b"test-secret";
 
 struct TestAdminService {
-    list_result: Mutex<Option<Result<AdminListResponse, AppError>>>,
-    add_result: Mutex<Option<Result<AdminDTO, AppError>>>,
-    update_result: Mutex<Option<Result<AdminDTO, AppError>>>,
-    get_result: Mutex<Option<Result<AdminDTO, AppError>>>,
-    delete_result: Mutex<Option<Result<AdminDTO, AppError>>>,
+    list: Mutex<Option<Result<AdminListResponse, AppError>>>,
+    add: Mutex<Option<Result<AdminDTO, AppError>>>,
+    update: Mutex<Option<Result<AdminDTO, AppError>>>,
+    get: Mutex<Option<Result<AdminDTO, AppError>>>,
+    delete: Mutex<Option<Result<AdminDTO, AppError>>>,
 }
 
 impl TestAdminService {
     fn new() -> Self {
         Self {
-            list_result: Mutex::new(None),
-            add_result: Mutex::new(None),
-            update_result: Mutex::new(None),
-            get_result: Mutex::new(None),
-            delete_result: Mutex::new(None),
+            list: Mutex::new(None),
+            add: Mutex::new(None),
+            update: Mutex::new(None),
+            get: Mutex::new(None),
+            delete: Mutex::new(None),
         }
     }
 
     fn with_list(self, result: Result<AdminListResponse, AppError>) -> Self {
-        *self.list_result.lock().unwrap() = Some(result);
+        *self.list.lock().unwrap() = Some(result);
         self
     }
 
     fn with_add(self, result: Result<AdminDTO, AppError>) -> Self {
-        *self.add_result.lock().unwrap() = Some(result);
+        *self.add.lock().unwrap() = Some(result);
         self
     }
 
     fn with_update(self, result: Result<AdminDTO, AppError>) -> Self {
-        *self.update_result.lock().unwrap() = Some(result);
+        *self.update.lock().unwrap() = Some(result);
         self
     }
 
     fn with_get(self, result: Result<AdminDTO, AppError>) -> Self {
-        *self.get_result.lock().unwrap() = Some(result);
+        *self.get.lock().unwrap() = Some(result);
         self
     }
 
     fn with_delete(self, result: Result<AdminDTO, AppError>) -> Self {
-        *self.delete_result.lock().unwrap() = Some(result);
+        *self.delete.lock().unwrap() = Some(result);
         self
     }
 }
@@ -87,75 +83,55 @@ impl TestAdminService {
 #[async_trait]
 impl AdminServiceTrait for TestAdminService {
     async fn list(&self, _page: AdminPageRequest) -> Result<AdminListResponse, AppError> {
-        self.list_result
-            .lock()
-            .unwrap()
-            .take()
-            .expect("list was not expected to be called")
+        self.list.lock().unwrap().take().unwrap()
     }
 
     async fn add(&self, _req: CreateAdminRequest) -> Result<AdminDTO, AppError> {
-        self.add_result
-            .lock()
-            .unwrap()
-            .take()
-            .expect("add was not expected to be called")
+        self.add.lock().unwrap().take().unwrap()
     }
 
     async fn update(&self, _id: i64, _req: UpdateAdminRequest) -> Result<AdminDTO, AppError> {
-        self.update_result
-            .lock()
-            .unwrap()
-            .take()
-            .expect("update was not expected to be called")
+        self.update.lock().unwrap().take().unwrap()
     }
 
     async fn get(&self, _id: i64) -> Result<AdminDTO, AppError> {
-        self.get_result
-            .lock()
-            .unwrap()
-            .take()
-            .expect("get was not expected to be called")
+        self.get.lock().unwrap().take().unwrap()
     }
 
     async fn delete(&self, _id: i64) -> Result<AdminDTO, AppError> {
-        self.delete_result
-            .lock()
-            .unwrap()
-            .take()
-            .expect("delete was not expected to be called")
+        self.delete.lock().unwrap().take().unwrap()
     }
 }
 
 struct TestAuthService {
-    login_result: Mutex<Option<Result<TokenResponse, AppError>>>,
-    refresh_result: Mutex<Option<Result<TokenResponse, AppError>>>,
-    logout_result: Mutex<Option<Result<(), AppError>>>,
+    login: Mutex<Option<Result<TokenResponse, AppError>>>,
+    refresh: Mutex<Option<Result<TokenResponse, AppError>>>,
+    logout: Mutex<Option<Result<(), AppError>>>,
     logout_calls: AtomicUsize,
 }
 
 impl TestAuthService {
     fn new() -> Self {
         Self {
-            login_result: Mutex::new(None),
-            refresh_result: Mutex::new(None),
-            logout_result: Mutex::new(None),
+            login: Mutex::new(None),
+            refresh: Mutex::new(None),
+            logout: Mutex::new(None),
             logout_calls: AtomicUsize::new(0),
         }
     }
 
     fn with_login(self, result: Result<TokenResponse, AppError>) -> Self {
-        *self.login_result.lock().unwrap() = Some(result);
+        *self.login.lock().unwrap() = Some(result);
         self
     }
 
     fn with_refresh(self, result: Result<TokenResponse, AppError>) -> Self {
-        *self.refresh_result.lock().unwrap() = Some(result);
+        *self.refresh.lock().unwrap() = Some(result);
         self
     }
 
     fn with_logout(self, result: Result<(), AppError>) -> Self {
-        *self.logout_result.lock().unwrap() = Some(result);
+        *self.logout.lock().unwrap() = Some(result);
         self
     }
 }
@@ -167,11 +143,7 @@ impl AuthServiceTrait for TestAuthService {
         _jwt_secret: &[u8],
         _req: LoginRequest,
     ) -> Result<TokenResponse, AppError> {
-        self.login_result
-            .lock()
-            .unwrap()
-            .take()
-            .expect("login was not expected to be called")
+        self.login.lock().unwrap().take().unwrap()
     }
 
     async fn refresh(
@@ -179,20 +151,12 @@ impl AuthServiceTrait for TestAuthService {
         _jwt_secret: &[u8],
         _req: RefreshRequest,
     ) -> Result<TokenResponse, AppError> {
-        self.refresh_result
-            .lock()
-            .unwrap()
-            .take()
-            .expect("refresh was not expected to be called")
+        self.refresh.lock().unwrap().take().unwrap()
     }
 
     async fn logout(&self, _admin_id: i64) -> Result<(), AppError> {
         self.logout_calls.fetch_add(1, Ordering::SeqCst);
-        self.logout_result
-            .lock()
-            .unwrap()
-            .take()
-            .expect("logout was not expected to be called")
+        self.logout.lock().unwrap().take().unwrap()
     }
 }
 
@@ -248,12 +212,15 @@ fn authorized_json_request(
 ) -> Request<Body> {
     let token = jwt_for(admin_id, role);
 
+    let encoded_body = serde_json::to_vec(&body).unwrap();
+    drop(body);
+
     Request::builder()
         .method(method)
         .uri(uri)
         .header("authorization", format!("Bearer {token}"))
         .header("content-type", "application/json")
-        .body(Body::from(body.to_string()))
+        .body(Body::from(encoded_body))
         .unwrap()
 }
 
@@ -518,7 +485,7 @@ async fn super_admin_can_add_and_delete_admins() {
     let auth_service = TestAuthService::new().with_logout(Ok(()));
     let router = routes::router(state(admin_service, auth_service));
 
-    let add_response = router
+    let add = router
         .clone()
         .oneshot(authorized_json_request(
             "POST",
@@ -529,9 +496,9 @@ async fn super_admin_can_add_and_delete_admins() {
         ))
         .await
         .unwrap();
-    assert_eq!(add_response.status(), StatusCode::CREATED);
+    assert_eq!(add.status(), StatusCode::CREATED);
 
-    let delete_response = router
+    let delete = router
         .oneshot(authorized_request(
             "DELETE",
             "/v1/admins/10",
@@ -540,7 +507,7 @@ async fn super_admin_can_add_and_delete_admins() {
         ))
         .await
         .unwrap();
-    assert_eq!(delete_response.status(), StatusCode::OK);
+    assert_eq!(delete.status(), StatusCode::OK);
 }
 
 #[tokio::test]

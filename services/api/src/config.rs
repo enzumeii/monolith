@@ -50,6 +50,7 @@ impl Settings {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -65,7 +66,7 @@ mod tests {
             ],
             Settings::new,
         )
-        .expect("settings should build with overrides applied");
+        .unwrap();
 
         assert_eq!(
             settings.database.url,
@@ -76,8 +77,8 @@ mod tests {
 
     #[test]
     fn new_falls_back_to_file_values_when_env_vars_are_absent() {
-        let settings = temp_env::with_vars_unset(["DATABASE_URL", "JWT_SECRET"], Settings::new)
-            .expect("settings should build from application.toml alone");
+        let settings =
+            temp_env::with_vars_unset(["DATABASE_URL", "JWT_SECRET"], Settings::new).unwrap();
 
         assert_eq!(settings.server.port, 3000);
         assert_eq!(settings.database.max_connections, 1);

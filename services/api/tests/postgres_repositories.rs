@@ -1,4 +1,4 @@
-#![allow(clippy::iter_filter_is_some, clippy::unwrap_used)]
+#![allow(clippy::unwrap_used)]
 
 use api::{
     config::{DatabaseConfig, JwtSettings, ServerConfig, Settings},
@@ -45,7 +45,7 @@ async fn unmigrated_test_database() -> (ContainerAsync<Postgres>, String) {
 #[tokio::test]
 async fn admin_pagination_returns_deterministic_bounded_pages() {
     let database = test_database().await;
-    let repository = PgAdminRepository::new(database.pool.clone());
+    let repository = PgAdminRepository::from(database.pool.clone());
     for id in 1..=26 {
         repository
             .add(format!("page-admin-{id}"), "hash".into(), AdminRole::Admin)
@@ -87,7 +87,7 @@ async fn refresh_token_is_consumed_once() {
     .execute(&database.pool)
     .await
     .unwrap();
-    let repository = PgAuthRepository::new(database.pool.clone());
+    let repository = PgAuthRepository::from(database.pool.clone());
 
     let (first, second) = tokio::join!(
         repository.consume_refresh_token("token-hash"),
@@ -96,7 +96,7 @@ async fn refresh_token_is_consumed_once() {
 
     let successes = [first.unwrap(), second.unwrap()]
         .into_iter()
-        .filter(Option::is_some)
+        .flatten()
         .count();
     assert_eq!(successes, 1);
 }
@@ -104,7 +104,7 @@ async fn refresh_token_is_consumed_once() {
 #[tokio::test]
 async fn admin_repository_supports_full_crud_lifecycle() {
     let database = test_database().await;
-    let repository = PgAdminRepository::new(database.pool.clone());
+    let repository = PgAdminRepository::from(database.pool.clone());
 
     let created = repository
         .add("crud-admin".into(), "hash-1".into(), AdminRole::Admin)
@@ -117,21 +117,17 @@ async fn admin_repository_supports_full_crud_lifecycle() {
         .find_by_username("crud-admin")
         .await
         .unwrap()
-        .expect("admin should be found by username");
+        .unwrap();
     assert_eq!(found_by_username.id, created.id);
 
-    let found_by_id = repository
-        .find_by_id(created.id)
-        .await
-        .unwrap()
-        .expect("admin should be found by id");
+    let found_by_id = repository.find_by_id(created.id).await.unwrap().unwrap();
     assert_eq!(found_by_id.username, "crud-admin");
 
     let updated = repository
         .update(created.id, Some("crud-admin-renamed".into()), None)
         .await
         .unwrap()
-        .expect("update should return the modified row");
+        .unwrap();
     assert_eq!(updated.username, "crud-admin-renamed");
     assert_eq!(updated.password_hash, "hash-1");
 
@@ -139,15 +135,11 @@ async fn admin_repository_supports_full_crud_lifecycle() {
         .update(created.id, None, Some("hash-2".into()))
         .await
         .unwrap()
-        .expect("update should return the modified row");
+        .unwrap();
     assert_eq!(updated_password.username, "crud-admin-renamed");
     assert_eq!(updated_password.password_hash, "hash-2");
 
-    let deleted = repository
-        .delete(created.id)
-        .await
-        .unwrap()
-        .expect("delete should return the removed row");
+    let deleted = repository.delete(created.id).await.unwrap().unwrap();
     assert_eq!(deleted.id, created.id);
 
     let missing_after_delete = repository.find_by_id(created.id).await.unwrap();
@@ -157,7 +149,7 @@ async fn admin_repository_supports_full_crud_lifecycle() {
 #[tokio::test]
 async fn admin_repository_refuses_to_delete_super_admin_rows() {
     let database = test_database().await;
-    let repository = PgAdminRepository::new(database.pool.clone());
+    let repository = PgAdminRepository::from(database.pool.clone());
 
     let super_admin = repository
         .add("protected-sa".into(), "hash".into(), AdminRole::SuperAdmin)
@@ -171,20 +163,20 @@ async fn admin_repository_refuses_to_delete_super_admin_rows() {
         .find_by_id(super_admin.id)
         .await
         .unwrap()
-        .expect("super admin row must remain after a refused delete");
+        .unwrap();
     assert_eq!(still_present.role, AdminRole::SuperAdmin);
 }
 
 #[tokio::test]
 async fn auth_repository_creates_refresh_tokens_and_logout_deletes_them() {
     let database = test_database().await;
-    let admin_repository = PgAdminRepository::new(database.pool.clone());
+    let admin_repository = PgAdminRepository::from(database.pool.clone());
     let admin = admin_repository
         .add("auth-admin".into(), "hash".into(), AdminRole::Admin)
         .await
         .unwrap();
 
-    let auth_repository = PgAuthRepository::new(database.pool.clone());
+    let auth_repository = PgAuthRepository::from(database.pool.clone());
     auth_repository
         .create_refresh_token(
             admin.id,
@@ -198,7 +190,7 @@ async fn auth_repository_creates_refresh_tokens_and_logout_deletes_them() {
         .consume_refresh_token("created-token-hash")
         .await
         .unwrap()
-        .expect("the freshly created token should be consumable exactly once");
+        .unwrap();
     assert_eq!(consumed.admin_id, admin.id);
 
     auth_repository
@@ -241,7 +233,7 @@ async fn create_pool_connects_and_runs_migrations() {
 
     let pool = repositories::create_pool(&settings).await.unwrap();
 
-    let admin_repository = PgAdminRepository::new(pool.clone());
+    let admin_repository = PgAdminRepository::from(pool.clone());
     let admins = admin_repository
         .find_by_username("missing-admin")
         .await
@@ -267,7 +259,7 @@ async fn app_state_bind_wires_callable_services_from_one_pool() {
         },
     };
 
-    let state = AppState::bind(&database.pool, settings);
+    let state = AppState::from((database.pool.clone(), settings));
 
     // The migrations seed exactly one super-admin row; assert that the
     // list endpoint reads it through AppState::bind's wiring rather than

@@ -20,13 +20,12 @@ pub struct AppState {
     pub auth_service: Arc<dyn AuthServiceTrait>,
 }
 
-impl AppState {
-    #[must_use]
-    pub fn bind(pool: &PgPool, settings: Settings) -> Self {
+impl From<(PgPool, Settings)> for AppState {
+    fn from((pool, settings): (PgPool, Settings)) -> Self {
         /////////////////// REPOSITORIES ///////////////////
         let admin_repo: Arc<dyn AdminRepositoryTrait> =
-            Arc::new(PgAdminRepository::new(pool.clone()));
-        let auth_repo: Arc<dyn AuthRepositoryTrait> = Arc::new(PgAuthRepository::new(pool.clone()));
+            Arc::new(PgAdminRepository::from(pool.clone()));
+        let auth_repo: Arc<dyn AuthRepositoryTrait> = Arc::new(PgAuthRepository::from(pool));
 
         /////////////////// SERVICES ///////////////////
         let admin_service = AdminService::new(Arc::clone(&admin_repo));
