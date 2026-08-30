@@ -1,16 +1,33 @@
 use crate::{error::AppError, state::AppState};
 use axum::{
     Extension, Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
-use domain::dto::{AdminDTO, AdminListResponse, Claims, CreateAdminRequest, UpdateAdminRequest};
+use domain::dto::{
+    AdminDTO, AdminListResponse, AdminPageRequest, Claims, CreateAdminRequest, ListAdminsQuery,
+    UpdateAdminRequest,
+};
 
 pub struct AdminHandler;
 
 impl AdminHandler {
-    pub async fn list(State(state): State<AppState>) -> Result<Json<AdminListResponse>, AppError> {
-        let response = state.admin_service.list().await?;
+    pub async fn list(
+        State(state): State<AppState>,
+        Query(query): Query<ListAdminsQuery>,
+    ) -> Result<Json<AdminListResponse>, AppError> {
+        let page = query.page.unwrap_or(1);
+        let per_page = query.per_page.unwrap_or(25);
+        if page == 0 || per_page == 0 || per_page > 100 {
+            return Err(AppError::BadRequest(
+                "page must be positive and per_page must be between 1 and 100".into(),
+            ));
+        }
+
+        let response = state
+            .admin_service
+            .list(AdminPageRequest { page, per_page })
+            .await?;
         Ok(Json(response))
     }
 

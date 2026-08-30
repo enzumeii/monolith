@@ -16,10 +16,25 @@ pub struct UpdateAdminRequest {
     pub password: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ListAdminsQuery {
+    pub page: Option<u32>,
+    pub per_page: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AdminPageRequest {
+    pub page: u32,
+    pub per_page: u32,
+}
+
 //////////////////////// RESPONSES ////////////////////////
 #[derive(Debug, Serialize)]
 pub struct AdminListResponse {
     pub admins: Vec<AdminDTO>,
+    pub page: u32,
+    pub per_page: u32,
+    pub has_next: bool,
 }
 
 #[derive(Debug, Serialize)]

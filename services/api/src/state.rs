@@ -21,6 +21,7 @@ pub struct AppState {
 }
 
 impl AppState {
+    #[must_use]
     pub fn bind(pool: &PgPool, settings: Settings) -> Self {
         /////////////////// REPOSITORIES ///////////////////
         let admin_repo: Arc<dyn AdminRepositoryTrait> =

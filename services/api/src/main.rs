@@ -1,14 +1,4 @@
-mod config;
-mod error;
-mod handlers;
-mod middleware;
-mod repositories;
-mod routes;
-mod services;
-mod state;
-
-use config::Settings;
-use state::AppState;
+use api::{config::Settings, repositories, routes, state::AppState};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 

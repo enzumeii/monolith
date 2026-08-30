@@ -1,6 +1,9 @@
 use crate::error::AppError;
 use async_trait::async_trait;
-use domain::entities::{Admin, AdminRole};
+use domain::{
+    dto::AdminPageRequest,
+    entities::{Admin, AdminRole},
+};
 use sqlx::PgPool;
 use std::fmt::Debug;
 
@@ -10,6 +13,7 @@ pub struct PgAdminRepository {
 }
 
 impl PgAdminRepository {
+    #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
@@ -18,7 +22,7 @@ impl PgAdminRepository {
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait AdminRepositoryTrait: Send + Sync + Debug {
-    async fn list(&self) -> Result<Vec<Admin>, AppError>;
+    async fn list_page(&self, page: AdminPageRequest) -> Result<Vec<Admin>, AppError>;
 
     async fn add(
         &self,
@@ -44,13 +48,19 @@ pub trait AdminRepositoryTrait: Send + Sync + Debug {
 #[async_trait]
 impl AdminRepositoryTrait for PgAdminRepository {
     #[tracing::instrument(skip(self))]
-    async fn list(&self) -> Result<Vec<Admin>, AppError> {
+    async fn list_page(&self, page: AdminPageRequest) -> Result<Vec<Admin>, AppError> {
+        let limit = i64::from(page.per_page) + 1;
+        let offset = i64::from(page.page - 1) * i64::from(page.per_page);
         let admins = sqlx::query_as!(
             Admin,
             r#"
                 SELECT id, username, password_hash, role AS "role: AdminRole", created_at, updated_at
                 FROM admin
-            "#
+                ORDER BY id ASC
+                LIMIT $1 OFFSET $2
+            "#,
+            limit,
+            offset
         )
         .fetch_all(&self.pool)
         .await?;

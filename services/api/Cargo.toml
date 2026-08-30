@@ -29,4 +29,10 @@ rand = "0.10.2"
 async-trait = "0.1.92"
 
 [dev-dependencies]
+http-body-util = "0.1"
 mockall.workspace = true
+temp-env = "0.3.6"
+testcontainers = "0.27.3"
+testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
+tower = { version = "0.5", features = ["util"] }
+uuid.workspace = true

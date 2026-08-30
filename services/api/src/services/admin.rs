@@ -4,13 +4,15 @@ use argon2::{
     password_hash::{SaltString, rand_core::OsRng},
 };
 use async_trait::async_trait;
-use domain::dto::{AdminDTO, AdminListResponse, CreateAdminRequest, UpdateAdminRequest};
+use domain::dto::{
+    AdminDTO, AdminListResponse, AdminPageRequest, CreateAdminRequest, UpdateAdminRequest,
+};
 use std::sync::Arc;
 
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait AdminServiceTrait: Send + Sync {
-    async fn list(&self) -> Result<AdminListResponse, AppError>;
+    async fn list(&self, page: AdminPageRequest) -> Result<AdminListResponse, AppError>;
 
     async fn add(&self, req: CreateAdminRequest) -> Result<AdminDTO, AppError>;
 
@@ -35,21 +37,23 @@ impl AdminService {
 #[async_trait]
 impl AdminServiceTrait for AdminService {
     #[tracing::instrument(skip(self))]
-    async fn list(&self) -> Result<AdminListResponse, AppError> {
-        let admin_entities = self.admin_repo.list().await?;
+    async fn list(&self, page: AdminPageRequest) -> Result<AdminListResponse, AppError> {
+        let mut admin_entities = self.admin_repo.list_page(page).await?;
+        let has_next = admin_entities.len() > page.per_page as usize;
+        admin_entities.truncate(page.per_page as usize);
+        let admins = admin_entities.into_iter().map(AdminDTO::from).collect();
 
-        let admin_dtos: Vec<AdminDTO> = admin_entities.into_iter().map(AdminDTO::from).collect();
-
-        Ok(AdminListResponse { admins: admin_dtos })
+        Ok(AdminListResponse {
+            admins,
+            page: page.page,
+            per_page: page.per_page,
+            has_next,
+        })
     }
 
     #[tracing::instrument(skip(self, req), fields(username = %req.username, %req.role))]
     async fn add(&self, req: CreateAdminRequest) -> Result<AdminDTO, AppError> {
-        let salt = SaltString::generate(&mut OsRng);
-
-        let password_hash = Argon2::default()
-            .hash_password(req.password.as_bytes(), &salt)?
-            .to_string();
+        let password_hash = hash_password(req.password).await?;
 
         let admin_entity = self
             .admin_repo
@@ -61,15 +65,9 @@ impl AdminServiceTrait for AdminService {
 
     #[tracing::instrument(skip(self, req), fields(username = ?req.username))]
     async fn update(&self, id: i64, req: UpdateAdminRequest) -> Result<AdminDTO, AppError> {
-        let password_hash = if let Some(raw_password) = req.password {
-            let salt = SaltString::generate(&mut OsRng);
-            Some(
-                Argon2::default()
-                    .hash_password(raw_password.as_bytes(), &salt)?
-                    .to_string(),
-            )
-        } else {
-            None
+        let password_hash = match req.password {
+            Some(raw_password) => Some(hash_password(raw_password).await?),
+            None => None,
         };
 
         let updated_entity = self
@@ -108,5 +106,118 @@ impl AdminServiceTrait for AdminService {
         let admin_dto: AdminDTO = admin_entity.into();
 
         Ok(admin_dto)
+    }
+}
+
+async fn hash_password(password: String) -> Result<String, AppError> {
+    tokio::task::spawn_blocking(move || {
+        let salt = SaltString::generate(&mut OsRng);
+        Argon2::default()
+            .hash_password(password.as_bytes(), &salt)
+            .map(|hash| hash.to_string())
+            .map_err(AppError::from)
+    })
+    .await
+    .map_err(|error| AppError::Internal(anyhow::Error::msg(error.to_string())))?
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::sync::Arc;
+
+    use argon2::PasswordVerifier;
+    use chrono::Utc;
+    use domain::entities::{Admin, AdminRole};
+
+    use super::*;
+    use crate::repositories::admin::MockAdminRepositoryTrait;
+
+    fn admin(id: i64) -> Admin {
+        Admin {
+            id,
+            username: format!("admin-{id}"),
+            password_hash: "hash".into(),
+            role: AdminRole::Admin,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn list_page_truncates_extra_record_and_sets_has_next() {
+        let mut repo = MockAdminRepositoryTrait::new();
+        repo.expect_list_page()
+            .withf(|page| page.page == 1 && page.per_page == 25)
+            .returning(|_| Ok((1..=26).map(admin).collect()));
+        let service = AdminService::new(Arc::new(repo));
+
+        let response = service
+            .list(AdminPageRequest {
+                page: 1,
+                per_page: 25,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(response.admins.len(), 25);
+        assert!(response.has_next);
+        assert_eq!(response.admins[0].id, 1);
+        assert_eq!(response.admins[24].id, 25);
+    }
+
+    #[tokio::test]
+    async fn add_hashes_password_before_persisting() {
+        let mut repo = MockAdminRepositoryTrait::new();
+        repo.expect_add()
+            .withf(|username, hash, role| {
+                username == "new-admin"
+                    && *role == AdminRole::Admin
+                    && hash != "password"
+                    && Argon2::default()
+                        .verify_password(b"password", &argon2::PasswordHash::new(hash).unwrap())
+                        .is_ok()
+            })
+            .returning(|username, password_hash, role| {
+                Ok(Admin {
+                    id: 1,
+                    username,
+                    password_hash,
+                    role,
+                    created_at: Utc::now(),
+                    updated_at: Utc::now(),
+                })
+            });
+        let service = AdminService::new(Arc::new(repo));
+
+        let response = service
+            .add(CreateAdminRequest {
+                username: "new-admin".into(),
+                password: "password".into(),
+                role: AdminRole::Admin,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(response.username, "new-admin");
+    }
+
+    #[tokio::test]
+    async fn list_page_without_extra_record_has_no_next_page() {
+        let mut repo = MockAdminRepositoryTrait::new();
+        repo.expect_list_page()
+            .returning(|_| Ok((1..=25).map(admin).collect()));
+        let service = AdminService::new(Arc::new(repo));
+
+        let response = service
+            .list(AdminPageRequest {
+                page: 1,
+                per_page: 25,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(response.admins.len(), 25);
+        assert!(!response.has_next);
     }
 }

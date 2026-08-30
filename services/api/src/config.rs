@@ -48,3 +48,38 @@ impl Settings {
         builder.build()?.try_deserialize()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_applies_database_url_and_jwt_secret_overrides() {
+        let settings = temp_env::with_vars(
+            [
+                (
+                    "DATABASE_URL",
+                    Some("postgres://override:override@localhost/override"),
+                ),
+                ("JWT_SECRET", Some("overridden-secret")),
+            ],
+            Settings::new,
+        )
+        .expect("settings should build with overrides applied");
+
+        assert_eq!(
+            settings.database.url,
+            "postgres://override:override@localhost/override"
+        );
+        assert_eq!(settings.jwt.secret, "overridden-secret");
+    }
+
+    #[test]
+    fn new_falls_back_to_file_values_when_env_vars_are_absent() {
+        let settings = temp_env::with_vars_unset(["DATABASE_URL", "JWT_SECRET"], Settings::new)
+            .expect("settings should build from application.toml alone");
+
+        assert_eq!(settings.server.port, 3000);
+        assert_eq!(settings.database.max_connections, 1);
+    }
+}

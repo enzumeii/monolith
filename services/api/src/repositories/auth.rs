@@ -2,7 +2,7 @@ use crate::error::AppError;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::entities::{AdminRole, TokenRefreshRecord};
-use sqlx::{PgPool, types::Uuid};
+use sqlx::PgPool;
 use std::fmt::Debug;
 
 #[derive(Debug, Clone)]
@@ -11,6 +11,7 @@ pub struct PgAuthRepository {
 }
 
 impl PgAuthRepository {
+    #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
@@ -26,12 +27,10 @@ pub trait AuthRepositoryTrait: Send + Sync + Debug {
         expires_at: DateTime<Utc>,
     ) -> Result<(), AppError>;
 
-    async fn find_refresh_token(
+    async fn consume_refresh_token(
         &self,
         token_hash: &str,
     ) -> Result<Option<TokenRefreshRecord>, AppError>;
-
-    async fn revoke_refresh_token(&self, token_id: Uuid) -> Result<(), AppError>;
 
     async fn delete_all_refresh_tokens(&self, admin_id: i64) -> Result<(), AppError>;
 }
@@ -61,23 +60,22 @@ impl AuthRepositoryTrait for PgAuthRepository {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn find_refresh_token(
+    async fn consume_refresh_token(
         &self,
         token_hash: &str,
     ) -> Result<Option<TokenRefreshRecord>, AppError> {
         let record = sqlx::query_as!(
             TokenRefreshRecord,
             r#"
-            SELECT 
-                rt.id AS token_id,
-                rt.admin_id,
-                a.username,
-                a.role AS "role: AdminRole",
-                rt.expires_at,
-                rt.revoked_at
-            FROM refresh_tokens rt
-            INNER JOIN admin a ON a.id = rt.admin_id
-            WHERE rt.token_hash = $1
+            UPDATE refresh_tokens AS rt
+            SET revoked_at = NOW()
+            FROM admin AS a
+            WHERE rt.admin_id = a.id
+              AND rt.token_hash = $1
+              AND rt.revoked_at IS NULL
+              AND rt.expires_at > NOW()
+            RETURNING rt.id AS token_id, rt.admin_id, a.username,
+                      a.role AS "role: AdminRole", rt.expires_at, rt.revoked_at
             "#,
             token_hash
         )
@@ -85,22 +83,6 @@ impl AuthRepositoryTrait for PgAuthRepository {
         .await?;
 
         Ok(record)
-    }
-
-    #[tracing::instrument(skip(self))]
-    async fn revoke_refresh_token(&self, token_id: Uuid) -> Result<(), AppError> {
-        sqlx::query!(
-            r#"
-            UPDATE refresh_tokens
-            SET revoked_at = NOW()
-            WHERE id = $1
-            "#,
-            token_id
-        )
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
     }
 
     #[tracing::instrument(skip(self))]

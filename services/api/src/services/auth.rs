@@ -86,11 +86,7 @@ impl AuthServiceTrait for AuthService {
                 AppError::InvalidCredentials
             })?;
 
-        let parsed_hash = PasswordHash::new(&admin.password_hash)?;
-        if Argon2::default()
-            .verify_password(req.password.as_bytes(), &parsed_hash)
-            .is_err()
-        {
+        if !verify_password(req.password, admin.password_hash).await? {
             tracing::warn!("Authentication failed: invalid password supplied");
             return Err(AppError::InvalidCredentials);
         }
@@ -109,17 +105,9 @@ impl AuthServiceTrait for AuthService {
 
         let token_record = self
             .auth_repo
-            .find_refresh_token(&incoming_hash)
+            .consume_refresh_token(&incoming_hash)
             .await?
             .ok_or(AppError::InvalidToken)?;
-
-        if token_record.revoked_at.is_some() || token_record.expires_at < Utc::now() {
-            return Err(AppError::InvalidToken);
-        }
-
-        self.auth_repo
-            .revoke_refresh_token(token_record.token_id)
-            .await?;
 
         self.issue_token_pair(
             jwt_secret,
@@ -134,6 +122,17 @@ impl AuthServiceTrait for AuthService {
     async fn logout(&self, admin_id: i64) -> Result<(), AppError> {
         self.auth_repo.delete_all_refresh_tokens(admin_id).await
     }
+}
+
+async fn verify_password(password: String, password_hash: String) -> Result<bool, AppError> {
+    tokio::task::spawn_blocking(move || {
+        let parsed_hash = PasswordHash::new(&password_hash)?;
+        Ok(Argon2::default()
+            .verify_password(password.as_bytes(), &parsed_hash)
+            .is_ok())
+    })
+    .await
+    .map_err(|error| AppError::Internal(anyhow::Error::msg(error.to_string())))?
 }
 
 fn generate_jwt(
@@ -174,4 +173,170 @@ fn hash_token(token: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(token.as_bytes());
     hex::encode(hasher.finalize())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::sync::Arc;
+
+    use argon2::{
+        PasswordHasher,
+        password_hash::{SaltString, rand_core::OsRng},
+    };
+    use chrono::Utc;
+    use domain::entities::{Admin, TokenRefreshRecord};
+
+    use super::*;
+    use crate::repositories::{admin::MockAdminRepositoryTrait, auth::MockAuthRepositoryTrait};
+
+    fn admin_repo_with_password(raw_password: &str) -> MockAdminRepositoryTrait {
+        let password_hash = Argon2::default()
+            .hash_password(raw_password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        let mut admins = MockAdminRepositoryTrait::new();
+        admins.expect_find_by_username().returning(move |_| {
+            Ok(Some(Admin {
+                id: 1,
+                username: "admin".into(),
+                password_hash: password_hash.clone(),
+                role: AdminRole::Admin,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            }))
+        });
+        admins
+    }
+
+    #[tokio::test]
+    async fn login_rejects_invalid_password_without_issuing_a_token() {
+        let admins = admin_repo_with_password("correct-password");
+        let service = AuthService::new(Arc::new(MockAuthRepositoryTrait::new()), Arc::new(admins));
+
+        let result = service
+            .login(
+                b"secret",
+                LoginRequest {
+                    username: "admin".into(),
+                    password: "wrong-password".into(),
+                },
+            )
+            .await;
+
+        assert!(matches!(result, Err(AppError::InvalidCredentials)));
+    }
+
+    #[tokio::test]
+    async fn login_issues_a_token_pair_and_persists_the_refresh_token_hash() {
+        let admins = admin_repo_with_password("correct-password");
+        let mut auth_repo = MockAuthRepositoryTrait::new();
+        auth_repo
+            .expect_create_refresh_token()
+            .withf(|admin_id, _hash, _expires_at| *admin_id == 1)
+            .returning(|_, _, _| Ok(()));
+        let service = AuthService::new(Arc::new(auth_repo), Arc::new(admins));
+
+        let response = service
+            .login(
+                b"secret",
+                LoginRequest {
+                    username: "admin".into(),
+                    password: "correct-password".into(),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.id, 1);
+        assert_eq!(response.token_type, "Bearer");
+        assert!(!response.refresh_token.is_empty());
+        assert!(!response.access_token.is_empty());
+    }
+
+    #[tokio::test]
+    async fn login_rejects_unknown_username_without_issuing_a_token() {
+        let mut admins = MockAdminRepositoryTrait::new();
+        admins.expect_find_by_username().returning(|_| Ok(None));
+        let service = AuthService::new(Arc::new(MockAuthRepositoryTrait::new()), Arc::new(admins));
+
+        let result = service
+            .login(
+                b"secret",
+                LoginRequest {
+                    username: "missing".into(),
+                    password: "whatever".into(),
+                },
+            )
+            .await;
+
+        assert!(matches!(result, Err(AppError::InvalidCredentials)));
+    }
+
+    #[tokio::test]
+    async fn refresh_returns_invalid_token_when_repository_finds_no_record() {
+        let mut auth_repo = MockAuthRepositoryTrait::new();
+        auth_repo
+            .expect_consume_refresh_token()
+            .returning(|_| Ok(None));
+        let admins = MockAdminRepositoryTrait::new();
+        let service = AuthService::new(Arc::new(auth_repo), Arc::new(admins));
+
+        let result = service
+            .refresh(
+                b"secret",
+                RefreshRequest {
+                    refresh_token: "stale-token".into(),
+                },
+            )
+            .await;
+
+        assert!(matches!(result, Err(AppError::InvalidToken)));
+    }
+
+    #[tokio::test]
+    async fn refresh_issues_a_replacement_pair_when_consumption_succeeds() {
+        let mut auth_repo = MockAuthRepositoryTrait::new();
+        auth_repo.expect_consume_refresh_token().returning(|_| {
+            Ok(Some(TokenRefreshRecord {
+                token_id: uuid::Uuid::new_v4(),
+                admin_id: 3,
+                username: "admin".into(),
+                role: AdminRole::Admin,
+                expires_at: Utc::now(),
+                revoked_at: Some(Utc::now()),
+            }))
+        });
+        auth_repo
+            .expect_create_refresh_token()
+            .withf(|admin_id, _hash, _expires_at| *admin_id == 3)
+            .returning(|_, _, _| Ok(()));
+        let admins = MockAdminRepositoryTrait::new();
+        let service = AuthService::new(Arc::new(auth_repo), Arc::new(admins));
+
+        let response = service
+            .refresh(
+                b"secret",
+                RefreshRequest {
+                    refresh_token: "valid-token".into(),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.id, 3);
+    }
+
+    #[tokio::test]
+    async fn logout_deletes_all_refresh_tokens_for_the_admin() {
+        let mut auth_repo = MockAuthRepositoryTrait::new();
+        auth_repo
+            .expect_delete_all_refresh_tokens()
+            .withf(|admin_id| *admin_id == 11)
+            .returning(|_| Ok(()));
+        let admins = MockAdminRepositoryTrait::new();
+        let service = AuthService::new(Arc::new(auth_repo), Arc::new(admins));
+
+        service.logout(11).await.unwrap();
+    }
 }
