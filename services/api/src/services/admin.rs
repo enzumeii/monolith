@@ -47,15 +47,6 @@ pub fn ensure_self(claims_id: i64, target_id: i64) -> Result<(), AppError> {
     Ok(())
 }
 
-pub fn validate_page(page: u32, per_page: u32) -> Result<AdminPageRequest, AppError> {
-    if page == 0 || per_page == 0 || per_page > 100 {
-        return Err(AppError::BadRequest(
-            "page must be positive and per_page must be between 1 and 100".into(),
-        ));
-    }
-    Ok(AdminPageRequest { page, per_page })
-}
-
 //////////////////////// IMPERATIVE SHELL ////////////////////////
 
 #[tracing::instrument(skip(pool))]
@@ -206,29 +197,5 @@ mod tests {
                 .verify_password(b"wrong-password", &parsed)
                 .is_err()
         );
-    }
-
-    #[test]
-    fn validate_page_rejects_zero_page() {
-        assert!(matches!(validate_page(0, 25), Err(AppError::BadRequest(_))));
-    }
-
-    #[test]
-    fn validate_page_rejects_zero_per_page() {
-        assert!(matches!(validate_page(1, 0), Err(AppError::BadRequest(_))));
-    }
-
-    #[test]
-    fn validate_page_rejects_per_page_over_100() {
-        assert!(matches!(
-            validate_page(1, 101),
-            Err(AppError::BadRequest(_))
-        ));
-    }
-
-    #[test]
-    fn validate_page_accepts_boundary_values() {
-        assert!(validate_page(1, 1).is_ok());
-        assert!(validate_page(1, 100).is_ok());
     }
 }
