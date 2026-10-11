@@ -41,3 +41,7 @@ check:
 fix:
 	cargo fmt -p api
 	cargo clippy -p api --fix --allow-dirty --allow-staged -- -D warnings
+
+# Recreate the dev Postgres database (drop + create)
+reset-db:
+	cd services/api && sqlx database drop -y && sqlx database create
