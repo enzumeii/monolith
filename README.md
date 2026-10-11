@@ -4,11 +4,14 @@
 
 ### Pre-Requisites
 
-    - Docker
-    - Rust crates (just, sqlx-cli, bacon)
-    ```bash
-        cargo install just sqlx-cli bacon
-    ```
+- Docker
+- Rust (cargo)
+
+After cloning, run the init script once to install the dev CLI tools (just, sqlx-cli, bacon):
+
+```bash
+./init.sh
+```
 
 ### Running locally
 
