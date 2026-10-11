@@ -1,34 +1,34 @@
 # Enzumeii Monolith
 
-## Pre-Requisites
-
-- Docker
-- Rust crates (just, sqlx-cli, bacon)
-
-```bash
-    cargo install just sqlx-cli bacon
-```
-
-## Useful command
-
-1. lint/format check `bacon`
-2. format code `bacon fmt`
-3. lint fix `bacon clippy-fix`
-
 ## API Server [services/api]
+
+### Pre-Requisites
+
+    - Docker
+    - Rust crates (just, sqlx-cli, bacon)
+    ```bash
+        cargo install just sqlx-cli bacon
+    ```
 
 ### Running locally
 
 1. cd services/api
-2. create `.env.local` consisting of
-
+2. create `.env.local` contains
 ```
 RUN_ENV = local
 POSTGRES_URL = ...
 JWT_SECRET = ...
 ```
+3. run `just api`
 
-1. run `just api`
+### Formatter & Linter
+
+1. `just check` to do format/lint check
+2. `just fix` to do format/lint fix
+
+### Testing & Verification
+
+1. `just test` running both unit test and e2e test with postgreSQL database
 
 ### Useful command
 

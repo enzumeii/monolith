@@ -30,11 +30,14 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      - name: Install just
+        uses: extractions/setup-just@v3
+
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Check Formatting
-        run: cargo fmt --check -p api
+      - name: Check (format + lint)
+        run: just check
 
-      - name: Run Clippy
-        run: cargo clippy -p api --all-targets -- -D warnings
+      - name: Test (unit + e2e)
+        run: just test
