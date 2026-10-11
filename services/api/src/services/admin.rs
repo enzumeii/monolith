@@ -89,7 +89,7 @@ pub async fn delete(pool: &PgPool, id: i64) -> Result<AdminDTO, AppError> {
     resolve_delete(deleted_admin, exists)
 }
 
-async fn hash_password(password: String) -> Result<String, AppError> {
+pub(crate) async fn hash_password(password: String) -> Result<String, AppError> {
     tokio::task::spawn_blocking(move || {
         let salt = SaltString::generate(&mut OsRng);
         Argon2::default()

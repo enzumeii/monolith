@@ -153,8 +153,7 @@ async fn verify_password(password: String, password_hash: String) -> Result<bool
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use argon2::PasswordHasher;
-    use argon2::password_hash::{SaltString, rand_core::OsRng};
+    use crate::services::admin::hash_password;
     use jsonwebtoken::{DecodingKey, Validation, decode};
 
     #[test]
@@ -188,22 +187,15 @@ mod tests {
         assert_ne!(hash1, input);
     }
 
-    fn hash(raw: &str) -> String {
-        Argon2::default()
-            .hash_password(raw.as_bytes(), &SaltString::generate(&mut OsRng))
-            .unwrap()
-            .to_string()
-    }
-
     #[tokio::test]
     async fn verify_password_returns_true_for_correct_password() {
-        let hash = hash("correct");
+        let hash = hash_password("correct".into()).await.unwrap();
         assert!(verify_password("correct".into(), hash).await.unwrap());
     }
 
     #[tokio::test]
     async fn verify_password_returns_false_for_wrong_password() {
-        let hash = hash("correct");
+        let hash = hash_password("correct".into()).await.unwrap();
         assert!(!verify_password("wrong".into(), hash).await.unwrap());
     }
 
