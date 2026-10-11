@@ -18,9 +18,12 @@ setup:
 serve:
     dx serve
 
-# Run the server binary directly (no hot reload; needs a prebuilt web bundle).
+# Run the server binary directly (no hot reload). Builds the web bundle with
+# dx first, then serves it via DIOXUS_PUBLIC_PATH (where the server looks for
+# the prebuilt assets). For dev with hot reload, use `just serve`.
 run:
-    cargo run -p backoffice --features server
+    dx build
+    DIOXUS_PUBLIC_PATH=../../target/dx/backoffice/debug/web/public cargo run -p backoffice --features server
 
 # Check: format check + strict lint for both server and web (wasm) targets
 check:
