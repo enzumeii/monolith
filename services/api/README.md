@@ -1,41 +1,10 @@
 # API Service [services/api]
 
-The sole credential holder and HTTP backend for the monolith. Pure-functional:
-free functions over `&PgPool`, no domain traits/structs. See `../../ARCHITECTURE.md`
-for the service graph and credential-isolation rules.
-
-## Pre-Requisites
-
-- Docker
-- Rust (cargo)
-
-After cloning the repo, run the root init script once to install the dev CLI
-tools (just, sqlx-cli, bacon) and scaffold `.env.local`:
-
-```bash
-./init.sh
-```
-
 ## Running locally
 
-The `just` recipes live in this directory's `justfile`. Run them from here.
-
-1. Run `./init.sh` from the repo root (installs just, sqlx-cli, bacon)
 2. `just setup` (scaffolds `services/api/.env.local`)
-3. Edit `services/api/.env.local` and set a real `JWT_SECRET`
+3. Edit `services/api/.env.local` and set a real `JWT_SECRET` get from repo's secret
 4. `just api-run` (starts Postgres, runs migrations, serves the API)
-
-`.env.local`:
-```
-RUN_ENV=local
-DATABASE_URL=postgres://user:pass@127.0.0.1:5432/core
-JWT_SECRET=change-me
-```
-
-## Formatter & Linter
-
-1. `just api-check` — format check + lint check
-2. `just api-fix` — apply format + lint fixes
 
 ## Testing & Verification
 

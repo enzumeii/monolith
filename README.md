@@ -6,7 +6,10 @@ A Rust monolith: one HTTP API service plus two Dioxus fullstack apps over a shar
 - **`apps/client-ui`**, **`apps/backoffice`** — Dioxus fullstack apps.
 - **`crates/domain`** — shared types (DTOs + DB entities) at the app ↔ api boundary.
 
-## Quick start
+Each service owns its own `justfile` and CI runs only that service's `check` +
+`test` when its files change (see `.github/workflows/ci.yml`).
+
+## Quick start (API)
 
 ```bash
 ./init.sh                          # installs just, sqlx-cli, bacon
@@ -16,13 +19,7 @@ cd services/api && just api-run    # start Postgres, run migrations, serve the A
 
 ## Commands
 
-Root `justfile` (run from the repo root) — workspace-wide:
-
-- `just check` — format + lint check across the whole monorepo
-- `just fix` — apply format + lint fixes across the whole monorepo
-- `just test` — run all workspace tests (api e2e uses the compose Postgres)
-
-`services/api/justfile` (run from `services/api`) — API-specific:
+`services/api/justfile` (run from `services/api`):
 
 - `just setup` — scaffold `services/api/.env.local`
 - `just api-run` — start Postgres, run migrations, serve the API
@@ -30,5 +27,10 @@ Root `justfile` (run from the repo root) — workspace-wide:
 - `just api-test` — API unit + e2e tests
 - `just api-reset-db` — recreate the dev database
 - `just api-db-down` — stop the dev Postgres
+
+`apps/<app>/justfile` (run from `apps/backoffice` or `apps/client-ui`):
+
+- `just app-check` / `just app-fix` — format/lint for that app
+- `just app-test` — run that app's tests
 
 See `services/api/README.md` for API setup details.

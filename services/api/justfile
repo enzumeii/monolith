@@ -14,7 +14,7 @@ setup:
         'RUN_ENV=local' \
         'DATABASE_URL=postgres://user:pass@127.0.0.1:5432/core' \
         'JWT_SECRET=change-me' > .env.local
-      echo '  Edit .env.local and set a real JWT_SECRET before running the server.'
+      echo '  Edit .env.local and set a real JWT_SECRET (retrieve from repository secret) before running the server.'
     else
       echo '→ .env.local already exists, leaving it untouched.'
     fi

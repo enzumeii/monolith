@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/api/**'
+      - 'apps/**'
+      - 'crates/domain/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'services/api/**'
+      - 'apps/**'
+      - 'crates/domain/**'
+      - '.github/workflows/ci.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Install just
+        uses: extractions/setup-just@v3
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # Detect which service changed so we only run its check/test.
+      - name: Detect changed services
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            api:
+              - 'services/api/**'
+              - 'crates/domain/**'
+            backoffice:
+              - 'apps/backoffice/**'
+              - 'crates/domain/**'
+            client-ui:
+              - 'apps/client-ui/**'
+              - 'crates/domain/**'
+
+      - name: api check + test
+        if: steps.changes.outputs.api == 'true'
+        run: |
+          cd services/api && just api-check
+          just api-test
+
+      - name: backoffice check + test
+        if: steps.changes.outputs.backoffice == 'true'
+        run: |
+          cd apps/backoffice && just app-check
+          just app-test
+
+      - name: client-ui check + test
+        if: steps.changes.outputs.client-ui == 'true'
+        run: |
+          cd apps/client-ui && just app-check
+          just app-test
