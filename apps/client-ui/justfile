@@ -1,0 +1,17 @@
+# Default target
+default:
+    @just --list
+
+# Check: format check + lint check (no changes)
+check:
+    cargo fmt --check -p client-ui
+    cargo clippy -p client-ui --all-targets -- -D warnings
+
+# Fix: apply format fix + lint fix
+fix:
+    cargo fmt -p client-ui
+    cargo clippy -p client-ui --fix --allow-dirty --allow-staged -- -D warnings
+
+# Test: run client-ui tests (currently none; validates it builds)
+test:
+    cargo test -p client-ui

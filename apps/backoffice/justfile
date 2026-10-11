@@ -1,0 +1,17 @@
+# Default target
+default:
+    @just --list
+
+# Check: format check + lint check (no changes)
+check:
+    cargo fmt --check -p backoffice
+    cargo clippy -p backoffice --all-targets -- -D warnings
+
+# Fix: apply format fix + lint fix
+fix:
+    cargo fmt -p backoffice
+    cargo clippy -p backoffice --fix --allow-dirty --allow-staged -- -D warnings
+
+# Test: run backoffice tests (currently none; validates it builds)
+test:
+    cargo test -p backoffice

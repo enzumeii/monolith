@@ -1,0 +1,8 @@
+# Enforce cognitive complexity threshold (keeps functions small)
+cognitive-complexity-threshold = 25
+
+# Allow common short variable names in web handlers (e.g. `r`, `tx`, `db`)
+disallowed-names = ["foo", "bar", "baz"]
+
+# Ensure doc comments exist on public items
+missing-docs-in-crate-items = false

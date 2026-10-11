@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Install just
+        uses: extractions/setup-just@v3
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      # Detect which service changed so we only run its check/test.
+      - name: Detect changed services
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            api:
+              - 'services/api/**'
+              - 'crates/domain/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - '.github/workflows/ci.yml'
+            backoffice:
+              - 'apps/backoffice/**'
+              - 'crates/domain/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - '.github/workflows/ci.yml'
+            client-ui:
+              - 'apps/client-ui/**'
+              - 'crates/domain/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - '.github/workflows/ci.yml'
+
+      - name: api check + test
+        if: steps.changes.outputs.api == 'true'
+        working-directory: services/api
+        run: |
+          just check
+          just test
+
+      - name: backoffice check + test
+        if: steps.changes.outputs.backoffice == 'true'
+        working-directory: apps/backoffice
+        run: |
+          just check
+          just test
+
+      - name: client-ui check + test
+        if: steps.changes.outputs.client-ui == 'true'
+        working-directory: apps/client-ui
+        run: |
+          just check
+          just test
