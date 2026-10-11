@@ -46,6 +46,7 @@ jobs:
 
       - name: api check + test
         if: steps.changes.outputs.api == 'true'
-        run: |
-          cd services/api && just check
-          cd services/api && just test
+        run:
+          - cd services/api
+          - just check
+          - ust test
