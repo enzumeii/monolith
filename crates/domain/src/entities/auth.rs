@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::entities::AdminRole;
+use crate::dto::AdminRole;
 
 #[derive(Debug, FromRow)]
 pub struct TokenRefreshRecord {

@@ -1,6 +1,6 @@
 use crate::error::AppError;
 use chrono::{DateTime, Utc};
-use domain::entities::{AdminRole, TokenRefreshRecord};
+use domain::{dto::AdminRole, entities::TokenRefreshRecord};
 use sqlx::PgPool;
 
 #[tracing::instrument(skip(pool))]

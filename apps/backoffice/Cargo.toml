@@ -7,11 +7,27 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-dioxus.workspace = true
+dioxus = { workspace = true, features = ["router"] }
+domain = { path = "../../crates/domain" }
+serde = { workspace = true }
+reqwest = { version = "0.12", features = ["json"], optional = true }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"], optional = true }
+config = { workspace = true, optional = true }
+dotenvy = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"], optional = true }
 
 [features]
 default = []
 web = ["dioxus/web"]
 desktop = ["dioxus/desktop"]
 mobile = ["dioxus/mobile"]
-server = ["dioxus/server"]
+server = [
+    "dioxus/server",
+    "dep:reqwest",
+    "dep:tokio",
+    "dep:config",
+    "dep:dotenvy",
+    "dep:tracing",
+    "dep:tracing-subscriber",
+]

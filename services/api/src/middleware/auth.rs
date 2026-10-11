@@ -4,7 +4,7 @@ use axum::{
     response::Response,
 };
 use axum_auth::AuthBearer;
-use domain::{dto::Claims, entities::AdminRole};
+use domain::dto::{AdminRole, Claims};
 use jsonwebtoken::{DecodingKey, Validation, decode};
 
 use crate::{error::AppError, state::AppState};

@@ -14,7 +14,7 @@ use argon2::{
     password_hash::{SaltString, rand_core::OsRng},
 };
 use axum::{Router, body::Body, http::Request};
-use domain::entities::AdminRole;
+use domain::dto::AdminRole;
 use http_body_util::BodyExt;
 use jsonwebtoken::{EncodingKey, Header, encode};
 use sqlx::PgPool;

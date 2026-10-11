@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use domain::{
-    dto::AdminPageRequest,
-    entities::{Admin, AdminRole},
+    dto::{AdminPageRequest, AdminRole},
+    entities::Admin,
 };
 use sqlx::PgPool;
 

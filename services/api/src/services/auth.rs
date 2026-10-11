@@ -4,10 +4,7 @@ use crate::{
     utils::password,
 };
 use chrono::{Duration, Utc};
-use domain::{
-    dto::{Claims, LoginRequest, RefreshRequest, TokenResponse},
-    entities::AdminRole,
-};
+use domain::dto::{AdminRole, Claims, LoginRequest, RefreshRequest, TokenResponse};
 use jsonwebtoken::{EncodingKey, Header, encode};
 use rand::RngExt;
 use sha2::{Digest, Sha256};
@@ -99,7 +96,7 @@ async fn issue_token_pair(
     Ok(TokenResponse {
         access_token,
         refresh_token,
-        token_type: "Bearer",
+        token_type: "Bearer".to_string(),
         expires_in: 600, // 10 minutes in seconds
         id: admin_id,
     })

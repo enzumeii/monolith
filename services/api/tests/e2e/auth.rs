@@ -3,7 +3,7 @@
 use super::common;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use domain::entities::AdminRole;
+use domain::dto::AdminRole;
 use tower::ServiceExt;
 
 #[tokio::test]

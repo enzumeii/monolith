@@ -1,6 +1,5 @@
 use crate::error::AppError;
-use domain::dto::{AdminPageRequest, Claims, ListAdminsQuery};
-use domain::entities::AdminRole;
+use domain::dto::{AdminPageRequest, AdminRole, Claims, ListAdminsQuery};
 
 /// Map the raw query params to a validated `AdminPageRequest`.
 /// Applies defaults (`page=1`, `per_page=25`) and enforces 1..=100.
@@ -39,7 +38,7 @@ pub fn validate_delete(claims: &Claims, target_id: i64) -> Result<(), AppError> 
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use domain::entities::AdminRole;
+    use domain::dto::AdminRole;
 
     fn query(page: Option<u32>, per_page: Option<u32>) -> ListAdminsQuery {
         ListAdminsQuery { page, per_page }

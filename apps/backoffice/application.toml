@@ -1,0 +1,17 @@
+# Backoffice configuration (local default).
+#
+# Every value must come from this file, an `application.<RUN_ENV>.toml`
+# override, or the environment (`BACKOFFICE__SERVER__HOST`,
+# `BACKOFFICE__SERVER__PORT`, `BACKOFFICE__UPSTREAM__API_BASE`, also loadable
+# from a local `.env`). There are no in-code defaults — a missing value fails
+# startup fast.
+
+[server]
+# Interface the backoffice web server binds to. Use `0.0.0.0` in a container.
+host = "127.0.0.1"
+# Port the backoffice web server listens on.
+port = 8080
+
+[upstream]
+# Base URL of the internal API service (services/api), including the `/v1` prefix.
+api_base = "http://127.0.0.1:3000/v1"

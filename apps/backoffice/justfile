@@ -2,16 +2,30 @@
 default:
     @just --list
 
-# Check: format check + lint check (no changes)
+# Check: format check + strict lint for both server and web (wasm) targets
 check:
     cargo fmt --check -p backoffice
-    cargo clippy -p backoffice --all-targets -- -D warnings
+    cargo clippy -p backoffice --features server --all-targets -- -D warnings
+    cargo clippy -p backoffice --features web --target wasm32-unknown-unknown --all-targets -- -D warnings
 
-# Fix: apply format fix + lint fix
+# Fix: apply format fix + lint fix (server target)
 fix:
     cargo fmt -p backoffice
-    cargo clippy -p backoffice --fix --allow-dirty --allow-staged -- -D warnings
+    cargo clippy -p backoffice --features server --fix --allow-dirty --allow-staged -- -D warnings
 
-# Test: run backoffice tests (currently none; validates it builds)
+# Build the server binary (the web client bundle is produced by `dx build`)
+build:
+    cargo build -p backoffice --features server
+
+# Test: run backoffice tests (validates the server target builds)
 test:
-    cargo test -p backoffice
+    cargo test -p backoffice --features server
+
+# Dev: run the fullstack app with hot reload (requires the Dioxus CLI).
+# The internal API must be running separately (see services/api).
+serve:
+    dx serve
+
+# Run the server binary directly (no hot reload; needs a prebuilt web bundle).
+run:
+    cargo run -p backoffice --features server

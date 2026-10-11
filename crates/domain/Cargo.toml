@@ -8,8 +8,11 @@ workspace = true
 
 [features]
 default = ["dto"]
-dto = ["dep:serde", "dep:uuid", "dep:chrono"]
-db = ["dto", "dep:sqlx"]
+# `dto` is the shared app <-> api wire contract: serde only, so it compiles to
+# wasm for the web backoffice. `uuid`/`chrono`/`sqlx` are only needed by the
+# database entities.
+dto = ["dep:serde"]
+db = ["dto", "dep:sqlx", "dep:uuid", "dep:chrono"]
 
 [dependencies]
 serde = { workspace = true, optional = true }
