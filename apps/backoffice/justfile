@@ -2,6 +2,26 @@
 default:
     @just --list
 
+# Create .env if missing
+setup:
+    #!/usr/bin/env bash
+    if [ ! -f .env ]; then
+      echo '→ Scaffolding .env from template...'
+      printf '%s\n' \
+        'RUN_ENV=local' > .env
+      echo '  .env created successfully'
+    else
+      echo '→ .env already exists, leaving it untouched.'
+    fi
+# Dev: run the fullstack app with hot reload (requires the Dioxus CLI).
+# The internal API must be running separately (see services/api).
+serve:
+    dx serve
+
+# Run the server binary directly (no hot reload; needs a prebuilt web bundle).
+run:
+    cargo run -p backoffice --features server
+
 # Check: format check + strict lint for both server and web (wasm) targets
 check:
     cargo fmt --check -p backoffice
@@ -13,19 +33,6 @@ fix:
     cargo fmt -p backoffice
     cargo clippy -p backoffice --features server --fix --allow-dirty --allow-staged -- -D warnings
 
-# Build the server binary (the web client bundle is produced by `dx build`)
-build:
-    cargo build -p backoffice --features server
-
 # Test: run backoffice tests (validates the server target builds)
 test:
     cargo test -p backoffice --features server
-
-# Dev: run the fullstack app with hot reload (requires the Dioxus CLI).
-# The internal API must be running separately (see services/api).
-serve:
-    dx serve
-
-# Run the server binary directly (no hot reload; needs a prebuilt web bundle).
-run:
-    cargo run -p backoffice --features server

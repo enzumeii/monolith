@@ -389,9 +389,6 @@ dependencies = [
  "dotenvy",
  "reqwest",
  "serde",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

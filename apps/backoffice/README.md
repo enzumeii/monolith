@@ -28,13 +28,14 @@ No value is defaulted in code. Configuration is read from `application.toml`
 
 | Setting | `application.toml` | Env override | Default (local) |
 | --- | --- | --- | --- |
-| Web server host | `server.host` | `BACKOFFICE__SERVER__HOST` | `127.0.0.1` |
-| Web server port | `server.port` | `BACKOFFICE__SERVER__PORT` | `8080` |
 | Upstream API base URL | `upstream.api_base` | `BACKOFFICE__UPSTREAM__API_BASE` | `http://127.0.0.1:3000/v1` |
 
 `RUN_ENV` (default `local`) selects an optional `application.<RUN_ENV>.toml`
-override file. The Dioxus CLI's `IP`/`PORT` env vars (set by `dx serve`)
-override the configured bind address during development.
+override file.
+
+The web server's own bind address is controlled by the `IP`/`PORT` env vars
+(set by `dx serve` for dev, or manually for deployment), per the Dioxus
+fullstack convention — `dx serve --port <port>` is the easiest way in dev.
 
 ## Running locally
 
@@ -43,7 +44,7 @@ override the configured bind address during development.
 2. Serve the backoffice (requires the Dioxus CLI, `cargo install dioxus-cli`,
    and the `wasm32-unknown-unknown` target):
    `cd apps/backoffice && just serve`
-3. Open http://127.0.0.1:8080
+3. Open http://127.0.0.1:8080 (or the port shown by `dx serve`)
 
 ## Verification
 
@@ -53,11 +54,11 @@ override the configured bind address during development.
 ## Deploying (Kubernetes)
 
 Build a release bundle with `dx build --release`, then run the server binary.
-Provide config via env vars, e.g.:
+Provide the upstream config and bind address via env vars, e.g.:
 
 ```sh
-BACKOFFICE__SERVER__HOST=0.0.0.0 \
-BACKOFFICE__SERVER__PORT=8080 \
+IP=0.0.0.0 \
+PORT=8080 \
 BACKOFFICE__UPSTREAM__API_BASE=http://api.internal.svc:3000/v1 \
 ./backoffice
 ```

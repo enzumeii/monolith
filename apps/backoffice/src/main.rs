@@ -15,41 +15,11 @@ use crate::components::Login;
 use crate::route::Route;
 use crate::session::SESSION;
 
-#[cfg(feature = "server")]
-#[tokio::main]
-async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
-
-    // Fail fast on missing/invalid configuration before binding.
-    let settings = config::settings();
-    tracing::info!(upstream = %settings.upstream.api_base, "backoffice upstream configured");
-
-    // The Dioxus CLI sets `IP`/`PORT` when running under `dx serve`; those (or
-    // manually-set env vars) override the configured bind address, which
-    // otherwise comes from `application.toml` (`[server]`).
-    let host = dioxus::cli_config::server_ip()
-        .map_or_else(|| settings.server.host.clone(), |ip| ip.to_string());
-    let port = dioxus::cli_config::server_port().unwrap_or(settings.server.port);
-    let addr = format!("{host}:{port}");
-
-    let router = dioxus_server::axum::Router::new()
-        .serve_dioxus_application(dioxus_server::ServeConfig::new(), App)
-        .into_make_service();
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .expect("failed to bind backoffice server");
-    tracing::info!(%addr, "backoffice listening");
-    dioxus_server::axum::serve(listener, router)
-        .await
-        .expect("backoffice server failed");
-}
-
-#[cfg(not(feature = "server"))]
 fn main() {
+    // `dioxus::launch` auto-detects the platform from the enabled dioxus feature
+    // (`web` for the wasm client, `server` for the fullstack axum server), so a
+    // single entry point serves both builds. The server binds to the `IP`/`PORT`
+    // env vars (set by `dx serve` for dev, or manually for deployment).
     dioxus::launch(App);
 }
 

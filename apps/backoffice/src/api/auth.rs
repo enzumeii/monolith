@@ -1,27 +1,21 @@
 //! Authentication server functions: login, logout, and token refresh.
 //!
 //! `refresh` is the single place that calls `POST /v1/auth/refresh`; the
-//! transparent pre-request refresh (`ensure_valid`) reuses it so the session
-//! rotates exactly once per refresh.
+//! transparent pre-request refresh (inlined in the admin endpoints) reuses it
+//! so the session rotates exactly once per refresh.
 
 use dioxus::prelude::*;
 
 use crate::session::Session;
 
-// Only used inside the server-side function bodies (compiled out on web).
-#[cfg(feature = "server")]
-use super::client::{decode, now_unix, url};
-#[cfg(feature = "server")]
-use domain::dto::{AdminDTO, LoginRequest, RefreshRequest, TokenResponse};
-
 /// Authenticate against `POST /v1/auth/login`, then resolve the admin's role
 /// and username (via `GET /v1/admins/{id}`) to build the client session.
 #[server]
 pub async fn login(username: String, password: String) -> ServerFnResult<Session> {
-    let tokens: TokenResponse = decode(
+    let tokens: domain::dto::TokenResponse = super::client::decode(
         reqwest::Client::new()
-            .post(url("/auth/login"))
-            .json(&LoginRequest { username, password })
+            .post(super::client::url("/auth/login"))
+            .json(&domain::dto::LoginRequest { username, password })
             .send()
             .await
             .map_err(|e| ServerFnError::new(format!("login request failed: {e}")))?,
@@ -29,9 +23,9 @@ pub async fn login(username: String, password: String) -> ServerFnResult<Session
     )
     .await?;
 
-    let admin: AdminDTO = decode(
+    let admin: domain::dto::AdminDTO = super::client::decode(
         reqwest::Client::new()
-            .get(url(&format!("/admins/{}", tokens.id)))
+            .get(super::client::url(&format!("/admins/{}", tokens.id)))
             .bearer_auth(&tokens.access_token)
             .send()
             .await
@@ -43,7 +37,7 @@ pub async fn login(username: String, password: String) -> ServerFnResult<Session
     Ok(Session {
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
-        expires_at: now_unix() + tokens.expires_in,
+        expires_at: super::client::now_unix() + tokens.expires_in,
         admin_id: tokens.id,
         username: admin.username,
         role: admin.role,
@@ -55,7 +49,7 @@ pub async fn login(username: String, password: String) -> ServerFnResult<Session
 #[server]
 pub async fn logout(session: Session) -> ServerFnResult<()> {
     let _ = reqwest::Client::new()
-        .get(url("/auth/logout"))
+        .get(super::client::url("/auth/logout"))
         .bearer_auth(&session.access_token)
         .send()
         .await;
@@ -69,10 +63,10 @@ pub async fn logout(session: Session) -> ServerFnResult<()> {
 /// must sign in again.
 #[server]
 pub async fn refresh(session: Session) -> ServerFnResult<Session> {
-    let tokens: TokenResponse = decode(
+    let tokens: domain::dto::TokenResponse = super::client::decode(
         reqwest::Client::new()
-            .post(url("/auth/refresh"))
-            .json(&RefreshRequest {
+            .post(super::client::url("/auth/refresh"))
+            .json(&domain::dto::RefreshRequest {
                 refresh_token: session.refresh_token.clone(),
             })
             .send()
@@ -85,21 +79,9 @@ pub async fn refresh(session: Session) -> ServerFnResult<Session> {
     Ok(Session {
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
-        expires_at: now_unix() + tokens.expires_in,
+        expires_at: super::client::now_unix() + tokens.expires_in,
         admin_id: session.admin_id,
         username: session.username,
         role: session.role,
     })
-}
-
-/// Return a session whose access token is still valid, refreshing first (via
-/// [`refresh`]) if it has expired. Server-only helper reused by the
-/// admin-management endpoints.
-#[cfg(feature = "server")]
-pub(crate) async fn ensure_valid(session: Session) -> Result<Session, ServerFnError> {
-    if now_unix() >= session.expires_at {
-        refresh(session).await
-    } else {
-        Ok(session)
-    }
 }

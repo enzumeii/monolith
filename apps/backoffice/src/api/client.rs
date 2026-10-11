@@ -1,15 +1,17 @@
 #![cfg(feature = "server")]
-//! Server-only HTTP helpers shared by the API submodules.
+//! Server-only HTTP + session helpers shared by the API submodules.
 //!
-//! Generic, session-less plumbing only: building an upstream URL, reading the
-//! clock, and decoding a JSON response into a status-coded error. Auth/session
-//! logic (refresh, `ensure_valid`) lives in [`super::auth`].
+//! Generic plumbing: building an upstream URL, reading the clock, decoding a
+//! JSON response, and refreshing the session when its access token expires.
+//! The actual `POST /v1/auth/refresh` endpoint call lives in [`super::auth`];
+//! [`ensure_valid`] here just delegates to it.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dioxus::prelude::ServerFnError;
 
 use crate::config::settings;
+use crate::session::Session;
 
 /// Build an absolute upstream URL from a `/v1`-relative path.
 pub(crate) fn url(path: &str) -> String {
@@ -45,4 +47,14 @@ pub(crate) async fn decode<T: serde::de::DeserializeOwned>(
     resp.json::<T>()
         .await
         .map_err(|e| ServerFnError::new(format!("failed to decode {what}: {e}")))
+}
+
+/// Return a session whose access token is still valid, refreshing first (via
+/// [`super::auth::refresh`]) if it has expired.
+pub(crate) async fn ensure_valid(session: Session) -> Result<Session, ServerFnError> {
+    if now_unix() >= session.expires_at {
+        super::auth::refresh(session).await
+    } else {
+        Ok(session)
+    }
 }
