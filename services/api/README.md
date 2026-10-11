@@ -2,14 +2,9 @@
 
 ## Running locally
 
-1. `just setup` (scaffolds `services/api/.env.local`)
-2. Edit `.env.local` and set a real `JWT_SECRET` get from repo's secret
+1. `just setup` (scaffolds `services/api/.env`)
+2. Edit `.env` and set a real `JWT_SECRET` get from repo's secret
 3. `just run` (starts Postgres, runs migrations, serves the API)
-
-## Formatting & Linting
-
-1. `just check`
-2. `just fix`
 
 ## Testing & Verification
 

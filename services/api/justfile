@@ -1,22 +1,22 @@
+set dotenv-load := true
 set export := true
-set dotenv-filename := ".env.local"
 
 # Default target
 default:
     @just --list
 
-# Scaffold .env.local if missing (DATABASE_URL, JWT_SECRET)
+# Create .env if missing
 setup:
     #!/usr/bin/env bash
-    if [ ! -f .env.local ]; then
-      echo '→ Scaffolding .env.local from template...'
+    if [ ! -f .env ]; then
+      echo '→ Scaffolding .env from template...'
       printf '%s\n' \
         'RUN_ENV=local' \
         'DATABASE_URL=postgres://user:pass@127.0.0.1:5432/core' \
-        'JWT_SECRET=change-me' > .env.local
-      echo '  Edit .env.local and set a real JWT_SECRET (retrieve from repository secret) before running the server.'
+        'JWT_SECRET=CHANGE_ME' > .env
+      echo '  Edit .env and set a real JWT_SECRET (retrieve from repository secret) before running the server.'
     else
-      echo '→ .env.local already exists, leaving it untouched.'
+      echo '→ .env already exists, leaving it untouched.'
     fi
 
 # Start Postgres, run migrations, and start the API service
@@ -39,20 +39,19 @@ run:
 db-down:
     docker compose -f docker-compose.yml down
 
-# Run all tests: unit tests (no Docker) + e2e tests (Postgres via docker-compose-e2e.yml)
+# Run all tests: unit tests + e2e tests
 test:
     cargo test -p api --lib
     docker compose -p e2e -f docker-compose-e2e.yml up -d --wait
     cargo api-e2e
     docker compose -p e2e -f docker-compose-e2e.yml down -v
 
-# Check: format check + lint check (no changes)
+# Check: format + lint check (no changes)
 check:
     cargo fmt --check -p api
     cargo clippy -p api --all-targets -- -D warnings
 
-# Format: apply format fix + lint fix, then refresh the sqlx query cache.
-# Requires the dev Postgres to be up and migrated (e.g. run `just api-run` first).
+# Format: apply format + lint fix
 fix:
     cargo fmt -p api
     cargo clippy -p api --fix --allow-dirty --allow-staged -- -D warnings

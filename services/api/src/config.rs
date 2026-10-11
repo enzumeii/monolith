@@ -31,7 +31,6 @@ pub struct Settings {
 impl Settings {
     pub fn new() -> Result<Self, ConfigError> {
         let _ = dotenvy::dotenv();
-        let _ = dotenvy::from_filename(".env.local");
         let env_mode = env::var("RUN_ENV").unwrap_or_else(|_| "local".into());
 
         let mut builder = Config::builder()
