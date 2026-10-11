@@ -20,7 +20,7 @@ setup:
     fi
 
 # Start Postgres, run migrations, and start the API service
-api-run:
+run:
     @echo "🚀 Starting PostgreSQL container..."
     docker compose -f docker-compose.yml up -d
 
@@ -36,28 +36,28 @@ api-run:
     cargo run -p api
 
 # Stop the dev Postgres container
-api-db-down:
+db-down:
     docker compose -f docker-compose.yml down
 
 # Run all tests: unit tests (no Docker) + e2e tests (Postgres via docker-compose-e2e.yml)
-api-test:
+test:
     cargo test -p api --lib
     docker compose -p e2e -f docker-compose-e2e.yml up -d --wait
     cargo api-e2e
     docker compose -p e2e -f docker-compose-e2e.yml down -v
 
 # Check: format check + lint check (no changes)
-api-check:
+check:
     cargo fmt --check -p api
     cargo clippy -p api --all-targets -- -D warnings
 
 # Format: apply format fix + lint fix, then refresh the sqlx query cache.
 # Requires the dev Postgres to be up and migrated (e.g. run `just api-run` first).
-api-fix:
+fix:
     cargo fmt -p api
     cargo clippy -p api --fix --allow-dirty --allow-staged -- -D warnings
     cargo sqlx prepare
 
 # Recreate the dev Postgres database (drop + create)
-api-reset-db:
+reset-db:
     sqlx database drop -y && sqlx database create
