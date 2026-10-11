@@ -51,10 +51,12 @@ api-check:
     cargo fmt --check -p api
     cargo clippy -p api --all-targets -- -D warnings
 
-# Format: apply format fix + lint fix
+# Format: apply format fix + lint fix, then refresh the sqlx query cache.
+# Requires the dev Postgres to be up and migrated (e.g. run `just api-run` first).
 api-fix:
     cargo fmt -p api
     cargo clippy -p api --fix --allow-dirty --allow-staged -- -D warnings
+    cargo sqlx prepare
 
 # Recreate the dev Postgres database (drop + create)
 api-reset-db:
