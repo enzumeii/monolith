@@ -5,8 +5,7 @@ use axum::{
     http::StatusCode,
 };
 use domain::dto::{
-    AdminDTO, AdminListResponse, AdminPageRequest, Claims, CreateAdminRequest, ListAdminsQuery,
-    UpdateAdminRequest,
+    AdminDTO, AdminListResponse, Claims, CreateAdminRequest, ListAdminsQuery, UpdateAdminRequest,
 };
 
 pub async fn list(
@@ -15,13 +14,9 @@ pub async fn list(
 ) -> Result<Json<AdminListResponse>, AppError> {
     let page = query.page.unwrap_or(1);
     let per_page = query.per_page.unwrap_or(25);
-    if page == 0 || per_page == 0 || per_page > 100 {
-        return Err(AppError::BadRequest(
-            "page must be positive and per_page must be between 1 and 100".into(),
-        ));
-    }
+    let page = services::admin::validate_page(page, per_page)?;
 
-    let response = services::admin::list(&state.pool, AdminPageRequest { page, per_page }).await?;
+    let response = services::admin::list(&state.pool, page).await?;
     Ok(Json(response))
 }
 
