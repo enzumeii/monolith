@@ -2,7 +2,7 @@
 //!
 //! Each test connects to the docker-compose-e2e.yml Postgres (`E2E_DATABASE_URL`),
 //! creates its own isolated database, runs migrations, and drops it on drop —
-//! so `cargo e2e` can run tests in parallel without interference.
+//! so `cargo api-e2e` can run tests in parallel without interference.
 
 use api::{
     config::{DatabaseConfig, JwtSettings, ServerConfig, Settings},
