@@ -5,6 +5,20 @@ set dotenv-filename := ".env.local"
 default:
     @just --list
 
+# Scaffold .env.local if missing (DATABASE_URL, JWT_SECRET)
+setup:
+    #!/usr/bin/env bash
+    if [ ! -f .env.local ]; then
+      echo '→ Scaffolding .env.local from template...'
+      printf '%s\n' \
+        'RUN_ENV=local' \
+        'DATABASE_URL=postgres://user:pass@127.0.0.1:5432/core' \
+        'JWT_SECRET=change-me' > .env.local
+      echo '  Edit .env.local and set a real JWT_SECRET before running the server.'
+    else
+      echo '→ .env.local already exists, leaving it untouched.'
+    fi
+
 # Start Postgres, run migrations, and start the API service
 api-run:
     @echo "🚀 Starting PostgreSQL container..."

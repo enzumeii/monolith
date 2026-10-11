@@ -1,20 +1,17 @@
 # Enzumeii Monolith
 
-A Rust monolith: one HTTP API service plus two Dioxus fullstack apps (currently
-stubs) over a shared domain crate.
+A Rust monolith: one HTTP API service plus two Dioxus fullstack apps over a shared domain crate.
 
-- **`services/api`** — the backend. See `services/api/README.md` for setup,
-  running, testing, and the available `just` commands.
-- **`apps/client-ui`**, **`apps/backoffice`** — Dioxus fullstack apps (stubs).
-- **`crates/domain`** — shared types (DTOs + DB entities) at the app↔api
-  boundary.
-- **`ARCHITECTURE.md`** — service graph and credential-isolation rules.
+- **`services/api`** — the backend. See [README](services/api/README.md) for setup, running, testing, and the available `just` commands.
+- **`apps/client-ui`**, **`apps/backoffice`** — Dioxus fullstack apps.
+- **`crates/domain`** — shared types (DTOs + DB entities) at the app ↔ api boundary.
 
 ## Quick start
 
 ```bash
-./init.sh                     # installs just, sqlx-cli, bacon; scaffolds services/api/.env.local
-cd services/api && just api-run   # start Postgres, run migrations, serve the API
+./init.sh                          # installs just, sqlx-cli, bacon
+cd services/api && just setup      # scaffold .env.local
+cd services/api && just api-run    # start Postgres, run migrations, serve the API
 ```
 
 ## Commands
@@ -27,6 +24,7 @@ Root `justfile` (run from the repo root) — workspace-wide:
 
 `services/api/justfile` (run from `services/api`) — API-specific:
 
+- `just setup` — scaffold `services/api/.env.local`
 - `just api-run` — start Postgres, run migrations, serve the API
 - `just api-check` / `just api-fix` — API-only format/lint
 - `just api-test` — API unit + e2e tests
