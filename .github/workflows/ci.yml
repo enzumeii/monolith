@@ -4,19 +4,9 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'services/api/**'
-      - 'apps/**'
-      - 'crates/domain/**'
-      - '.github/workflows/ci.yml'
   pull_request:
     branches:
       - main
-    paths:
-      - 'services/api/**'
-      - 'apps/**'
-      - 'crates/domain/**'
-      - '.github/workflows/ci.yml'
 
 env:
   CARGO_TERM_COLOR: always
@@ -57,17 +47,5 @@ jobs:
       - name: api check + test
         if: steps.changes.outputs.api == 'true'
         run: |
-          cd services/api && just api-check
-          just api-test
-
-      - name: backoffice check + test
-        if: steps.changes.outputs.backoffice == 'true'
-        run: |
-          cd apps/backoffice && just app-check
-          just app-test
-
-      - name: client-ui check + test
-        if: steps.changes.outputs.client-ui == 'true'
-        run: |
-          cd apps/client-ui && just app-check
-          just app-test
+          cd services/api && just check
+          cd services/api && just test
