@@ -37,7 +37,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Check (format + lint)
-        run: just check
+        run: cd services/api && just check
 
       - name: Test (unit + e2e)
-        run: just test
+        run: cd services/api && just test
