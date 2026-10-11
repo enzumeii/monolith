@@ -1,40 +1,17 @@
+use crate::config::Settings;
 use sqlx::PgPool;
-
-use crate::{
-    config::Settings,
-    repositories::{
-        admin::{AdminRepositoryTrait, PgAdminRepository},
-        auth::{AuthRepositoryTrait, PgAuthRepository},
-    },
-    services::{
-        admin::{AdminService, AdminServiceTrait},
-        auth::{AuthService, AuthServiceTrait},
-    },
-};
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct AppState {
+    pub pool: PgPool,
     pub settings: Arc<Settings>,
-    pub admin_service: Arc<dyn AdminServiceTrait>,
-    pub auth_service: Arc<dyn AuthServiceTrait>,
 }
 
-impl From<(PgPool, Settings)> for AppState {
-    fn from((pool, settings): (PgPool, Settings)) -> Self {
-        /////////////////// REPOSITORIES ///////////////////
-        let admin_repo: Arc<dyn AdminRepositoryTrait> =
-            Arc::new(PgAdminRepository::from(pool.clone()));
-        let auth_repo: Arc<dyn AuthRepositoryTrait> = Arc::new(PgAuthRepository::from(pool));
-
-        /////////////////// SERVICES ///////////////////
-        let admin_service = AdminService::new(Arc::clone(&admin_repo));
-        let auth_service = AuthService::new(Arc::clone(&auth_repo), Arc::clone(&admin_repo));
-
-        Self {
-            settings: Arc::new(settings),
-            admin_service: Arc::new(admin_service),
-            auth_service: Arc::new(auth_service),
-        }
+#[must_use]
+pub fn app_state(pool: PgPool, settings: Settings) -> AppState {
+    AppState {
+        pool,
+        settings: Arc::new(settings),
     }
 }

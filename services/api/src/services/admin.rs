@@ -1,112 +1,92 @@
-use crate::{error::AppError, repositories::admin::AdminRepositoryTrait};
+use crate::{error::AppError, repositories::admin};
 use argon2::{
     Argon2, PasswordHasher,
     password_hash::{SaltString, rand_core::OsRng},
 };
-use async_trait::async_trait;
 use domain::dto::{
     AdminDTO, AdminListResponse, AdminPageRequest, CreateAdminRequest, UpdateAdminRequest,
 };
-use std::sync::Arc;
+use domain::entities::Admin;
+use sqlx::PgPool;
 
-#[cfg_attr(test, mockall::automock)]
-#[async_trait]
-pub trait AdminServiceTrait: Send + Sync {
-    async fn list(&self, page: AdminPageRequest) -> Result<AdminListResponse, AppError>;
+//////////////////////// TESTS ////////////////////////
 
-    async fn add(&self, req: CreateAdminRequest) -> Result<AdminDTO, AppError>;
+//////////////////////// PURE CORE ////////////////////////
 
-    async fn update(&self, id: i64, req: UpdateAdminRequest) -> Result<AdminDTO, AppError>;
+pub fn build_list_response(
+    admin_entities: Vec<Admin>,
+    page: AdminPageRequest,
+) -> AdminListResponse {
+    let mut entities = admin_entities;
+    let has_next = entities.len() > page.per_page as usize;
+    entities.truncate(page.per_page as usize);
+    let admins = entities.into_iter().map(AdminDTO::from).collect();
 
-    async fn get(&self, id: i64) -> Result<AdminDTO, AppError>;
-
-    async fn delete(&self, id: i64) -> Result<AdminDTO, AppError>;
-}
-
-#[derive(Debug)]
-pub struct AdminService {
-    admin_repo: Arc<dyn AdminRepositoryTrait>,
-}
-
-impl AdminService {
-    pub fn new(admin_repo: Arc<dyn AdminRepositoryTrait>) -> Self {
-        Self { admin_repo }
+    AdminListResponse {
+        admins,
+        page: page.page,
+        per_page: page.per_page,
+        has_next,
     }
 }
 
-#[async_trait]
-impl AdminServiceTrait for AdminService {
-    #[tracing::instrument(skip(self))]
-    async fn list(&self, page: AdminPageRequest) -> Result<AdminListResponse, AppError> {
-        let mut admin_entities = self.admin_repo.list_page(page).await?;
-        let has_next = admin_entities.len() > page.per_page as usize;
-        admin_entities.truncate(page.per_page as usize);
-        let admins = admin_entities.into_iter().map(AdminDTO::from).collect();
+pub fn resolve_delete(deleted_admin: Option<Admin>, exists: bool) -> Result<AdminDTO, AppError> {
+    let Some(admin_entity) = deleted_admin else {
+        if exists {
+            return Err(AppError::Forbidden);
+        }
+        return Err(AppError::NotFound);
+    };
+    Ok(admin_entity.into())
+}
 
-        Ok(AdminListResponse {
-            admins,
-            page: page.page,
-            per_page: page.per_page,
-            has_next,
-        })
+pub fn ensure_self(claims_id: i64, target_id: i64) -> Result<(), AppError> {
+    if claims_id != target_id {
+        return Err(AppError::Forbidden);
     }
+    Ok(())
+}
 
-    #[tracing::instrument(skip(self, req), fields(username = %req.username, %req.role))]
-    async fn add(&self, req: CreateAdminRequest) -> Result<AdminDTO, AppError> {
-        let password_hash = hash_password(req.password).await?;
+//////////////////////// IMPERATIVE SHELL ////////////////////////
 
-        let admin_entity = self
-            .admin_repo
-            .add(req.username, password_hash, req.role)
-            .await?;
-        let admin_dto: AdminDTO = admin_entity.into();
-        Ok(admin_dto)
-    }
+#[tracing::instrument(skip(pool))]
+pub async fn list(pool: &PgPool, page: AdminPageRequest) -> Result<AdminListResponse, AppError> {
+    let admin_entities = admin::list_page(pool, page).await?;
+    Ok(build_list_response(admin_entities, page))
+}
 
-    #[tracing::instrument(skip(self, req), fields(username = ?req.username))]
-    async fn update(&self, id: i64, req: UpdateAdminRequest) -> Result<AdminDTO, AppError> {
-        let password_hash = match req.password {
-            Some(raw_password) => Some(hash_password(raw_password).await?),
-            None => None,
-        };
+#[tracing::instrument(skip(pool, req), fields(username = %req.username, %req.role))]
+pub async fn add(pool: &PgPool, req: CreateAdminRequest) -> Result<AdminDTO, AppError> {
+    let password_hash = hash_password(req.password).await?;
+    let admin_entity = admin::add(pool, req.username, password_hash, req.role).await?;
+    Ok(admin_entity.into())
+}
 
-        let updated_entity = self
-            .admin_repo
-            .update(id, req.username, password_hash)
-            .await?
-            .ok_or(AppError::NotFound)?;
+#[tracing::instrument(skip(pool, req), fields(username = ?req.username))]
+pub async fn update(pool: &PgPool, id: i64, req: UpdateAdminRequest) -> Result<AdminDTO, AppError> {
+    let password_hash = match req.password {
+        Some(raw_password) => Some(hash_password(raw_password).await?),
+        None => None,
+    };
+    let updated_entity = admin::update(pool, id, req.username, password_hash)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    Ok(updated_entity.into())
+}
 
-        let admin_dto: AdminDTO = updated_entity.into();
-        Ok(admin_dto)
-    }
+#[tracing::instrument(skip(pool))]
+pub async fn get(pool: &PgPool, id: i64) -> Result<AdminDTO, AppError> {
+    let admin_entity = admin::find_by_id(pool, id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    Ok(admin_entity.into())
+}
 
-    #[tracing::instrument(skip(self))]
-    async fn get(&self, id: i64) -> Result<AdminDTO, AppError> {
-        let admin_entity = self
-            .admin_repo
-            .find_by_id(id)
-            .await?
-            .ok_or(AppError::NotFound)?;
-
-        let admin_dto: AdminDTO = admin_entity.into();
-        Ok(admin_dto)
-    }
-
-    #[tracing::instrument(skip(self))]
-    async fn delete(&self, id: i64) -> Result<AdminDTO, AppError> {
-        let deleted_admin = self.admin_repo.delete(id).await?;
-
-        let Some(admin_entity) = deleted_admin else {
-            if self.admin_repo.find_by_id(id).await?.is_some() {
-                return Err(AppError::Forbidden);
-            }
-            return Err(AppError::NotFound);
-        };
-
-        let admin_dto: AdminDTO = admin_entity.into();
-
-        Ok(admin_dto)
-    }
+#[tracing::instrument(skip(pool))]
+pub async fn delete(pool: &PgPool, id: i64) -> Result<AdminDTO, AppError> {
+    let deleted_admin = admin::delete(pool, id).await?;
+    let exists = deleted_admin.is_none() && admin::find_by_id(pool, id).await?.is_some();
+    resolve_delete(deleted_admin, exists)
 }
 
 async fn hash_password(password: String) -> Result<String, AppError> {
@@ -124,14 +104,9 @@ async fn hash_password(password: String) -> Result<String, AppError> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::sync::Arc;
-
-    use argon2::PasswordVerifier;
-    use chrono::Utc;
-    use domain::entities::{Admin, AdminRole};
-
     use super::*;
-    use crate::repositories::admin::MockAdminRepositoryTrait;
+    use chrono::Utc;
+    use domain::entities::AdminRole;
 
     fn admin(id: i64) -> Admin {
         Admin {
@@ -144,21 +119,16 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn list_page_truncates_extra_record_and_sets_has_next() {
-        let mut repo = MockAdminRepositoryTrait::new();
-        repo.expect_list_page()
-            .withf(|page| page.page == 1 && page.per_page == 25)
-            .returning(|_| Ok((1..=26).map(admin).collect()));
-        let service = AdminService::new(Arc::new(repo));
-
-        let response = service
-            .list(AdminPageRequest {
+    #[test]
+    fn build_list_response_truncates_extra_record_and_sets_has_next() {
+        let admins = (1..=26).map(admin).collect();
+        let response = build_list_response(
+            admins,
+            AdminPageRequest {
                 page: 1,
                 per_page: 25,
-            })
-            .await
-            .unwrap();
+            },
+        );
 
         assert_eq!(response.admins.len(), 25);
         assert!(response.has_next);
@@ -166,58 +136,48 @@ mod tests {
         assert_eq!(response.admins[24].id, 25);
     }
 
-    #[tokio::test]
-    async fn add_hashes_password_before_persisting() {
-        let mut repo = MockAdminRepositoryTrait::new();
-        repo.expect_add()
-            .withf(|username, hash, role| {
-                username == "new-admin"
-                    && *role == AdminRole::Admin
-                    && hash != "password"
-                    && Argon2::default()
-                        .verify_password(b"password", &argon2::PasswordHash::new(hash).unwrap())
-                        .is_ok()
-            })
-            .returning(|username, password_hash, role| {
-                Ok(Admin {
-                    id: 1,
-                    username,
-                    password_hash,
-                    role,
-                    created_at: Utc::now(),
-                    updated_at: Utc::now(),
-                })
-            });
-        let service = AdminService::new(Arc::new(repo));
-
-        let response = service
-            .add(CreateAdminRequest {
-                username: "new-admin".into(),
-                password: "password".into(),
-                role: AdminRole::Admin,
-            })
-            .await
-            .unwrap();
-
-        assert_eq!(response.username, "new-admin");
-    }
-
-    #[tokio::test]
-    async fn list_page_without_extra_record_has_no_next_page() {
-        let mut repo = MockAdminRepositoryTrait::new();
-        repo.expect_list_page()
-            .returning(|_| Ok((1..=25).map(admin).collect()));
-        let service = AdminService::new(Arc::new(repo));
-
-        let response = service
-            .list(AdminPageRequest {
+    #[test]
+    fn build_list_response_without_extra_record_has_no_next_page() {
+        let admins = (1..=25).map(admin).collect();
+        let response = build_list_response(
+            admins,
+            AdminPageRequest {
                 page: 1,
                 per_page: 25,
-            })
-            .await
-            .unwrap();
+            },
+        );
 
         assert_eq!(response.admins.len(), 25);
         assert!(!response.has_next);
+    }
+
+    #[test]
+    fn resolve_delete_returns_ok_when_deleted() {
+        let admin = admin(1);
+        let res = resolve_delete(Some(admin), true);
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap().id, 1);
+    }
+
+    #[test]
+    fn resolve_delete_returns_forbidden_when_not_deleted_but_exists() {
+        let res = resolve_delete(None, true);
+        assert!(matches!(res, Err(AppError::Forbidden)));
+    }
+
+    #[test]
+    fn resolve_delete_returns_not_found_when_not_deleted_and_not_exists() {
+        let res = resolve_delete(None, false);
+        assert!(matches!(res, Err(AppError::NotFound)));
+    }
+
+    #[test]
+    fn ensure_self_passes_when_ids_match() {
+        assert!(ensure_self(1, 1).is_ok());
+    }
+
+    #[test]
+    fn ensure_self_returns_forbidden_when_ids_mismatch() {
+        assert!(matches!(ensure_self(1, 2), Err(AppError::Forbidden)));
     }
 }

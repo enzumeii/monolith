@@ -76,11 +76,22 @@ mod tests {
     }
 
     #[test]
-    fn new_falls_back_to_file_values_when_env_vars_are_absent() {
-        let settings =
-            temp_env::with_vars_unset(["DATABASE_URL", "JWT_SECRET"], Settings::new).unwrap();
+    fn new_reads_non_secret_fields_from_file_when_only_secrets_come_from_env() {
+        // Secrets (database.url, jwt.secret) are env-only by design and never
+        // live in application.toml. Supply them via env, then assert the
+        // non-secret fields still come from the file.
+        let settings = temp_env::with_vars(
+            [
+                ("DATABASE_URL", Some("postgres://env:env@localhost/env")),
+                ("JWT_SECRET", Some("env-secret")),
+            ],
+            Settings::new,
+        )
+        .unwrap();
 
         assert_eq!(settings.server.port, 3000);
         assert_eq!(settings.database.max_connections, 1);
+        assert_eq!(settings.database.url, "postgres://env:env@localhost/env");
+        assert_eq!(settings.jwt.secret, "env-secret");
     }
 }
