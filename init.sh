@@ -9,10 +9,8 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "→ Installing dev CLI tools (just, sqlx-cli, bacon)..."
-cargo install just sqlx-cli bacon
+echo "→ Installing dev CLI tools (just, sqlx-cli)..."
+cargo install just sqlx-cli
 
 echo ""
 echo "✓ Done. Next steps:"
-echo "    cd services/api && just setup   # scaffold .env.local"
-echo "    cd services/api && just --list  # see available commands"
