@@ -12,7 +12,6 @@
 pub mod admins;
 pub mod auth;
 
-#[cfg(feature = "server")]
 mod client;
 
 pub use admins::*;

@@ -3,11 +3,9 @@
 //! `services/api` over HTTP using the base URL from `application.toml`
 //! (overridable via env for Kubernetes). It never talks to the DB directly.
 
-#[cfg(feature = "server")]
-mod config;
-
 mod api;
 mod components;
+mod config;
 mod route;
 mod session;
 

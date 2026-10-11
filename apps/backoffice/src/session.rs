@@ -1,22 +1,12 @@
-//! In-memory authenticated session for the backoffice.
-//!
-//! The session is held only in client memory (a global Dioxus signal). A page
-//! reload resets to logged-out — no localStorage or cookie is used, per design.
-
 use dioxus::fullstack::AsStatusCode;
 use dioxus::prelude::*;
 use domain::AdminRole;
 use serde::{Deserialize, Serialize};
 
-/// Credentials and identity for the signed-in admin.
-///
-/// `expires_at` mirrors the access token's JWT `exp` claim; the server
-/// functions refresh the session transparently before it lapses.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Session {
     pub access_token: String,
     pub refresh_token: String,
-    /// Unix epoch seconds at which `access_token` expires.
     pub expires_at: i64,
     pub admin_id: i64,
     pub username: String,

@@ -12,7 +12,9 @@ use crate::session::Session;
 
 // Only used inside the server-side function bodies (compiled out on web).
 #[cfg(feature = "server")]
-use super::client::{decode, ensure_valid, url};
+use super::auth::ensure_valid;
+#[cfg(feature = "server")]
+use super::client::{decode, url};
 #[cfg(feature = "server")]
 use domain::dto::{CreateAdminRequest, UpdateAdminRequest};
 
