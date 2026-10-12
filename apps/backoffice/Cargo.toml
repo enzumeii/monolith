@@ -10,18 +10,20 @@ workspace = true
 dioxus = { workspace = true, features = ["router"] }
 domain = { path = "../../crates/domain" }
 serde = { workspace = true }
+futures = "0.3"
 reqwest = { version = "0.12", features = ["json"], optional = true }
-config = { workspace = true, optional = true }
-dotenvy = { workspace = true, optional = true }
+config = { workspace = true }
+dotenvy = { workspace = true }
+url = "2"
+web-time = "1"
+
+[dev-dependencies]
+temp-env = "0.3"
+tempfile = "3"
 
 [features]
 default = []
 # Fullstack web app: `web` is the only non-server renderer so `dx serve`
 # autodetects the web platform.
 web = ["dioxus/web"]
-server = [
-    "dioxus/server",
-    "dep:reqwest",
-    "dep:config",
-    "dep:dotenvy",
-]
+server = ["dioxus/server", "dep:reqwest"]

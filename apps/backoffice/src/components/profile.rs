@@ -1,11 +1,11 @@
 //! Profile page: any admin can update their own username and/or password.
-//!
-//! Updating your own account revokes your refresh tokens server-side, so a
-//! successful save signs you out and returns you to the login screen.
+//! Saving signs you out (the API revokes your tokens), so you log in again.
 
 use dioxus::prelude::*;
+use domain::dto::UpdateAdminRequest;
 
 use crate::api;
+use crate::components::form::{ErrorMessage, FormField};
 use crate::session::{self, SESSION};
 
 #[component]
@@ -16,7 +16,6 @@ pub fn Profile() -> Element {
     let mut error = use_signal(|| None::<String>);
     let mut busy = use_signal(|| false);
 
-    // Pre-fill the username from the session once mounted.
     use_effect(move || {
         if let Some(s) = SESSION.read().clone()
             && username.peek().is_empty()
@@ -55,12 +54,11 @@ pub fn Profile() -> Element {
                         error.set(None);
                         let id = my_id;
                         spawn(async move {
-                            let Some(cur) = session::current() else {
-                                return;
+                            let req = UpdateAdminRequest {
+                                username: Some(u),
+                                password: (!p.is_empty()).then_some(p),
                             };
-                            let p_opt = if p.is_empty() { None } else { Some(p) };
-                            match api::update_admin(cur, id, Some(u), p_opt).await {
-                                // Self-update revokes our tokens; require re-login.
+                            match session::with_session(|t| api::update_admin(id, req, t)).await {
                                 Ok(_) => session::sign_out(),
                                 Err(e) => {
                                     session::handle_api_error(&e);
@@ -70,33 +68,31 @@ pub fn Profile() -> Element {
                             }
                         });
                     },
-                    label { r#for: "profile-username", "Username" }
-                    input {
+                    FormField {
+                        label: "Username",
                         id: "profile-username",
-                        r#type: "text",
+                        input_type: "text",
                         autocomplete: "username",
-                        value: "{username}",
-                        oninput: move |e| username.set(e.value()),
+                        value: username(),
+                        on_input: move |v: String| username.set(v),
                     }
-                    label { r#for: "profile-password", "New password" }
-                    input {
+                    FormField {
+                        label: "New password",
                         id: "profile-password",
-                        r#type: "password",
+                        input_type: "password",
                         autocomplete: "new-password",
-                        value: "{password}",
-                        oninput: move |e| password.set(e.value()),
+                        value: password(),
+                        on_input: move |v: String| password.set(v),
                     }
-                    label { r#for: "profile-confirm", "Confirm new password" }
-                    input {
+                    FormField {
+                        label: "Confirm new password",
                         id: "profile-confirm",
-                        r#type: "password",
+                        input_type: "password",
                         autocomplete: "new-password",
-                        value: "{confirm}",
-                        oninput: move |e| confirm.set(e.value()),
+                        value: confirm(),
+                        on_input: move |v: String| confirm.set(v),
                     }
-                    if let Some(msg) = error() {
-                        p { class: "error", role: "alert", "{msg}" }
-                    }
+                    ErrorMessage { message: error() }
                     p { class: "hint", "Saving updates your account and signs you out." }
                     button { r#type: "submit", class: "primary", disabled: busy(),
                         if busy() { "Saving…" } else { "Save changes" }

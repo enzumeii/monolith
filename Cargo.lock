@@ -387,8 +387,13 @@ dependencies = [
  "dioxus",
  "domain",
  "dotenvy",
+ "futures",
  "reqwest",
  "serde",
+ "temp-env",
+ "tempfile",
+ "url",
+ "web-time",
 ]
 
 [[package]]

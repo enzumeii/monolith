@@ -4,7 +4,6 @@
 use dioxus::prelude::*;
 use domain::AdminRole;
 
-use crate::api;
 use crate::route::Route;
 use crate::session::{self, SESSION};
 
@@ -33,14 +32,7 @@ pub fn Navbar() -> Element {
                 }
                 button {
                     class: "logout",
-                    onclick: move |_| {
-                        spawn(async move {
-                            if let Some(s) = session::current() {
-                                let _ = api::logout(s).await;
-                            }
-                            session::sign_out();
-                        });
-                    },
+                    onclick: move |_| session::sign_out(),
                     "Logout"
                 }
             }

@@ -1,7 +1,6 @@
 //! Authed admin backoffice: login, admin management (super admin), profile.
-//! Dioxus fullstack (web FE + axum server). The server proxies to the internal
-//! `services/api` over HTTP using the base URL from `application.toml`
-//! (overridable via env for Kubernetes). It never talks to the DB directly.
+//! Dioxus fullstack (web frontend + axum BFF server) that proxies to the
+//! internal `services/api`; it never talks to the database directly.
 
 mod api;
 mod components;
@@ -16,10 +15,11 @@ use crate::route::Route;
 use crate::session::SESSION;
 
 fn main() {
-    // `dioxus::launch` auto-detects the platform from the enabled dioxus feature
-    // (`web` for the wasm client, `server` for the fullstack axum server), so a
-    // single entry point serves both builds. The server binds to the `IP`/`PORT`
-    // env vars (set by `dx serve` for dev, or manually for deployment).
+    if std::env::args().any(|a| a == "--print-bind") {
+        let s = config::settings();
+        println!("{} {}", s.server.host, s.server.port);
+        return;
+    }
     dioxus::launch(App);
 }
 

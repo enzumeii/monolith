@@ -1,14 +1,16 @@
-//! UI components, one file per page, plus shared chrome (`navbar`) and a
-//! fallback error page (`error`).
+//! UI components, one module per page plus shared chrome (navbar), form
+//! primitives (form), and the error fallback (error). The admin management
+//! page lives in the `admin` submodule.
 
-mod admins;
+mod admin;
 mod error;
+mod form;
 mod home;
 mod login;
 mod navbar;
 mod profile;
 
-pub use admins::Admins;
+pub use admin::Admins;
 pub use error::NotFound;
 pub use home::Home;
 pub use login::Login;

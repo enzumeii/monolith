@@ -1,106 +1,96 @@
-//! Admin-management server functions.
-//!
-//! Used by the Admins page (super admin) and by the Profile page for the
-//! self-service update — a single `update_admin` endpoint is the source of
-//! truth for both, so there is no separate profile API module.
-
 use dioxus::prelude::*;
-use domain::AdminRole;
-use domain::dto::{AdminDTO, AdminListResponse};
+use domain::dto::{
+    AdminDTO, AdminListResponse, CreateAdminRequest, ListAdminsQuery, UpdateAdminRequest,
+};
 
-use crate::session::Session;
-
-/// List admins with pagination (`GET /v1/admins`).
+/// GET `/v1/admins?page=&per_page=`.
 #[server]
 pub async fn list_admins(
-    session: Session,
-    page: u32,
-    per_page: u32,
-) -> ServerFnResult<(Session, AdminListResponse)> {
-    let session = super::client::ensure_valid(session).await?;
-    let out: AdminListResponse = super::client::decode(
-        reqwest::Client::new()
+    query: ListAdminsQuery,
+    access_token: String,
+) -> ServerFnResult<AdminListResponse> {
+    let page = query.page.unwrap_or(1);
+    let per_page = query.per_page.unwrap_or(25);
+    super::client::decode(
+        super::client::client()
             .get(super::client::url(&format!(
                 "/admins?page={page}&per_page={per_page}"
             )))
-            .bearer_auth(&session.access_token)
+            .bearer_auth(&access_token)
             .send()
             .await
             .map_err(|e| ServerFnError::new(format!("list request failed: {e}")))?,
         "admin list",
     )
-    .await?;
-    Ok((session, out))
+    .await
 }
 
-/// Create a new admin (`POST /v1/admins`). Super admin only (API-enforced).
+/// GET `/v1/admins/{id}`.
+#[server]
+pub async fn get_admin(id: i64, access_token: String) -> ServerFnResult<AdminDTO> {
+    super::client::decode(
+        super::client::client()
+            .get(super::client::url(&format!("/admins/{id}")))
+            .bearer_auth(&access_token)
+            .send()
+            .await
+            .map_err(|e| ServerFnError::new(format!("get admin request failed: {e}")))?,
+        "admin",
+    )
+    .await
+}
+
+/// POST `/v1/admins`. Super admin only (API-enforced).
 #[server]
 pub async fn create_admin(
-    session: Session,
-    username: String,
-    password: String,
-    role: AdminRole,
-) -> ServerFnResult<(Session, AdminDTO)> {
-    let session = super::client::ensure_valid(session).await?;
-    let out: AdminDTO = super::client::decode(
-        reqwest::Client::new()
+    req: CreateAdminRequest,
+    access_token: String,
+) -> ServerFnResult<AdminDTO> {
+    super::client::decode(
+        super::client::client()
             .post(super::client::url("/admins"))
-            .bearer_auth(&session.access_token)
-            .json(&domain::dto::CreateAdminRequest {
-                username,
-                password,
-                role,
-            })
+            .bearer_auth(&access_token)
+            .json(&req)
             .send()
             .await
             .map_err(|e| ServerFnError::new(format!("create request failed: {e}")))?,
         "created admin",
     )
-    .await?;
-    Ok((session, out))
+    .await
 }
 
-/// Update an admin's username and/or password (`PATCH /v1/admins/{id}`).
-///
-/// A super admin may update any account; a regular admin may update only
-/// their own (their profile). The upstream revokes the target's refresh
-/// tokens on update.
+/// PATCH `/v1/admins/{id}`. Super admins update any account; regular admins
+/// only their own. The upstream revokes the target's refresh tokens on update.
 #[server]
 pub async fn update_admin(
-    session: Session,
     id: i64,
-    username: Option<String>,
-    password: Option<String>,
-) -> ServerFnResult<(Session, AdminDTO)> {
-    let session = super::client::ensure_valid(session).await?;
-    let out: AdminDTO = super::client::decode(
-        reqwest::Client::new()
+    req: UpdateAdminRequest,
+    access_token: String,
+) -> ServerFnResult<AdminDTO> {
+    super::client::decode(
+        super::client::client()
             .patch(super::client::url(&format!("/admins/{id}")))
-            .bearer_auth(&session.access_token)
-            .json(&domain::dto::UpdateAdminRequest { username, password })
+            .bearer_auth(&access_token)
+            .json(&req)
             .send()
             .await
             .map_err(|e| ServerFnError::new(format!("update request failed: {e}")))?,
         "updated admin",
     )
-    .await?;
-    Ok((session, out))
+    .await
 }
 
-/// Delete an admin (`DELETE /v1/admins/{id}`). Super admin only and never
-/// self (API-enforced).
+/// DELETE `/v1/admins/{id}`. Super admin only and never self (API-enforced).
 #[server]
-pub async fn delete_admin(session: Session, id: i64) -> ServerFnResult<(Session, AdminDTO)> {
-    let session = super::client::ensure_valid(session).await?;
-    let out: AdminDTO = super::client::decode(
-        reqwest::Client::new()
+pub async fn delete_admin(id: i64, access_token: String) -> ServerFnResult<AdminDTO> {
+    super::client::decode(
+        super::client::client()
             .delete(super::client::url(&format!("/admins/{id}")))
-            .bearer_auth(&session.access_token)
+            .bearer_auth(&access_token)
             .send()
             .await
             .map_err(|e| ServerFnError::new(format!("delete request failed: {e}")))?,
         "deleted admin",
     )
-    .await?;
-    Ok((session, out))
+    .await
 }

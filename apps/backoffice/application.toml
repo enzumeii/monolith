@@ -1,13 +1,6 @@
-# Backoffice configuration (local default).
-#
-# Every value must come from this file, an `application.<RUN_ENV>.toml`
-# override, or the environment (`BACKOFFICE__UPSTREAM__API_BASE`, also loadable
-# from a local `.env`). There are no in-code defaults — a missing value fails
-# startup fast.
-#
-# The web server's own bind address is controlled by the `IP`/`PORT` env vars
-# (set by `dx serve` for dev, or manually for deployment), per the Dioxus
-# fullstack convention.
+[server]
+host = "127.0.0.1"
+port = 8084
 
 [upstream]
 # Base URL of the internal API service (services/api), including the `/v1` prefix.

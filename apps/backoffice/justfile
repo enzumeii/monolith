@@ -2,28 +2,21 @@
 default:
     @just --list
 
-# Create .env if missing
+# Create .env if missing (never overwrites an existing one)
 setup:
     #!/usr/bin/env bash
     if [ ! -f .env ]; then
       echo '→ Scaffolding .env from template...'
       printf '%s\n' \
         'RUN_ENV=local' > .env
-      echo '  .env created successfully'
+      echo '  .env created successfully (put secrets/overrides here; never commit them)'
     else
       echo '→ .env already exists, leaving it untouched.'
     fi
-# Dev: run the fullstack app with hot reload (requires the Dioxus CLI).
-# The internal API must be running separately (see services/api).
-serve:
-    dx serve
 
-# Run the server binary directly (no hot reload). Builds the web bundle with
-# dx first, then serves it via DIOXUS_PUBLIC_PATH (where the server looks for
-# the prebuilt assets). For dev with hot reload, use `just serve`.
-run:
+# Build the web client + BFF server bundle via the Dioxus CLI
+build:
     dx build
-    DIOXUS_PUBLIC_PATH=../../target/dx/backoffice/debug/web/public cargo run -p backoffice --features server
 
 # Check: format check + strict lint for both server and web (wasm) targets
 check:
@@ -31,11 +24,21 @@ check:
     cargo clippy -p backoffice --features server --all-targets -- -D warnings
     cargo clippy -p backoffice --features web --target wasm32-unknown-unknown --all-targets -- -D warnings
 
-# Fix: apply format fix + lint fix (server target)
+# Fix: apply format fix + lint fix
 fix:
     cargo fmt -p backoffice
     cargo clippy -p backoffice --features server --fix --allow-dirty --allow-staged -- -D warnings
+    cargo clippy -p backoffice --features web --target wasm32-unknown-unknown --fix --allow-dirty --allow-staged -- -D warnings
 
-# Test: run backoffice tests (validates the server target builds)
+# Dev: hot-reload the fullstack app on the configured public host/port.
+# The bind address is resolved from application.toml via the same Rust loader.
+# The internal API must be running separately (see services/api).
+serve:
+    #!/usr/bin/env bash
+    read -r ADDR PORT <<< "$(cargo run -q -p backoffice --features server -- --print-bind)"
+    echo "→ Serving backoffice at http://$ADDR:$PORT (hot reload)"
+    dx serve --web --fullstack --addr "$ADDR" --port "$PORT"
+
+# Test: run backoffice tests (config, etc.)
 test:
     cargo test -p backoffice --features server

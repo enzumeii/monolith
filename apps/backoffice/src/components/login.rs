@@ -1,8 +1,8 @@
-//! Login screen (`/v1/auth/login` via the `api::login` server function).
+//! Login screen (`/v1/auth/login` via [`crate::session::sign_in`]).
 
 use dioxus::prelude::*;
 
-use crate::api;
+use crate::components::form::{ErrorMessage, FormField};
 use crate::session;
 
 #[component]
@@ -26,33 +26,31 @@ pub fn Login() -> Element {
                     let u = username.read().clone();
                     let p = password.read().clone();
                     spawn(async move {
-                        match api::login(u, p).await {
-                            Ok(s) => session::sign_in(s),
+                        match session::sign_in(u, p).await {
+                            Ok(()) => {}
                             Err(e) => error.set(Some(e.to_string())),
                         }
                         busy.set(false);
                     });
                 },
                 h1 { class: "login-title", "Backoffice" }
-                label { r#for: "login-username", "Username" }
-                input {
+                FormField {
+                    label: "Username",
                     id: "login-username",
-                    r#type: "text",
+                    input_type: "text",
                     autocomplete: "username",
-                    value: "{username}",
-                    oninput: move |e| username.set(e.value()),
+                    value: username(),
+                    on_input: move |v: String| username.set(v),
                 }
-                label { r#for: "login-password", "Password" }
-                input {
+                FormField {
+                    label: "Password",
                     id: "login-password",
-                    r#type: "password",
+                    input_type: "password",
                     autocomplete: "current-password",
-                    value: "{password}",
-                    oninput: move |e| password.set(e.value()),
+                    value: password(),
+                    on_input: move |v: String| password.set(v),
                 }
-                if let Some(msg) = error() {
-                    p { class: "error", role: "alert", "{msg}" }
-                }
+                ErrorMessage { message: error() }
                 button { r#type: "submit", class: "primary", disabled: busy(),
                     if busy() { "Signing in…" } else { "Sign in" }
                 }
