@@ -1,44 +1,42 @@
-# Default target
+web_target := "wasm32-unknown-unknown"
+
 default:
     @just --list
 
-# Create .env if missing (never overwrites an existing one)
 setup:
     #!/usr/bin/env bash
+    set -euo pipefail
+    command -v dx >/dev/null || { echo 'Install dioxus-cli 0.7.10 first'; exit 1; }
+    case "$(rustup target list --installed)" in
+      *{{web_target}}*) ;;
+      *) echo 'Run rustup target add {{web_target}} first'; exit 1 ;;
+    esac
     if [ ! -f .env ]; then
-      echo '→ Scaffolding .env from template...'
-      printf '%s\n' \
-        'RUN_ENV=local' > .env
-      echo '  .env created successfully (put secrets/overrides here; never commit them)'
-    else
-      echo '→ .env already exists, leaving it untouched.'
+      printf '%s\n' 'RUN_ENV=local' > .env
     fi
 
-# Build the web client + BFF server bundle via the Dioxus CLI
 build:
-    dx build
+    dx build --web --fullstack --no-default-features --package backoffice
 
-# Check: format check + strict lint for both server and web (wasm) targets
 check:
     cargo fmt --check -p backoffice
     cargo clippy -p backoffice --features server --all-targets -- -D warnings
-    cargo clippy -p backoffice --features web --target wasm32-unknown-unknown --all-targets -- -D warnings
+    cargo clippy -p backoffice --no-default-features --features web --target {{web_target}} --all-targets -- -D warnings
 
-# Fix: apply format fix + lint fix
 fix:
     cargo fmt -p backoffice
     cargo clippy -p backoffice --features server --fix --allow-dirty --allow-staged -- -D warnings
-    cargo clippy -p backoffice --features web --target wasm32-unknown-unknown --fix --allow-dirty --allow-staged -- -D warnings
+    cargo clippy -p backoffice --no-default-features --features web --target {{web_target}} --fix --allow-dirty --allow-staged -- -D warnings
 
-# Dev: hot-reload the fullstack app on the configured public host/port.
-# The bind address is resolved from application.toml via the same Rust loader.
-# The internal API must be running separately (see services/api).
 serve:
     #!/usr/bin/env bash
-    read -r ADDR PORT <<< "$(cargo run -q -p backoffice --features server -- --print-bind)"
-    echo "→ Serving backoffice at http://$ADDR:$PORT (hot reload)"
-    dx serve --web --fullstack --addr "$ADDR" --port "$PORT"
+    set -euo pipefail
+    binding="$(cargo run -q -p backoffice --features server -- --print-bind)"
+    read -r host port <<< "$binding"
+    exec dx serve --web --fullstack --no-default-features --addr "$host" --port "$port"
 
-# Test: run backoffice tests (config, etc.)
+run: build
+    ../../target/dx/backoffice/debug/web/server
+
 test:
     cargo test -p backoffice --features server

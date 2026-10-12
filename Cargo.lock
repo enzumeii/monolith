@@ -392,9 +392,9 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "temp-env",
- "tempfile",
- "url",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
  "web-time",
 ]
 
