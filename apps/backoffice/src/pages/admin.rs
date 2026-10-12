@@ -11,7 +11,7 @@ use domain::AdminRole;
 use domain::dto::{AdminListResponse, ListAdminsQuery};
 
 use crate::api;
-use crate::components::form::ErrorMessage;
+use crate::components::ErrorMessage;
 use crate::session::{self, SESSION};
 
 const PER_PAGE: u32 = 25;

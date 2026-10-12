@@ -1,9 +1,10 @@
-//! One admin row with inline edit + delete.
+//! One admin row with inline edit + delete (both behind a confirm dialog).
 
 use dioxus::prelude::*;
 use domain::dto::{AdminDTO, UpdateAdminRequest};
 
 use crate::api;
+use crate::components::Confirm;
 use crate::session;
 
 #[component]
@@ -12,12 +13,41 @@ pub fn AdminRow(admin: AdminDTO, my_id: i64, on_changed: EventHandler<()>) -> El
     let mut username = use_signal(String::new);
     let mut password = use_signal(String::new);
     let mut error = use_signal(|| None::<String>);
+    let mut confirm_save = use_signal(|| false);
+    let mut confirm_delete = use_signal(|| false);
 
     let id = admin.id;
     let role = admin.role;
     let name = admin.username.clone();
     let name_edit = admin.username.clone();
     let is_self = id == my_id;
+
+    let save = move |()| {
+        let u = username.read().clone();
+        let p = password.read().clone();
+        confirm_save.set(false);
+        spawn(async move {
+            let req = UpdateAdminRequest {
+                username: Some(u),
+                password: (!p.is_empty()).then_some(p),
+            };
+            match session::with_session(|t| api::update_admin(id, req, t)).await {
+                Ok(_) => {
+                    if is_self {
+                        session::sign_out();
+                    } else {
+                        editing.set(false);
+                        error.set(None);
+                        on_changed(());
+                    }
+                }
+                Err(e) => {
+                    session::handle_api_error(&e);
+                    error.set(Some(e.to_string()));
+                }
+            }
+        });
+    };
 
     rsx! {
         tr {
@@ -45,31 +75,7 @@ pub fn AdminRow(admin: AdminDTO, my_id: i64, on_changed: EventHandler<()>) -> El
                     }
                     button {
                         class: "primary",
-                        onclick: move |_| {
-                            let u = username.read().clone();
-                            let p = password.read().clone();
-                            spawn(async move {
-                                let req = UpdateAdminRequest {
-                                    username: Some(u),
-                                    password: (!p.is_empty()).then_some(p),
-                                };
-                                match session::with_session(|t| api::update_admin(id, req, t)).await {
-                                    Ok(_) => {
-                                        if is_self {
-                                            session::sign_out();
-                                        } else {
-                                            editing.set(false);
-                                            error.set(None);
-                                            on_changed(());
-                                        }
-                                    }
-                                    Err(e) => {
-                                        session::handle_api_error(&e);
-                                        error.set(Some(e.to_string()));
-                                    }
-                                }
-                            });
-                        },
+                        onclick: move |_| confirm_save.set(true),
                         "Save"
                     }
                     button {
@@ -90,20 +96,7 @@ pub fn AdminRow(admin: AdminDTO, my_id: i64, on_changed: EventHandler<()>) -> El
                     button {
                         class: "danger",
                         disabled: is_self,
-                        onclick: move |_| {
-                            spawn(async move {
-                                match session::with_session(|t| api::delete_admin(id, t)).await {
-                                    Ok(_) => {
-                                        error.set(None);
-                                        on_changed(());
-                                    }
-                                    Err(e) => {
-                                        session::handle_api_error(&e);
-                                        error.set(Some(e.to_string()));
-                                    }
-                                }
-                            });
-                        },
+                        onclick: move |_| confirm_delete.set(true),
                         "Delete"
                     }
                 }
@@ -113,6 +106,38 @@ pub fn AdminRow(admin: AdminDTO, my_id: i64, on_changed: EventHandler<()>) -> El
             tr {
                 td { colspan: "4", class: "error", role: "alert", "{msg}" }
             }
+        }
+        Confirm {
+            open: confirm_save(),
+            title: "Update admin",
+            message: "Save changes to {name}?",
+            confirm_label: "Save",
+            danger: false,
+            on_confirm: save,
+            on_cancel: move |()| confirm_save.set(false),
+        }
+        Confirm {
+            open: confirm_delete(),
+            title: "Delete admin",
+            message: "Permanently delete {name}? This cannot be undone.",
+            confirm_label: "Delete",
+            danger: true,
+            on_confirm: move |()| {
+                confirm_delete.set(false);
+                spawn(async move {
+                    match session::with_session(|t| api::delete_admin(id, t)).await {
+                        Ok(_) => {
+                            error.set(None);
+                            on_changed(());
+                        }
+                        Err(e) => {
+                            session::handle_api_error(&e);
+                            error.set(Some(e.to_string()));
+                        }
+                    }
+                });
+            },
+            on_cancel: move |()| confirm_delete.set(false),
         }
     }
 }

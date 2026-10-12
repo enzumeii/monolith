@@ -1,16 +1,13 @@
-//! Authed admin backoffice: login, admin management (super admin), profile.
-//! Dioxus fullstack (web frontend + axum BFF server) that proxies to the
-//! internal `services/api`; it never talks to the database directly.
-
 mod api;
 mod components;
 mod config;
+mod pages;
 mod route;
 mod session;
 
 use dioxus::prelude::*;
 
-use crate::components::Login;
+use crate::pages::Login;
 use crate::route::Route;
 use crate::session::SESSION;
 
@@ -25,6 +22,10 @@ fn main() {
 
 #[component]
 fn App() -> Element {
+    // Restore any persisted session once on mount (after hydration; a no-op
+    // during SSR, so server and initial client render match).
+    use_effect(session::restore);
+
     rsx! {
         document::Stylesheet { href: asset!("/assets/main.css") }
         if SESSION.read().is_none() {

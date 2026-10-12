@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::components::{Admins, Home, Navbar, NotFound, Profile};
+use crate::pages::{Admins, Home, Navbar, NotFound, Profile};
 
 #[derive(Clone, Debug, PartialEq, Routable)]
 pub enum Route {

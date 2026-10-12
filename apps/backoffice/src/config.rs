@@ -163,4 +163,24 @@ mod tests {
         let s = Settings::load_from(dir.path(), None).unwrap();
         assert!(s.validate().is_err());
     }
+
+    #[test]
+    fn empty_host_and_zero_port_fail_validation() {
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path(),
+            "application.toml",
+            "[server]\nhost = \"  \"\nport = 8084\n[upstream]\napi_base = \"http://a:3000/v1\"\n",
+        );
+        let empty_host = Settings::load_from(dir.path(), None).unwrap();
+        assert!(empty_host.validate().is_err());
+
+        write(
+            dir.path(),
+            "application.toml",
+            "[server]\nhost = \"127.0.0.1\"\nport = 0\n[upstream]\napi_base = \"http://a:3000/v1\"\n",
+        );
+        let zero_port = Settings::load_from(dir.path(), None).unwrap();
+        assert!(zero_port.validate().is_err());
+    }
 }

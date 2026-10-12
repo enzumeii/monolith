@@ -5,7 +5,8 @@ use dioxus::prelude::*;
 use domain::dto::UpdateAdminRequest;
 
 use crate::api;
-use crate::components::form::{ErrorMessage, FormField};
+use crate::components::Confirm;
+use crate::components::{ErrorMessage, FormField};
 use crate::session::{self, SESSION};
 
 #[component]
@@ -15,6 +16,7 @@ pub fn Profile() -> Element {
     let mut confirm = use_signal(String::new);
     let mut error = use_signal(|| None::<String>);
     let mut busy = use_signal(|| false);
+    let mut confirm_save = use_signal(|| false);
 
     use_effect(move || {
         if let Some(s) = SESSION.read().clone()
@@ -36,9 +38,6 @@ pub fn Profile() -> Element {
                     class: "panel",
                     onsubmit: move |e| {
                         e.prevent_default();
-                        if busy() {
-                            return;
-                        }
                         let u = username.read().clone();
                         let p = password.read().clone();
                         let c = confirm.read().clone();
@@ -50,23 +49,8 @@ pub fn Profile() -> Element {
                             error.set(Some("passwords do not match".into()));
                             return;
                         }
-                        busy.set(true);
                         error.set(None);
-                        let id = my_id;
-                        spawn(async move {
-                            let req = UpdateAdminRequest {
-                                username: Some(u),
-                                password: (!p.is_empty()).then_some(p),
-                            };
-                            match session::with_session(|t| api::update_admin(id, req, t)).await {
-                                Ok(_) => session::sign_out(),
-                                Err(e) => {
-                                    session::handle_api_error(&e);
-                                    error.set(Some(e.to_string()));
-                                    busy.set(false);
-                                }
-                            }
-                        });
+                        confirm_save.set(true);
                     },
                     FormField {
                         label: "Username",
@@ -101,6 +85,33 @@ pub fn Profile() -> Element {
             } else {
                 p { "Not signed in." }
             }
+        }
+        Confirm {
+            open: confirm_save(),
+            title: "Update profile",
+            message: "Save your changes? You will be signed out.",
+            confirm_label: "Save",
+            danger: false,
+            on_confirm: move |()| {
+                confirm_save.set(false);
+                busy.set(true);
+                let id = my_id;
+                let req = UpdateAdminRequest {
+                    username: Some(username.read().clone()),
+                    password: (!password.read().is_empty()).then(|| password.read().clone()),
+                };
+                spawn(async move {
+                    match session::with_session(|t| api::update_admin(id, req, t)).await {
+                        Ok(_) => session::sign_out(),
+                        Err(e) => {
+                            session::handle_api_error(&e);
+                            error.set(Some(e.to_string()));
+                            busy.set(false);
+                        }
+                    }
+                });
+            },
+            on_cancel: move |()| confirm_save.set(false),
         }
     }
 }

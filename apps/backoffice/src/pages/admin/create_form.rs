@@ -1,11 +1,12 @@
-//! Create-admin form.
+//! Create-admin form (behind a confirm dialog).
 
 use dioxus::prelude::*;
 use domain::AdminRole;
 use domain::dto::CreateAdminRequest;
 
 use crate::api;
-use crate::components::form::{ErrorMessage, FormField};
+use crate::components::Confirm;
+use crate::components::{ErrorMessage, FormField};
 use crate::session;
 
 #[component]
@@ -14,38 +15,19 @@ pub fn AdminCreateForm(on_created: EventHandler<()>) -> Element {
     let mut password = use_signal(String::new);
     let mut role = use_signal(AdminRole::default);
     let mut error = use_signal(|| None::<String>);
+    let mut confirm = use_signal(|| false);
 
     rsx! {
         form {
             class: "panel create-form",
             onsubmit: move |e| {
                 e.prevent_default();
-                let u = username.read().clone();
-                let p = password.read().clone();
-                let r = role();
-                if u.is_empty() || p.is_empty() {
+                if username.read().is_empty() || password.read().is_empty() {
                     error.set(Some("username and password are required".into()));
                     return;
                 }
                 error.set(None);
-                spawn(async move {
-                    let req = CreateAdminRequest {
-                        username: u,
-                        password: p,
-                        role: r,
-                    };
-                    match session::with_session(|t| api::create_admin(req, t)).await {
-                        Ok(_) => {
-                            username.set(String::new());
-                            password.set(String::new());
-                            on_created(());
-                        }
-                        Err(e) => {
-                            session::handle_api_error(&e);
-                            error.set(Some(e.to_string()));
-                        }
-                    }
-                });
+                confirm.set(true);
             },
             h3 { "Create admin" }
             FormField {
@@ -80,6 +62,35 @@ pub fn AdminCreateForm(on_created: EventHandler<()>) -> Element {
             }
             ErrorMessage { message: error() }
             button { r#type: "submit", class: "primary", "Create" }
+        }
+        Confirm {
+            open: confirm(),
+            title: "Create admin",
+            message: format!("Create admin \"{}\"?", username.read()),
+            confirm_label: "Create",
+            danger: false,
+            on_confirm: move |()| {
+                confirm.set(false);
+                let req = CreateAdminRequest {
+                    username: username.read().clone(),
+                    password: password.read().clone(),
+                    role: role(),
+                };
+                spawn(async move {
+                    match session::with_session(|t| api::create_admin(req, t)).await {
+                        Ok(_) => {
+                            username.set(String::new());
+                            password.set(String::new());
+                            on_created(());
+                        }
+                        Err(e) => {
+                            session::handle_api_error(&e);
+                            error.set(Some(e.to_string()));
+                        }
+                    }
+                });
+            },
+            on_cancel: move |()| confirm.set(false),
         }
     }
 }

@@ -251,3 +251,40 @@ button.logout {
     padding: 0.5rem 0.7rem;
     font-size: 0.88rem;
 }
+
+/* ---- Confirm dialog ---- */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    z-index: 50;
+}
+
+.modal {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 0.6rem;
+    padding: 1.25rem;
+    max-width: 400px;
+    width: 100%;
+}
+
+.modal-title {
+    margin: 0 0 0.5rem;
+    font-size: 1.1rem;
+}
+
+.modal-message {
+    color: var(--muted);
+    margin: 0 0 1rem;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}

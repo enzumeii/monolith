@@ -17,7 +17,11 @@ dotenvy = { workspace = true }
 url = "2"
 web-time = "1"
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-storage = "0.3"
+
 [dev-dependencies]
+serde_json.workspace = true
 temp-env = "0.3"
 tempfile = "3"
 

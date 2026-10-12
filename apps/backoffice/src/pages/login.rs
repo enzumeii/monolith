@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::form::{ErrorMessage, FormField};
+use crate::components::{ErrorMessage, FormField};
 use crate::session;
 
 #[component]
