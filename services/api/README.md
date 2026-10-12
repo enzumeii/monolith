@@ -1,4 +1,4 @@
-# API Service [services/api]
+# API Service
 
 ## Running locally
 
