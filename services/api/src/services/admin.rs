@@ -1,20 +1,19 @@
+use crate::validations::admin::AdminPageRequest;
 use crate::{error::AppError, repositories::admin, utils::password};
-use domain::dto::{
-    AdminDTO, AdminListResponse, AdminPageRequest, CreateAdminRequest, UpdateAdminRequest,
-};
+use domain::dto::{AdminDTO, AdminListResponse, CreateAdminRequest, UpdateAdminRequest};
 use sqlx::PgPool;
 
 #[tracing::instrument(skip(pool))]
 pub async fn list(pool: &PgPool, page: AdminPageRequest) -> Result<AdminListResponse, AppError> {
     let mut entities = admin::list_page(pool, page).await?;
-    let has_next = entities.len() > page.per_page as usize;
-    entities.truncate(page.per_page as usize);
+    let has_next = entities.len() > page.per_page() as usize;
+    entities.truncate(page.per_page() as usize);
     let admins = entities.into_iter().map(AdminDTO::from).collect();
 
     Ok(AdminListResponse {
         admins,
-        page: page.page,
-        per_page: page.per_page,
+        page: page.page(),
+        per_page: page.per_page(),
         has_next,
     })
 }

@@ -1,20 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "db")]
-use crate::entities::Admin;
-
-/// Admin privilege level.
-///
-/// This is a wire type shared by the API and the web backoffice, so it lives
-/// in the `dto` module and is always compiled (no database dependency). When
-/// the `db` feature is active it also maps to the Postgres `ADMIN_ROLE` enum
-/// via sqlx.
+/// Admin privilege level in the API wire contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "db", derive(sqlx::Type))]
-#[cfg_attr(
-    feature = "db",
-    sqlx(type_name = "ADMIN_ROLE", rename_all = "SCREAMING_SNAKE_CASE")
-)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AdminRole {
     SuperAdmin,
@@ -51,12 +38,6 @@ pub struct ListAdminsQuery {
     pub per_page: Option<u32>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct AdminPageRequest {
-    pub page: u32,
-    pub per_page: u32,
-}
-
 //////////////////////// RESPONSES ////////////////////////
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdminListResponse {
@@ -71,15 +52,4 @@ pub struct AdminDTO {
     pub id: i64,
     pub username: String,
     pub role: AdminRole,
-}
-
-#[cfg(feature = "db")]
-impl From<Admin> for AdminDTO {
-    fn from(admin: Admin) -> Self {
-        Self {
-            id: admin.id,
-            username: admin.username,
-            role: admin.role,
-        }
-    }
 }

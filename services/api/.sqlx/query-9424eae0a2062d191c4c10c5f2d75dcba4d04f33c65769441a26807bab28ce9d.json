@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT id, username, password_hash, role AS \"role: AdminRole\", created_at, updated_at\n                FROM admin\n                WHERE username = $1\n            ",
+  "query": "\n                INSERT INTO admin (username, password_hash, role)\n                VALUES ($1, $2, $3::ADMIN_ROLE)\n                RETURNING id, username, password_hash, role AS \"role: DbAdminRole\", created_at, updated_at\n            ",
   "describe": {
     "columns": [
       {
@@ -38,7 +38,7 @@
       },
       {
         "ordinal": 3,
-        "name": "role: AdminRole",
+        "name": "role: DbAdminRole",
         "type_info": {
           "Custom": {
             "name": "admin_role",
@@ -82,7 +82,19 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Varchar",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "admin_role",
+            "kind": {
+              "Enum": [
+                "SUPER_ADMIN",
+                "ADMIN"
+              ]
+            }
+          }
+        }
       ]
     },
     "nullable": [
@@ -94,5 +106,5 @@
       false
     ]
   },
-  "hash": "226c7bf4d1dc5524fd6e07b1aa2c26f86424fcfefeb15159e5805c06a91ebdeb"
+  "hash": "9424eae0a2062d191c4c10c5f2d75dcba4d04f33c65769441a26807bab28ce9d"
 }

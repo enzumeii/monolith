@@ -1,6 +1,6 @@
 use crate::error::AppError;
+use crate::models::{DbAdminRole, TokenRefreshRecord};
 use chrono::{DateTime, Utc};
-use domain::{dto::AdminRole, entities::TokenRefreshRecord};
 use sqlx::PgPool;
 
 #[tracing::instrument(skip(pool))]
@@ -41,7 +41,7 @@ pub async fn consume_refresh_token(
               AND rt.revoked_at IS NULL
               AND rt.expires_at > NOW()
             RETURNING rt.id AS token_id, rt.admin_id, a.username,
-                      a.role AS "role: AdminRole", rt.expires_at, rt.revoked_at
+                      a.role AS "role: DbAdminRole", rt.expires_at, rt.revoked_at
             "#,
         token_hash
     )

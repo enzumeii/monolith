@@ -142,7 +142,7 @@ pub async fn seed_admin(pool: &PgPool, username: &str, password: &str, role: Adm
 pub fn jwt_for(admin_id: i64, role: AdminRole) -> String {
     encode(
         &Header::default(),
-        &domain::dto::Claims {
+        &api::auth::Claims {
             admin_id,
             username: "admin".into(),
             role,

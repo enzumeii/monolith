@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE refresh_tokens AS rt\n            SET revoked_at = NOW()\n            FROM admin AS a\n            WHERE rt.admin_id = a.id\n              AND rt.token_hash = $1\n              AND rt.revoked_at IS NULL\n              AND rt.expires_at > NOW()\n            RETURNING rt.id AS token_id, rt.admin_id, a.username,\n                      a.role AS \"role: AdminRole\", rt.expires_at, rt.revoked_at\n            ",
+  "query": "\n            UPDATE refresh_tokens AS rt\n            SET revoked_at = NOW()\n            FROM admin AS a\n            WHERE rt.admin_id = a.id\n              AND rt.token_hash = $1\n              AND rt.revoked_at IS NULL\n              AND rt.expires_at > NOW()\n            RETURNING rt.id AS token_id, rt.admin_id, a.username,\n                      a.role AS \"role: DbAdminRole\", rt.expires_at, rt.revoked_at\n            ",
   "describe": {
     "columns": [
       {
@@ -38,7 +38,7 @@
       },
       {
         "ordinal": 3,
-        "name": "role: AdminRole",
+        "name": "role: DbAdminRole",
         "type_info": {
           "Custom": {
             "name": "admin_role",
@@ -94,5 +94,5 @@
       true
     ]
   },
-  "hash": "496f68d6e6209013f7e2c044c8f86d1017c027962547a1349f855ff15da36618"
+  "hash": "0735d0360769832504b97477586465117c5401b75451504b6d29c4df15411c3c"
 }

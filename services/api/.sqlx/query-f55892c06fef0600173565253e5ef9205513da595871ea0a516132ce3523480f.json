@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                DELETE FROM admin \n                WHERE id = $1 AND role != 'SUPER_ADMIN'::ADMIN_ROLE\n                RETURNING id, username, password_hash, role AS \"role: AdminRole\", created_at, updated_at\n            ",
+  "query": "\n                SELECT id, username, password_hash, role AS \"role: DbAdminRole\", created_at, updated_at\n                FROM admin\n                WHERE username = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -38,7 +38,7 @@
       },
       {
         "ordinal": 3,
-        "name": "role: AdminRole",
+        "name": "role: DbAdminRole",
         "type_info": {
           "Custom": {
             "name": "admin_role",
@@ -82,7 +82,7 @@
     ],
     "parameters": {
       "Left": [
-        "Int8"
+        "Text"
       ]
     },
     "nullable": [
@@ -94,5 +94,5 @@
       false
     ]
   },
-  "hash": "7f4083cd206e411942138450572b04dac5e1b6b06d50a521d66bc0d0274cbe4c"
+  "hash": "f55892c06fef0600173565253e5ef9205513da595871ea0a516132ce3523480f"
 }

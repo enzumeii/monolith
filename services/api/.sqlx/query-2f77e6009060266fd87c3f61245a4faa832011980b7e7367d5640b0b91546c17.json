@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT id, username, password_hash, role AS \"role: AdminRole\", created_at, updated_at\n                FROM admin\n                ORDER BY id ASC\n                LIMIT $1 OFFSET $2\n            ",
+  "query": "\n                SELECT id, username, password_hash, role AS \"role: DbAdminRole\", created_at, updated_at\n                FROM admin\n                WHERE id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -38,7 +38,7 @@
       },
       {
         "ordinal": 3,
-        "name": "role: AdminRole",
+        "name": "role: DbAdminRole",
         "type_info": {
           "Custom": {
             "name": "admin_role",
@@ -82,7 +82,6 @@
     ],
     "parameters": {
       "Left": [
-        "Int8",
         "Int8"
       ]
     },
@@ -95,5 +94,5 @@
       false
     ]
   },
-  "hash": "595704528d27cd10d594978fd4cf176d479cb2c4df6d377bc7a6ab5f77d2f55a"
+  "hash": "2f77e6009060266fd87c3f61245a4faa832011980b7e7367d5640b0b91546c17"
 }

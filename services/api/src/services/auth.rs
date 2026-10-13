@@ -1,10 +1,11 @@
+use crate::auth::Claims;
 use crate::{
     error::AppError,
     repositories::{admin, auth},
     utils::password,
 };
 use chrono::{Duration, Utc};
-use domain::dto::{AdminRole, Claims, LoginRequest, RefreshRequest, TokenResponse};
+use domain::dto::{AdminRole, LoginRequest, RefreshRequest, TokenResponse};
 use jsonwebtoken::{EncodingKey, Header, encode};
 use rand::RngExt;
 use sha2::{Digest, Sha256};
@@ -28,7 +29,14 @@ pub async fn login(
         return Err(AppError::InvalidCredentials);
     }
 
-    issue_token_pair(pool, jwt_secret, admin.id, admin.username, admin.role).await
+    issue_token_pair(
+        pool,
+        jwt_secret,
+        admin.id,
+        admin.username,
+        admin.role.into(),
+    )
+    .await
 }
 
 #[tracing::instrument(skip(pool, jwt_secret, req))]
@@ -48,7 +56,7 @@ pub async fn refresh(
         jwt_secret,
         token_record.admin_id,
         token_record.username,
-        token_record.role,
+        token_record.role.into(),
     )
     .await
 }

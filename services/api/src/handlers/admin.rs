@@ -1,3 +1,4 @@
+use crate::auth::Claims;
 use crate::{error::AppError, services, state::AppState, validations::admin as validate};
 use axum::{
     Extension, Json,
@@ -5,7 +6,7 @@ use axum::{
     http::StatusCode,
 };
 use domain::dto::{
-    AdminDTO, AdminListResponse, Claims, CreateAdminRequest, ListAdminsQuery, UpdateAdminRequest,
+    AdminDTO, AdminListResponse, CreateAdminRequest, ListAdminsQuery, UpdateAdminRequest,
 };
 
 pub async fn list(

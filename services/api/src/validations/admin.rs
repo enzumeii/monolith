@@ -1,5 +1,29 @@
+use crate::auth::Claims;
 use crate::error::AppError;
-use domain::dto::{AdminPageRequest, AdminRole, Claims, ListAdminsQuery};
+use domain::dto::{AdminRole, ListAdminsQuery};
+
+#[derive(Debug, Clone, Copy)]
+pub struct AdminPageRequest {
+    page: u32,
+    per_page: u32,
+}
+
+impl AdminPageRequest {
+    #[must_use]
+    pub fn page(self) -> u32 {
+        self.page
+    }
+    #[must_use]
+    pub fn per_page(self) -> u32 {
+        self.per_page
+    }
+}
+impl TryFrom<ListAdminsQuery> for AdminPageRequest {
+    type Error = AppError;
+    fn try_from(query: ListAdminsQuery) -> Result<Self, Self::Error> {
+        validate_page(&query)
+    }
+}
 
 /// Map the raw query params to a validated `AdminPageRequest`.
 /// Applies defaults (`page=1`, `per_page=25`) and enforces 1..=100.

@@ -1,10 +1,11 @@
+use crate::auth::Claims;
 use axum::{
     extract::{Request, State},
     middleware::Next,
     response::Response,
 };
 use axum_auth::AuthBearer;
-use domain::dto::{AdminRole, Claims};
+use domain::dto::AdminRole;
 use jsonwebtoken::{DecodingKey, Validation, decode};
 
 use crate::{error::AppError, state::AppState};

@@ -1,5 +1,6 @@
+use crate::auth::Claims;
 use axum::{Extension, Json, extract::State, http::StatusCode};
-use domain::dto::{Claims, LoginRequest, RefreshRequest, TokenResponse};
+use domain::dto::{LoginRequest, RefreshRequest, TokenResponse};
 use tracing::instrument;
 
 use crate::{error::AppError, services, state::AppState};

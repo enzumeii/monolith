@@ -6,16 +6,8 @@ edition.workspace = true
 [lints]
 workspace = true
 
-[features]
-default = ["dto"]
-# `dto` is the shared app <-> api wire contract: serde only, so it compiles to
-# wasm for the web backoffice. `uuid`/`chrono`/`sqlx` are only needed by the
-# database entities.
-dto = ["dep:serde"]
-db = ["dto", "dep:sqlx", "dep:uuid", "dep:chrono"]
-
 [dependencies]
-serde = { workspace = true, optional = true }
-sqlx = { workspace = true, optional = true }
-uuid = { workspace = true, optional = true }
-chrono = { workspace = true, optional = true }
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
