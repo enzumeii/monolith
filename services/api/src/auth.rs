@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct Claims {
     #[serde(rename = "sub")]
     pub admin_id: i64,
+    pub auth_version: i64,
     pub username: String,
     pub role: AdminRole,
     #[serde(rename = "exp")]

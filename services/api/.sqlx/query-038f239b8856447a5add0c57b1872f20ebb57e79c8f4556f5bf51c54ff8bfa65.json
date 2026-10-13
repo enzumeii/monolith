@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                DELETE FROM admin \n                WHERE id = $1 AND role != 'SUPER_ADMIN'::ADMIN_ROLE\n                RETURNING id, username, password_hash, role AS \"role: DbAdminRole\", created_at, updated_at\n            ",
+  "query": "\n                INSERT INTO admin (username, password_hash, role)\n                VALUES ($1, $2, $3::ADMIN_ROLE)\n                RETURNING id, auth_version, username, password_hash, role AS \"role: DbAdminRole\", created_at, updated_at\n            ",
   "describe": {
     "columns": [
       {
@@ -16,6 +16,17 @@
       },
       {
         "ordinal": 1,
+        "name": "auth_version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "admin",
+            "name": "auth_version"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
         "name": "username",
         "type_info": "Varchar",
         "origin": {
@@ -26,7 +37,7 @@
         }
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "password_hash",
         "type_info": "Varchar",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "role: DbAdminRole",
         "type_info": {
           "Custom": {
@@ -58,7 +69,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -69,7 +80,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -82,7 +93,19 @@
     ],
     "parameters": {
       "Left": [
-        "Int8"
+        "Varchar",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "admin_role",
+            "kind": {
+              "Enum": [
+                "SUPER_ADMIN",
+                "ADMIN"
+              ]
+            }
+          }
+        }
       ]
     },
     "nullable": [
@@ -91,8 +114,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "4d751072a7d617d81490df70cbabe8abb4ecf5f375c4028e2d31572f5a35ef9c"
+  "hash": "038f239b8856447a5add0c57b1872f20ebb57e79c8f4556f5bf51c54ff8bfa65"
 }

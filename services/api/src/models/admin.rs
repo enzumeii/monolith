@@ -6,6 +6,7 @@ use domain::dto::{AdminDTO, AdminRole};
 #[derive(Debug, FromRow)]
 pub struct Admin {
     pub id: i64,
+    pub auth_version: i64,
     pub username: String,
     pub password_hash: String,
     pub role: DbAdminRole,

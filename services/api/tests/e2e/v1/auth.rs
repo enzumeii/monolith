@@ -1,6 +1,6 @@
 //! POST /v1/auth/login · POST /v1/auth/refresh · GET /v1/auth/logout
 
-use super::common;
+use super::super::common;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use domain::dto::AdminRole;
@@ -170,4 +170,118 @@ async fn protected_routes_reject_malformed_bearer_token() {
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     assert_eq!(response.headers()["www-authenticate"], "Bearer");
+}
+
+use api::services::auth;
+use domain::dto::{LoginRequest, RefreshRequest};
+
+#[tokio::test]
+async fn failed_refresh_replacement_does_not_consume_original() {
+    let db = common::test_database().await;
+    common::seed_admin(&db.pool(), "rollback", "test-password", AdminRole::Admin).await;
+    let key = hex::decode(common::JWT_SECRET).unwrap();
+    let tokens = auth::login(
+        &db.pool(),
+        &key,
+        LoginRequest {
+            username: "rollback".into(),
+            password: "test-password".into(),
+        },
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE FUNCTION reject_refresh_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected storage failure'; END $$; CREATE TRIGGER reject_refresh BEFORE INSERT ON refresh_tokens FOR EACH ROW EXECUTE FUNCTION reject_refresh_insert();").execute(&db.pool()).await.unwrap();
+    assert!(
+        auth::refresh(
+            &db.pool(),
+            &key,
+            RefreshRequest {
+                refresh_token: tokens.refresh_token.clone()
+            }
+        )
+        .await
+        .is_err()
+    );
+    sqlx::raw_sql("DROP TRIGGER reject_refresh ON refresh_tokens")
+        .execute(&db.pool())
+        .await
+        .unwrap();
+    assert!(
+        auth::refresh(
+            &db.pool(),
+            &key,
+            RefreshRequest {
+                refresh_token: tokens.refresh_token
+            }
+        )
+        .await
+        .is_ok()
+    );
+}
+
+#[tokio::test]
+async fn concurrent_refresh_has_exactly_one_success() {
+    let db = common::test_database().await;
+    common::seed_admin(&db.pool(), "concurrent", "test-password", AdminRole::Admin).await;
+    let key = hex::decode(common::JWT_SECRET).unwrap();
+    let pool = db.pool();
+    let tokens = auth::login(
+        &pool,
+        &key,
+        LoginRequest {
+            username: "concurrent".into(),
+            password: "test-password".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let (first, second) = tokio::join!(
+        auth::refresh(
+            &pool,
+            &key,
+            RefreshRequest {
+                refresh_token: tokens.refresh_token.clone()
+            }
+        ),
+        auth::refresh(
+            &pool,
+            &key,
+            RefreshRequest {
+                refresh_token: tokens.refresh_token
+            }
+        )
+    );
+    assert_ne!(first.is_ok(), second.is_ok());
+}
+
+#[tokio::test]
+async fn expired_refresh_is_rejected() {
+    let db = common::test_database().await;
+    common::seed_admin(&db.pool(), "expired", "test-password", AdminRole::Admin).await;
+    let key = hex::decode(common::JWT_SECRET).unwrap();
+    let tokens = auth::login(
+        &db.pool(),
+        &key,
+        LoginRequest {
+            username: "expired".into(),
+            password: "test-password".into(),
+        },
+    )
+    .await
+    .unwrap();
+    sqlx::query("UPDATE refresh_tokens SET expires_at = NOW() - interval '1 second'")
+        .execute(&db.pool())
+        .await
+        .unwrap();
+    assert!(
+        auth::refresh(
+            &db.pool(),
+            &key,
+            RefreshRequest {
+                refresh_token: tokens.refresh_token
+            }
+        )
+        .await
+        .is_err()
+    );
 }

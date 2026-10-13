@@ -1,27 +1,27 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            UPDATE refresh_tokens AS rt\n            SET revoked_at = NOW()\n            FROM admin AS a\n            WHERE rt.admin_id = a.id\n              AND rt.token_hash = $1\n              AND rt.revoked_at IS NULL\n              AND rt.expires_at > NOW()\n            RETURNING rt.id AS token_id, rt.admin_id, a.username,\n                      a.role AS \"role: DbAdminRole\", rt.expires_at, rt.revoked_at\n            ",
+  "query": "\n                SELECT id, auth_version, username, password_hash, role AS \"role: DbAdminRole\", created_at, updated_at\n                FROM admin\n                WHERE username = $1\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "token_id",
-        "type_info": "Uuid",
+        "name": "id",
+        "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "refresh_tokens",
+            "table": "admin",
             "name": "id"
           }
         }
       },
       {
         "ordinal": 1,
-        "name": "admin_id",
+        "name": "auth_version",
         "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "refresh_tokens",
-            "name": "admin_id"
+            "table": "admin",
+            "name": "auth_version"
           }
         }
       },
@@ -38,6 +38,17 @@
       },
       {
         "ordinal": 3,
+        "name": "password_hash",
+        "type_info": "Varchar",
+        "origin": {
+          "Table": {
+            "table": "admin",
+            "name": "password_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
         "name": "role: DbAdminRole",
         "type_info": {
           "Custom": {
@@ -58,24 +69,24 @@
         }
       },
       {
-        "ordinal": 4,
-        "name": "expires_at",
+        "ordinal": 5,
+        "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "refresh_tokens",
-            "name": "expires_at"
+            "table": "admin",
+            "name": "created_at"
           }
         }
       },
       {
-        "ordinal": 5,
-        "name": "revoked_at",
+        "ordinal": 6,
+        "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "refresh_tokens",
-            "name": "revoked_at"
+            "table": "admin",
+            "name": "updated_at"
           }
         }
       }
@@ -91,8 +102,9 @@
       false,
       false,
       false,
-      true
+      false,
+      false
     ]
   },
-  "hash": "0735d0360769832504b97477586465117c5401b75451504b6d29c4df15411c3c"
+  "hash": "0f768f8555b0f6f78e05f251b6e544eab3ee64a6afbe218a849b0d3b50c3ad54"
 }

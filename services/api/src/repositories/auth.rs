@@ -1,67 +1,43 @@
 use crate::error::AppError;
-use crate::models::{DbAdminRole, TokenRefreshRecord};
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 
-#[tracing::instrument(skip(pool))]
-pub async fn create_refresh_token(
-    pool: &PgPool,
+pub(crate) async fn create_refresh_token(
+    connection: &mut PgConnection,
     admin_id: i64,
+    auth_version: i64,
     token_hash: &str,
     expires_at: DateTime<Utc>,
 ) -> Result<(), AppError> {
-    sqlx::query!(
-        r#"
-                INSERT INTO refresh_tokens (admin_id,token_hash,expires_at)
-                VALUES ($1, $2, $3)
-            "#,
-        admin_id,
-        token_hash,
-        expires_at
-    )
-    .execute(pool)
-    .await?;
-
+    sqlx::query!("INSERT INTO refresh_tokens (admin_id, auth_version, token_hash, expires_at) VALUES ($1,$2,$3,$4)", admin_id, auth_version, token_hash, expires_at).execute(connection).await?;
     Ok(())
 }
 
-#[tracing::instrument(skip(pool))]
-pub async fn consume_refresh_token(
-    pool: &PgPool,
-    token_hash: &str,
-) -> Result<Option<TokenRefreshRecord>, AppError> {
-    let record = sqlx::query_as!(
-        TokenRefreshRecord,
-        r#"
-            UPDATE refresh_tokens AS rt
-            SET revoked_at = NOW()
-            FROM admin AS a
-            WHERE rt.admin_id = a.id
-              AND rt.token_hash = $1
-              AND rt.revoked_at IS NULL
-              AND rt.expires_at > NOW()
-            RETURNING rt.id AS token_id, rt.admin_id, a.username,
-                      a.role AS "role: DbAdminRole", rt.expires_at, rt.revoked_at
-            "#,
-        token_hash
+pub(crate) async fn refresh_owner(pool: &PgPool, hash: &str) -> Result<Option<i64>, AppError> {
+    Ok(sqlx::query_scalar!(
+        "SELECT admin_id FROM refresh_tokens WHERE token_hash = $1",
+        hash
     )
     .fetch_optional(pool)
-    .await?;
-
-    Ok(record)
+    .await?)
 }
 
-#[tracing::instrument(skip(pool))]
-pub async fn delete_all_refresh_tokens(pool: &PgPool, admin_id: i64) -> Result<(), AppError> {
-    sqlx::query!(
-        r#"
-            DELETE FROM refresh_tokens
-            WHERE admin_id = $1
-            "#,
-        admin_id
-    )
-    .execute(pool)
-    .await?;
+pub(crate) async fn consume_refresh_token(
+    connection: &mut PgConnection,
+    hash: &str,
+    admin_id: i64,
+    version: i64,
+) -> Result<bool, AppError> {
+    let result = sqlx::query!("UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = $1 AND admin_id = $2 AND auth_version = $3 AND revoked_at IS NULL AND expires_at > NOW()", hash, admin_id, version).execute(connection).await?;
+    Ok(result.rows_affected() == 1)
+}
 
+pub(crate) async fn delete_refresh_tokens(
+    connection: &mut PgConnection,
+    admin_id: i64,
+) -> Result<(), AppError> {
+    sqlx::query!("DELETE FROM refresh_tokens WHERE admin_id = $1", admin_id)
+        .execute(connection)
+        .await?;
     Ok(())
 }

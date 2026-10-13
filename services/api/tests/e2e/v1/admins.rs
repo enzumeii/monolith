@@ -1,7 +1,7 @@
 //! GET /v1/admins · GET /v1/admins/{id} · PATCH /v1/admins/{id}
 //! POST /v1/admins · DELETE /v1/admins/{id}
 
-use super::common;
+use super::super::common;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use domain::dto::AdminRole;

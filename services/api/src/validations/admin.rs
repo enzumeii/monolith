@@ -71,6 +71,7 @@ mod tests {
     fn claims(admin_id: i64, role: AdminRole) -> Claims {
         Claims {
             admin_id,
+            auth_version: 0,
             username: "admin".into(),
             role,
             expiration: 0,

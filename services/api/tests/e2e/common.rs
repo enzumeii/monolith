@@ -144,6 +144,7 @@ pub fn jwt_for(admin_id: i64, role: AdminRole) -> String {
         &Header::default(),
         &api::auth::Claims {
             admin_id,
+            auth_version: 0,
             username: "admin".into(),
             role,
             expiration: 4_102_444_800,

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                INSERT INTO admin (username, password_hash, role)\n                VALUES ($1, $2, $3::ADMIN_ROLE)\n                RETURNING id, username, password_hash, role AS \"role: DbAdminRole\", created_at, updated_at\n            ",
+  "query": "\n                SELECT id, auth_version, username, password_hash, role AS \"role: DbAdminRole\", created_at, updated_at\n                FROM admin\n                WHERE id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -16,6 +16,17 @@
       },
       {
         "ordinal": 1,
+        "name": "auth_version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "admin",
+            "name": "auth_version"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
         "name": "username",
         "type_info": "Varchar",
         "origin": {
@@ -26,7 +37,7 @@
         }
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "password_hash",
         "type_info": "Varchar",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "role: DbAdminRole",
         "type_info": {
           "Custom": {
@@ -58,7 +69,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -69,7 +80,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -82,19 +93,7 @@
     ],
     "parameters": {
       "Left": [
-        "Varchar",
-        "Varchar",
-        {
-          "Custom": {
-            "name": "admin_role",
-            "kind": {
-              "Enum": [
-                "SUPER_ADMIN",
-                "ADMIN"
-              ]
-            }
-          }
-        }
+        "Int8"
       ]
     },
     "nullable": [
@@ -103,8 +102,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "9424eae0a2062d191c4c10c5f2d75dcba4d04f33c65769441a26807bab28ce9d"
+  "hash": "38bee8311925909c9d335275f0a1be67a8dd635cb91726a900771400f7a092b1"
 }

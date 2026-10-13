@@ -13,7 +13,7 @@ pub async fn list_page(pool: &PgPool, page: AdminPageRequest) -> Result<Vec<Admi
     let admins = sqlx::query_as!(
         Admin,
         r#"
-                SELECT id, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
+                SELECT id, auth_version, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
                 FROM admin
                 ORDER BY id ASC
                 LIMIT $1 OFFSET $2
@@ -39,7 +39,7 @@ pub async fn add(
         r#"
                 INSERT INTO admin (username, password_hash, role)
                 VALUES ($1, $2, $3::ADMIN_ROLE)
-                RETURNING id, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
+                RETURNING id, auth_version, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
             "#,
         username,
         password_hash,
@@ -67,7 +67,7 @@ pub async fn update(
                     password_hash = COALESCE($3, password_hash),
                     updated_at = NOW()
                 WHERE id = $1
-                RETURNING id, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
+                RETURNING id, auth_version, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
             "#,
         id,
         username,
@@ -84,7 +84,7 @@ pub async fn find_by_username(pool: &PgPool, username: &str) -> Result<Option<Ad
     let admin = sqlx::query_as!(
         Admin,
         r#"
-                SELECT id, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
+                SELECT id, auth_version, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
                 FROM admin
                 WHERE username = $1
             "#,
@@ -101,7 +101,7 @@ pub async fn find_by_id(pool: &PgPool, id: i64) -> Result<Option<Admin>, AppErro
     let admin = sqlx::query_as!(
         Admin,
         r#"
-                SELECT id, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
+                SELECT id, auth_version, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
                 FROM admin
                 WHERE id = $1
             "#,
@@ -120,7 +120,7 @@ pub async fn delete(pool: &PgPool, id: i64) -> Result<Option<Admin>, AppError> {
         r#"
                 DELETE FROM admin 
                 WHERE id = $1 AND role != 'SUPER_ADMIN'::ADMIN_ROLE
-                RETURNING id, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
+                RETURNING id, auth_version, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
             "#,
         id
     )
@@ -128,4 +128,12 @@ pub async fn delete(pool: &PgPool, id: i64) -> Result<Option<Admin>, AppError> {
     .await?;
 
     Ok(admin)
+}
+
+/// Lock an account before issuing or revoking credentials.
+pub(crate) async fn lock(
+    connection: &mut sqlx::PgConnection,
+    id: i64,
+) -> Result<Option<Admin>, AppError> {
+    Ok(sqlx::query_as!(Admin, r#"SELECT id, auth_version, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at FROM admin WHERE id = $1 FOR UPDATE"#, id).fetch_optional(connection).await?)
 }

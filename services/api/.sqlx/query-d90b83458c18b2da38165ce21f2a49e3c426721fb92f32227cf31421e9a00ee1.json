@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT id, username, password_hash, role AS \"role: DbAdminRole\", created_at, updated_at\n                FROM admin\n                ORDER BY id ASC\n                LIMIT $1 OFFSET $2\n            ",
+  "query": "SELECT id, auth_version, username, password_hash, role AS \"role: DbAdminRole\", created_at, updated_at FROM admin WHERE id = $1 FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -16,6 +16,17 @@
       },
       {
         "ordinal": 1,
+        "name": "auth_version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "admin",
+            "name": "auth_version"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
         "name": "username",
         "type_info": "Varchar",
         "origin": {
@@ -26,7 +37,7 @@
         }
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "password_hash",
         "type_info": "Varchar",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "role: DbAdminRole",
         "type_info": {
           "Custom": {
@@ -58,7 +69,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -69,7 +80,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -82,7 +93,6 @@
     ],
     "parameters": {
       "Left": [
-        "Int8",
         "Int8"
       ]
     },
@@ -92,8 +102,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "0d02a127fd60d665450f08e680b7820b9c4d51ea66e0ca0ed6021c173f851efd"
+  "hash": "d90b83458c18b2da38165ce21f2a49e3c426721fb92f32227cf31421e9a00ee1"
 }
