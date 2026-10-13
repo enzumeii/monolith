@@ -10,6 +10,8 @@ use crate::session::{self, SESSION};
 #[component]
 pub fn Navbar() -> Element {
     let session = SESSION.read().clone();
+    let mut error = use_signal(|| None::<String>);
+    let mut busy = use_signal(|| false);
     let is_super = matches!(
         session.as_ref().map(|s| s.role),
         Some(AdminRole::SuperAdmin)
@@ -30,9 +32,14 @@ pub fn Navbar() -> Element {
                 if let Some(s) = &session {
                     span { class: "whoami", "{s.username}" }
                 }
+                if let Some(message)=error() {span {role:"alert", "{message}"}}
                 button {
                     class: "logout",
-                    onclick: move |_| session::sign_out(),
+                    disabled: busy(),
+                    onclick: move |_| {
+                        busy.set(true);error.set(None);
+                        spawn(async move { if let Err(e)=session::sign_out().await {error.set(Some(e.to_string()));busy.set(false);} });
+                    },
                     "Logout"
                 }
             }

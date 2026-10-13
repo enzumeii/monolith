@@ -4,7 +4,6 @@
 use dioxus::prelude::*;
 use domain::dto::UpdateAdminRequest;
 
-use crate::api;
 use crate::components::Confirm;
 use crate::components::{ErrorMessage, FormField};
 use crate::session::{self, SESSION};
@@ -101,10 +100,10 @@ pub fn Profile() -> Element {
                     password: (!password.read().is_empty()).then(|| password.read().clone()),
                 };
                 spawn(async move {
-                    match session::with_session(|t| api::update_admin(id, req, t)).await {
-                        Ok(_) => session::sign_out(),
+                    match session::update_self(id,req).await {
+                        Ok(_) => {},
                         Err(e) => {
-                            session::handle_api_error(&e);
+
                             error.set(Some(e.to_string()));
                             busy.set(false);
                         }

@@ -13,7 +13,7 @@ pub struct RefreshRequest {
 }
 
 //////////////////////// RESPONSES ////////////////////////
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TokenResponse {
     pub access_token: String,
     pub refresh_token: String,

@@ -31,18 +31,20 @@ pub fn AdminRow(admin: AdminDTO, my_id: i64, on_changed: EventHandler<()>) -> El
                 username: Some(u),
                 password: (!p.is_empty()).then_some(p),
             };
-            match session::with_session(|t| api::update_admin(id, req, t)).await {
+            let result = if is_self {
+                session::update_self(id, req).await
+            } else {
+                session::with_session(|| api::update_admin(id, req)).await
+            };
+            match result {
                 Ok(_) => {
-                    if is_self {
-                        session::sign_out();
-                    } else {
+                    if !is_self {
                         editing.set(false);
                         error.set(None);
                         on_changed(());
                     }
                 }
                 Err(e) => {
-                    session::handle_api_error(&e);
                     error.set(Some(e.to_string()));
                 }
             }
@@ -125,13 +127,13 @@ pub fn AdminRow(admin: AdminDTO, my_id: i64, on_changed: EventHandler<()>) -> El
             on_confirm: move |()| {
                 confirm_delete.set(false);
                 spawn(async move {
-                    match session::with_session(|t| api::delete_admin(id, t)).await {
+                    match session::with_session(|| api::delete_admin(id)).await {
                         Ok(_) => {
                             error.set(None);
                             on_changed(());
                         }
                         Err(e) => {
-                            session::handle_api_error(&e);
+
                             error.set(Some(e.to_string()));
                         }
                     }

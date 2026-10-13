@@ -32,13 +32,12 @@ pub fn Admins() -> Element {
                 page: Some(p),
                 per_page: Some(PER_PAGE),
             };
-            match session::with_session(|t| api::list_admins(query, t)).await {
+            match session::with_session(|| api::list_admins(query)).await {
                 Ok(resp) => {
                     list.set(Some(resp));
                     error.set(None);
                 }
                 Err(e) => {
-                    session::handle_api_error(&e);
                     error.set(Some(e.to_string()));
                 }
             }

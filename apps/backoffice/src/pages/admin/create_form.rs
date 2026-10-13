@@ -77,14 +77,14 @@ pub fn AdminCreateForm(on_created: EventHandler<()>) -> Element {
                     role: role(),
                 };
                 spawn(async move {
-                    match session::with_session(|t| api::create_admin(req, t)).await {
+                    match session::with_session(|| api::create_admin(req)).await {
                         Ok(_) => {
                             username.set(String::new());
                             password.set(String::new());
                             on_created(());
                         }
                         Err(e) => {
-                            session::handle_api_error(&e);
+
                             error.set(Some(e.to_string()));
                         }
                     }

@@ -8,6 +8,7 @@ use crate::config::Settings;
 pub struct AppState {
     pub settings: Arc<Settings>,
     pub http: reqwest::Client,
+    pub(crate) refresh: crate::api::refresh::RefreshCoordinator,
 }
 
 impl AppState {
@@ -19,6 +20,7 @@ impl AppState {
         Self {
             settings: Arc::new(settings),
             http,
+            refresh: crate::api::refresh::RefreshCoordinator::default(),
         }
     }
 

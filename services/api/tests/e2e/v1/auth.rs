@@ -326,7 +326,9 @@ async fn logout_revokes_refresh_but_access_remains_valid_until_expiry() {
                 .uri("/v1/auth/logout")
                 .header("content-type", "application/json")
                 .header("authorization", format!("Bearer {}", tokens.access_token))
-                .body(Body::from(serde_json::json!({"refresh_token":tokens.refresh_token.clone()}).to_string()))
+                .body(Body::from(
+                    serde_json::json!({"refresh_token":tokens.refresh_token.clone()}).to_string(),
+                ))
                 .unwrap(),
         )
         .await
