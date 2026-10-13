@@ -68,19 +68,6 @@ test:
     cargo api-e2e --locked
     cargo test --locked -p api --lib postgres_cleanup -- --ignored
 
-# Bootstrap the existing E2E PostgreSQL container without resetting records.
-e2e-db:
-    docker compose -p e2e -f docker-compose-e2e.yml up -d --wait postgres
-
-# Explicitly create an admin from an operator-supplied Argon2 PHC hash file.
-bootstrap-admin username hash_file role="SUPER_ADMIN":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    hash="$(cat {{quote(hash_file)}})"
-    psql "${DATABASE_URL:?DATABASE_URL is required}" -X \
-      --set=username={{quote(username)}} --set=role={{quote(role)}} \
-      --set=password_hash="$hash" --file=bootstrap_admin.sql
-
 # Check: format + lint check (no changes)
 check:
     cargo fmt --check -p api
