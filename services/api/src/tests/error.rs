@@ -85,15 +85,26 @@ async fn not_found_and_forbidden_map_to_expected_statuses() {
 
 mod logging_tests {
     use super::*;
-    use std::{
-        io::Write,
-        sync::{Arc, Mutex},
+    use std::{cell::RefCell, io::Write, sync::Once};
+    use tracing_subscriber::{
+        EnvFilter, Layer,
+        filter::{LevelFilter, dynamic_filter_fn},
+        layer::SubscriberExt,
+        util::SubscriberInitExt,
     };
 
-    struct Capture(Arc<Mutex<Vec<u8>>>);
+    thread_local! {
+        static OUTPUT: RefCell<Option<(EnvFilter, Vec<u8>)>> = const { RefCell::new(None) };
+    }
+
+    struct Capture;
     impl Write for Capture {
         fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().expect("capture").extend_from_slice(bytes);
+            OUTPUT.with(|output| {
+                if let Some((_, buffer)) = &mut *output.borrow_mut() {
+                    buffer.extend_from_slice(bytes);
+                }
+            });
             Ok(bytes.len())
         }
         fn flush(&mut self) -> std::io::Result<()> {
@@ -102,16 +113,31 @@ mod logging_tests {
     }
 
     fn capture(filter: &str, action: impl FnOnce()) -> String {
-        let bytes = Arc::new(Mutex::new(Vec::new()));
-        let output = bytes.clone();
-        let subscriber = tracing_subscriber::fmt()
-            .with_ansi(false)
-            .without_time()
-            .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
-            .with_writer(move || Capture(output.clone()))
-            .finish();
-        tracing::subscriber::with_default(subscriber, action);
-        String::from_utf8(bytes.lock().expect("capture").clone()).expect("UTF-8")
+        // A stable subscriber avoids global callsite-cache races between test filters.
+        static INIT: Once = Once::new();
+        INIT.call_once(|| {
+            let filter = dynamic_filter_fn(|metadata, context| {
+                OUTPUT.with(|output| {
+                    output
+                        .borrow()
+                        .as_ref()
+                        .is_some_and(|(filter, _)| filter.enabled(metadata, context.clone()))
+                })
+            })
+            .with_max_level_hint(LevelFilter::DEBUG);
+            let layer = tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .without_time()
+                .with_writer(|| Capture)
+                .with_filter(filter);
+            tracing_subscriber::registry().with(layer).init();
+        });
+        OUTPUT.with(|output| *output.borrow_mut() = Some((EnvFilter::new(filter), Vec::new())));
+        action();
+        OUTPUT.with(|output| {
+            let (_, bytes) = output.borrow_mut().take().expect("capture");
+            String::from_utf8(bytes).expect("UTF-8")
+        })
     }
 
     #[test]

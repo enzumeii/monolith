@@ -102,6 +102,7 @@ flowchart TB
 | `just --justfile services/api/justfile check` | Formatting and strict lint passed |
 | `just --justfile services/api/justfile test` | Native: 38 passed, 2 Docker-dependent tests deferred; Docker phase: all 40 library tests and 36 real HTTP E2E tests passed; Compose teardown completed |
 | Logging regressions | All 9 passed, including PostgreSQL username-conflict source preservation on a connection-owned temporary table |
+| Parallel capture stability | 15 consecutive parallel native runs passed after replacing short-lived subscribers with one stable subscriber and thread-local real filters/output |
 | Regression evidence | Missing HTTP/password origin, nested/background diagnostics, JWT validation diagnostic, and PostgreSQL conflict diagnostic reproduced before their fixes |
 | Built API startup | Invalid signing-key configuration: one ERROR summary with configuration origin; diagnostic details present only with `RUST_LOG=info,api=debug` |
 | Independent review | Direct pool/transaction origin gaps and conflict source loss corrected; no remaining blockers |
