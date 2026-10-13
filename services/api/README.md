@@ -20,7 +20,7 @@ Setup creates `.env` if missing, including the local database URL and a random J
 just run
 ```
 
-Starts Docker PostgreSQL on port 5432, applies migrations and runs the API at [http://127.0.0.1:3000](http://127.0.0.1:3000). Check [/healthz](http://127.0.0.1:3000/healthz). Set `DOCKER_CONTEXT` if your Docker installation needs a non-default context.
+Starts Docker PostgreSQL on port 5432, applies migrations and runs the API at [http://localhost:3000](http://localhost:3000). Check [/healthz](http://localhost:3000/healthz). Set `DOCKER_CONTEXT` if your Docker installation needs a non-default context.
 
 ## Useful commands
 

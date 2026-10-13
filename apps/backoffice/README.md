@@ -14,13 +14,13 @@ Setup checks Dioxus CLI availability and the installed WASM target, then creates
 
 ## Run locally
 
-Start the API using its [README](../../services/api/README.md). Set `[api] base_url` in `application.toml` to the API URL, including `/v1`; the local default is `http://127.0.0.1:3000/v1`. The TOML is public and must contain no secrets.
+Start the API using its [README](../../services/api/README.md). Set `[api] base_url` in `application.toml` to the API URL, including `/v1`; the local default is `http://localhost:3000/v1`. The TOML is public and must contain no secrets.
 
 ```sh
 just serve
 ```
 
-Open [http://127.0.0.1:8084](http://127.0.0.1:8084).
+Open [http://localhost:8084](http://localhost:8084).
 
 ## Useful commands
 

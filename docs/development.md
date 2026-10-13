@@ -16,11 +16,11 @@
 | API | `application.toml`: `server.host` / `server.port` | Non-secret listener settings |
 | API | `application.toml`: `browser.public_origin` | Exact allowed UI origin |
 | API | `application.toml`: `browser.insecure_local` | Explicit loopback HTTP; false for production HTTPS |
-| Backoffice | `application.toml`: `[api] base_url` | Public API URL including `/v1`; default `http://127.0.0.1:3000/v1` |
+| Backoffice | `application.toml`: `[api] base_url` | Public API URL including `/v1`; default `http://localhost:3000/v1` |
 | Backoffice | `config.rs`: `Settings` / `ApiConfig` | Load/parse the public TOML once at startup before pages or API calls |
 | Frontend file | Served as a Dioxus asset | Public settings only; no secrets or alternate configuration mechanism |
-| Backoffice | Existing serve recipe | UI at `http://127.0.0.1:8084` |
-| Local host spelling | Use `127.0.0.1` consistently | Different ports: cross-origin, same-site |
+| Backoffice | Existing serve recipe | UI at `http://localhost:8084` |
+| Local host spelling | Use `localhost` for both UI and API | Different ports: cross-origin, same-site |
 | Production browser | HTTPS, exact origin, same-site UI/API | Secure cookie; cross-site policy requires separate design |
 
 ```mermaid

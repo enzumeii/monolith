@@ -57,6 +57,7 @@ flowchart LR
 | Login/access | Credentials, malformed JSON, malformed/expired/wrongly signed JWTs; cookie identity response and explicit bearer precedence |
 | Cookie transport | Login/rotation/replay/logout, family isolation, self-update revocation, missing/null/foreign Origin and trusted/foreign preflight |
 | Cookie attributes | Native development and production creation/removal name, path, Secure, HttpOnly, Lax and no Domain |
+| Localhost browser fix | UI/API TOML defaults aligned to localhost; exact-origin preflight passed; in-app browser renders Sign in at http://localhost:8084 |
 | Local API startup | just run succeeded with invalid API_HOST/API_PORT/PUBLIC_ORIGIN/INSECURE_LOCAL_COOKIES environment values; TOML settings retained |
 | Refresh | Single-use, concurrent winner, expiry, replacement rollback |
 | Revocation | Family isolation, account-wide revocation, access-JWT persistence |

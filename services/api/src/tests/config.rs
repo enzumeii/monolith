@@ -73,7 +73,7 @@ fn new_reads_non_secret_configuration_only_from_toml() {
     .expect("non-secret environment values must not affect settings");
     assert_eq!(settings.server.host, "0.0.0.0");
     assert_eq!(settings.server.port, 3000);
-    assert_eq!(settings.browser.public_origin, "http://127.0.0.1:8084");
+    assert_eq!(settings.browser.public_origin, "http://localhost:8084");
     assert!(settings.browser.insecure_local);
 }
 

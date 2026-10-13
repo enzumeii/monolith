@@ -38,6 +38,7 @@ These rules apply to the entire repository.
 - Keep `lib.rs` for module declarations and re-exports. Put application startup and backoffice root App components in `main.rs`.
 - Keep backoffice shared HTTP construction/decoding/errors in `src/api.rs`, with endpoint calls in `src/api/{auth,admins}.rs`.
 - Keep API cookie transport/origin checks in `middleware/cookies.rs` and bearer/JWT authentication/role checks in `middleware/token.rs`. Login/refresh/logout transactions remain in `services/auth.rs`.
+- Keep local UI/API URLs on the same hostname (`localhost` in the checked-in application TOML files); exact Origin checks and SameSite cookies require consistent host spelling. E2E keeps its own configured loopback origin.
 - Keep API non-secret listener/browser settings in `application.toml`; only database credentials and JWT signing secrets use environment overrides. E2E writes an owned temporary `application.toml` for its local API and deletes it during teardown.
 - Backoffice public settings belong in one published `application.toml` and one typed `config.rs` reader. Load settings once at startup before rendering application pages or making API calls. Never put secrets in the frontend configuration.
 - When deployment configuration is implemented, select `application.local.toml` or `application.prod.toml` and publish it as `application.toml`; retain the single runtime reader. This split is currently planned, not implemented.
