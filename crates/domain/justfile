@@ -2,10 +2,6 @@
 default:
     @just --list
 
-# Verify the pinned toolchain and compile library dependencies before local use.
-setup:
-    cargo check --locked -p domain
-
 # Run shared serialization contract tests locally.
 test:
     cargo test --locked -p domain
