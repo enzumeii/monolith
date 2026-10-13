@@ -10,10 +10,10 @@ pub(crate) async fn create_refresh_token(
     family_id: Option<uuid::Uuid>,
 ) -> Result<(), AppError> {
     sqlx::query!(
-        r#"
+        r"
         INSERT INTO refresh_tokens (admin_id, token_hash, expires_at, family_id)
         VALUES ($1, $2, $3, COALESCE($4, gen_random_uuid()))
-        "#,
+        ",
         admin_id,
         token_hash,
         expires_at,
@@ -39,13 +39,13 @@ pub(crate) async fn consume_refresh_token(
     admin_id: i64,
 ) -> Result<Option<uuid::Uuid>, AppError> {
     Ok(sqlx::query_scalar!(
-        r#"
+        r"
         UPDATE refresh_tokens
         SET revoked_at = NOW()
         WHERE token_hash = $1 AND admin_id = $2
           AND revoked_at IS NULL AND expires_at > NOW()
         RETURNING family_id
-        "#,
+        ",
         hash,
         admin_id
     )
@@ -59,13 +59,13 @@ pub(crate) async fn delete_refresh_family(
     hash: &str,
 ) -> Result<(), AppError> {
     sqlx::query!(
-        r#"
+        r"
         DELETE FROM refresh_tokens
         WHERE admin_id = $1 AND family_id = (
             SELECT family_id FROM refresh_tokens
             WHERE admin_id = $1 AND token_hash = $2
         )
-        "#,
+        ",
         id,
         hash
     )
@@ -86,7 +86,7 @@ pub(crate) async fn delete_account_refresh_tokens(
 
 pub async fn cleanup_refresh_tokens(pool: &sqlx::PgPool) -> Result<u64, AppError> {
     let result = sqlx::query(
-        r#"
+        r"
         DELETE FROM refresh_tokens
         WHERE id IN (
             SELECT id FROM refresh_tokens
@@ -95,7 +95,7 @@ pub async fn cleanup_refresh_tokens(pool: &sqlx::PgPool) -> Result<u64, AppError
             LIMIT 500
             FOR UPDATE SKIP LOCKED
         )
-        "#,
+        ",
     )
     .execute(pool)
     .await?;
