@@ -54,6 +54,29 @@ fn new_reads_non_secret_fields_from_file_when_only_secrets_come_from_env() {
     );
 }
 
+#[test]
+fn new_reads_non_secret_configuration_only_from_toml() {
+    let settings = temp_env::with_vars(
+        [
+            ("DATABASE_URL", Some("postgres://env:env@localhost/env")),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
+            ("API_HOST", Some("ignored.example.test")),
+            ("API_PORT", Some("invalid")),
+            ("PUBLIC_ORIGIN", Some("https://ignored.example.test")),
+            ("INSECURE_LOCAL_COOKIES", Some("invalid")),
+        ],
+        Settings::new,
+    )
+    .expect("non-secret environment values must not affect settings");
+    assert_eq!(settings.server.host, "0.0.0.0");
+    assert_eq!(settings.server.port, 3000);
+    assert_eq!(settings.browser.public_origin, "http://127.0.0.1:8084");
+    assert!(settings.browser.insecure_local);
+}
+
 mod invalid_config_tests {
     use super::*;
     #[test]

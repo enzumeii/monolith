@@ -109,7 +109,7 @@ sequenceDiagram
 | Clearing | Successful cookie logout and self-update |
 | Bearer clients | Token JSON and refresh-request bodies retained |
 | Bearer precedence | Present invalid bearer rejects; no cookie fallback |
-| CORS | Credentialed requests from exact `PUBLIC_ORIGIN` |
+| CORS | Credentialed requests from exact `browser.public_origin` in TOML |
 | Mutation origin | Cookie requests reject missing/null/foreign Origin |
 | Caching | Responses passing through cookie guard: `Cache-Control: no-store` |
 | Site assumption | UI/API same-site; use consistent local host spelling |

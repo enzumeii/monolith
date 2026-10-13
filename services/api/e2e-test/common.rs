@@ -203,14 +203,18 @@ pub async fn body_json(response: axum::response::Response) -> serde_json::Value 
 }
 
 struct TestApi {
-    process: Child,
+    process: Option<Child>,
+    directory: std::path::PathBuf,
     base: String,
 }
 
 impl Drop for TestApi {
     fn drop(&mut self) {
-        let _ = self.process.kill();
-        let _ = self.process.wait();
+        if let Some(process) = &mut self.process {
+            let _ = process.kill();
+            let _ = process.wait();
+        }
+        let _ = std::fs::remove_dir_all(&self.directory);
     }
 }
 
@@ -225,29 +229,47 @@ async fn test_api() -> Arc<TestApi> {
         return api;
     }
     let port = std::env::var("E2E_API_PORT").unwrap_or_else(|_| "3100".into());
+    let directory = std::env::temp_dir().join(format!("monolith-api-e2e-{}", Uuid::new_v4()));
+    std::fs::create_dir(&directory).expect("create owned E2E configuration directory");
     let mut api = TestApi {
-        process: Command::new(env!("CARGO_BIN_EXE_api"))
-            .current_dir(env!("CARGO_MANIFEST_DIR"))
-            .env("RUN_ENV", "local")
+        process: None,
+        directory,
+        base: format!("http://127.0.0.1:{port}"),
+    };
+    std::fs::write(
+        api.directory.join("application.toml"),
+        format!(
+            r#"
+[server]
+host = "127.0.0.1"
+port = {port}
+[database]
+max_connections = 1
+min_connections = 1
+[browser]
+public_origin = "http://127.0.0.1:8084"
+insecure_local = true
+"#
+        ),
+    )
+    .expect("write non-secret E2E configuration");
+    api.process = Some(
+        Command::new(env!("CARGO_BIN_EXE_api"))
+            .current_dir(&api.directory)
             .env("DATABASE_URL", database_url())
             .env("JWT_SECRET", JWT_SECRET)
-            .env("API_HOST", "127.0.0.1")
-            .env("API_PORT", &port)
-            .env("PUBLIC_ORIGIN", "http://127.0.0.1:8084")
-            .env("INSECURE_LOCAL_COOKIES", "true")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .spawn()
             .expect("start local E2E API"),
-        base: format!("http://127.0.0.1:{port}"),
-    };
+    );
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(1))
         .build()
         .unwrap();
     for _ in 0..60 {
         assert!(
-            api.process.try_wait().unwrap().is_none(),
+            api.process.as_mut().unwrap().try_wait().unwrap().is_none(),
             "E2E API exited before readiness"
         );
         if http

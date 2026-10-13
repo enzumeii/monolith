@@ -83,27 +83,6 @@ impl Settings {
             .add_source(File::with_name("application"))
             .add_source(File::with_name(&format!("application.{env_mode}")).required(false));
 
-        if let Ok(host) = env::var("API_HOST") {
-            builder = builder.set_override("server.host", host)?;
-        }
-        if let Ok(port) = env::var("API_PORT") {
-            builder = builder.set_override(
-                "server.port",
-                port.parse::<u16>()
-                    .map_err(|_| ConfigError::Message("invalid API_PORT".into()))?,
-            )?;
-        }
-        if let Ok(origin) = env::var("PUBLIC_ORIGIN") {
-            builder = builder.set_override("browser.public_origin", origin)?;
-        }
-        if let Ok(value) = env::var("INSECURE_LOCAL_COOKIES") {
-            builder = builder.set_override(
-                "browser.insecure_local",
-                value
-                    .parse::<bool>()
-                    .map_err(|_| ConfigError::Message("Invalid INSECURE_LOCAL_COOKIES".into()))?,
-            )?;
-        }
         if let Ok(db_url) = env::var("DATABASE_URL") {
             builder = builder.set_override("database.url", db_url)?;
         }

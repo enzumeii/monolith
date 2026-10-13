@@ -23,7 +23,7 @@ Read the root [AGENTS.md](../../../AGENTS.md), [architecture](../../../docs/arch
 | Source organization | Exported functions before private helpers; unit files mirror core logic under src/tests, including backoffice src/tests/api.rs |
 | E2E | services/api/e2e-test/main.rs registers healthz and v1/auth/admins; common.rs owns shared fixtures, API environment, local process startup/readiness/teardown |
 | Test orchestration | API just test runs cargo test → Compose up → cargo api-e2e → Compose down -v, also on failure; no API environment exports or process management in justfile |
-| Configuration | One published application.toml and typed reader; verify browser asset URL resolution and startup gating; distinguish planned local/prod sources from implemented code |
+| Configuration | API non-secret settings are TOML-only; DB/JWT secrets use env; E2E owns temporary TOML. Backoffice has one published application.toml and typed reader; verify browser asset URL resolution and startup gating; distinguish planned local/prod sources from implemented code |
 | Modularity | Existing framework mechanisms and cohesive components; no requirement-free layers |
 
 3. Map changed behavior to existing tests and their actual assertions. Bearer E2E does not prove cookie/CORS or browser behavior; compilation does not prove UI correctness. Preserve the existing E2E layout and shared Docker PostgreSQL policy.

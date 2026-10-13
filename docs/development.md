@@ -13,9 +13,9 @@
 | API | `application.toml` + optional `application.{RUN_ENV}.toml` | Server configuration overlay; RUN_ENV defaults to local |
 | API | `DATABASE_URL` | PostgreSQL secret connection URL |
 | API | `JWT_SECRET` | Hex-encoded random signing key; at least 32 bytes |
-| API | `API_HOST` / `API_PORT` | Listener overrides |
-| API | `PUBLIC_ORIGIN` | Exact allowed UI origin |
-| API | `INSECURE_LOCAL_COOKIES` | Explicit loopback HTTP; false for production HTTPS |
+| API | `application.toml`: `server.host` / `server.port` | Non-secret listener settings |
+| API | `application.toml`: `browser.public_origin` | Exact allowed UI origin |
+| API | `application.toml`: `browser.insecure_local` | Explicit loopback HTTP; false for production HTTPS |
 | Backoffice | `application.toml`: `[api] base_url` | Public API URL including `/v1`; default `http://127.0.0.1:3000/v1` |
 | Backoffice | `config.rs`: `Settings` / `ApiConfig` | Load/parse the public TOML once at startup before pages or API calls |
 | Frontend file | Served as a Dioxus asset | Public settings only; no secrets or alternate configuration mechanism |
