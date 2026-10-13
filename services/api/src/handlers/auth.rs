@@ -1,4 +1,4 @@
-use crate::auth::Claims;
+use crate::auth::AuthenticatedAdmin;
 use axum::{Extension, Json, extract::State, http::StatusCode};
 use domain::dto::{LoginRequest, RefreshRequest, TokenResponse};
 use tracing::instrument;
@@ -27,9 +27,9 @@ pub async fn refresh(
 
 pub async fn logout(
     State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
+    Extension(claims): Extension<AuthenticatedAdmin>,
 ) -> Result<StatusCode, AppError> {
-    services::auth::logout(&state.pool, claims.admin_id).await?;
+    services::auth::logout(&state.pool, &claims).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

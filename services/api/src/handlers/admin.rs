@@ -1,4 +1,4 @@
-use crate::auth::Claims;
+use crate::auth::AuthenticatedAdmin;
 use crate::{error::AppError, services, state::AppState, validations::admin as validate};
 use axum::{
     Extension, Json,
@@ -20,23 +20,21 @@ pub async fn list(
 
 pub async fn add(
     State(state): State<AppState>,
+    Extension(actor): Extension<AuthenticatedAdmin>,
     Json(payload): Json<CreateAdminRequest>,
 ) -> Result<(StatusCode, Json<AdminDTO>), AppError> {
-    let response = services::admin::add(&state.pool, payload).await?;
+    let response = services::admin::add(&state.pool, &actor, payload).await?;
 
     Ok((StatusCode::CREATED, Json(response)))
 }
 
 pub async fn update(
     State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
+    Extension(claims): Extension<AuthenticatedAdmin>,
     Path(id): Path<i64>,
     Json(payload): Json<UpdateAdminRequest>,
 ) -> Result<Json<AdminDTO>, AppError> {
-    validate::validate_update(&claims, id)?;
-
-    let response = services::admin::update(&state.pool, id, payload).await?;
-    services::auth::logout(&state.pool, id).await?;
+    let response = services::admin::update(&state.pool, &claims, id, payload).await?;
 
     Ok(Json(response))
 }
@@ -52,13 +50,10 @@ pub async fn get(
 
 pub async fn delete(
     State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
+    Extension(claims): Extension<AuthenticatedAdmin>,
     Path(id): Path<i64>,
 ) -> Result<Json<AdminDTO>, AppError> {
-    validate::validate_delete(&claims, id)?;
-
-    let response = services::admin::delete(&state.pool, id).await?;
-    services::auth::logout(&state.pool, id).await?;
+    let response = services::admin::delete(&state.pool, &claims, id).await?;
 
     Ok(Json(response))
 }

@@ -1,4 +1,4 @@
-use crate::auth::Claims;
+use crate::auth::{AuthenticatedAdmin, Claims};
 use axum::{
     extract::{Request, State},
     middleware::Next,
@@ -29,7 +29,10 @@ pub async fn auth_middleware(
     )
     .map_err(|_| AppError::InvalidToken)?;
 
-    req.extensions_mut().insert(token_data.claims);
+    req.extensions_mut().insert(AuthenticatedAdmin {
+        id: token_data.claims.admin_id,
+        role: token_data.claims.role,
+    });
 
     Ok(next.run(req).await)
 }
@@ -37,7 +40,7 @@ pub async fn auth_middleware(
 pub async fn require_super_admin(req: Request, next: Next) -> Result<Response, AppError> {
     let claims = req
         .extensions()
-        .get::<Claims>()
+        .get::<AuthenticatedAdmin>()
         .ok_or(AppError::InvalidCredentials)?;
 
     if claims.role != AdminRole::SuperAdmin {

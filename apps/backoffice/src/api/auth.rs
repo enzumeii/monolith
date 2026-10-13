@@ -36,7 +36,7 @@ pub async fn logout(access_token: String) -> ServerFnResult<()> {
     let state = crate::state::app_state();
     let _ = state
         .http
-        .get(state.url("/auth/logout"))
+        .post(state.url("/auth/logout"))
         .bearer_auth(&access_token)
         .send()
         .await;

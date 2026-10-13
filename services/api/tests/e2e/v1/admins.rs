@@ -286,11 +286,18 @@ async fn delete_requires_super_admin_and_protects_super_admins() {
             .fetch_one(&db.pool())
             .await
             .unwrap();
+    let other_super = common::seed_admin(
+        &db.pool(),
+        "other-super",
+        "test-password",
+        AdminRole::SuperAdmin,
+    )
+    .await;
     let protected = common::router(db.pool())
         .oneshot(common::authed(
             "DELETE",
             &format!("/v1/admins/{sa_id}"),
-            sa_id + 1,
+            other_super,
             AdminRole::SuperAdmin,
         ))
         .await
@@ -328,4 +335,138 @@ async fn create_rejects_empty_credentials_and_reports_duplicate_username() {
     .await;
     let response = app.oneshot(common::authed_json("POST", "/v1/admins", 1, AdminRole::SuperAdmin, &serde_json::json!({"username":"existing", "password":"long-test-password", "role":"ADMIN"}))).await.unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn failed_session_revocation_rolls_back_password_update() {
+    let db = common::test_database().await;
+    let id = common::seed_admin(
+        &db.pool(),
+        "rollback-update",
+        "old-password",
+        AdminRole::Admin,
+    )
+    .await;
+    let key = hex::decode(common::JWT_SECRET).unwrap();
+    api::services::auth::login(
+        &db.pool(),
+        &key,
+        domain::dto::LoginRequest {
+            username: "rollback-update".into(),
+            password: "old-password".into(),
+        },
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE FUNCTION reject_revocation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected revocation failure'; END $$; CREATE TRIGGER reject_revoke BEFORE DELETE ON refresh_tokens FOR EACH ROW EXECUTE FUNCTION reject_revocation();").execute(&db.pool()).await.unwrap();
+    let response = common::router(db.pool())
+        .oneshot(common::authed_json(
+            "PATCH",
+            &format!("/v1/admins/{id}"),
+            id,
+            AdminRole::Admin,
+            &serde_json::json!({"password":"new-password-value"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(
+        api::services::auth::login(
+            &db.pool(),
+            &key,
+            domain::dto::LoginRequest {
+                username: "rollback-update".into(),
+                password: "old-password".into()
+            }
+        )
+        .await
+        .is_ok()
+    );
+    assert!(
+        api::services::auth::login(
+            &db.pool(),
+            &key,
+            domain::dto::LoginRequest {
+                username: "rollback-update".into(),
+                password: "new-password-value".into()
+            }
+        )
+        .await
+        .is_err()
+    );
+}
+
+#[tokio::test]
+async fn refresh_in_progress_cannot_survive_a_later_password_update() {
+    let db = common::test_database().await;
+    let pool = db.pool();
+    let id = common::seed_admin(&pool, "race-update", "old-password", AdminRole::Admin).await;
+    let key = hex::decode(common::JWT_SECRET).unwrap();
+    let tokens = api::services::auth::login(
+        &pool,
+        &key,
+        domain::dto::LoginRequest {
+            username: "race-update".into(),
+            password: "old-password".into(),
+        },
+    )
+    .await
+    .unwrap();
+    sqlx::raw_sql("CREATE FUNCTION pause_refresh() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(48721013); RETURN NEW; END $$; CREATE TRIGGER pause_refresh BEFORE INSERT ON refresh_tokens FOR EACH ROW EXECUTE FUNCTION pause_refresh();").execute(&pool).await.unwrap();
+    let mut control = pool.acquire().await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(48721013)")
+        .execute(&mut *control)
+        .await
+        .unwrap();
+    let worker_pool = pool.clone();
+    let worker_key = key.clone();
+    let rotation = tokio::spawn(async move {
+        api::services::auth::refresh(
+            &worker_pool,
+            &worker_key,
+            domain::dto::RefreshRequest {
+                refresh_token: tokens.refresh_token,
+            },
+        )
+        .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5),async{
+        loop{
+            let waiting:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND objid = 48721013 AND NOT granted)").fetch_one(&pool).await.unwrap();
+            if waiting{break;}tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    let update_pool = pool.clone();
+    let update = tokio::spawn(async move {
+        api::services::admin::update(
+            &update_pool,
+            &api::auth::AuthenticatedAdmin {
+                id,
+                role: AdminRole::Admin,
+            },
+            id,
+            domain::dto::UpdateAdminRequest {
+                username: None,
+                password: Some("new-password-value".into()),
+            },
+        )
+        .await
+    });
+    sqlx::query("SELECT pg_advisory_unlock(48721013)")
+        .execute(&mut *control)
+        .await
+        .unwrap();
+    let replacement = rotation.await.unwrap().unwrap();
+    update.await.unwrap().unwrap();
+    assert!(
+        api::services::auth::refresh(
+            &pool,
+            &key,
+            domain::dto::RefreshRequest {
+                refresh_token: replacement.refresh_token
+            }
+        )
+        .await
+        .is_err()
+    );
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT id, auth_version, username, password_hash, role AS \"role: DbAdminRole\", created_at, updated_at\n                FROM admin\n                WHERE username = $1\n            ",
+  "query": "\n                DELETE FROM admin \n                WHERE id = $1 AND role != 'SUPER_ADMIN'::ADMIN_ROLE\n                RETURNING id, username, password_hash, role AS \"role: DbAdminRole\", created_at, updated_at\n            ",
   "describe": {
     "columns": [
       {
@@ -16,17 +16,6 @@
       },
       {
         "ordinal": 1,
-        "name": "auth_version",
-        "type_info": "Int8",
-        "origin": {
-          "Table": {
-            "table": "admin",
-            "name": "auth_version"
-          }
-        }
-      },
-      {
-        "ordinal": 2,
         "name": "username",
         "type_info": "Varchar",
         "origin": {
@@ -37,7 +26,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 2,
         "name": "password_hash",
         "type_info": "Varchar",
         "origin": {
@@ -48,7 +37,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "role: DbAdminRole",
         "type_info": {
           "Custom": {
@@ -69,7 +58,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -80,7 +69,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -93,7 +82,7 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Int8"
       ]
     },
     "nullable": [
@@ -102,9 +91,8 @@
       false,
       false,
       false,
-      false,
       false
     ]
   },
-  "hash": "0f768f8555b0f6f78e05f251b6e544eab3ee64a6afbe218a849b0d3b50c3ad54"
+  "hash": "4d751072a7d617d81490df70cbabe8abb4ecf5f375c4028e2d31572f5a35ef9c"
 }

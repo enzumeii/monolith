@@ -32,9 +32,7 @@ pub(crate) async fn lock_verified(
     let current = admin::lock(connection, observed.id)
         .await?
         .ok_or(AppError::InvalidCredentials)?;
-    if current.auth_version != observed.auth_version
-        || current.password_hash != observed.password_hash
-    {
+    if current.password_hash != observed.password_hash {
         return Err(AppError::InvalidCredentials);
     }
     Ok(current)
@@ -68,7 +66,7 @@ pub async fn refresh(
     let account = admin::lock(&mut transaction, id)
         .await?
         .ok_or(AppError::InvalidToken)?;
-    if !auth::consume_refresh_token(&mut transaction, &hash, id, account.auth_version).await? {
+    if !auth::consume_refresh_token(&mut transaction, &hash, id).await? {
         return Err(AppError::InvalidToken);
     }
     let tokens = issue_token_pair(&mut transaction, jwt_secret, &account).await?;
@@ -76,9 +74,17 @@ pub async fn refresh(
     Ok(tokens)
 }
 
-pub async fn logout(pool: &PgPool, admin_id: i64) -> Result<(), AppError> {
-    let mut connection = pool.acquire().await?;
-    auth::delete_refresh_tokens(&mut connection, admin_id).await
+pub async fn logout(
+    pool: &PgPool,
+    actor: &crate::auth::AuthenticatedAdmin,
+) -> Result<(), AppError> {
+    let mut transaction = pool.begin().await?;
+    let _account = admin::lock(&mut transaction, actor.id)
+        .await?
+        .ok_or(AppError::InvalidToken)?;
+    auth::revoke_account(&mut transaction, actor.id).await?;
+    transaction.commit().await?;
+    Ok(())
 }
 
 async fn issue_token_pair(
@@ -90,7 +96,6 @@ async fn issue_token_pair(
         .map_err(|_| anyhow::anyhow!("timestamp overflow"))?;
     let claims = Claims {
         admin_id: account.id,
-        auth_version: account.auth_version,
         username: account.username.clone(),
         role: account.role.into(),
         expiration,
@@ -104,7 +109,6 @@ async fn issue_token_pair(
     auth::create_refresh_token(
         connection,
         account.id,
-        account.auth_version,
         &hash_token(&refresh_token),
         Utc::now() + Duration::days(7),
     )

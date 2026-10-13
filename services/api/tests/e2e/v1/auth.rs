@@ -1,4 +1,4 @@
-//! POST /v1/auth/login · POST /v1/auth/refresh · GET /v1/auth/logout
+//! POST /v1/auth/login · POST /v1/auth/refresh · POST /v1/auth/logout
 
 use super::super::common;
 use axum::body::Body;
@@ -143,7 +143,7 @@ async fn logout_returns_no_content() {
 
     let response = common::router(db.pool())
         .oneshot(common::authed(
-            "GET",
+            "POST",
             "/v1/auth/logout",
             id,
             AdminRole::Admin,
@@ -284,4 +284,98 @@ async fn expired_refresh_is_rejected() {
         .await
         .is_err()
     );
+}
+
+#[tokio::test]
+async fn logout_revokes_refresh_but_access_remains_valid_until_expiry() {
+    let db = common::test_database().await;
+    common::seed_admin(&db.pool(), "revoked", "test-password", AdminRole::Admin).await;
+    let key = hex::decode(common::JWT_SECRET).unwrap();
+    let tokens = auth::login(
+        &db.pool(),
+        &key,
+        LoginRequest {
+            username: "revoked".into(),
+            password: "test-password".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let app = common::router(db.pool());
+    let logout = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/auth/logout")
+                .header("authorization", format!("Bearer {}", tokens.access_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(logout.status(), StatusCode::NO_CONTENT);
+    let protected = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/admins")
+                .header("authorization", format!("Bearer {}", tokens.access_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(protected.status(), StatusCode::OK);
+    assert!(
+        auth::refresh(
+            &db.pool(),
+            &key,
+            RefreshRequest {
+                refresh_token: tokens.refresh_token
+            }
+        )
+        .await
+        .is_err()
+    );
+}
+
+#[tokio::test]
+async fn password_update_preserves_access_until_expiry() {
+    let db = common::test_database().await;
+    let id = common::seed_admin(&db.pool(), "reset", "test-password", AdminRole::Admin).await;
+    let key = hex::decode(common::JWT_SECRET).unwrap();
+    let tokens = auth::login(
+        &db.pool(),
+        &key,
+        LoginRequest {
+            username: "reset".into(),
+            password: "test-password".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let app = common::router(db.pool());
+    let response = app
+        .clone()
+        .oneshot(common::authed_json(
+            "PATCH",
+            &format!("/v1/admins/{id}"),
+            id,
+            AdminRole::Admin,
+            &serde_json::json!({"password":"replacement-password"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let protected = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/admins")
+                .header("authorization", format!("Bearer {}", tokens.access_token))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(protected.status(), StatusCode::OK);
 }

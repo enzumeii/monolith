@@ -1,4 +1,4 @@
-use crate::auth::Claims;
+use crate::auth::AuthenticatedAdmin;
 use crate::error::AppError;
 use domain::dto::{AdminRole, CreateAdminRequest, ListAdminsQuery, UpdateAdminRequest};
 
@@ -42,8 +42,8 @@ pub fn validate_page(query: &ListAdminsQuery) -> Result<AdminPageRequest, AppErr
 ///
 /// `SuperAdmin` may update any account; a regular `Admin` may only update
 /// their own account. Anything else is rejected with `Forbidden`.
-pub fn validate_update(claims: &Claims, target_id: i64) -> Result<(), AppError> {
-    let allowed = claims.role == AdminRole::SuperAdmin || claims.admin_id == target_id;
+pub fn validate_update(claims: &AuthenticatedAdmin, target_id: i64) -> Result<(), AppError> {
+    let allowed = claims.role == AdminRole::SuperAdmin || claims.id == target_id;
     if !allowed {
         return Err(AppError::Forbidden);
     }
@@ -51,8 +51,8 @@ pub fn validate_update(claims: &Claims, target_id: i64) -> Result<(), AppError> 
 }
 
 /// Ensure the caller is not deleting their own account.
-pub fn validate_delete(claims: &Claims, target_id: i64) -> Result<(), AppError> {
-    if claims.admin_id == target_id {
+pub fn validate_delete(claims: &AuthenticatedAdmin, target_id: i64) -> Result<(), AppError> {
+    if claims.id == target_id {
         return Err(AppError::Forbidden);
     }
     Ok(())
@@ -68,14 +68,8 @@ mod tests {
         ListAdminsQuery { page, per_page }
     }
 
-    fn claims(admin_id: i64, role: AdminRole) -> Claims {
-        Claims {
-            admin_id,
-            auth_version: 0,
-            username: "admin".into(),
-            role,
-            expiration: 0,
-        }
+    fn claims(admin_id: i64, role: AdminRole) -> AuthenticatedAdmin {
+        AuthenticatedAdmin { id: admin_id, role }
     }
 
     #[test]

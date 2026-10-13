@@ -1,58 +1,113 @@
-use crate::validations::admin::AdminPageRequest;
-use crate::{error::AppError, repositories::admin, utils::password};
+use crate::{
+    auth::AuthenticatedAdmin,
+    error::AppError,
+    models::Admin,
+    repositories::{admin, auth},
+    utils::password,
+    validations::admin::{self as validate, AdminPageRequest},
+};
 use domain::dto::{AdminDTO, AdminListResponse, CreateAdminRequest, UpdateAdminRequest};
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 
-#[tracing::instrument(skip(pool))]
 pub async fn list(pool: &PgPool, page: AdminPageRequest) -> Result<AdminListResponse, AppError> {
-    let mut entities = admin::list_page(pool, page).await?;
-    let has_next = entities.len() > page.per_page() as usize;
-    entities.truncate(page.per_page() as usize);
-    let admins = entities.into_iter().map(AdminDTO::from).collect();
-
+    let mut rows = admin::list_page(pool, page).await?;
+    let has_next = rows.len() > page.per_page() as usize;
+    rows.truncate(page.per_page() as usize);
     Ok(AdminListResponse {
-        admins,
+        admins: rows.into_iter().map(AdminDTO::from).collect(),
         page: page.page(),
         per_page: page.per_page(),
         has_next,
     })
 }
 
-#[tracing::instrument(skip(pool, req), fields(username = %req.username, %req.role))]
-pub async fn add(pool: &PgPool, req: CreateAdminRequest) -> Result<AdminDTO, AppError> {
-    crate::validations::admin::validate_create(&req)?;
-    let password_hash = password::hash(req.password).await?;
-    let admin_entity = admin::add(pool, req.username, password_hash, req.role).await?;
-    Ok(admin_entity.into())
+async fn lock_actor_and_target(
+    connection: &mut PgConnection,
+    actor: &AuthenticatedAdmin,
+    id: i64,
+) -> Result<(AuthenticatedAdmin, Admin), AppError> {
+    let mut ids = vec![actor.id, id];
+    ids.sort_unstable();
+    ids.dedup();
+    let mut current_actor = None;
+    let mut target = None;
+    for account_id in ids {
+        if let Some(account) = admin::lock(connection, account_id).await? {
+            if account_id == actor.id {
+                current_actor = Some(AuthenticatedAdmin::from(&account));
+            }
+            if account_id == id {
+                target = Some(account);
+            }
+        }
+    }
+    let current = current_actor.ok_or(AppError::InvalidToken)?;
+    Ok((current, target.ok_or(AppError::NotFound)?))
 }
 
-#[tracing::instrument(skip(pool, req), fields(username = ?req.username))]
-pub async fn update(pool: &PgPool, id: i64, req: UpdateAdminRequest) -> Result<AdminDTO, AppError> {
-    crate::validations::admin::validate_update_input(&req)?;
-    let password_hash = match req.password {
-        Some(raw_password) => Some(password::hash(raw_password).await?),
+pub async fn add(
+    pool: &PgPool,
+    actor: &AuthenticatedAdmin,
+    req: CreateAdminRequest,
+) -> Result<AdminDTO, AppError> {
+    validate::validate_create(&req)?;
+    let hash = password::hash(req.password).await?;
+    let mut tx = pool.begin().await?;
+    let (current, _) = lock_actor_and_target(&mut tx, actor, actor.id).await?;
+    if current.role != domain::AdminRole::SuperAdmin {
+        return Err(AppError::Forbidden);
+    }
+    let row = admin::add(&mut tx, req.username, hash, req.role).await?;
+    tx.commit().await?;
+    Ok(row.into())
+}
+
+pub async fn update(
+    pool: &PgPool,
+    actor: &AuthenticatedAdmin,
+    id: i64,
+    req: UpdateAdminRequest,
+) -> Result<AdminDTO, AppError> {
+    validate::validate_update(actor, id)?;
+    validate::validate_update_input(&req)?;
+    let hash = match req.password {
+        Some(value) => Some(password::hash(value).await?),
         None => None,
     };
-    let updated_entity = admin::update(pool, id, req.username, password_hash)
+    let mut tx = pool.begin().await?;
+    let (current, _) = lock_actor_and_target(&mut tx, actor, id).await?;
+    validate::validate_update(&current, id)?;
+    let row = admin::update(&mut tx, id, req.username, hash)
         .await?
         .ok_or(AppError::NotFound)?;
-    Ok(updated_entity.into())
+    auth::revoke_account(&mut tx, id).await?;
+    tx.commit().await?;
+    Ok(row.into())
 }
 
-#[tracing::instrument(skip(pool))]
 pub async fn get(pool: &PgPool, id: i64) -> Result<AdminDTO, AppError> {
-    let admin_entity = admin::find_by_id(pool, id)
+    Ok(admin::find_by_id(pool, id)
         .await?
-        .ok_or(AppError::NotFound)?;
-    Ok(admin_entity.into())
+        .ok_or(AppError::NotFound)?
+        .into())
 }
 
-#[tracing::instrument(skip(pool))]
-pub async fn delete(pool: &PgPool, id: i64) -> Result<AdminDTO, AppError> {
-    let deleted_admin = admin::delete(pool, id).await?;
-    match deleted_admin {
-        Some(admin_entity) => Ok(admin_entity.into()),
-        None if admin::find_by_id(pool, id).await?.is_some() => Err(AppError::Forbidden),
-        None => Err(AppError::NotFound),
+pub async fn delete(
+    pool: &PgPool,
+    actor: &AuthenticatedAdmin,
+    id: i64,
+) -> Result<AdminDTO, AppError> {
+    validate::validate_delete(actor, id)?;
+    let mut tx = pool.begin().await?;
+    let (current, target) = lock_actor_and_target(&mut tx, actor, id).await?;
+    if current.role != domain::AdminRole::SuperAdmin
+        || target.role == crate::models::DbAdminRole::SuperAdmin
+    {
+        return Err(AppError::Forbidden);
     }
+    let row = admin::delete(&mut tx, id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    tx.commit().await?;
+    Ok(row.into())
 }

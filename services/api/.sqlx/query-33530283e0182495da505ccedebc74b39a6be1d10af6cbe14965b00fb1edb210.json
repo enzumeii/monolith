@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                INSERT INTO admin (username, password_hash, role)\n                VALUES ($1, $2, $3::ADMIN_ROLE)\n                RETURNING id, auth_version, username, password_hash, role AS \"role: DbAdminRole\", created_at, updated_at\n            ",
+  "query": "SELECT id, username, password_hash, role AS \"role: DbAdminRole\", created_at, updated_at FROM admin WHERE id = $1 FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -16,17 +16,6 @@
       },
       {
         "ordinal": 1,
-        "name": "auth_version",
-        "type_info": "Int8",
-        "origin": {
-          "Table": {
-            "table": "admin",
-            "name": "auth_version"
-          }
-        }
-      },
-      {
-        "ordinal": 2,
         "name": "username",
         "type_info": "Varchar",
         "origin": {
@@ -37,7 +26,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 2,
         "name": "password_hash",
         "type_info": "Varchar",
         "origin": {
@@ -48,7 +37,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "role: DbAdminRole",
         "type_info": {
           "Custom": {
@@ -69,7 +58,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -80,7 +69,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -93,19 +82,7 @@
     ],
     "parameters": {
       "Left": [
-        "Varchar",
-        "Varchar",
-        {
-          "Custom": {
-            "name": "admin_role",
-            "kind": {
-              "Enum": [
-                "SUPER_ADMIN",
-                "ADMIN"
-              ]
-            }
-          }
-        }
+        "Int8"
       ]
     },
     "nullable": [
@@ -114,9 +91,8 @@
       false,
       false,
       false,
-      false,
       false
     ]
   },
-  "hash": "038f239b8856447a5add0c57b1872f20ebb57e79c8f4556f5bf51c54ff8bfa65"
+  "hash": "33530283e0182495da505ccedebc74b39a6be1d10af6cbe14965b00fb1edb210"
 }
