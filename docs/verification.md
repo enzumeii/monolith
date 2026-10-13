@@ -91,5 +91,5 @@ flowchart TB
 | Removed tests | BFF/custom-pagination counts no longer apply |
 | Coverage percentages | Not rerun for current architecture; earlier percentages omitted |
 | Capacity | Passing tests do not establish production throughput |
-| Independent review | No fresh architecture review of current simplifications in this verification pass |
+| Independent review | Cleanup `cafe9ab..924aef2`: no validated functional blockers; two stale architecture rows corrected. Earlier branch changes inspected as context, not exhaustively re-audited |
 | Vercel/deployment | No runtime adapter, production deployment, push or merge |

@@ -165,9 +165,9 @@ flowchart LR
 
 | Area | Status |
 | --- | --- |
-| Backoffice configuration loader | Relative asset URL passed to reqwest prevents loading; native/WASM strict lint fails on asset macro within deserialized Settings impl |
+| Backoffice configuration loader | Fixed; nested-route/base-path URL tests, manual startup smoke and strict native/WASM lint pass |
 | Environment split | Agreed local/prod source selection for deployment; source files/build selection not implemented |
-| API cookie/CORS endpoint coverage | Missing; bearer E2E does not verify browser transport |
+| API cookie/CORS endpoint coverage | Covered by TCP tests; HTTPS browser cookie acceptance remains unverified |
 | Browser behavior | Web Locks, BroadcastChannel, cookie acceptance and rendered pagination unverified by native checks |
 | Backoffice/browser E2E | Excluded by request |
 | Coverage percentages | Not rerun after simplification; earlier percentages omitted |
