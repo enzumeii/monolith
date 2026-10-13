@@ -23,13 +23,15 @@ pub(super) async fn lock() -> crate::api::ApiResult<CookieLock> {
         ",
         );
         let mut guard = CookieLock { eval };
-        let result = guard
-            .eval
-            .recv::<String>()
-            .await
-            .map_err(|_| crate::api::ApiError::new("could not coordinate authentication"))?;
+        let result = guard.eval.recv::<String>().await.map_err(|_| {
+            crate::api::ApiError::new(
+                reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                "could not coordinate authentication",
+            )
+        })?;
         if result != "locked" {
             return Err(crate::api::ApiError::new(
+                reqwest::StatusCode::SERVICE_UNAVAILABLE,
                 "authentication requires browser Web Locks support",
             ));
         }

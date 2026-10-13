@@ -2,6 +2,7 @@ mod sync;
 use crate::api;
 use dioxus::prelude::*;
 use domain::dto::LoginRequest;
+use reqwest::StatusCode;
 use std::cell::RefCell;
 
 pub use domain::dto::SessionResponse as Session;
@@ -73,9 +74,12 @@ pub async fn update_self(
     let _lock = sync::lock().await?;
     let current = read_valid()
         .await?
-        .ok_or_else(|| api::ApiError::new("not signed in"))?;
+        .ok_or_else(|| api::ApiError::new(StatusCode::UNAUTHORIZED, "not signed in"))?;
     if current.admin_id != id {
-        return Err(api::ApiError::new("Account changed; reload this form"));
+        return Err(api::ApiError::new(
+            StatusCode::CONFLICT,
+            "Account changed; reload this form",
+        ));
     }
     let updated = api::update_admin(id, req).await?;
     apply(ticket, None);
@@ -91,7 +95,10 @@ where
     ensure_valid().await?;
     let result = call().await;
     if epoch() != version {
-        return Err(api::ApiError::new("session changed during request"));
+        return Err(api::ApiError::new(
+            StatusCode::CONFLICT,
+            "session changed during request",
+        ));
     }
     if let Err(error) = &result
         && error.status == 401
@@ -164,7 +171,10 @@ async fn ensure_valid() -> api::ApiResult<()> {
     }
     restore().await?;
     if SESSION.read().is_none() {
-        return Err(api::ApiError::new("not signed in"));
+        return Err(api::ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "not signed in",
+        ));
     }
     Ok(())
 }

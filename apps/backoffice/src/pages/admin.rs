@@ -28,7 +28,10 @@ pub fn Admins() -> Element {
             .as_ref()
             .is_some_and(|session| session.role == AdminRole::SuperAdmin);
         if !is_super {
-            return Err(api::ApiError::new("Not authorized"));
+            return Err(api::ApiError::new(
+                reqwest::StatusCode::FORBIDDEN,
+                "Not authorized",
+            ));
         }
         session::with_session(|| {
             api::list_admins(ListAdminsQuery {

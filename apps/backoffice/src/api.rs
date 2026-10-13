@@ -3,7 +3,7 @@ pub mod auth;
 pub use admins::*;
 pub use auth::*;
 
-use reqwest::{Method, RequestBuilder, Response};
+use reqwest::{Method, RequestBuilder, Response, StatusCode};
 use serde::de::DeserializeOwned;
 
 pub type ApiResult<T> = Result<T, ApiError>;
@@ -13,9 +13,9 @@ pub struct ApiError {
     message: String,
 }
 impl ApiError {
-    pub fn new(message: impl Into<String>) -> Self {
+    pub fn new(status: StatusCode, message: impl Into<String>) -> Self {
         Self {
-            status: 401,
+            status: status.as_u16(),
             message: message.into(),
         }
     }
@@ -25,10 +25,10 @@ impl std::error::Error for ApiError {}
 fn request(method: Method, path: &str) -> ApiResult<RequestBuilder> {
     let settings =
         dioxus::prelude::try_consume_context::<crate::config::Settings>().ok_or_else(|| {
-            ApiError {
-                status: 503,
-                message: "Configuration is not loaded".into(),
-            }
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Configuration is not loaded",
+            )
         })?;
     let base = settings.api.base_url.trim_end_matches('/');
     let request = reqwest::Client::new()
@@ -43,10 +43,10 @@ async fn send(request: RequestBuilder) -> ApiResult<Response> {
     struct Failure {
         error: String,
     }
-    let response = request.send().await.map_err(|_| ApiError {
-        status: 503,
-        message: "API unavailable".into(),
-    })?;
+    let response = request
+        .send()
+        .await
+        .map_err(|_| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "API unavailable"))?;
     if response.status().is_success() {
         return Ok(response);
     }
@@ -58,10 +58,11 @@ async fn send(request: RequestBuilder) -> ApiResult<Response> {
     Err(ApiError { status, message })
 }
 async fn decode<T: DeserializeOwned>(request: RequestBuilder) -> ApiResult<T> {
-    send(request).await?.json().await.map_err(|_| ApiError {
-        status: 502,
-        message: "Invalid API response".into(),
-    })
+    send(request)
+        .await?
+        .json()
+        .await
+        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "Invalid API response"))
 }
 
 impl std::fmt::Display for ApiError {
