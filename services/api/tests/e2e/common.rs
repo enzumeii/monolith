@@ -20,7 +20,7 @@ use jsonwebtoken::{EncodingKey, Header, encode};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-pub const JWT_SECRET: &str = "test-secret";
+pub const JWT_SECRET: &str = "abababababababababababababababababababababababababababababababab";
 
 fn isolated_database_name() -> String {
     format!("e2e_test_{}", Uuid::new_v4().simple())
@@ -99,7 +99,7 @@ fn test_url_for(admin_url: &str, db_name: &str) -> String {
 }
 
 pub fn router(pool: PgPool) -> Router {
-    routes::router(app_state(pool, settings()))
+    routes::router(app_state(pool, settings()).unwrap())
 }
 
 fn settings() -> Settings {
@@ -148,7 +148,7 @@ pub fn jwt_for(admin_id: i64, role: AdminRole) -> String {
             role,
             expiration: 4_102_444_800,
         },
-        &EncodingKey::from_secret(JWT_SECRET.as_bytes()),
+        &EncodingKey::from_secret(&hex::decode(JWT_SECRET).unwrap()),
     )
     .unwrap()
 }

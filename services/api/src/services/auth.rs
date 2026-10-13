@@ -17,6 +17,9 @@ pub async fn login(
     jwt_secret: &[u8],
     req: LoginRequest,
 ) -> Result<TokenResponse, AppError> {
+    if req.password.chars().count() > 128 {
+        return Err(AppError::InvalidCredentials);
+    }
     let admin = admin::find_by_username(pool, &req.username)
         .await?
         .ok_or_else(|| {

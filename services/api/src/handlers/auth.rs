@@ -10,8 +10,7 @@ pub async fn login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<TokenResponse>, AppError> {
-    let response =
-        services::auth::login(&state.pool, state.settings.jwt.secret.as_bytes(), payload).await?;
+    let response = services::auth::login(&state.pool, state.jwt_key.as_slice(), payload).await?;
 
     Ok(Json(response))
 }
@@ -21,8 +20,7 @@ pub async fn refresh(
     State(state): State<AppState>,
     Json(payload): Json<RefreshRequest>,
 ) -> Result<Json<TokenResponse>, AppError> {
-    let response =
-        services::auth::refresh(&state.pool, state.settings.jwt.secret.as_bytes(), payload).await?;
+    let response = services::auth::refresh(&state.pool, state.jwt_key.as_slice(), payload).await?;
 
     Ok(Json(response))
 }

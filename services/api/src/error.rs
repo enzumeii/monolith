@@ -24,7 +24,13 @@ pub enum AppError {
     Forbidden,
 
     #[error("Database error")]
-    Database(#[from] sqlx::Error),
+    Database(sqlx::Error),
+
+    #[error("Username already exists")]
+    Conflict,
+
+    #[error("Service temporarily unavailable")]
+    Unavailable,
 
     #[error("Password verification error")]
     PasswordHash(#[from] argon2::password_hash::Error),
@@ -63,6 +69,17 @@ impl IntoResponse for AppError {
                 Json(json!({ "error": self.to_string() })),
             )
                 .into_response(),
+            AppError::Conflict => (
+                StatusCode::CONFLICT,
+                Json(json!({"error": self.to_string()})),
+            )
+                .into_response(),
+            AppError::Unavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                [("retry-after", "1")],
+                Json(json!({"error": self.to_string()})),
+            )
+                .into_response(),
             AppError::Database(ref err) => {
                 tracing::error!(error = %err, "Database operation failed");
                 (
@@ -96,6 +113,18 @@ impl IntoResponse for AppError {
                     .into_response()
             }
         }
+    }
+}
+
+impl From<sqlx::Error> for AppError {
+    fn from(error: sqlx::Error) -> Self {
+        if let sqlx::Error::Database(ref db) = error
+            && db.is_unique_violation()
+            && db.constraint() == Some("admin_username_key")
+        {
+            return Self::Conflict;
+        }
+        Self::Database(error)
     }
 }
 

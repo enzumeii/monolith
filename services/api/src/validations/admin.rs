@@ -1,6 +1,6 @@
 use crate::auth::Claims;
 use crate::error::AppError;
-use domain::dto::{AdminRole, ListAdminsQuery};
+use domain::dto::{AdminRole, CreateAdminRequest, ListAdminsQuery, UpdateAdminRequest};
 
 #[derive(Debug, Clone, Copy)]
 pub struct AdminPageRequest {
@@ -148,5 +148,72 @@ mod tests {
     #[test]
     fn validate_delete_passes_for_other_account() {
         assert!(validate_delete(&claims(1, AdminRole::SuperAdmin), 2).is_ok());
+    }
+}
+
+fn validate_username(username: &str) -> Result<(), AppError> {
+    if !(1..=20).contains(&username.chars().count())
+        || username.trim().is_empty()
+        || username != username.trim()
+    {
+        return Err(AppError::BadRequest(
+            "username must contain 1–20 characters without surrounding whitespace".into(),
+        ));
+    }
+    Ok(())
+}
+fn validate_password(password: &str) -> Result<(), AppError> {
+    if !(12..=128).contains(&password.chars().count()) {
+        return Err(AppError::BadRequest(
+            "new password must contain 12–128 characters".into(),
+        ));
+    }
+    Ok(())
+}
+pub fn validate_create(req: &CreateAdminRequest) -> Result<(), AppError> {
+    validate_username(&req.username)?;
+    validate_password(&req.password)
+}
+pub fn validate_update_input(req: &UpdateAdminRequest) -> Result<(), AppError> {
+    if req.username.is_none() && req.password.is_none() {
+        return Err(AppError::BadRequest(
+            "update must include a username or password".into(),
+        ));
+    }
+    if let Some(username) = &req.username {
+        validate_username(username)?;
+    }
+    if let Some(password) = &req.password {
+        validate_password(password)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod credential_tests {
+    use super::*;
+    #[test]
+    fn credential_boundaries_count_unicode_characters() {
+        for (username, valid) in [
+            (String::new(), false),
+            ("a".to_string(), true),
+            ("é".repeat(20), true),
+            ("é".repeat(21), false),
+            (" ".to_string(), false),
+            (" user".to_string(), false),
+            ("user ".to_string(), false),
+        ] {
+            assert_eq!(validate_username(&username).is_ok(), valid);
+        }
+        for (length, valid) in [
+            (0, false),
+            (11, false),
+            (12, true),
+            (128, true),
+            (129, false),
+        ] {
+            assert_eq!(validate_password(&"é".repeat(length)).is_ok(), valid);
+        }
+        assert!(validate_update_input(&UpdateAdminRequest::default()).is_err());
     }
 }

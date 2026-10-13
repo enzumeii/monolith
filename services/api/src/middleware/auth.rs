@@ -24,7 +24,7 @@ pub async fn auth_middleware(
 
     let token_data = decode::<Claims>(
         &token,
-        &DecodingKey::from_secret(state.settings.jwt.secret.as_bytes()),
+        &DecodingKey::from_secret(state.jwt_key.as_slice()),
         &validation,
     )
     .map_err(|_| AppError::InvalidToken)?;

@@ -20,6 +20,7 @@ pub async fn list(pool: &PgPool, page: AdminPageRequest) -> Result<AdminListResp
 
 #[tracing::instrument(skip(pool, req), fields(username = %req.username, %req.role))]
 pub async fn add(pool: &PgPool, req: CreateAdminRequest) -> Result<AdminDTO, AppError> {
+    crate::validations::admin::validate_create(&req)?;
     let password_hash = password::hash(req.password).await?;
     let admin_entity = admin::add(pool, req.username, password_hash, req.role).await?;
     Ok(admin_entity.into())
@@ -27,6 +28,7 @@ pub async fn add(pool: &PgPool, req: CreateAdminRequest) -> Result<AdminDTO, App
 
 #[tracing::instrument(skip(pool, req), fields(username = ?req.username))]
 pub async fn update(pool: &PgPool, id: i64, req: UpdateAdminRequest) -> Result<AdminDTO, AppError> {
+    crate::validations::admin::validate_update_input(&req)?;
     let password_hash = match req.password {
         Some(raw_password) => Some(password::hash(raw_password).await?),
         None => None,

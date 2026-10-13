@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         e
     })?;
 
-    let state = app_state(pool, settings);
+    let state = app_state(pool, settings)?;
     let router = routes::router(state);
 
     tracing::info!("Listening on http://{}", addr);

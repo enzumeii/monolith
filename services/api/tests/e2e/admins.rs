@@ -153,7 +153,7 @@ async fn update_allows_super_admin_cross_account_and_revokes_target_tokens() {
             &format!("/v1/admins/{target}"),
             super_admin,
             AdminRole::SuperAdmin,
-            &serde_json::json!({ "password": "new-secret" }),
+            &serde_json::json!({ "password": "new-secret-password" }),
         ))
         .await
         .unwrap();
@@ -182,7 +182,7 @@ async fn update_allows_super_admin_cross_account_and_revokes_target_tokens() {
                 .uri("/v1/auth/login")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::json!({ "username": "cross-target", "password": "new-secret" })
+                    serde_json::json!({ "username": "cross-target", "password": "new-secret-password" })
                         .to_string(),
                 ))
                 .unwrap(),
@@ -204,7 +204,7 @@ async fn add_requires_super_admin() {
             "/v1/admins",
             1,
             AdminRole::Admin,
-            &serde_json::json!({ "username": "new", "password": "secret", "role": "ADMIN" }),
+            &serde_json::json!({ "username": "new", "password": "long-test-password", "role": "ADMIN" }),
         ))
         .await
         .unwrap();
@@ -216,7 +216,7 @@ async fn add_requires_super_admin() {
             "/v1/admins",
             1,
             AdminRole::SuperAdmin,
-            &serde_json::json!({ "username": "new", "password": "secret", "role": "ADMIN" }),
+            &serde_json::json!({ "username": "new", "password": "long-test-password", "role": "ADMIN" }),
         ))
         .await
         .unwrap();
@@ -296,4 +296,36 @@ async fn delete_requires_super_admin_and_protects_super_admins() {
         .await
         .unwrap();
     assert_eq!(protected.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn create_rejects_empty_credentials_and_reports_duplicate_username() {
+    let db = common::test_database().await;
+    let app = common::router(db.pool());
+    for payload in [
+        serde_json::json!({"username":"", "password":"long-test-password", "role":"ADMIN"}),
+        serde_json::json!({"username":"valid", "password":"", "role":"ADMIN"}),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(common::authed_json(
+                "POST",
+                "/v1/admins",
+                1,
+                AdminRole::SuperAdmin,
+                &payload,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+    common::seed_admin(
+        &db.pool(),
+        "existing",
+        "long-test-password",
+        AdminRole::Admin,
+    )
+    .await;
+    let response = app.oneshot(common::authed_json("POST", "/v1/admins", 1, AdminRole::SuperAdmin, &serde_json::json!({"username":"existing", "password":"long-test-password", "role":"ADMIN"}))).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
 }
