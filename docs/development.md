@@ -40,7 +40,7 @@ Production requires HTTPS with an exact browser public origin. Set BFF `session.
 
 ## Migrations and bootstrap
 
-All original migration scripts and intentional seed/index behavior are retained. New migrations add refresh-family identity and retention indexes. Do not rewrite original SQLx migration history. The unpublished auth_version drafts were removed before production use.
+The original admin and seed migrations retain their intentional behavior. Refresh-family identity and retention indexes are consolidated into `20260829090958_add_refresh_token.sql` under the user-approved pre-production change. The unpublished auth_version drafts were removed before production use.
 
 Optional `just bootstrap-admin USERNAME ROLE` creates an additional account, validates inputs, reads a password on non-terminal stdin, and fails on duplicate names without overwriting. A private input mechanism such as an interactive non-echo password reader should feed stdin; avoid putting passwords in command arguments or shell history.
 

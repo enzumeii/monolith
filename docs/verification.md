@@ -13,7 +13,7 @@ The approved implementation and later scope corrections were verified in the exi
 | SQLx offline metadata against configured PostgreSQL | Passed |
 | Dioxus fullstack client/server bundle | Passed |
 
-Original migration files are byte-for-byte unchanged from the starting commit. Original seed/index behavior remains intentional. E2E creates no databases and resets no shared records; it cleans up owned rows and trigger controls. Backoffice/browser E2E is excluded by user request.
+The original admin and seed migrations are unchanged. The user-requested pre-production consolidation puts family and retention additions in the original refresh-token migration; both later draft files are removed. Original seed/index behavior remains intentional. E2E creates no databases and resets no shared records; it cleans up owned rows and trigger controls. Backoffice/browser E2E is excluded by user request.
 
 Diagnostic LLVM line coverage included the instrumented local API process, native tests and inline test code. API services: admin 98.3%, auth 96.3%; cookies 91.7%, refresh coordinator 94.9%, pagination controller 97.7%. Overall measured source coverage was 72.3%; browser views/synchronization remain unmeasured by native tests. These figures are diagnostic rather than a release percentage gate.
 
