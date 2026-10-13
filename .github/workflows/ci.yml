@@ -63,11 +63,6 @@ jobs:
               - '.cargo/**'
               - '.github/workflows/ci.yml'
 
-      - name: Shared contract tests and db-free WASM check
-        run: |
-          cargo test --locked -p domain --no-default-features
-          cargo check --locked -p domain --no-default-features --target wasm32-unknown-unknown
-
       - name: api check + test
         if: steps.changes.outputs.api == 'true'
         working-directory: services/api

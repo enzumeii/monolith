@@ -1,7 +1,7 @@
 use crate::{
-    auth::Claims,
     error::AppError,
     models::Admin,
+    models::Claims,
     repositories::{admin, auth},
     utils::password,
 };
@@ -12,46 +12,22 @@ use rand::RngExt;
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool};
 
-pub(crate) async fn verified_account(
+#[tracing::instrument(skip_all)]
+pub async fn login(
     pool: &PgPool,
-    limiter: &password::PasswordLimiter,
+    jwt_secret: &[u8],
     req: LoginRequest,
-) -> Result<Admin, AppError> {
+) -> Result<TokenResponse, AppError> {
     if req.password.chars().count() > 128 {
         return Err(AppError::InvalidCredentials);
     }
     let account = admin::find_by_username(pool, &req.username)
         .await?
         .ok_or(AppError::InvalidCredentials)?;
-    if !password::verify(limiter, req.password, account.password_hash.clone()).await? {
+    if !password::verify(req.password, account.password_hash.clone()).await? {
         return Err(AppError::InvalidCredentials);
     }
-    Ok(account)
-}
-
-pub(crate) async fn lock_verified(
-    connection: &mut PgConnection,
-    observed: &Admin,
-) -> Result<Admin, AppError> {
-    let current = admin::lock(connection, observed.id)
-        .await?
-        .ok_or(AppError::InvalidCredentials)?;
-    if current.password_hash != observed.password_hash {
-        return Err(AppError::InvalidCredentials);
-    }
-    Ok(current)
-}
-
-#[tracing::instrument(skip_all)]
-pub async fn login(
-    pool: &PgPool,
-    limiter: &password::PasswordLimiter,
-    jwt_secret: &[u8],
-    req: LoginRequest,
-) -> Result<TokenResponse, AppError> {
-    let observed = verified_account(pool, limiter, req).await?;
     let mut transaction = pool.begin().await?;
-    let account = lock_verified(&mut transaction, &observed).await?;
     let tokens = issue_token_pair(&mut transaction, jwt_secret, &account, None).await?;
     transaction.commit().await?;
     Ok(tokens)
@@ -67,10 +43,10 @@ pub async fn refresh(
     let id = auth::refresh_owner(pool, &hash)
         .await?
         .ok_or(AppError::InvalidToken)?;
-    let mut transaction = pool.begin().await?;
-    let account = admin::lock(&mut transaction, id)
+    let account = admin::find_by_id(pool, id)
         .await?
         .ok_or(AppError::InvalidToken)?;
+    let mut transaction = pool.begin().await?;
     let family_id = auth::consume_refresh_token(&mut transaction, &hash, id)
         .await?
         .ok_or(AppError::InvalidToken)?;
@@ -81,16 +57,16 @@ pub async fn refresh(
 
 pub async fn logout(
     pool: &PgPool,
-    actor: &crate::auth::AuthenticatedAdmin,
+    actor: &crate::models::AuthenticatedAdmin,
     req: RefreshRequest,
 ) -> Result<(), AppError> {
-    let mut transaction = pool.begin().await?;
-    let _account = admin::lock(&mut transaction, actor.id)
-        .await?
-        .ok_or(AppError::InvalidToken)?;
-    auth::delete_family(&mut transaction, actor.id, &hash_token(&req.refresh_token)).await?;
-    transaction.commit().await?;
+    let mut connection = pool.acquire().await?;
+    auth::delete_family(&mut connection, actor.id, &hash_token(&req.refresh_token)).await?;
     Ok(())
+}
+
+pub(crate) fn hash_token(token: &str) -> String {
+    hex::encode(Sha256::digest(token.as_bytes()))
 }
 
 async fn issue_token_pair(
@@ -112,7 +88,9 @@ async fn issue_token_pair(
         &claims,
         &EncodingKey::from_secret(jwt_secret),
     )?;
-    let refresh_token = new_token();
+    let mut bytes = [0u8; 32];
+    rand::rng().fill(&mut bytes);
+    let refresh_token = hex::encode(bytes);
     auth::create_refresh_token(
         connection,
         account.id,
@@ -130,21 +108,6 @@ async fn issue_token_pair(
     })
 }
 
-pub(crate) fn new_token() -> String {
-    let mut bytes = [0u8; 32];
-    rand::rng().fill(&mut bytes);
-    hex::encode(bytes)
-}
-pub(crate) fn hash_token(token: &str) -> String {
-    hex::encode(Sha256::digest(token.as_bytes()))
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn hash_token_is_deterministic_and_different_from_input() {
-        assert_eq!(hash_token("test-token"), hash_token("test-token"));
-        assert_ne!(hash_token("test-token"), "test-token");
-    }
-}
+#[path = "../tests/services/auth.rs"]
+mod tests;

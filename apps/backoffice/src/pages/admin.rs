@@ -1,7 +1,6 @@
 //! Admin management page (super admin only): fetch + orchestration.
 
 mod create_form;
-mod loading;
 mod row;
 mod table;
 
@@ -19,39 +18,34 @@ const PER_PAGE: u32 = 25;
 
 #[component]
 pub fn Admins() -> Element {
-    let mut requests = use_signal(loading::ListState::default);
     let mut page = use_signal(|| 1u32);
-    let mut reload = use_signal(|| 0u32);
     let mut show_create = use_signal(|| false);
 
-    use_effect(move || {
+    let mut admins = use_resource(move || async move {
         let p = page();
-        let _ = reload();
-        let account = SESSION.read().clone();
-        let request = requests.write().begin();
-        if !account.is_some_and(|session| session.role == AdminRole::SuperAdmin) {
-            return;
+        let is_super = SESSION
+            .read()
+            .as_ref()
+            .is_some_and(|session| session.role == AdminRole::SuperAdmin);
+        if !is_super {
+            return Err(api::ApiError::new("Not authorized"));
         }
-        spawn(async move {
-            let query = ListAdminsQuery {
+        session::with_session(|| {
+            api::list_admins(ListAdminsQuery {
                 page: Some(p),
                 per_page: Some(PER_PAGE),
-            };
-            let result = session::with_session(|| api::list_admins(query))
-                .await
-                .map_err(|error| error.to_string());
-            let accepted = requests.write().finish(request, result);
-            if accepted
-                && p > 1
-                && requests
-                    .read()
-                    .data
-                    .as_ref()
-                    .is_some_and(|data| data.page == p && data.admins.is_empty())
-            {
-                page.set(p - 1);
-            }
-        });
+            })
+        })
+        .await
+    });
+    use_effect(move || {
+        if *admins.state().read() == UseResourceState::Ready
+            && let Some(Ok(data)) = admins.read().as_ref()
+            && data.page > 1
+            && data.admins.is_empty()
+        {
+            page.set(data.page - 1);
+        }
     });
 
     let is_super = matches!(
@@ -63,9 +57,17 @@ pub fn Admins() -> Element {
         .as_ref()
         .map(|s| s.admin_id)
         .unwrap_or_default();
-    let list_data = requests.read().data.clone();
-    let loading = requests.read().loading;
-    let error = requests.read().error.clone();
+    let loading = *admins.state().read() == UseResourceState::Pending;
+    let result = admins.read().clone();
+    let list_data = result
+        .as_ref()
+        .and_then(|result| result.as_ref().ok())
+        .cloned();
+    let error = if loading {
+        None
+    } else {
+        result.and_then(Result::err).map(|error| error.to_string())
+    };
 
     rsx! {
         main { class: "page",
@@ -87,7 +89,7 @@ pub fn Admins() -> Element {
                     AdminCreateForm {
                         on_created: move |()| {
                             show_create.set(false);
-                            *reload.write() += 1;
+                            admins.restart();
                         },
                     }
                 }
@@ -106,7 +108,7 @@ pub fn Admins() -> Element {
                             page.set(page().saturating_add(1));
                         },
                         on_changed: move |()| {
-                            *reload.write() += 1;
+                            admins.restart();
                         },
                     }
                 } else if error.is_none() {

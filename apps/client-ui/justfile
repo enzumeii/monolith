@@ -2,6 +2,14 @@
 default:
     @just --list
 
+# Verify the pinned toolchain and compile package dependencies before local use.
+setup:
+    cargo check --locked -p client-ui
+
+# Run the current local client-ui executable.
+run:
+    cargo run --locked -p client-ui
+
 # Check: format check + lint check (no changes)
 check:
     cargo fmt --check -p client-ui

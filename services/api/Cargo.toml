@@ -1,6 +1,5 @@
 [package]
 name = "api"
-default-run = "api"
 version = "0.1.0"
 edition.workspace = true
 
@@ -20,6 +19,8 @@ uuid.workspace = true
 tracing-subscriber.workspace = true
 tokio = { workspace = true, features = ["full"] }
 axum = "0.8.9"
+axum-extra = { version="0.10.3", features=["cookie"] }
+tower-http = { version="0.6.11", features=["cors"] }
 axum-auth = "0.8.1"
 jsonwebtoken = { version = "11.0.0", features = ["rust_crypto"] }
 argon2 = { version = "0.5.3", features = ["std"] }
@@ -35,6 +36,6 @@ http-body-util = "0.1"
 temp-env = "0.3.6"
 tower = { version = "0.5", features = ["util"] }
 
-[[bin]]
-name = "bootstrap-admin"
-path = "src/bin/bootstrap_admin.rs"
+[[test]]
+name = "e2e"
+path = "e2e-test/main.rs"

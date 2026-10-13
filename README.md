@@ -1,18 +1,18 @@
 # Monolith
 
-Prerequisites: Rust 1.99.0 with Clippy, rustfmt and `wasm32-unknown-unknown`; Docker Compose; just 1.58.0; SQLx CLI 0.9.0; Dioxus CLI 0.7.10.
+Install Rust and Docker, then run the prerequisite CLI installer from the repository root:
 
 ```sh
 ./init.sh
-just --justfile services/api/justfile setup
-just --justfile services/api/justfile run
-just --justfile apps/backoffice/justfile setup
-just --justfile apps/backoffice/justfile serve
 ```
 
-```sh
-just --justfile services/api/justfile test
-just --justfile services/api/justfile check
-just --justfile apps/backoffice/justfile test
-just --justfile apps/backoffice/justfile check
-```
+`init.sh` installs the pinned just, SQLx CLI and Dioxus CLI packages. Rustup uses the repository's `rust-toolchain.toml` for Rust, Clippy, rustfmt and the WASM target.
+
+| Module | Setup, local execution and commands |
+| --- | --- |
+| API | [services/api](services/api/README.md) |
+| Backoffice | [apps/backoffice](apps/backoffice/README.md) |
+| Client UI | [apps/client-ui](apps/client-ui/README.md) |
+| Domain | [crates/domain](crates/domain/README.md) |
+
+See [docs/](docs/) for architecture, development and verification documentation.

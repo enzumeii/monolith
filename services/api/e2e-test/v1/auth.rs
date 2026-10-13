@@ -477,3 +477,64 @@ async fn login_rejects_malformed_json() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn login_checked_before_password_change_can_issue_after_revocation() {
+    let db = common::fixture().await;
+    let pool = db.pool();
+    let username = db.username("login-race");
+    let id = common::seed_admin(&db, &username, "old-password", AdminRole::Admin).await;
+    let changed_hash = common::hash_password("new-password-value");
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE FUNCTION {}_pause_refresh() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(48721013); RETURN NEW; END $$; CREATE TRIGGER {}_pause_refresh BEFORE INSERT ON refresh_tokens FOR EACH ROW WHEN (NEW.admin_id = {}) EXECUTE FUNCTION {}_pause_refresh();",db.prefix(),db.prefix(),id,db.prefix()))).execute(&pool).await.unwrap();
+    let mut control = pool.acquire().await.unwrap().detach();
+    sqlx::query("SELECT pg_advisory_lock(48721013)")
+        .execute(&mut control)
+        .await
+        .unwrap();
+    let login_name = username.clone();
+    let issuance = tokio::spawn(async move {
+        login(LoginRequest {
+            username: login_name,
+            password: "old-password".into(),
+        })
+        .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5),async{loop{
+        let waiting:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND objid=48721013 AND NOT granted)").fetch_one(&pool).await.unwrap();
+        if waiting{break}tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }}).await.unwrap();
+    // A separate connection represents another instance's committed account change.
+    let mut change = pool.begin().await.unwrap();
+    sqlx::query("UPDATE admin SET password_hash=$1 WHERE id=$2")
+        .bind(changed_hash)
+        .bind(id)
+        .execute(&mut *change)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM refresh_tokens WHERE admin_id=$1")
+        .bind(id)
+        .execute(&mut *change)
+        .await
+        .unwrap();
+    change.commit().await.unwrap();
+    sqlx::query("SELECT pg_advisory_unlock(48721013)")
+        .execute(&mut control)
+        .await
+        .unwrap();
+    let issued = issuance.await.unwrap().unwrap();
+    assert!(
+        login(LoginRequest {
+            username,
+            password: "old-password".into()
+        })
+        .await
+        .is_err()
+    );
+    assert!(
+        refresh(RefreshRequest {
+            refresh_token: issued.refresh_token
+        })
+        .await
+        .is_ok()
+    );
+}

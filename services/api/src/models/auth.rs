@@ -24,3 +24,9 @@ impl From<&crate::models::Admin> for AuthenticatedAdmin {
         }
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AuthSource {
+    Bearer,
+    Cookie,
+}

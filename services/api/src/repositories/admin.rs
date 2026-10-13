@@ -132,11 +132,3 @@ pub(crate) async fn delete(
 
     Ok(admin)
 }
-
-/// Lock an account before issuing or revoking credentials.
-pub(crate) async fn lock(
-    connection: &mut sqlx::PgConnection,
-    id: i64,
-) -> Result<Option<Admin>, AppError> {
-    Ok(sqlx::query_as!(Admin, r#"SELECT id, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at FROM admin WHERE id = $1 FOR UPDATE"#, id).fetch_optional(connection).await?)
-}

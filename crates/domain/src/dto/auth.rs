@@ -21,3 +21,11 @@ pub struct TokenResponse {
     pub expires_in: i64,
     pub id: i64,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionResponse {
+    pub admin_id: i64,
+    pub username: String,
+    pub role: crate::AdminRole,
+    pub expires_at: u64,
+}

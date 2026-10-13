@@ -22,19 +22,18 @@ pub struct JwtSettings {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct BrowserConfig {
+    pub public_origin: String,
+    pub insecure_local: bool,
+}
+#[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
-    #[serde(default = "default_password_concurrency")]
-    pub password_concurrency: usize,
+    pub browser: BrowserConfig,
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub jwt: JwtSettings,
 }
 
-impl std::fmt::Debug for JwtSettings {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("JwtSettings { secret: [REDACTED] }")
-    }
-}
 impl JwtSettings {
     pub fn key(&self) -> Result<Vec<u8>, ConfigError> {
         let key = hex::decode(&self.secret).map_err(|_| {
@@ -48,16 +47,29 @@ impl JwtSettings {
         Ok(key)
     }
 }
-fn default_password_concurrency() -> usize {
-    2
-}
-
 impl Settings {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.jwt.key()?;
-        if self.password_concurrency == 0 {
+        let origin: axum::http::Uri = self
+            .browser
+            .public_origin
+            .parse()
+            .map_err(|_| ConfigError::Message("Invalid browser origin".into()))?;
+        let authority = origin
+            .authority()
+            .ok_or_else(|| ConfigError::Message("Browser origin needs a host".into()))?;
+        let scheme = origin.scheme_str().unwrap_or_default();
+        let loopback = matches!(
+            authority.host(),
+            "127.0.0.1" | "localhost" | "[::1]" | "::1"
+        );
+        if authority.as_str().contains('@')
+            || format!("{scheme}://{authority}") != self.browser.public_origin
+            || (self.browser.insecure_local && (scheme != "http" || !loopback))
+            || (!self.browser.insecure_local && scheme != "https")
+        {
             return Err(ConfigError::Message(
-                "password_concurrency must be positive".into(),
+                "Browser cookies require HTTPS or explicit loopback HTTP".into(),
             ));
         }
         Ok(())
@@ -81,6 +93,17 @@ impl Settings {
                     .map_err(|_| ConfigError::Message("invalid API_PORT".into()))?,
             )?;
         }
+        if let Ok(origin) = env::var("PUBLIC_ORIGIN") {
+            builder = builder.set_override("browser.public_origin", origin)?;
+        }
+        if let Ok(value) = env::var("INSECURE_LOCAL_COOKIES") {
+            builder = builder.set_override(
+                "browser.insecure_local",
+                value
+                    .parse::<bool>()
+                    .map_err(|_| ConfigError::Message("Invalid INSECURE_LOCAL_COOKIES".into()))?,
+            )?;
+        }
         if let Ok(db_url) = env::var("DATABASE_URL") {
             builder = builder.set_override("database.url", db_url)?;
         }
@@ -88,120 +111,9 @@ impl Settings {
             builder = builder.set_override("jwt.secret", jwt_secret)?;
         }
 
-        if let Ok(value) = env::var("PASSWORD_CONCURRENCY") {
-            builder = builder.set_override(
-                "password_concurrency",
-                value
-                    .parse::<u32>()
-                    .map_err(|_| ConfigError::Message("invalid PASSWORD_CONCURRENCY".into()))?,
-            )?;
-        }
         let settings: Self = builder.build()?.try_deserialize()?;
         settings.validate()?;
         Ok(settings)
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn new_applies_database_url_and_jwt_secret_overrides() {
-        let settings = temp_env::with_vars(
-            [
-                (
-                    "DATABASE_URL",
-                    Some("postgres://override:override@localhost/override"),
-                ),
-                (
-                    "JWT_SECRET",
-                    Some("abababababababababababababababababababababababababababababababab"),
-                ),
-            ],
-            Settings::new,
-        )
-        .unwrap();
-
-        assert_eq!(
-            settings.database.url,
-            "postgres://override:override@localhost/override"
-        );
-        assert_eq!(
-            settings.jwt.secret,
-            "abababababababababababababababababababababababababababababababab"
-        );
-    }
-
-    #[test]
-    fn new_reads_non_secret_fields_from_file_when_only_secrets_come_from_env() {
-        // Secrets (database.url, jwt.secret) are env-only by design and never
-        // live in application.toml. Supply them via env, then assert the
-        // non-secret fields still come from the file.
-        let settings = temp_env::with_vars(
-            [
-                ("DATABASE_URL", Some("postgres://env:env@localhost/env")),
-                (
-                    "JWT_SECRET",
-                    Some("abababababababababababababababababababababababababababababababab"),
-                ),
-            ],
-            Settings::new,
-        )
-        .unwrap();
-
-        assert_eq!(settings.server.port, 3000);
-        assert_eq!(settings.database.max_connections, 1);
-        assert_eq!(settings.database.url, "postgres://env:env@localhost/env");
-        assert_eq!(
-            settings.jwt.secret,
-            "abababababababababababababababababababababababababababababababab"
-        );
-    }
-}
-
-#[cfg(test)]
-mod invalid_config_tests {
-    use super::*;
-    #[test]
-    fn rejects_invalid_password_admission_limits() {
-        for limit in ["0", "not-a-number"] {
-            let result = temp_env::with_vars(
-                [
-                    ("DATABASE_URL", Some("postgres://unused")),
-                    (
-                        "JWT_SECRET",
-                        Some("abababababababababababababababababababababababababababababababab"),
-                    ),
-                    ("PASSWORD_CONCURRENCY", Some(limit)),
-                ],
-                Settings::new,
-            );
-            assert!(result.is_err());
-        }
-    }
-    #[test]
-    fn database_debug_hides_credentials() {
-        let config = DatabaseConfig {
-            url: "postgres://private:secret@localhost/db".into(),
-            min_connections: 0,
-            max_connections: 1,
-        };
-        assert!(!format!("{config:?}").contains("secret"));
-    }
-    #[test]
-    fn startup_rejects_placeholder_and_undersized_signing_keys() {
-        for key in ["", "CHANGE_ME", "not-hex", &"ab".repeat(31)] {
-            let result = temp_env::with_vars(
-                [
-                    ("DATABASE_URL", Some("postgres://unused")),
-                    ("JWT_SECRET", Some(key)),
-                ],
-                Settings::new,
-            );
-            assert!(result.is_err(), "unsafe signing key was accepted");
-        }
     }
 }
 
@@ -214,3 +126,13 @@ impl std::fmt::Debug for DatabaseConfig {
             .finish()
     }
 }
+
+impl std::fmt::Debug for JwtSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("JwtSettings { secret: [REDACTED] }")
+    }
+}
+
+#[cfg(test)]
+#[path = "tests/config.rs"]
+mod tests;

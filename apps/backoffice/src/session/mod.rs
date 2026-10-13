@@ -1,26 +1,10 @@
-pub(crate) mod cookies;
-pub(crate) mod refresh;
 mod sync;
 use crate::api;
-use dioxus::fullstack::AsStatusCode;
 use dioxus::prelude::*;
-use domain::{AdminRole, dto::LoginRequest};
-use serde::{Deserialize, Serialize};
+use domain::dto::LoginRequest;
 use std::cell::RefCell;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Session {
-    pub admin_id: i64,
-    pub username: String,
-    pub role: AdminRole,
-    pub expires_at: u64,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum SessionStatus {
-    Authenticated(Session),
-    NeedsRefresh,
-    Anonymous,
-}
+pub use domain::dto::SessionResponse as Session;
 pub static SESSION: GlobalSignal<Option<Session>> = GlobalSignal::new(|| None);
 pub static READY: GlobalSignal<bool> = GlobalSignal::new(|| false);
 pub static RESTORE_ERROR: GlobalSignal<Option<String>> = GlobalSignal::new(|| None);
@@ -35,71 +19,14 @@ struct ResponseOwner {
     epoch: u64,
     sequence: u64,
 }
-impl ResponseOwner {
-    fn request(&mut self) -> Ticket {
-        self.sequence = self.sequence.wrapping_add(1);
-        Ticket {
-            epoch: self.epoch,
-            sequence: self.sequence,
-        }
-    }
-    fn transition(&mut self) -> Ticket {
-        self.epoch = self.epoch.wrapping_add(1);
-        self.request()
-    }
-    fn owns(&self, ticket: Ticket) -> bool {
-        self.epoch == ticket.epoch && self.sequence == ticket.sequence
-    }
-}
+
 thread_local! {static OWNER:RefCell<ResponseOwner>=RefCell::new(ResponseOwner::default());}
-fn transition() -> Ticket {
-    OWNER.with(|owner| owner.borrow_mut().transition())
-}
-fn request() -> Ticket {
-    OWNER.with(|owner| owner.borrow_mut().request())
-}
-fn owns(ticket: Ticket) -> bool {
-    OWNER.with(|owner| owner.borrow().owns(ticket))
-}
-fn epoch() -> u64 {
-    OWNER.with(|owner| owner.borrow().epoch)
-}
 pub(crate) fn now_unix() -> u64 {
     web_time::SystemTime::now()
         .duration_since(web_time::UNIX_EPOCH)
         .map_or(0, |duration| duration.as_secs())
 }
-fn apply(ticket: Ticket, session: Option<Session>) {
-    if owns(ticket) {
-        *SESSION.write() = session;
-        *READY.write() = true;
-        *RESTORE_ERROR.write() = None;
-    }
-}
-
-async fn read_valid() -> ServerFnResult<Option<Session>> {
-    match api::current_session().await? {
-        SessionStatus::Authenticated(session) => Ok(Some(session)),
-        SessionStatus::Anonymous => Ok(None),
-        SessionStatus::NeedsRefresh => match api::refresh_session().await {
-            Ok(viewer) => {
-                sync::notify();
-                Ok(Some(viewer))
-            }
-            Err(error) if error.as_status_code() == 401 => {
-                // A concurrent BFF request may already have updated the cookie.
-                if let SessionStatus::Authenticated(session) = api::current_session().await? {
-                    return Ok(Some(session));
-                }
-                api::clear_session_cookie().await?;
-                Ok(None)
-            }
-            Err(error) => Err(error),
-        },
-    }
-}
-
-pub async fn restore() -> ServerFnResult<()> {
+pub async fn restore() -> api::ApiResult<()> {
     let ticket = request();
     let result = async {
         let _lock = sync::lock().await?;
@@ -120,8 +47,7 @@ pub async fn restore() -> ServerFnResult<()> {
         }
     }
 }
-
-pub async fn sign_in(username: String, password: String) -> ServerFnResult<()> {
+pub async fn sign_in(username: String, password: String) -> api::ApiResult<()> {
     let ticket = transition();
     let _lock = sync::lock().await?;
     let viewer = api::login(LoginRequest { username, password }).await?;
@@ -129,69 +55,46 @@ pub async fn sign_in(username: String, password: String) -> ServerFnResult<()> {
     sync::notify();
     Ok(())
 }
-
-pub async fn sign_out() -> ServerFnResult<()> {
+pub async fn sign_out() -> api::ApiResult<()> {
     let ticket = transition();
     let _lock = sync::lock().await?;
     if read_valid().await?.is_some() {
         api::logout().await?;
-    } else {
-        api::clear_session_cookie().await?;
     }
     apply(ticket, None);
     sync::notify();
     Ok(())
 }
-
 pub async fn update_self(
     id: i64,
     req: domain::dto::UpdateAdminRequest,
-) -> ServerFnResult<domain::dto::AdminDTO> {
+) -> api::ApiResult<domain::dto::AdminDTO> {
     let ticket = transition();
     let _lock = sync::lock().await?;
     let current = read_valid()
         .await?
-        .ok_or_else(|| ServerFnError::new("not signed in"))?;
+        .ok_or_else(|| api::ApiError::new("not signed in"))?;
     if current.admin_id != id {
-        return Err(ServerFnError::new("Account changed; reload this form"));
+        return Err(api::ApiError::new("Account changed; reload this form"));
     }
     let updated = api::update_admin(id, req).await?;
-    api::clear_session_cookie()
-        .await
-        .map_err(|_| ServerFnError::new("Account saved; sign-out needs retry"))?;
     apply(ticket, None);
     sync::notify();
     Ok(updated)
 }
-
-async fn ensure_valid() -> ServerFnResult<()> {
-    if SESSION
-        .read()
-        .as_ref()
-        .is_some_and(|session| session.expires_at > now_unix() + 3)
-    {
-        return Ok(());
-    }
-    restore().await?;
-    if SESSION.read().is_none() {
-        return Err(ServerFnError::new("not signed in"));
-    }
-    Ok(())
-}
-
-pub async fn with_session<F, Fut, T>(call: F) -> ServerFnResult<T>
+pub async fn with_session<F, Fut, T>(call: F) -> api::ApiResult<T>
 where
     F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = ServerFnResult<T>>,
+    Fut: std::future::Future<Output = api::ApiResult<T>>,
 {
     let version = epoch();
     ensure_valid().await?;
     let result = call().await;
     if epoch() != version {
-        return Err(ServerFnError::new("session changed during request"));
+        return Err(api::ApiError::new("session changed during request"));
     }
     if let Err(error) = &result
-        && error.as_status_code() == 401
+        && error.status == 401
     {
         let _ = restore().await;
     }
@@ -201,19 +104,71 @@ where
 pub fn install_sync() {
     sync::install();
 }
-#[cfg(test)]
-mod ownership_tests {
-    #[test]
-    fn old_restoration_cannot_restore_logged_out_or_new_account_state() {
-        let mut owner = super::ResponseOwner::default();
-        let old = owner.request();
-        owner.transition();
-        assert!(!owner.owns(old));
-        let first = owner.request();
-        let latest = owner.request();
-        assert!(!owner.owns(first));
-        assert!(owner.owns(latest));
-        owner.transition();
-        assert!(!owner.owns(latest));
+
+impl ResponseOwner {
+    fn request(&mut self) -> Ticket {
+        self.sequence = self.sequence.wrapping_add(1);
+        Ticket {
+            epoch: self.epoch,
+            sequence: self.sequence,
+        }
+    }
+    fn transition(&mut self) -> Ticket {
+        self.epoch = self.epoch.wrapping_add(1);
+        self.request()
+    }
+    fn owns(&self, ticket: Ticket) -> bool {
+        self.epoch == ticket.epoch && self.sequence == ticket.sequence
     }
 }
+
+fn transition() -> Ticket {
+    OWNER.with(|owner| owner.borrow_mut().transition())
+}
+
+fn request() -> Ticket {
+    OWNER.with(|owner| owner.borrow_mut().request())
+}
+
+fn owns(ticket: Ticket) -> bool {
+    OWNER.with(|owner| owner.borrow().owns(ticket))
+}
+
+fn epoch() -> u64 {
+    OWNER.with(|owner| owner.borrow().epoch)
+}
+
+fn apply(ticket: Ticket, session: Option<Session>) {
+    if owns(ticket) {
+        *SESSION.write() = session;
+        *READY.write() = true;
+        *RESTORE_ERROR.write() = None;
+    }
+}
+
+async fn read_valid() -> api::ApiResult<Option<Session>> {
+    match api::refresh_session().await {
+        Ok(session) => Ok(Some(session)),
+        Err(error) if error.status == 401 => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+async fn ensure_valid() -> api::ApiResult<()> {
+    if SESSION
+        .read()
+        .as_ref()
+        .is_some_and(|session| session.expires_at > now_unix() + 3)
+    {
+        return Ok(());
+    }
+    restore().await?;
+    if SESSION.read().is_none() {
+        return Err(api::ApiError::new("not signed in"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "../tests/session/mod.rs"]
+mod tests;

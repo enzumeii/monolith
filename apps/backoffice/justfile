@@ -17,34 +17,28 @@ setup:
       printf '%s\n' 'RUN_ENV=local' > .env
     fi
 
-# Build the web client and fullstack server bundle.
+# Build the client-only web bundle.
 build:
-    dx build --web --fullstack --no-default-features --package backoffice
+    dx build --web --package backoffice
 
 # Check formatting and strict native/WASM lint.
 check:
     cargo fmt --check -p backoffice
-    cargo clippy --locked -p backoffice --features server --all-targets -- -D warnings
+    cargo clippy --locked -p backoffice --all-targets -- -D warnings
     cargo clippy --locked -p backoffice --no-default-features --features web --target {{web_target}} --all-targets -- -D warnings
 
 # Apply formatting and lint fixes.
 fix:
     cargo fmt -p backoffice
-    cargo clippy --locked -p backoffice --features server --fix --allow-dirty --allow-staged -- -D warnings
+    cargo clippy --locked -p backoffice --fix --allow-dirty --allow-staged -- -D warnings
     cargo clippy --locked -p backoffice --no-default-features --features web --target {{web_target}} --fix --allow-dirty --allow-staged -- -D warnings
 
-# Start Dioxus development serving at the configured bind address.
+# Serve the client UI locally; configure the public API URL in application.toml.
 serve:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    binding="$(cargo run -q -p backoffice --features server -- --print-bind)"
-    read -r host port <<< "$binding"
-    exec dx serve --web --fullstack --no-default-features --addr "$host" --port "$port"
+    dx serve --web --addr 127.0.0.1 --port 8084
 
-# Build and run the standalone fullstack bundle.
-run: build
-    ../../target/dx/backoffice/debug/web/server
-
-# Run native backoffice behavior tests.
+# Run shared contracts, domain WASM check, and native backoffice tests.
 test:
-    cargo test --locked -p backoffice --features server
+    cargo test --locked -p domain --no-default-features
+    cargo check --locked -p domain --no-default-features --target {{web_target}}
+    cargo test --locked -p backoffice

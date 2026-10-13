@@ -39,10 +39,12 @@ run:
 db-down:
     docker compose -f docker-compose.yml down
 
-# Run unit and local API E2E tests using the existing Compose PostgreSQL.
+# Run shared contracts, domain WASM check, and API tests using Compose PostgreSQL.
 test:
     #!/usr/bin/env bash
     set -euo pipefail
+    cargo test --locked -p domain --no-default-features
+    cargo check --locked -p domain --no-default-features --target wasm32-unknown-unknown
     cargo test --locked -p api --lib
     docker compose -p e2e -f docker-compose-e2e.yml up -d --wait postgres
     export E2E_DATABASE_URL="${E2E_DATABASE_URL:-postgres://e2e:e2e@127.0.0.1:5433/e2e}"
@@ -70,9 +72,14 @@ test:
 e2e-db:
     docker compose -p e2e -f docker-compose-e2e.yml up -d --wait postgres
 
-# Explicitly create an admin. Pipe a password on stdin; duplicate names fail.
-bootstrap-admin username role="SUPER_ADMIN":
-    cargo run --locked -p api --bin bootstrap-admin -- {{username}} {{role}}
+# Explicitly create an admin from an operator-supplied Argon2 PHC hash file.
+bootstrap-admin username hash_file role="SUPER_ADMIN":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    hash="$(cat {{quote(hash_file)}})"
+    psql "${DATABASE_URL:?DATABASE_URL is required}" -X \
+      --set=username={{quote(username)}} --set=role={{quote(role)}} \
+      --set=password_hash="$hash" --file=bootstrap_admin.sql
 
 # Check: format + lint check (no changes)
 check:

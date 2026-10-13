@@ -42,13 +42,13 @@ async fn run() -> Result<(), AppError> {
     });
     let router = routes::router(state);
     tracing::info!(%address,"API listening");
-    let result = api::runtime::serve_until(
-        listener,
-        router,
-        api::runtime::shutdown_signal(),
-        std::time::Duration::from_secs(30),
-    )
-    .await;
+    let result = axum::serve(listener, router)
+        .with_graceful_shutdown(async {
+            if let Err(failure) = shutdown_signal().await {
+                error::log_background_error("shutdown signal", &AppError::from(failure));
+            }
+        })
+        .await;
     maintenance.abort();
     let _ = maintenance.await;
     if result.is_ok() {
@@ -56,4 +56,17 @@ async fn run() -> Result<(), AppError> {
     }
     result.map_err(|error| AppError::from(error).context("serve API"))?;
     Ok(())
+}
+
+async fn shutdown_signal() -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        tokio::select! {result=tokio::signal::ctrl_c()=>result,_=terminate.recv()=>Ok(())}
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await
+    }
 }

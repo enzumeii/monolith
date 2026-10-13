@@ -414,7 +414,7 @@ async fn failed_session_revocation_rolls_back_password_update() {
 }
 
 #[tokio::test]
-async fn refresh_in_progress_cannot_survive_a_later_password_update() {
+async fn completed_refresh_is_revoked_by_a_following_password_update() {
     let db = common::fixture().await;
     let pool = db.pool();
     let id = common::seed_admin(
@@ -541,13 +541,30 @@ async fn list_covers_first_last_and_empty_pages_without_resetting_shared_rows() 
         );
     }
 }
-fn bootstrap(username: &str, password: &str) -> std::process::Output {
+fn bootstrap(username: &str, password_hash: &str, role: &str) -> std::process::Output {
     use std::{
         io::Write,
         process::{Command, Stdio},
     };
-    let mut child = Command::new(env!("CARGO_BIN_EXE_bootstrap-admin"))
-        .args([username, "ADMIN"])
+    let compose = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docker-compose-e2e.yml");
+    let mut child = Command::new("docker")
+        .args(["compose", "-p", "e2e", "-f"])
+        .arg(compose)
+        .args([
+            "exec",
+            "-T",
+            "postgres",
+            "psql",
+            "-U",
+            "e2e",
+            "-d",
+            "e2e",
+            "-X",
+            "--set=ON_ERROR_STOP=1",
+        ])
+        .arg(format!("--set=username={username}"))
+        .arg(format!("--set=password_hash={password_hash}"))
+        .arg(format!("--set=role={role}"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -557,33 +574,52 @@ fn bootstrap(username: &str, password: &str) -> std::process::Output {
         .stdin
         .take()
         .unwrap()
-        .write_all(password.as_bytes())
+        .write_all(include_bytes!("../../bootstrap_admin.sql"))
         .unwrap();
     child.wait_with_output().unwrap()
 }
 #[tokio::test]
-async fn explicit_bootstrap_rejects_invalid_and_concurrent_duplicates_without_outputting_credentials()
- {
+async fn sql_bootstrap_validates_fields_and_stores_usable_argon2_hash() {
     let db = common::fixture().await;
-    let username = db.username("bootstrap");
-    let invalid = bootstrap(&username, "short");
-    assert!(!invalid.status.success());
-    let first_name = username.clone();
-    let second_name = username.clone();
-    let first = std::thread::spawn(move || bootstrap(&first_name, "bootstrap-test-password\n"));
-    let second = std::thread::spawn(move || bootstrap(&second_name, "bootstrap-test-password\n"));
-    let results = [first.join().unwrap(), second.join().unwrap()];
-    assert_eq!(
-        results
-            .iter()
-            .filter(|result| result.status.success())
-            .count(),
-        1
-    );
-    for result in &results {
-        assert!(!String::from_utf8_lossy(&result.stdout).contains("bootstrap-test-password"));
-        assert!(!String::from_utf8_lossy(&result.stderr).contains("bootstrap-test-password"));
+    let hash = common::hash_password("bootstrap-test-password");
+    for name in [
+        String::new(),
+        "é".repeat(21),
+        format!(" {}", db.username("invalid")),
+        format!("{}\u{a0}", db.username("invalid")),
+    ] {
+        assert!(!bootstrap(&name, &hash, "ADMIN").status.success());
     }
+    for invalid_hash in [
+        "plaintext-password",
+        "$2b$not-argon2",
+        "$argon2id$v=19$m=1,t=1,p=1$c2FsdA$c2hvcnQ",
+    ] {
+        assert!(
+            !bootstrap(&db.username("invalid"), invalid_hash, "ADMIN")
+                .status
+                .success()
+        );
+    }
+    assert!(
+        !bootstrap(&db.username("invalid"), &hash, "UNKNOWN")
+            .status
+            .success()
+    );
+    let username = format!("{}'--", db.prefix());
+    let result = bootstrap(&username, &hash, "ADMIN");
+    assert!(
+        result.status.success(),
+        "bootstrap failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(!String::from_utf8_lossy(&result.stdout).contains(&hash));
+    let stored: String = sqlx::query_scalar("SELECT password_hash FROM admin WHERE username=$1")
+        .bind(&username)
+        .fetch_one(&db.pool())
+        .await
+        .unwrap();
+    assert_eq!(stored, hash);
     assert!(
         login(domain::dto::LoginRequest {
             username,
@@ -592,4 +628,39 @@ async fn explicit_bootstrap_rejects_invalid_and_concurrent_duplicates_without_ou
         .await
         .is_ok()
     );
+}
+#[tokio::test]
+async fn sql_bootstrap_rejects_concurrent_duplicates_without_overwriting() {
+    let db = common::fixture().await;
+    let username = db.username("bootstrap");
+    let hash = common::hash_password("bootstrap-test-password");
+    let first_name = username.clone();
+    let second_name = username.clone();
+    let first_hash = hash.clone();
+    let second_hash = hash.clone();
+    let first = std::thread::spawn(move || bootstrap(&first_name, &first_hash, "ADMIN"));
+    let second = std::thread::spawn(move || bootstrap(&second_name, &second_hash, "ADMIN"));
+    let results = [first.join().unwrap(), second.join().unwrap()];
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| result.status.success())
+            .count(),
+        1
+    );
+    assert!(
+        !bootstrap(
+            &username,
+            &common::hash_password("different-test-password"),
+            "SUPER_ADMIN"
+        )
+        .status
+        .success()
+    );
+    let stored: String = sqlx::query_scalar("SELECT password_hash FROM admin WHERE username=$1")
+        .bind(&username)
+        .fetch_one(&db.pool())
+        .await
+        .unwrap();
+    assert_eq!(stored, hash);
 }
