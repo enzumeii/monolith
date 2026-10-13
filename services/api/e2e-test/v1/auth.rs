@@ -5,6 +5,58 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use domain::dto::AdminRole;
 
+pub(super) const BROWSER_ORIGIN: &str = "http://127.0.0.1:8084";
+
+pub(super) async fn cookie_login(username: &str, password: &str) -> axum::response::Response {
+    common::client()
+        .await
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/auth/login")
+                .header("x-session-mode", "cookie")
+                .header("origin", BROWSER_ORIGIN)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"username": username, "password": password}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+pub(super) async fn cookie_request(
+    method: &str,
+    uri: &str,
+    cookie: &str,
+) -> axum::response::Response {
+    common::client()
+        .await
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(uri)
+                .header("x-session-mode", "cookie")
+                .header("origin", BROWSER_ORIGIN)
+                .header("cookie", cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+pub(super) fn cookie_pair(response: &axum::response::Response) -> String {
+    response.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string()
+}
+
 #[tokio::test]
 async fn login_succeeds_and_returns_token_pair() {
     let db = common::fixture().await;
@@ -543,4 +595,228 @@ async fn login_checked_before_password_change_can_issue_after_revocation() {
         .await
         .is_ok()
     );
+}
+
+#[tokio::test]
+async fn cookie_login_hides_tokens_and_sets_cookie() {
+    let db = common::fixture().await;
+    let response = cookie_login(&db.username("root"), "fixture-root-password").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let cookie = axum_extra::extract::cookie::Cookie::parse(
+        response.headers()["set-cookie"].to_str().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(cookie.name(), "backoffice_auth");
+    assert_eq!(cookie.http_only(), Some(true));
+    assert_eq!(
+        cookie.same_site(),
+        Some(axum_extra::extract::cookie::SameSite::Lax)
+    );
+    assert_eq!(cookie.path(), Some("/"));
+    assert_eq!(cookie.domain(), None);
+    let body = common::body_json(response).await;
+    assert_eq!(body["admin_id"], db.root_id());
+    assert_eq!(body["username"], db.username("root"));
+    assert_eq!(body["role"], "SUPER_ADMIN");
+    assert!(
+        body["expires_at"].as_u64().unwrap()
+            > std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+    );
+    assert!(body.get("access_token").is_none());
+    assert!(body.get("refresh_token").is_none());
+}
+
+#[tokio::test]
+async fn cookie_refresh_rotates_once() {
+    let db = common::fixture().await;
+    let old = cookie_pair(&cookie_login(&db.username("root"), "fixture-root-password").await);
+    let rotated = cookie_request("POST", "/v1/auth/refresh", &old).await;
+    assert_eq!(rotated.status(), StatusCode::OK);
+    let winning = cookie_pair(&rotated);
+    assert_ne!(old, winning);
+    let replay = cookie_request("POST", "/v1/auth/refresh", &old).await;
+    assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
+    assert!(!replay.headers().contains_key("set-cookie"));
+    assert_eq!(
+        cookie_request("POST", "/v1/auth/refresh", &winning)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn cookie_logout_revokes_only_its_family() {
+    let db = common::fixture().await;
+    let a = cookie_pair(&cookie_login(&db.username("root"), "fixture-root-password").await);
+    let b = cookie_pair(&cookie_login(&db.username("root"), "fixture-root-password").await);
+    let logout = cookie_request("POST", "/v1/auth/logout", &a).await;
+    assert_eq!(logout.status(), StatusCode::NO_CONTENT);
+    assert!(
+        logout.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .contains("Max-Age=0")
+    );
+    assert_eq!(
+        cookie_request("POST", "/v1/auth/refresh", &a)
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        cookie_request("POST", "/v1/auth/refresh", &b)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn cookie_mutations_require_origin() {
+    let db = common::fixture().await;
+    let valid = cookie_pair(&cookie_login(&db.username("root"), "fixture-root-password").await);
+    for origin in [None, Some("null"), Some("https://foreign.example.test")] {
+        for uri in ["/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout"] {
+            let mut builder = Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("x-session-mode", "cookie")
+                .header("cookie", &valid)
+                .header("content-type", "application/json");
+            if let Some(origin) = origin {
+                builder = builder.header("origin", origin);
+            }
+            let body = if uri.ends_with("login") {
+                Body::from(serde_json::json!({"username":db.username("root"),"password":"fixture-root-password"}).to_string())
+            } else {
+                Body::empty()
+            };
+            let response = common::client()
+                .await
+                .oneshot(builder.body(body).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::FORBIDDEN,
+                "{uri}: {origin:?}"
+            );
+            assert!(!response.headers().contains_key("set-cookie"));
+        }
+    }
+    assert_eq!(
+        cookie_request("POST", "/v1/auth/refresh", &valid)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let families: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT family_id) FROM refresh_tokens WHERE admin_id=$1",
+    )
+    .bind(db.root_id())
+    .fetch_one(&db.pool())
+    .await
+    .unwrap();
+    assert_eq!(families, 1, "rejected login must not issue another family");
+}
+
+#[tokio::test]
+async fn explicit_invalid_bearer_never_falls_back() {
+    let db = common::fixture().await;
+    let cookie = cookie_pair(&cookie_login(&db.username("root"), "fixture-root-password").await);
+    let uri = format!("/v1/admins/{}", db.root_id());
+    assert_eq!(
+        cookie_request("GET", &uri, &cookie).await.status(),
+        StatusCode::OK
+    );
+    for bearer in [
+        "Bearer invalid".to_string(),
+        format!(
+            "Bearer {}",
+            common::jwt_for(db.root_id(), AdminRole::SuperAdmin)
+        ),
+    ] {
+        let response = common::client()
+            .await
+            .oneshot(
+                Request::builder()
+                    .uri(&uri)
+                    .header("cookie", &cookie)
+                    .header("authorization", &bearer)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            if bearer == "Bearer invalid" {
+                StatusCode::UNAUTHORIZED
+            } else {
+                StatusCode::OK
+            }
+        );
+    }
+}
+
+#[tokio::test]
+async fn cors_preflight_matches_configured_origin() {
+    let _db = common::fixture().await;
+    for origin in [BROWSER_ORIGIN, "https://foreign.example.test"] {
+        let response = common::client()
+            .await
+            .oneshot(
+                Request::builder()
+                    .method("OPTIONS")
+                    .uri("/v1/auth/login")
+                    .header("origin", origin)
+                    .header("access-control-request-method", "POST")
+                    .header(
+                        "access-control-request-headers",
+                        "content-type,x-session-mode",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        if origin == BROWSER_ORIGIN {
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers()["access-control-allow-origin"],
+                BROWSER_ORIGIN
+            );
+            assert_eq!(
+                response.headers()["access-control-allow-credentials"],
+                "true"
+            );
+            assert!(
+                response.headers()["access-control-allow-methods"]
+                    .to_str()
+                    .unwrap()
+                    .split(',')
+                    .any(|method| method.trim() == "POST")
+            );
+            let headers = response.headers()["access-control-allow-headers"]
+                .to_str()
+                .unwrap()
+                .to_ascii_lowercase();
+            for header in ["content-type", "x-session-mode"] {
+                assert!(headers.split(',').any(|value| value.trim() == header));
+            }
+        } else {
+            assert_ne!(
+                response
+                    .headers()
+                    .get("access-control-allow-origin")
+                    .and_then(|value| value.to_str().ok()),
+                Some(origin)
+            );
+        }
+    }
 }

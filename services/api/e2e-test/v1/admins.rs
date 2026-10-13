@@ -679,3 +679,58 @@ async fn sql_bootstrap_rejects_concurrent_duplicates_without_overwriting() {
         .unwrap();
     assert_eq!(stored, hash);
 }
+
+#[tokio::test]
+async fn cookie_self_update_revokes_account_sessions() {
+    let db = common::fixture().await;
+    let a = super::auth::cookie_pair(
+        &super::auth::cookie_login(&db.username("root"), "fixture-root-password").await,
+    );
+    let b = super::auth::cookie_pair(
+        &super::auth::cookie_login(&db.username("root"), "fixture-root-password").await,
+    );
+    let uri = format!("/v1/admins/{}", db.root_id());
+    let response = common::client()
+        .await
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(&uri)
+                .header("x-session-mode", "cookie")
+                .header("origin", super::auth::BROWSER_ORIGIN)
+                .header("cookie", &a)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"username": db.username("renamed")}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .contains("Max-Age=0")
+    );
+    assert_eq!(
+        common::body_json(response).await["username"],
+        db.username("renamed")
+    );
+    for cookie in [&a, &b] {
+        assert_eq!(
+            super::auth::cookie_request("POST", "/v1/auth/refresh", cookie)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            super::auth::cookie_request("GET", &uri, cookie)
+                .await
+                .status(),
+            StatusCode::OK,
+            "access JWT remains valid until expiry"
+        );
+    }
+}

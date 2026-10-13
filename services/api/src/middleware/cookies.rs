@@ -107,3 +107,7 @@ fn cookie_name(config: &BrowserConfig) -> &'static str {
         "__Host-backoffice_auth"
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/middleware/cookies.rs"]
+mod tests;

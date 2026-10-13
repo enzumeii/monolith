@@ -11,11 +11,11 @@
 
 | Check | Command / recipe | Result |
 | --- | --- | --- |
-| API unit tests | API `just test`: native tests before Compose starts | 29 passed; retention ignored here |
-| API TCP E2E | API `just test`: local API + shared Docker PostgreSQL | 31 passed |
+| API unit tests | API `just test`: native tests before Compose starts | 31 passed; retention ignored here |
+| API TCP E2E | API `just test`: local API + shared Docker PostgreSQL | 38 passed, including cookie/origin/CORS/bearer precedence contracts |
 | Startup failure cleanup | API `just test` with invalid `E2E_API_PORT` | Expected nonzero exit; no E2E container or API process remains |
 | Repository skills | Bundled `quick_validate.py` for both existing skills | Both passed |
-| PostgreSQL retention | `cargo api-e2e`: includes ignored API library tests after Compose starts | 1 retention test passed; 29 native tests rerun |
+| PostgreSQL retention | `cargo api-e2e`: includes ignored API library tests after Compose starts | 1 retention test passed; 31 native tests rerun |
 | Backoffice unit tests | Backoffice `just test` | 6 passed, including nested-route/base-path/invalid-URL regressions |
 | Domain contract | `cargo test --locked --offline -p domain` | 1 contract test passed |
 | API strict lint | `cargo clippy --locked --offline -p api --all-targets -- -D warnings` | Passed after cookie/token middleware split |
@@ -36,7 +36,7 @@ flowchart LR
     PG --> CARGO["cargo api-e2e: retention and TCP tests"]
     CARGO --> HARNESS["Harness: configure and launch local API"]
     HARNESS --> READY["Harness: wait for healthz"]
-    READY --> TCP["31 real TCP endpoint tests"]
+    READY --> TCP["38 real TCP endpoint tests"]
     TCP --> STOP["Harness: stop owned API"]
     STOP --> DOWN["Compose down -v: delete test database"]
 ```
@@ -54,7 +54,10 @@ flowchart LR
 
 | Area | Covered scenarios |
 | --- | --- |
-| Login/access | Credentials, malformed JSON, malformed/expired/wrongly signed JWTs |
+| Login/access | Credentials, malformed JSON, malformed/expired/wrongly signed JWTs; cookie identity response and explicit bearer precedence |
+| Cookie transport | Login/rotation/replay/logout, family isolation, self-update revocation, missing/null/foreign Origin and trusted/foreign preflight |
+| Cookie attributes | Native development and production creation/removal name, path, Secure, HttpOnly, Lax and no Domain |
+| Local API startup | just run succeeded with invalid API_HOST/API_PORT/PUBLIC_ORIGIN/INSECURE_LOCAL_COOKIES environment values; TOML settings retained |
 | Refresh | Single-use, concurrent winner, expiry, replacement rollback |
 | Revocation | Family isolation, account-wide revocation, access-JWT persistence |
 | In-flight policy | Verified login can issue after concurrent password update |
@@ -80,7 +83,7 @@ flowchart TB
 | Startup smoke | Safari: nested `/admins?page=2` loads config then login; temporary missing/malformed TOML shows error/Retry with no API fetch. Restoring valid TOML resumes API fetch; temporary port 8094 is outside configured CORS origin |
 | Browser limits | Manual startup smoke does not establish full UI, session coordination or HTTPS cookie acceptance |
 | Planned environments | Local/prod frontend files and deployment selection are not implemented |
-| Cookie/CORS API path | Login/refresh/logout cookie responses, attributes, Origin rejection, preflight and bearer precedence lack endpoint tests; use existing `services/api/e2e-test/v1/{auth,admins}.rs` |
+| HTTPS browser acceptance | Cookie attributes are checked natively; local TCP tests cover cookie/origin/CORS contracts, but do not establish HTTPS browser acceptance |
 | Browser behavior | Web Locks, BroadcastChannel, cookie acceptance and rendered pagination are not verified by compilation |
 | Backoffice/browser E2E | Excluded by request |
 | Removed tests | BFF/custom-pagination counts no longer apply |
