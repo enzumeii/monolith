@@ -1,10 +1,10 @@
-pub mod admin;
-pub mod auth;
+pub(crate) mod admin;
+pub(crate) mod auth;
 
 use crate::config::Settings;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
-pub async fn create_pool(settings: &Settings) -> Result<PgPool, sqlx::Error> {
+pub async fn create_pool(settings: &Settings) -> Result<PgPool, crate::error::AppError> {
     tracing::info!(
         max_connections = settings.database.max_connections,
         min_connections = settings.database.min_connections,
@@ -16,21 +16,12 @@ pub async fn create_pool(settings: &Settings) -> Result<PgPool, sqlx::Error> {
         .min_connections(settings.database.min_connections)
         .connect(&settings.database.url)
         .await
-        .map_err(|err| {
-            tracing::error!(
-                error = %err,
-                "Failed to connect to PostgreSQL database. Verify host, port, credentials, and network status."
-            );
-            err
-        })?;
+        .map_err(|error| crate::error::AppError::from(error).context("connect database"))?;
 
     sqlx::migrate!("./migrations")
         .run(&pool)
         .await
-        .map_err(|err| {
-            tracing::error!(error = %err, "Failed to run database migrations");
-            err
-        })?;
+        .map_err(|error| crate::error::AppError::from(error).context("run database migrations"))?;
 
     tracing::info!("Database migrations ran successfully");
 

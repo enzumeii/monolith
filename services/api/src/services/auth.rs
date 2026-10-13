@@ -12,14 +12,18 @@ use rand::RngExt;
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool};
 
-pub(crate) async fn verified_account(pool: &PgPool, req: LoginRequest) -> Result<Admin, AppError> {
+pub(crate) async fn verified_account(
+    pool: &PgPool,
+    limiter: &password::PasswordLimiter,
+    req: LoginRequest,
+) -> Result<Admin, AppError> {
     if req.password.chars().count() > 128 {
         return Err(AppError::InvalidCredentials);
     }
     let account = admin::find_by_username(pool, &req.username)
         .await?
         .ok_or(AppError::InvalidCredentials)?;
-    if !password::verify(req.password, account.password_hash.clone()).await? {
+    if !password::verify(limiter, req.password, account.password_hash.clone()).await? {
         return Err(AppError::InvalidCredentials);
     }
     Ok(account)
@@ -41,10 +45,11 @@ pub(crate) async fn lock_verified(
 #[tracing::instrument(skip_all)]
 pub async fn login(
     pool: &PgPool,
+    limiter: &password::PasswordLimiter,
     jwt_secret: &[u8],
     req: LoginRequest,
 ) -> Result<TokenResponse, AppError> {
-    let observed = verified_account(pool, req).await?;
+    let observed = verified_account(pool, limiter, req).await?;
     let mut transaction = pool.begin().await?;
     let account = lock_verified(&mut transaction, &observed).await?;
     let tokens = issue_token_pair(&mut transaction, jwt_secret, &account, None).await?;

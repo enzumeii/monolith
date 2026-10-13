@@ -31,10 +31,8 @@ futures = "0.3"
 reqwest = { version = "0.12", features = ["json"] }
 tokio = "1.53.1"
 web-time = "1"
-gloo-storage = "0.3"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "uuid", "chrono"] }
 uuid = { version = "1.24.1", features = ["serde", "v4"] }
 chrono = { version = "0.4.45" , features = ["serde"] }
-mockall = "0.15.0"

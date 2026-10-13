@@ -37,13 +37,20 @@ mod axum_fixture {
         response::IntoResponse,
         routing::{get, post},
     };
-    use domain::dto::{AdminDTO, AdminRole, TokenResponse, ViewerResponse};
+    use domain::dto::{AdminDTO, AdminRole, TokenResponse};
     use http_body_util::BodyExt;
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
 
+    pub fn access_token() -> String {
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+        format!(
+            "e30.{}.signature",
+            URL_SAFE_NO_PAD.encode(br#"{"sub":7,"exp":4102444800}"#)
+        )
+    }
     pub struct Fixture {
         pub state: AppState,
         pub calls: Arc<AtomicUsize>,
@@ -65,7 +72,7 @@ mod axum_fixture {
                     async move {
                         calls.fetch_add(1, Ordering::SeqCst);
                         Json(TokenResponse {
-                            access_token: "access-token".into(),
+                            access_token: access_token(),
                             refresh_token: "a".repeat(64),
                             token_type: "Bearer".into(),
                             expires_in: 600,
@@ -75,19 +82,20 @@ mod axum_fixture {
                 }),
             )
             .route(
-                "/auth/me",
+                "/admins/7",
                 get(|headers: dioxus_server::axum::http::HeaderMap| async move {
                     assert_eq!(
-                        headers.get("authorization").expect("forwarded access"),
-                        "Bearer access-token"
+                        headers
+                            .get("authorization")
+                            .expect("forwarded access")
+                            .to_str()
+                            .expect("header text"),
+                        format!("Bearer {}", access_token())
                     );
-                    Json(ViewerResponse {
-                        admin: AdminDTO {
-                            id: 7,
-                            username: "operator".into(),
-                            role: AdminRole::Admin,
-                        },
-                        expires_at: 4_102_444_800,
+                    Json(AdminDTO {
+                        id: 7,
+                        username: "operator".into(),
+                        role: AdminRole::Admin,
                     })
                 }),
             )
@@ -167,7 +175,7 @@ async fn login_sets_http_only_cookie_without_exposing_credentials_in_json() {
         "no-store"
     );
     let body = String::from_utf8(bytes(response).await).expect("JSON");
-    assert!(!body.contains("access-token"));
+    assert!(!body.contains(&access_token()));
     assert!(!body.contains(&"a".repeat(64)));
     assert!(body.contains("operator"));
     assert_eq!(fake.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
@@ -176,7 +184,7 @@ async fn login_sets_http_only_cookie_without_exposing_credentials_in_json() {
 #[tokio::test]
 async fn failed_remote_logout_does_not_clear_the_cookie() {
     let fake = fixture(StatusCode::SERVICE_UNAVAILABLE).await;
-    let cookie = format!("backoffice_auth=access-token~{}", "a".repeat(64));
+    let cookie = format!("backoffice_auth={}~{}", access_token(), "a".repeat(64));
     let response = router(fake.state.clone(), crate::App)
         .oneshot(request(
             "/api/auth/logout",
@@ -192,7 +200,7 @@ async fn failed_remote_logout_does_not_clear_the_cookie() {
 #[tokio::test]
 async fn completed_remote_logout_expires_cookie() {
     let fake = fixture(StatusCode::NO_CONTENT).await;
-    let cookie = format!("backoffice_auth=access-token~{}", "a".repeat(64));
+    let cookie = format!("backoffice_auth={}~{}", access_token(), "a".repeat(64));
     let response = router(fake.state.clone(), crate::App)
         .oneshot(request(
             "/api/auth/logout",

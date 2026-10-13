@@ -63,10 +63,36 @@ pub fn run(state: AppState, app: fn() -> Element) -> Result<(), Box<dyn std::err
             let port = state.settings.server.port;
             let listener = tokio::net::TcpListener::bind((host.as_str(), port)).await?;
             tracing::info!(%host, port, "backoffice listening");
-            dioxus_server::axum::serve(listener, router(state, app)).await?;
+            serve_until(listener, router(state, app)).await?;
             Ok(())
         })
 }
 
 #[cfg(test)]
 mod tests;
+
+async fn serve_until(listener: tokio::net::TcpListener, router: Router) -> std::io::Result<()> {
+    use std::future::IntoFuture;
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let server = dioxus_server::axum::serve(listener, router)
+        .with_graceful_shutdown(async {
+            let _ = stopped.await;
+        })
+        .into_future();
+    tokio::pin!(server);
+    tokio::select! {result=&mut server=>result,result=shutdown_signal()=>{
+        result?;let _=stop.send(());tokio::time::timeout(std::time::Duration::from_secs(30),server).await.map_err(|_|std::io::Error::new(std::io::ErrorKind::TimedOut,"backoffice shutdown deadline exceeded"))?
+    }}
+}
+async fn shutdown_signal() -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        tokio::select! {result=tokio::signal::ctrl_c()=>result,_=terminate.recv()=>Ok(())}
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await
+    }
+}

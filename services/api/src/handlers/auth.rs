@@ -10,7 +10,13 @@ pub async fn login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<TokenResponse>, AppError> {
-    let response = services::auth::login(&state.pool, state.jwt_key.as_slice(), payload).await?;
+    let response = services::auth::login(
+        &state.pool,
+        &state.password_limiter,
+        state.jwt_key.as_slice(),
+        payload,
+    )
+    .await?;
 
     Ok(Json(response))
 }
@@ -33,14 +39,4 @@ pub async fn logout(
     services::auth::logout(&state.pool, &claims, payload).await?;
 
     Ok(StatusCode::NO_CONTENT)
-}
-
-pub async fn current(
-    State(state): State<AppState>,
-    Extension(claims): Extension<crate::auth::Claims>,
-) -> Result<Json<domain::dto::ViewerResponse>, AppError> {
-    Ok(Json(domain::dto::ViewerResponse {
-        admin: services::admin::get(&state.pool, claims.admin_id).await?,
-        expires_at: claims.expiration,
-    }))
 }

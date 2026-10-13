@@ -4,21 +4,20 @@ use super::super::common;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use domain::dto::AdminRole;
-use tower::ServiceExt;
 
 #[tokio::test]
 async fn login_succeeds_and_returns_token_pair() {
-    let db = common::test_database().await;
-    common::seed_admin(&db.pool(), "login-admin", "secret", AdminRole::Admin).await;
+    let db = common::fixture().await;
+    common::seed_admin(&db, db.username("login-admin"), "secret", AdminRole::Admin).await;
 
-    let response = common::router(db.pool())
+    let response = common::client()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/v1/auth/login")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::json!({ "username": "login-admin", "password": "secret" })
+                    serde_json::json!({ "username": db.username("login-admin"), "password": "secret" })
                         .to_string(),
                 ))
                 .unwrap(),
@@ -35,17 +34,17 @@ async fn login_succeeds_and_returns_token_pair() {
 
 #[tokio::test]
 async fn login_rejects_wrong_password() {
-    let db = common::test_database().await;
-    common::seed_admin(&db.pool(), "wrong-pass", "correct", AdminRole::Admin).await;
+    let db = common::fixture().await;
+    common::seed_admin(&db, db.username("wrong-pass"), "correct", AdminRole::Admin).await;
 
-    let response = common::router(db.pool())
+    let response = common::client()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/v1/auth/login")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::json!({ "username": "wrong-pass", "password": "nope" }).to_string(),
+                    serde_json::json!({ "username": db.username("wrong-pass"), "password": "nope" }).to_string(),
                 ))
                 .unwrap(),
         )
@@ -57,9 +56,15 @@ async fn login_rejects_wrong_password() {
 
 #[tokio::test]
 async fn refresh_issues_a_new_pair_and_can_only_be_used_once() {
-    let db = common::test_database().await;
-    common::seed_admin(&db.pool(), "refresh-admin", "secret", AdminRole::Admin).await;
-    let router = common::router(db.pool());
+    let db = common::fixture().await;
+    common::seed_admin(
+        &db,
+        db.username("refresh-admin"),
+        "secret",
+        AdminRole::Admin,
+    )
+    .await;
+    let router = common::client();
 
     let login = router
         .clone()
@@ -69,7 +74,7 @@ async fn refresh_issues_a_new_pair_and_can_only_be_used_once() {
                 .uri("/v1/auth/login")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::json!({ "username": "refresh-admin", "password": "secret" })
+                    serde_json::json!({ "username": db.username("refresh-admin"), "password": "secret" })
                         .to_string(),
                 ))
                 .unwrap(),
@@ -117,8 +122,8 @@ async fn refresh_issues_a_new_pair_and_can_only_be_used_once() {
 
 #[tokio::test]
 async fn refresh_rejects_unknown_token() {
-    let db = common::test_database().await;
-    let response = common::router(db.pool())
+    let _db = common::fixture().await;
+    let response = common::client()
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -137,43 +142,9 @@ async fn refresh_rejects_unknown_token() {
 }
 
 #[tokio::test]
-async fn logout_returns_no_content() {
-    let db = common::test_database().await;
-    let id = common::seed_admin(
-        &db.pool(),
-        "logout-admin",
-        "test-password",
-        AdminRole::Admin,
-    )
-    .await;
-    let key = hex::decode(common::JWT_SECRET).unwrap();
-    let tokens = auth::login(
-        &db.pool(),
-        &key,
-        LoginRequest {
-            username: "logout-admin".into(),
-            password: "test-password".into(),
-        },
-    )
-    .await
-    .unwrap();
-    let response = common::router(db.pool())
-        .oneshot(common::authed_json(
-            "POST",
-            "/v1/auth/logout",
-            id,
-            AdminRole::Admin,
-            &serde_json::json!({"refresh_token":tokens.refresh_token}),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
-}
-
-#[tokio::test]
 async fn protected_routes_reject_malformed_bearer_token() {
-    let db = common::test_database().await;
-    let response = common::router(db.pool())
+    let _db = common::fixture().await;
+    let response = common::client()
         .oneshot(
             Request::builder()
                 .uri("/v1/admins")
@@ -188,48 +159,44 @@ async fn protected_routes_reject_malformed_bearer_token() {
     assert_eq!(response.headers()["www-authenticate"], "Bearer");
 }
 
-use api::services::auth;
-use domain::dto::{LoginRequest, RefreshRequest};
+use domain::dto::{LoginRequest, RefreshRequest, TokenResponse};
 
 #[tokio::test]
 async fn failed_refresh_replacement_does_not_consume_original() {
-    let db = common::test_database().await;
-    common::seed_admin(&db.pool(), "rollback", "test-password", AdminRole::Admin).await;
-    let key = hex::decode(common::JWT_SECRET).unwrap();
-    let tokens = auth::login(
-        &db.pool(),
-        &key,
-        LoginRequest {
-            username: "rollback".into(),
-            password: "test-password".into(),
-        },
+    let db = common::fixture().await;
+    common::seed_admin(
+        &db,
+        db.username("rollback"),
+        "test-password",
+        AdminRole::Admin,
     )
+    .await;
+
+    let tokens = login(LoginRequest {
+        username: db.username("rollback"),
+        password: "test-password".into(),
+    })
     .await
     .unwrap();
-    sqlx::raw_sql("CREATE FUNCTION reject_refresh_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected storage failure'; END $$; CREATE TRIGGER reject_refresh BEFORE INSERT ON refresh_tokens FOR EACH ROW EXECUTE FUNCTION reject_refresh_insert();").execute(&db.pool()).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE FUNCTION {}_reject_refresh_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected storage failure'; END $$; CREATE TRIGGER {}_reject_refresh BEFORE INSERT ON refresh_tokens FOR EACH ROW WHEN (NEW.admin_id = {}) EXECUTE FUNCTION {}_reject_refresh_insert();",db.prefix(),db.prefix(),tokens.id,db.prefix()))).execute(&db.pool()).await.unwrap();
     assert!(
-        auth::refresh(
-            &db.pool(),
-            &key,
-            RefreshRequest {
-                refresh_token: tokens.refresh_token.clone()
-            }
-        )
+        refresh(RefreshRequest {
+            refresh_token: tokens.refresh_token.clone()
+        })
         .await
         .is_err()
     );
-    sqlx::raw_sql("DROP TRIGGER reject_refresh ON refresh_tokens")
-        .execute(&db.pool())
-        .await
-        .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "DROP TRIGGER {}_reject_refresh ON refresh_tokens",
+        db.prefix()
+    )))
+    .execute(&db.pool())
+    .await
+    .unwrap();
     assert!(
-        auth::refresh(
-            &db.pool(),
-            &key,
-            RefreshRequest {
-                refresh_token: tokens.refresh_token
-            }
-        )
+        refresh(RefreshRequest {
+            refresh_token: tokens.refresh_token
+        })
         .await
         .is_ok()
     );
@@ -237,66 +204,60 @@ async fn failed_refresh_replacement_does_not_consume_original() {
 
 #[tokio::test]
 async fn concurrent_refresh_has_exactly_one_success() {
-    let db = common::test_database().await;
-    common::seed_admin(&db.pool(), "concurrent", "test-password", AdminRole::Admin).await;
-    let key = hex::decode(common::JWT_SECRET).unwrap();
-    let pool = db.pool();
-    let tokens = auth::login(
-        &pool,
-        &key,
-        LoginRequest {
-            username: "concurrent".into(),
-            password: "test-password".into(),
-        },
+    let db = common::fixture().await;
+    common::seed_admin(
+        &db,
+        db.username("concurrent"),
+        "test-password",
+        AdminRole::Admin,
     )
+    .await;
+
+    let tokens = login(LoginRequest {
+        username: db.username("concurrent"),
+        password: "test-password".into(),
+    })
     .await
     .unwrap();
     let (first, second) = tokio::join!(
-        auth::refresh(
-            &pool,
-            &key,
-            RefreshRequest {
-                refresh_token: tokens.refresh_token.clone()
-            }
-        ),
-        auth::refresh(
-            &pool,
-            &key,
-            RefreshRequest {
-                refresh_token: tokens.refresh_token
-            }
-        )
+        refresh(RefreshRequest {
+            refresh_token: tokens.refresh_token.clone()
+        }),
+        refresh(RefreshRequest {
+            refresh_token: tokens.refresh_token
+        })
     );
     assert_ne!(first.is_ok(), second.is_ok());
 }
 
 #[tokio::test]
 async fn expired_refresh_is_rejected() {
-    let db = common::test_database().await;
-    common::seed_admin(&db.pool(), "expired", "test-password", AdminRole::Admin).await;
-    let key = hex::decode(common::JWT_SECRET).unwrap();
-    let tokens = auth::login(
-        &db.pool(),
-        &key,
-        LoginRequest {
-            username: "expired".into(),
-            password: "test-password".into(),
-        },
+    let db = common::fixture().await;
+    common::seed_admin(
+        &db,
+        db.username("expired"),
+        "test-password",
+        AdminRole::Admin,
     )
+    .await;
+
+    let tokens = login(LoginRequest {
+        username: db.username("expired"),
+        password: "test-password".into(),
+    })
     .await
     .unwrap();
-    sqlx::query("UPDATE refresh_tokens SET expires_at = NOW() - interval '1 second'")
-        .execute(&db.pool())
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE refresh_tokens SET expires_at = NOW() - interval '1 second' WHERE admin_id = $1",
+    )
+    .bind(tokens.id)
+    .execute(&db.pool())
+    .await
+    .unwrap();
     assert!(
-        auth::refresh(
-            &db.pool(),
-            &key,
-            RefreshRequest {
-                refresh_token: tokens.refresh_token
-            }
-        )
+        refresh(RefreshRequest {
+            refresh_token: tokens.refresh_token
+        })
         .await
         .is_err()
     );
@@ -304,20 +265,22 @@ async fn expired_refresh_is_rejected() {
 
 #[tokio::test]
 async fn logout_revokes_refresh_but_access_remains_valid_until_expiry() {
-    let db = common::test_database().await;
-    common::seed_admin(&db.pool(), "revoked", "test-password", AdminRole::Admin).await;
-    let key = hex::decode(common::JWT_SECRET).unwrap();
-    let tokens = auth::login(
-        &db.pool(),
-        &key,
-        LoginRequest {
-            username: "revoked".into(),
-            password: "test-password".into(),
-        },
+    let db = common::fixture().await;
+    common::seed_admin(
+        &db,
+        db.username("revoked"),
+        "test-password",
+        AdminRole::Admin,
     )
+    .await;
+
+    let tokens = login(LoginRequest {
+        username: db.username("revoked"),
+        password: "test-password".into(),
+    })
     .await
     .unwrap();
-    let app = common::router(db.pool());
+    let app = common::client();
     let logout = app
         .clone()
         .oneshot(
@@ -346,13 +309,9 @@ async fn logout_revokes_refresh_but_access_remains_valid_until_expiry() {
         .unwrap();
     assert_eq!(protected.status(), StatusCode::OK);
     assert!(
-        auth::refresh(
-            &db.pool(),
-            &key,
-            RefreshRequest {
-                refresh_token: tokens.refresh_token
-            }
-        )
+        refresh(RefreshRequest {
+            refresh_token: tokens.refresh_token
+        })
         .await
         .is_err()
     );
@@ -360,20 +319,16 @@ async fn logout_revokes_refresh_but_access_remains_valid_until_expiry() {
 
 #[tokio::test]
 async fn password_update_preserves_access_until_expiry() {
-    let db = common::test_database().await;
-    let id = common::seed_admin(&db.pool(), "reset", "test-password", AdminRole::Admin).await;
-    let key = hex::decode(common::JWT_SECRET).unwrap();
-    let tokens = auth::login(
-        &db.pool(),
-        &key,
-        LoginRequest {
-            username: "reset".into(),
-            password: "test-password".into(),
-        },
-    )
+    let db = common::fixture().await;
+    let id = common::seed_admin(&db, db.username("reset"), "test-password", AdminRole::Admin).await;
+
+    let tokens = login(LoginRequest {
+        username: db.username("reset"),
+        password: "test-password".into(),
+    })
     .await
     .unwrap();
-    let app = common::router(db.pool());
+    let app = common::client();
     let response = app
         .clone()
         .oneshot(common::authed_json(
@@ -401,45 +356,33 @@ async fn password_update_preserves_access_until_expiry() {
 
 #[tokio::test]
 async fn logout_only_revokes_current_browser_family() {
-    let db = common::test_database().await;
+    let db = common::fixture().await;
     let id = common::seed_admin(
-        &db.pool(),
-        "two-browsers",
+        &db,
+        db.username("two-browsers"),
         "test-password",
         AdminRole::Admin,
     )
     .await;
-    let key = hex::decode(common::JWT_SECRET).unwrap();
-    let first = auth::login(
-        &db.pool(),
-        &key,
-        LoginRequest {
-            username: "two-browsers".into(),
-            password: "test-password".into(),
-        },
-    )
+
+    let first = login(LoginRequest {
+        username: db.username("two-browsers"),
+        password: "test-password".into(),
+    })
     .await
     .unwrap();
-    let second = auth::login(
-        &db.pool(),
-        &key,
-        LoginRequest {
-            username: "two-browsers".into(),
-            password: "test-password".into(),
-        },
-    )
+    let second = login(LoginRequest {
+        username: db.username("two-browsers"),
+        password: "test-password".into(),
+    })
     .await
     .unwrap();
-    let first = auth::refresh(
-        &db.pool(),
-        &key,
-        RefreshRequest {
-            refresh_token: first.refresh_token,
-        },
-    )
+    let first = refresh(RefreshRequest {
+        refresh_token: first.refresh_token,
+    })
     .await
     .unwrap();
-    let response = common::router(db.pool())
+    let response = common::client()
         .oneshot(common::authed_json(
             "POST",
             "/v1/auth/logout",
@@ -451,25 +394,86 @@ async fn logout_only_revokes_current_browser_family() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
     assert!(
-        auth::refresh(
-            &db.pool(),
-            &key,
-            RefreshRequest {
-                refresh_token: first.refresh_token
-            }
-        )
+        refresh(RefreshRequest {
+            refresh_token: first.refresh_token
+        })
         .await
         .is_err()
     );
     assert!(
-        auth::refresh(
-            &db.pool(),
-            &key,
-            RefreshRequest {
-                refresh_token: second.refresh_token
-            }
-        )
+        refresh(RefreshRequest {
+            refresh_token: second.refresh_token
+        })
         .await
         .is_ok()
     );
+}
+
+pub(super) async fn login(request: LoginRequest) -> Result<TokenResponse, StatusCode> {
+    token_request("/v1/auth/login", &serde_json::to_value(request).unwrap()).await
+}
+pub(super) async fn refresh(request: RefreshRequest) -> Result<TokenResponse, StatusCode> {
+    token_request("/v1/auth/refresh", &serde_json::to_value(request).unwrap()).await
+}
+async fn token_request(path: &str, body: &serde_json::Value) -> Result<TokenResponse, StatusCode> {
+    let request = Request::builder()
+        .method("POST")
+        .uri(path)
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let response = common::client()
+        .oneshot(request)
+        .await
+        .expect("deployed endpoint");
+    if !response.status().is_success() {
+        return Err(response.status());
+    }
+    serde_json::from_value(common::body_json(response).await).map_err(|_| StatusCode::BAD_GATEWAY)
+}
+
+#[tokio::test]
+async fn protected_routes_reject_missing_wrong_signature_and_expired_access() {
+    let db = common::fixture().await;
+    let claims = serde_json::json!({"sub":db.root_id(),"username":"fixture","role":"SUPER_ADMIN","exp":4_102_444_800_u64});
+    let wrong = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret(&[0; 32]),
+    )
+    .unwrap();
+    let expired = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &serde_json::json!({"exp":1,"sub":db.root_id(),"username":"fixture","role":"SUPER_ADMIN"}),
+        &jsonwebtoken::EncodingKey::from_secret(&hex::decode(common::JWT_SECRET).unwrap()),
+    )
+    .unwrap();
+    for token in [None, Some(wrong), Some(expired)] {
+        let mut request = Request::builder().uri("/v1/admins");
+        if let Some(token) = token {
+            request = request.header("authorization", format!("Bearer {token}"));
+        }
+        let response = common::client()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.headers()["www-authenticate"], "Bearer");
+    }
+}
+#[tokio::test]
+async fn login_rejects_malformed_json() {
+    let _db = common::fixture().await;
+    let response = common::client()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from("{"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }

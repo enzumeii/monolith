@@ -23,7 +23,8 @@ pub async fn add(
     Extension(actor): Extension<AuthenticatedAdmin>,
     Json(payload): Json<CreateAdminRequest>,
 ) -> Result<(StatusCode, Json<AdminDTO>), AppError> {
-    let response = services::admin::add(&state.pool, &actor, payload).await?;
+    let response =
+        services::admin::add(&state.pool, &state.password_limiter, &actor, payload).await?;
 
     Ok((StatusCode::CREATED, Json(response)))
 }
@@ -34,7 +35,8 @@ pub async fn update(
     Path(id): Path<i64>,
     Json(payload): Json<UpdateAdminRequest>,
 ) -> Result<Json<AdminDTO>, AppError> {
-    let response = services::admin::update(&state.pool, &claims, id, payload).await?;
+    let response =
+        services::admin::update(&state.pool, &state.password_limiter, &claims, id, payload).await?;
 
     Ok(Json(response))
 }

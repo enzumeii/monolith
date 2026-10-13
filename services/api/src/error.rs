@@ -6,8 +6,21 @@ use axum::{
 use serde_json::json;
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Error)]
 pub enum AppError {
+    #[error("Configuration invalid")]
+    Configuration(#[from] config::ConfigError),
+    #[error("Database migration failed")]
+    Migration(#[from] sqlx::migrate::MigrateError),
+    #[error("I/O operation failed")]
+    Io(#[from] std::io::Error),
+    #[error("Operation failed: {operation}")]
+    Context {
+        operation: &'static str,
+        #[source]
+        source: Box<Self>,
+    },
+
     #[error("Invalid username or password")]
     InvalidCredentials,
 
@@ -44,6 +57,59 @@ pub enum AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
+        let (operation, error) = self.into_root();
+        emit(operation, &error);
+        error.response_without_logging()
+    }
+}
+
+impl AppError {
+    #[must_use]
+    pub fn context(self, operation: &'static str) -> Self {
+        Self::Context {
+            operation,
+            source: Box::new(self),
+        }
+    }
+    fn into_root(self) -> (&'static str, Self) {
+        let mut operation = "HTTP request";
+        let mut error = self;
+        while let Self::Context {
+            operation: label,
+            source,
+        } = error
+        {
+            operation = label;
+            error = *source;
+        }
+        (operation, error)
+    }
+    fn root(&self) -> &Self {
+        match self {
+            Self::Context { source, .. } => source.root(),
+            other => other,
+        }
+    }
+    fn category(&self) -> &'static str {
+        match self.root() {
+            Self::InvalidCredentials => "invalid_credentials",
+            Self::InvalidToken => "invalid_token",
+            Self::NotFound => "not_found",
+            Self::BadRequest(_) => "bad_request",
+            Self::Forbidden => "forbidden",
+            Self::Conflict => "conflict",
+            Self::Unavailable => "unavailable",
+            Self::Database(_) => "database",
+            Self::PasswordHash(_) => "password_hash",
+            Self::TokenCreation(_) => "token_creation",
+            Self::Internal(_) => "internal",
+            Self::Configuration(_) => "configuration",
+            Self::Migration(_) => "migration",
+            Self::Io(_) => "io",
+            Self::Context { .. } => unreachable!(),
+        }
+    }
+    fn response_without_logging(self) -> Response {
         match self {
             AppError::InvalidCredentials => (
                 StatusCode::UNAUTHORIZED,
@@ -80,42 +146,51 @@ impl IntoResponse for AppError {
                 Json(json!({"error": self.to_string()})),
             )
                 .into_response(),
-            AppError::Database(ref err) => {
-                tracing::error!(error = %err, "Database operation failed");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({ "error": "Internal server error" })),
-                )
-                    .into_response()
-            }
-            AppError::PasswordHash(ref err) => {
-                tracing::error!(error = %err, "Password verification failed unexpectedly");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({ "error": "Internal server error" })),
-                )
-                    .into_response()
-            }
-            AppError::TokenCreation(ref err) => {
-                tracing::error!(error = %err, "JWT signing failed");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({ "error": "Internal server error" })),
-                )
-                    .into_response()
-            }
-            AppError::Internal(ref err) => {
-                tracing::error!(error = %err, "Unhandled application error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({ "error": "Internal server error" })),
-                )
-                    .into_response()
-            }
+            AppError::Database(_)
+            | AppError::PasswordHash(_)
+            | AppError::TokenCreation(_)
+            | AppError::Internal(_)
+            | AppError::Configuration(_)
+            | AppError::Migration(_)
+            | AppError::Io(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error":"Internal server error"})),
+            )
+                .into_response(),
+            AppError::Context { .. } => unreachable!("context removed at handling boundary"),
         }
     }
 }
 
+impl std::fmt::Debug for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppError")
+            .field("kind", &self.category())
+            .finish()
+    }
+}
+fn emit(operation: &'static str, error: &AppError) {
+    match error.root() {
+        AppError::InvalidCredentials
+        | AppError::InvalidToken
+        | AppError::NotFound
+        | AppError::BadRequest(_)
+        | AppError::Forbidden
+        | AppError::Conflict => {
+            tracing::warn!(operation, kind = error.category(), "API request rejected");
+        }
+        _ => tracing::error!(operation, kind = error.category(), "API operation failed"),
+    }
+}
+/// Emit a failure once when it will not be converted to an HTTP response.
+pub fn log_background_error(operation: &'static str, error: &AppError) {
+    let operation = if let AppError::Context { operation, .. } = error {
+        operation
+    } else {
+        operation
+    };
+    emit(operation, error);
+}
 impl From<sqlx::Error> for AppError {
     fn from(error: sqlx::Error) -> Self {
         if let sqlx::Error::Database(ref db) = error
@@ -213,5 +288,52 @@ mod tests {
             AppError::InvalidCredentials.into_response().status(),
             StatusCode::UNAUTHORIZED
         );
+    }
+}
+
+#[cfg(test)]
+mod logging_tests {
+    use super::*;
+    use std::{
+        io::Write,
+        sync::{Arc, Mutex},
+    };
+    struct Capture(Arc<Mutex<Vec<u8>>>, std::thread::ThreadId);
+    impl Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if std::thread::current().id() == self.1 {
+                self.0.lock().expect("capture").extend_from_slice(bytes);
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    #[test]
+    fn failure_is_logged_once_without_secret_details() {
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let output = bytes.clone();
+        let owner = std::thread::current().id();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .without_time()
+            .with_writer(move || Capture(output.clone(), owner))
+            .finish();
+        tracing::subscriber::set_global_default(subscriber).expect("test subscriber");
+        {
+            let error = AppError::from(anyhow::anyhow!("private-password-value"));
+            assert_eq!(bytes.lock().expect("capture").len(), 0);
+            let response = error.context("capture regression").into_response();
+            assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        }
+        let log = String::from_utf8(bytes.lock().expect("capture").clone()).expect("UTF-8");
+        assert_eq!(
+            log.lines()
+                .filter(|line| line.contains("capture regression"))
+                .count(),
+            1
+        );
+        assert!(!log.contains("private-password-value"));
     }
 }

@@ -3,7 +3,7 @@ use sqlx::FromRow;
 
 use domain::dto::{AdminDTO, AdminRole};
 
-#[derive(Debug, FromRow)]
+#[derive(FromRow)]
 pub struct Admin {
     pub id: i64,
     pub username: String,

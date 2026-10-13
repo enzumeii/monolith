@@ -1,8 +1,8 @@
-# Enforce cognitive complexity threshold (keeps functions small)
+# Threshold used only if cognitive_complexity is enabled.
 cognitive-complexity-threshold = 25
 
-# Allow common short variable names in web handlers (e.g. `r`, `tx`, `db`)
+# Placeholder names rejected by the enabled Clippy name lint.
 disallowed-names = ["foo", "bar", "baz"]
 
-# Ensure doc comments exist on public items
+# Public documentation is not required by the current lint policy.
 missing-docs-in-crate-items = false

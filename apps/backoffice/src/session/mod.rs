@@ -1,11 +1,10 @@
+pub(crate) mod cookies;
+pub(crate) mod refresh;
 mod sync;
 use crate::api;
 use dioxus::fullstack::AsStatusCode;
 use dioxus::prelude::*;
-use domain::{
-    AdminRole,
-    dto::{LoginRequest, ViewerResponse},
-};
+use domain::{AdminRole, dto::LoginRequest};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 
@@ -15,16 +14,6 @@ pub struct Session {
     pub username: String,
     pub role: AdminRole,
     pub expires_at: u64,
-}
-impl From<ViewerResponse> for Session {
-    fn from(viewer: ViewerResponse) -> Self {
-        Self {
-            admin_id: viewer.admin.id,
-            username: viewer.admin.username,
-            role: viewer.admin.role,
-            expires_at: viewer.expires_at,
-        }
-    }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SessionStatus {
@@ -95,7 +84,7 @@ async fn read_valid() -> ServerFnResult<Option<Session>> {
         SessionStatus::NeedsRefresh => match api::refresh_session().await {
             Ok(viewer) => {
                 sync::notify();
-                Ok(Some(viewer.into()))
+                Ok(Some(viewer))
             }
             Err(error) if error.as_status_code() == 401 => {
                 // A concurrent BFF request may already have updated the cookie.
@@ -136,7 +125,7 @@ pub async fn sign_in(username: String, password: String) -> ServerFnResult<()> {
     let ticket = transition();
     let _lock = sync::lock().await?;
     let viewer = api::login(LoginRequest { username, password }).await?;
-    apply(ticket, Some(viewer.into()));
+    apply(ticket, Some(viewer));
     sync::notify();
     Ok(())
 }

@@ -9,7 +9,7 @@ pub async fn list_admins(query: ListAdminsQuery) -> ServerFnResult<AdminListResp
     let page = query.page.unwrap_or(1);
     let per_page = query.per_page.unwrap_or(25);
     let state = crate::state::app_state();
-    let credentials = super::cookies::read(&state)
+    let credentials = crate::session::cookies::read(&state)
         .await?
         .ok_or_else(|| super::client::status_error(401))?;
     let resp = state
@@ -26,7 +26,7 @@ pub async fn list_admins(query: ListAdminsQuery) -> ServerFnResult<AdminListResp
 #[server(endpoint = "admins/get_admin")]
 pub async fn get_admin(id: i64) -> ServerFnResult<AdminDTO> {
     let state = crate::state::app_state();
-    let credentials = super::cookies::read(&state)
+    let credentials = crate::session::cookies::read(&state)
         .await?
         .ok_or_else(|| super::client::status_error(401))?;
     let resp = state
@@ -43,7 +43,7 @@ pub async fn get_admin(id: i64) -> ServerFnResult<AdminDTO> {
 #[server(endpoint = "admins/create_admin")]
 pub async fn create_admin(req: CreateAdminRequest) -> ServerFnResult<AdminDTO> {
     let state = crate::state::app_state();
-    let credentials = super::cookies::read(&state)
+    let credentials = crate::session::cookies::read(&state)
         .await?
         .ok_or_else(|| super::client::status_error(401))?;
     let resp = state
@@ -62,7 +62,7 @@ pub async fn create_admin(req: CreateAdminRequest) -> ServerFnResult<AdminDTO> {
 #[server(endpoint = "admins/update_admin")]
 pub async fn update_admin(id: i64, req: UpdateAdminRequest) -> ServerFnResult<AdminDTO> {
     let state = crate::state::app_state();
-    let credentials = super::cookies::read(&state)
+    let credentials = crate::session::cookies::read(&state)
         .await?
         .ok_or_else(|| super::client::status_error(401))?;
     let resp = state
@@ -80,7 +80,7 @@ pub async fn update_admin(id: i64, req: UpdateAdminRequest) -> ServerFnResult<Ad
 #[server(endpoint = "admins/delete_admin")]
 pub async fn delete_admin(id: i64) -> ServerFnResult<AdminDTO> {
     let state = crate::state::app_state();
-    let credentials = super::cookies::read(&state)
+    let credentials = crate::session::cookies::read(&state)
         .await?
         .ok_or_else(|| super::client::status_error(401))?;
     let resp = state

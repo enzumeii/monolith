@@ -9,7 +9,7 @@ pub struct ServerConfig {
     pub port: u16,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct DatabaseConfig {
     pub url: String,
     pub max_connections: u32,
@@ -23,6 +23,8 @@ pub struct JwtSettings {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
+    #[serde(default = "default_password_concurrency")]
+    pub password_concurrency: usize,
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub jwt: JwtSettings,
@@ -46,9 +48,18 @@ impl JwtSettings {
         Ok(key)
     }
 }
+fn default_password_concurrency() -> usize {
+    2
+}
+
 impl Settings {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.jwt.key()?;
+        if self.password_concurrency == 0 {
+            return Err(ConfigError::Message(
+                "password_concurrency must be positive".into(),
+            ));
+        }
         Ok(())
     }
 
@@ -60,6 +71,16 @@ impl Settings {
             .add_source(File::with_name("application"))
             .add_source(File::with_name(&format!("application.{env_mode}")).required(false));
 
+        if let Ok(host) = env::var("API_HOST") {
+            builder = builder.set_override("server.host", host)?;
+        }
+        if let Ok(port) = env::var("API_PORT") {
+            builder = builder.set_override(
+                "server.port",
+                port.parse::<u16>()
+                    .map_err(|_| ConfigError::Message("invalid API_PORT".into()))?,
+            )?;
+        }
         if let Ok(db_url) = env::var("DATABASE_URL") {
             builder = builder.set_override("database.url", db_url)?;
         }
@@ -67,6 +88,14 @@ impl Settings {
             builder = builder.set_override("jwt.secret", jwt_secret)?;
         }
 
+        if let Ok(value) = env::var("PASSWORD_CONCURRENCY") {
+            builder = builder.set_override(
+                "password_concurrency",
+                value
+                    .parse::<u32>()
+                    .map_err(|_| ConfigError::Message("invalid PASSWORD_CONCURRENCY".into()))?,
+            )?;
+        }
         let settings: Self = builder.build()?.try_deserialize()?;
         settings.validate()?;
         Ok(settings)
@@ -136,6 +165,32 @@ mod tests {
 mod invalid_config_tests {
     use super::*;
     #[test]
+    fn rejects_invalid_password_admission_limits() {
+        for limit in ["0", "not-a-number"] {
+            let result = temp_env::with_vars(
+                [
+                    ("DATABASE_URL", Some("postgres://unused")),
+                    (
+                        "JWT_SECRET",
+                        Some("abababababababababababababababababababababababababababababababab"),
+                    ),
+                    ("PASSWORD_CONCURRENCY", Some(limit)),
+                ],
+                Settings::new,
+            );
+            assert!(result.is_err());
+        }
+    }
+    #[test]
+    fn database_debug_hides_credentials() {
+        let config = DatabaseConfig {
+            url: "postgres://private:secret@localhost/db".into(),
+            min_connections: 0,
+            max_connections: 1,
+        };
+        assert!(!format!("{config:?}").contains("secret"));
+    }
+    #[test]
     fn startup_rejects_placeholder_and_undersized_signing_keys() {
         for key in ["", "CHANGE_ME", "not-hex", &"ab".repeat(31)] {
             let result = temp_env::with_vars(
@@ -147,5 +202,15 @@ mod invalid_config_tests {
             );
             assert!(result.is_err(), "unsafe signing key was accepted");
         }
+    }
+}
+
+impl std::fmt::Debug for DatabaseConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DatabaseConfig")
+            .field("url", &"[REDACTED]")
+            .field("max_connections", &self.max_connections)
+            .field("min_connections", &self.min_connections)
+            .finish()
     }
 }

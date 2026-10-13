@@ -2,16 +2,21 @@
 //! POST /v1/admins · DELETE /v1/admins/{id}
 
 use super::super::common;
+use super::auth::{login, refresh};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use domain::dto::AdminRole;
-use tower::ServiceExt;
 
 #[tokio::test]
 async fn list_returns_seeded_super_admin_with_default_pagination() {
-    let db = common::test_database().await;
-    let response = common::router(db.pool())
-        .oneshot(common::authed("GET", "/v1/admins", 1, AdminRole::Admin))
+    let db = common::fixture().await;
+    let response = common::client()
+        .oneshot(common::authed(
+            "GET",
+            "/v1/admins",
+            db.root_id(),
+            AdminRole::Admin,
+        ))
         .await
         .unwrap();
 
@@ -19,19 +24,18 @@ async fn list_returns_seeded_super_admin_with_default_pagination() {
     let body = common::body_json(response).await;
     assert_eq!(body["page"], 1);
     assert_eq!(body["per_page"], 25);
-    assert_eq!(body["has_next"], false);
-    assert_eq!(body["admins"].as_array().unwrap().len(), 1);
-    assert_eq!(body["admins"][0]["role"], "SUPER_ADMIN");
+    assert_ne!(body["admins"].as_array().unwrap().len(), 0);
+    assert!(body["admins"].as_array().unwrap().len() <= 25);
 }
 
 #[tokio::test]
 async fn list_rejects_page_zero() {
-    let db = common::test_database().await;
-    let response = common::router(db.pool())
+    let db = common::fixture().await;
+    let response = common::client()
         .oneshot(common::authed(
             "GET",
             "/v1/admins?page=0",
-            1,
+            db.root_id(),
             AdminRole::Admin,
         ))
         .await
@@ -42,10 +46,10 @@ async fn list_rejects_page_zero() {
 
 #[tokio::test]
 async fn get_returns_the_admin() {
-    let db = common::test_database().await;
-    let id = common::seed_admin(&db.pool(), "found-admin", "secret", AdminRole::Admin).await;
+    let db = common::fixture().await;
+    let id = common::seed_admin(&db, db.username("found-admin"), "secret", AdminRole::Admin).await;
 
-    let response = common::router(db.pool())
+    let response = common::client()
         .oneshot(common::authed(
             "GET",
             &format!("/v1/admins/{id}"),
@@ -56,14 +60,22 @@ async fn get_returns_the_admin() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(common::body_json(response).await["username"], "found-admin");
+    assert_eq!(
+        common::body_json(response).await["username"],
+        db.username("found-admin")
+    );
 }
 
 #[tokio::test]
 async fn get_returns_not_found_for_missing() {
-    let db = common::test_database().await;
-    let response = common::router(db.pool())
-        .oneshot(common::authed("GET", "/v1/admins/999", 1, AdminRole::Admin))
+    let db = common::fixture().await;
+    let response = common::client()
+        .oneshot(common::authed(
+            "GET",
+            "/v1/admins/9223372036854775807",
+            db.root_id(),
+            AdminRole::Admin,
+        ))
         .await
         .unwrap();
 
@@ -72,36 +84,40 @@ async fn get_returns_not_found_for_missing() {
 
 #[tokio::test]
 async fn update_allows_self_rename() {
-    let db = common::test_database().await;
-    let id = common::seed_admin(&db.pool(), "self-admin", "secret", AdminRole::Admin).await;
+    let db = common::fixture().await;
+    let id = common::seed_admin(&db, db.username("self-admin"), "secret", AdminRole::Admin).await;
 
-    let response = common::router(db.pool())
+    let response = common::client()
         .oneshot(common::authed_json(
             "PATCH",
             &format!("/v1/admins/{id}"),
             id,
             AdminRole::Admin,
-            &serde_json::json!({ "username": "renamed", "password": null }),
+            &serde_json::json!({ "username": db.username("renamed"), "password": null }),
         ))
         .await
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(common::body_json(response).await["username"], "renamed");
+    assert_eq!(
+        common::body_json(response).await["username"],
+        db.username("renamed")
+    );
 }
 
 #[tokio::test]
 async fn update_rejects_other_admins_records() {
-    let db = common::test_database().await;
-    let target = common::seed_admin(&db.pool(), "target-admin", "secret", AdminRole::Admin).await;
+    let db = common::fixture().await;
+    let target =
+        common::seed_admin(&db, db.username("target-admin"), "secret", AdminRole::Admin).await;
 
-    let response = common::router(db.pool())
+    let response = common::client()
         .oneshot(common::authed_json(
             "PATCH",
             &format!("/v1/admins/{target}"),
             target + 1000,
             AdminRole::Admin,
-            &serde_json::json!({ "username": "renamed", "password": null }),
+            &serde_json::json!({ "username": db.username("renamed"), "password": null }),
         ))
         .await
         .unwrap();
@@ -114,12 +130,17 @@ async fn update_rejects_other_admins_records() {
 /// the acting `SuperAdmin` keeps its own.
 #[tokio::test]
 async fn update_allows_super_admin_cross_account_and_revokes_target_tokens() {
-    let db = common::test_database().await;
-    let target =
-        common::seed_admin(&db.pool(), "cross-target", "old-secret", AdminRole::Admin).await;
+    let db = common::fixture().await;
+    let target = common::seed_admin(
+        &db,
+        db.username("cross-target"),
+        "old-secret",
+        AdminRole::Admin,
+    )
+    .await;
     let super_admin = common::seed_admin(
-        &db.pool(),
-        "cross-super",
+        &db,
+        db.username("cross-super"),
         "super-secret",
         AdminRole::SuperAdmin,
     )
@@ -127,10 +148,10 @@ async fn update_allows_super_admin_cross_account_and_revokes_target_tokens() {
 
     // Both accounts hold a live refresh token.
     for (username, password) in [
-        ("cross-target", "old-secret"),
-        ("cross-super", "super-secret"),
+        (db.username("cross-target"), "old-secret"),
+        (db.username("cross-super"), "super-secret"),
     ] {
-        let login = common::router(db.pool())
+        let login = common::client()
             .oneshot(
                 Request::builder()
                     .method("POST")
@@ -147,7 +168,7 @@ async fn update_allows_super_admin_cross_account_and_revokes_target_tokens() {
         assert_eq!(login.status(), StatusCode::OK);
     }
 
-    let response = common::router(db.pool())
+    let response = common::client()
         .oneshot(common::authed_json(
             "PATCH",
             &format!("/v1/admins/{target}"),
@@ -175,14 +196,14 @@ async fn update_allows_super_admin_cross_account_and_revokes_target_tokens() {
     assert_eq!(super_tokens, 1);
 
     // The target can authenticate with the rotated password.
-    let login = common::router(db.pool())
+    let login = common::client()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/v1/auth/login")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::json!({ "username": "cross-target", "password": "new-secret-password" })
+                    serde_json::json!({ "username": db.username("cross-target"), "password": "new-secret-password" })
                         .to_string(),
                 ))
                 .unwrap(),
@@ -194,17 +215,17 @@ async fn update_allows_super_admin_cross_account_and_revokes_target_tokens() {
 
 #[tokio::test]
 async fn add_requires_super_admin() {
-    let db = common::test_database().await;
-    let router = common::router(db.pool());
+    let db = common::fixture().await;
+    let router = common::client();
 
     let by_admin = router
         .clone()
         .oneshot(common::authed_json(
             "POST",
             "/v1/admins",
-            1,
+            db.root_id(),
             AdminRole::Admin,
-            &serde_json::json!({ "username": "new", "password": "long-test-password", "role": "ADMIN" }),
+            &serde_json::json!({ "username": db.username("new"), "password": "long-test-password", "role": "ADMIN" }),
         ))
         .await
         .unwrap();
@@ -214,25 +235,33 @@ async fn add_requires_super_admin() {
         .oneshot(common::authed_json(
             "POST",
             "/v1/admins",
-            1,
+            db.root_id(),
             AdminRole::SuperAdmin,
-            &serde_json::json!({ "username": "new", "password": "long-test-password", "role": "ADMIN" }),
+            &serde_json::json!({ "username": db.username("new"), "password": "long-test-password", "role": "ADMIN" }),
         ))
         .await
         .unwrap();
     assert_eq!(by_super.status(), StatusCode::CREATED);
-    assert_eq!(common::body_json(by_super).await["username"], "new");
+    assert_eq!(
+        common::body_json(by_super).await["username"],
+        db.username("new")
+    );
 }
 
 /// A `SuperAdmin` cannot delete their own account, even though they may
 /// delete other admins.
 #[tokio::test]
 async fn delete_rejects_self_delete() {
-    let db = common::test_database().await;
-    let self_admin =
-        common::seed_admin(&db.pool(), "self-delete", "secret", AdminRole::SuperAdmin).await;
+    let db = common::fixture().await;
+    let self_admin = common::seed_admin(
+        &db,
+        db.username("self-delete"),
+        "secret",
+        AdminRole::SuperAdmin,
+    )
+    .await;
 
-    let response = common::router(db.pool())
+    let response = common::client()
         .oneshot(common::authed(
             "DELETE",
             &format!("/v1/admins/{self_admin}"),
@@ -253,47 +282,47 @@ async fn delete_rejects_self_delete() {
 
 #[tokio::test]
 async fn delete_requires_super_admin_and_protects_super_admins() {
-    let db = common::test_database().await;
-    let target = common::seed_admin(&db.pool(), "deletable", "secret", AdminRole::Admin).await;
+    let db = common::fixture().await;
+    let target =
+        common::seed_admin(&db, db.username("deletable"), "secret", AdminRole::Admin).await;
 
-    let by_admin = common::router(db.pool())
+    let by_admin = common::client()
         .oneshot(common::authed(
             "DELETE",
             &format!("/v1/admins/{target}"),
-            1,
+            db.root_id(),
             AdminRole::Admin,
         ))
         .await
         .unwrap();
     assert_eq!(by_admin.status(), StatusCode::FORBIDDEN);
 
-    let by_super = common::router(db.pool())
+    let by_super = common::client()
         .oneshot(common::authed(
             "DELETE",
             &format!("/v1/admins/{target}"),
-            1,
+            db.root_id(),
             AdminRole::SuperAdmin,
         ))
         .await
         .unwrap();
     assert_eq!(by_super.status(), StatusCode::OK);
-    assert_eq!(common::body_json(by_super).await["username"], "deletable");
+    assert_eq!(
+        common::body_json(by_super).await["username"],
+        db.username("deletable")
+    );
 
     // The seeded super-admin cannot be deleted by a *different* super-admin
     // (self-delete is covered separately by delete_rejects_self_delete).
-    let sa_id: i64 =
-        sqlx::query_scalar("SELECT id FROM admin WHERE role = 'SUPER_ADMIN'::ADMIN_ROLE LIMIT 1")
-            .fetch_one(&db.pool())
-            .await
-            .unwrap();
+    let sa_id = db.root_id();
     let other_super = common::seed_admin(
-        &db.pool(),
-        "other-super",
+        &db,
+        db.username("other-super"),
         "test-password",
         AdminRole::SuperAdmin,
     )
     .await;
-    let protected = common::router(db.pool())
+    let protected = common::client()
         .oneshot(common::authed(
             "DELETE",
             &format!("/v1/admins/{sa_id}"),
@@ -307,18 +336,18 @@ async fn delete_requires_super_admin_and_protects_super_admins() {
 
 #[tokio::test]
 async fn create_rejects_empty_credentials_and_reports_duplicate_username() {
-    let db = common::test_database().await;
-    let app = common::router(db.pool());
+    let db = common::fixture().await;
+    let app = common::client();
     for payload in [
         serde_json::json!({"username":"", "password":"long-test-password", "role":"ADMIN"}),
-        serde_json::json!({"username":"valid", "password":"", "role":"ADMIN"}),
+        serde_json::json!({"username":db.username("valid"), "password":"", "role":"ADMIN"}),
     ] {
         let response = app
             .clone()
             .oneshot(common::authed_json(
                 "POST",
                 "/v1/admins",
-                1,
+                db.root_id(),
                 AdminRole::SuperAdmin,
                 &payload,
             ))
@@ -327,39 +356,35 @@ async fn create_rejects_empty_credentials_and_reports_duplicate_username() {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
     common::seed_admin(
-        &db.pool(),
-        "existing",
+        &db,
+        db.username("existing"),
         "long-test-password",
         AdminRole::Admin,
     )
     .await;
-    let response = app.oneshot(common::authed_json("POST", "/v1/admins", 1, AdminRole::SuperAdmin, &serde_json::json!({"username":"existing", "password":"long-test-password", "role":"ADMIN"}))).await.unwrap();
+    let response = app.oneshot(common::authed_json("POST", "/v1/admins", db.root_id(), AdminRole::SuperAdmin, &serde_json::json!({"username":db.username("existing"), "password":"long-test-password", "role":"ADMIN"}))).await.unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
 }
 
 #[tokio::test]
 async fn failed_session_revocation_rolls_back_password_update() {
-    let db = common::test_database().await;
+    let db = common::fixture().await;
     let id = common::seed_admin(
-        &db.pool(),
-        "rollback-update",
+        &db,
+        db.username("rollback-update"),
         "old-password",
         AdminRole::Admin,
     )
     .await;
-    let key = hex::decode(common::JWT_SECRET).unwrap();
-    api::services::auth::login(
-        &db.pool(),
-        &key,
-        domain::dto::LoginRequest {
-            username: "rollback-update".into(),
-            password: "old-password".into(),
-        },
-    )
+
+    login(domain::dto::LoginRequest {
+        username: db.username("rollback-update"),
+        password: "old-password".into(),
+    })
     .await
     .unwrap();
-    sqlx::raw_sql("CREATE FUNCTION reject_revocation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected revocation failure'; END $$; CREATE TRIGGER reject_revoke BEFORE DELETE ON refresh_tokens FOR EACH ROW EXECUTE FUNCTION reject_revocation();").execute(&db.pool()).await.unwrap();
-    let response = common::router(db.pool())
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE FUNCTION {}_reject_revocation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected revocation failure'; END $$; CREATE TRIGGER {}_reject_revoke BEFORE DELETE ON refresh_tokens FOR EACH ROW WHEN (OLD.admin_id = {}) EXECUTE FUNCTION {}_reject_revocation();",db.prefix(),db.prefix(),id,db.prefix()))).execute(&db.pool()).await.unwrap();
+    let response = common::client()
         .oneshot(common::authed_json(
             "PATCH",
             &format!("/v1/admins/{id}"),
@@ -371,26 +396,18 @@ async fn failed_session_revocation_rolls_back_password_update() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     assert!(
-        api::services::auth::login(
-            &db.pool(),
-            &key,
-            domain::dto::LoginRequest {
-                username: "rollback-update".into(),
-                password: "old-password".into()
-            }
-        )
+        login(domain::dto::LoginRequest {
+            username: db.username("rollback-update"),
+            password: "old-password".into()
+        })
         .await
         .is_ok()
     );
     assert!(
-        api::services::auth::login(
-            &db.pool(),
-            &key,
-            domain::dto::LoginRequest {
-                username: "rollback-update".into(),
-                password: "new-password-value".into()
-            }
-        )
+        login(domain::dto::LoginRequest {
+            username: db.username("rollback-update"),
+            password: "new-password-value".into()
+        })
         .await
         .is_err()
     );
@@ -398,36 +415,33 @@ async fn failed_session_revocation_rolls_back_password_update() {
 
 #[tokio::test]
 async fn refresh_in_progress_cannot_survive_a_later_password_update() {
-    let db = common::test_database().await;
+    let db = common::fixture().await;
     let pool = db.pool();
-    let id = common::seed_admin(&pool, "race-update", "old-password", AdminRole::Admin).await;
-    let key = hex::decode(common::JWT_SECRET).unwrap();
-    let tokens = api::services::auth::login(
-        &pool,
-        &key,
-        domain::dto::LoginRequest {
-            username: "race-update".into(),
-            password: "old-password".into(),
-        },
+    let id = common::seed_admin(
+        &db,
+        db.username("race-update"),
+        "old-password",
+        AdminRole::Admin,
     )
+    .await;
+
+    let tokens = login(domain::dto::LoginRequest {
+        username: db.username("race-update"),
+        password: "old-password".into(),
+    })
     .await
     .unwrap();
-    sqlx::raw_sql("CREATE FUNCTION pause_refresh() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(48721013); RETURN NEW; END $$; CREATE TRIGGER pause_refresh BEFORE INSERT ON refresh_tokens FOR EACH ROW EXECUTE FUNCTION pause_refresh();").execute(&pool).await.unwrap();
-    let mut control = pool.acquire().await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE FUNCTION {}_pause_refresh() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock(48721013); RETURN NEW; END $$; CREATE TRIGGER {}_pause_refresh BEFORE INSERT ON refresh_tokens FOR EACH ROW WHEN (NEW.admin_id = {}) EXECUTE FUNCTION {}_pause_refresh();",db.prefix(),db.prefix(),id,db.prefix()))).execute(&pool).await.unwrap();
+    let mut control = pool.acquire().await.unwrap().detach();
     sqlx::query("SELECT pg_advisory_lock(48721013)")
-        .execute(&mut *control)
+        .execute(&mut control)
         .await
         .unwrap();
-    let worker_pool = pool.clone();
-    let worker_key = key.clone();
+
     let rotation = tokio::spawn(async move {
-        api::services::auth::refresh(
-            &worker_pool,
-            &worker_key,
-            domain::dto::RefreshRequest {
-                refresh_token: tokens.refresh_token,
-            },
-        )
+        refresh(domain::dto::RefreshRequest {
+            refresh_token: tokens.refresh_token,
+        })
         .await
     });
     tokio::time::timeout(std::time::Duration::from_secs(5),async{
@@ -436,14 +450,11 @@ async fn refresh_in_progress_cannot_survive_a_later_password_update() {
             if waiting{break;}tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     }).await.unwrap();
-    let update_pool = pool.clone();
+
     let update = tokio::spawn(async move {
-        api::services::admin::update(
-            &update_pool,
-            &api::auth::AuthenticatedAdmin {
-                id,
-                role: AdminRole::Admin,
-            },
+        update_admin(
+            id,
+            AdminRole::Admin,
             id,
             domain::dto::UpdateAdminRequest {
                 username: None,
@@ -453,20 +464,132 @@ async fn refresh_in_progress_cannot_survive_a_later_password_update() {
         .await
     });
     sqlx::query("SELECT pg_advisory_unlock(48721013)")
-        .execute(&mut *control)
+        .execute(&mut control)
         .await
         .unwrap();
     let replacement = rotation.await.unwrap().unwrap();
     update.await.unwrap().unwrap();
     assert!(
-        api::services::auth::refresh(
-            &pool,
-            &key,
-            domain::dto::RefreshRequest {
-                refresh_token: replacement.refresh_token
-            }
-        )
+        refresh(domain::dto::RefreshRequest {
+            refresh_token: replacement.refresh_token
+        })
         .await
         .is_err()
+    );
+}
+
+async fn update_admin(
+    actor: i64,
+    role: AdminRole,
+    id: i64,
+    request: domain::dto::UpdateAdminRequest,
+) -> Result<domain::dto::AdminDTO, StatusCode> {
+    let response = common::client()
+        .oneshot(common::authed_json(
+            "PATCH",
+            &format!("/v1/admins/{id}"),
+            actor,
+            role,
+            &serde_json::to_value(request).unwrap(),
+        ))
+        .await
+        .unwrap();
+    if !response.status().is_success() {
+        return Err(response.status());
+    }
+    serde_json::from_value(common::body_json(response).await).map_err(|_| StatusCode::BAD_GATEWAY)
+}
+
+#[tokio::test]
+async fn list_covers_first_last_and_empty_pages_without_resetting_shared_rows() {
+    let db = common::fixture().await;
+    for label in ["page-a", "page-b", "page-c"] {
+        common::seed_admin(
+            &db,
+            db.username(label),
+            "fixture-password",
+            AdminRole::Admin,
+        )
+        .await;
+    }
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM admin")
+        .fetch_one(&db.pool())
+        .await
+        .unwrap();
+    let last = (count + 1) / 2;
+    for (page, has_next, expected_len) in [
+        (1, true, 2),
+        (last, false, count - 2 * (last - 1)),
+        (last + 1, false, 0),
+    ] {
+        let response = common::client()
+            .oneshot(common::authed(
+                "GET",
+                &format!("/v1/admins?page={page}&per_page=2"),
+                db.root_id(),
+                AdminRole::SuperAdmin,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = common::body_json(response).await;
+        assert_eq!(body["page"], page);
+        assert_eq!(body["has_next"], has_next);
+        assert_eq!(
+            i64::try_from(body["admins"].as_array().unwrap().len()).unwrap(),
+            expected_len
+        );
+    }
+}
+fn bootstrap(username: &str, password: &str) -> std::process::Output {
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+    let mut child = Command::new(env!("CARGO_BIN_EXE_bootstrap-admin"))
+        .args([username, "ADMIN"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(password.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+#[tokio::test]
+async fn explicit_bootstrap_rejects_invalid_and_concurrent_duplicates_without_outputting_credentials()
+ {
+    let db = common::fixture().await;
+    let username = db.username("bootstrap");
+    let invalid = bootstrap(&username, "short");
+    assert!(!invalid.status.success());
+    let first_name = username.clone();
+    let second_name = username.clone();
+    let first = std::thread::spawn(move || bootstrap(&first_name, "bootstrap-test-password\n"));
+    let second = std::thread::spawn(move || bootstrap(&second_name, "bootstrap-test-password\n"));
+    let results = [first.join().unwrap(), second.join().unwrap()];
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| result.status.success())
+            .count(),
+        1
+    );
+    for result in &results {
+        assert!(!String::from_utf8_lossy(&result.stdout).contains("bootstrap-test-password"));
+        assert!(!String::from_utf8_lossy(&result.stderr).contains("bootstrap-test-password"));
+    }
+    assert!(
+        login(domain::dto::LoginRequest {
+            username,
+            password: "bootstrap-test-password".into()
+        })
+        .await
+        .is_ok()
     );
 }

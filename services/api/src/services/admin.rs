@@ -47,11 +47,12 @@ async fn lock_actor_and_target(
 
 pub async fn add(
     pool: &PgPool,
+    limiter: &password::PasswordLimiter,
     actor: &AuthenticatedAdmin,
     req: CreateAdminRequest,
 ) -> Result<AdminDTO, AppError> {
     validate::validate_create(&req)?;
-    let hash = password::hash(req.password).await?;
+    let hash = password::hash(limiter, req.password).await?;
     let mut tx = pool.begin().await?;
     let (current, _) = lock_actor_and_target(&mut tx, actor, actor.id).await?;
     if current.role != domain::AdminRole::SuperAdmin {
@@ -64,6 +65,7 @@ pub async fn add(
 
 pub async fn update(
     pool: &PgPool,
+    limiter: &password::PasswordLimiter,
     actor: &AuthenticatedAdmin,
     id: i64,
     req: UpdateAdminRequest,
@@ -71,7 +73,7 @@ pub async fn update(
     validate::validate_update(actor, id)?;
     validate::validate_update_input(&req)?;
     let hash = match req.password {
-        Some(value) => Some(password::hash(value).await?),
+        Some(value) => Some(password::hash(limiter, value).await?),
         None => None,
     };
     let mut tx = pool.begin().await?;
@@ -110,4 +112,18 @@ pub async fn delete(
         .ok_or(AppError::NotFound)?;
     tx.commit().await?;
     Ok(row.into())
+}
+
+/// Explicit operator bootstrap; no HTTP endpoint invokes this function.
+pub async fn bootstrap(
+    pool: &PgPool,
+    limiter: &password::PasswordLimiter,
+    req: CreateAdminRequest,
+) -> Result<AdminDTO, AppError> {
+    validate::validate_create(&req)?;
+    let hash = password::hash(limiter, req.password).await?;
+    let mut tx = pool.begin().await?;
+    let account = admin::add(&mut tx, req.username, hash, req.role).await?;
+    tx.commit().await?;
+    Ok(account.into())
 }

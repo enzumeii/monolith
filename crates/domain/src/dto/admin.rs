@@ -19,14 +19,14 @@ impl std::fmt::Display for AdminRole {
 }
 
 //////////////////////// REQUESTS ////////////////////////
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct CreateAdminRequest {
     pub username: String,
     pub password: String,
     pub role: AdminRole,
 }
 
-#[derive(Debug, Deserialize, Serialize, Default)]
+#[derive(Deserialize, Serialize, Default)]
 pub struct UpdateAdminRequest {
     pub username: Option<String>,
     pub password: Option<String>,

@@ -1,5 +1,6 @@
 [package]
 name = "api"
+default-run = "api"
 version = "0.1.0"
 edition.workspace = true
 
@@ -29,6 +30,11 @@ hex = "0.4.3"
 rand = "0.10.2"
 
 [dev-dependencies]
+reqwest.workspace = true
 http-body-util = "0.1"
 temp-env = "0.3.6"
 tower = { version = "0.5", features = ["util"] }
+
+[[bin]]
+name = "bootstrap-admin"
+path = "src/bin/bootstrap_admin.rs"

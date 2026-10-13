@@ -31,7 +31,7 @@ impl RefreshCoordinator {
                 flight.clone()
             } else {
                 if entries.len() >= 128 {
-                    return Err(super::client::unavailable());
+                    return Err(crate::api::client::unavailable());
                 }
                 let weak: Weak<Flights> = Arc::downgrade(&self.flights);
                 let started = Instant::now();
@@ -44,8 +44,8 @@ impl RefreshCoordinator {
                             })
                             .send()
                             .await
-                            .map_err(|_| super::client::unavailable())?;
-                        super::client::decode(response, "refresh").await
+                            .map_err(|_| crate::api::client::unavailable())?;
+                        crate::api::client::decode(response, "refresh").await
                     }
                     .await;
                     if let Some(map) = weak.upgrade() {
@@ -119,6 +119,63 @@ mod tests {
             2,
             "completed credentials must not be cached for replay"
         );
+        task.abort();
+    }
+    #[tokio::test]
+    async fn cancelling_first_waiter_preserves_rotation_for_another_waiter() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        let started = Arc::new(tokio::sync::Notify::new());
+        let start = started.clone();
+        let release = Arc::new(tokio::sync::Notify::new());
+        let finish = release.clone();
+        let router = Router::new().route(
+            "/refresh",
+            post(move || {
+                let count = count.clone();
+                let start = start.clone();
+                let finish = finish.clone();
+                async move {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    start.notify_one();
+                    finish.notified().await;
+                    Json(TokenResponse {
+                        access_token: "new-access".into(),
+                        refresh_token: "b".repeat(64),
+                        token_type: "Bearer".into(),
+                        expires_in: 600,
+                        id: 7,
+                    })
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener");
+        let url = format!("http://{}/refresh", listener.local_addr().expect("address"));
+        let task = tokio::spawn(async move {
+            dioxus_server::axum::serve(listener, router)
+                .await
+                .expect("upstream");
+        });
+        let coordinator = RefreshCoordinator::default();
+        let worker = coordinator.clone();
+        let first_url = url.clone();
+        let first = tokio::spawn(async move {
+            worker
+                .rotate(reqwest::Client::new(), first_url, "a".repeat(64))
+                .await
+        });
+        started.notified().await;
+        first.abort();
+        let _ = first.await;
+        release.notify_one();
+        let response = coordinator
+            .rotate(reqwest::Client::new(), url, "a".repeat(64))
+            .await
+            .expect("remaining waiter");
+        assert_eq!(response.access_token, "new-access");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
         task.abort();
     }
 }
