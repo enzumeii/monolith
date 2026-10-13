@@ -41,10 +41,12 @@ pub async fn require_super_admin(req: Request, next: Next) -> Result<Response, A
     let claims = req
         .extensions()
         .get::<AuthenticatedAdmin>()
-        .ok_or(AppError::InvalidCredentials)?;
+        .ok_or_else(|| {
+            AppError::InvalidCredentials.at(concat!(module_path!(), "::require_super_admin"))
+        })?;
 
     if claims.role != AdminRole::SuperAdmin {
-        return Err(AppError::Forbidden);
+        return Err(AppError::Forbidden.at(concat!(module_path!(), "::require_super_admin")));
     }
 
     Ok(next.run(req).await)
@@ -59,7 +61,7 @@ pub(crate) fn bearer(headers: &axum::http::HeaderMap) -> Result<Option<&str>, Ap
             .and_then(|value| value.strip_prefix("Bearer "))
             .filter(|token| !token.is_empty())
             .map(Some)
-            .ok_or(AppError::InvalidToken),
+            .ok_or_else(|| AppError::InvalidToken.at(concat!(module_path!(), "::bearer"))),
     }
 }
 pub(crate) fn validate_token(token: &str, key: &[u8]) -> Result<Claims, AppError> {
@@ -70,5 +72,7 @@ pub(crate) fn validate_token(token: &str, key: &[u8]) -> Result<Claims, AppError
     };
     decode::<Claims>(token, &DecodingKey::from_secret(key), &validation)
         .map(|data| data.claims)
-        .map_err(|_| AppError::InvalidToken)
+        .map_err(|error| {
+            AppError::TokenValidation(error).at(concat!(module_path!(), "::validate_token"))
+        })
 }

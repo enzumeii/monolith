@@ -19,17 +19,23 @@ pub async fn login(
     req: LoginRequest,
 ) -> Result<TokenResponse, AppError> {
     if req.password.chars().count() > 128 {
-        return Err(AppError::InvalidCredentials);
+        return Err(AppError::InvalidCredentials.at(concat!(module_path!(), "::login")));
     }
     let account = admin::find_by_username(pool, &req.username)
         .await?
-        .ok_or(AppError::InvalidCredentials)?;
+        .ok_or_else(|| AppError::InvalidCredentials.at(concat!(module_path!(), "::login")))?;
     if !password::verify(req.password, account.password_hash.clone()).await? {
-        return Err(AppError::InvalidCredentials);
+        return Err(AppError::InvalidCredentials.at(concat!(module_path!(), "::login")));
     }
-    let mut transaction = pool.begin().await?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::login")))?;
     let tokens = issue_token_pair(&mut transaction, jwt_secret, &account, None).await?;
-    transaction.commit().await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::login")))?;
     Ok(tokens)
 }
 
@@ -42,16 +48,22 @@ pub async fn refresh(
     let hash = hash_token(&req.refresh_token);
     let id = auth::refresh_owner(pool, &hash)
         .await?
-        .ok_or(AppError::InvalidToken)?;
+        .ok_or_else(|| AppError::InvalidToken.at(concat!(module_path!(), "::refresh")))?;
     let account = admin::find_by_id(pool, id)
         .await?
-        .ok_or(AppError::InvalidToken)?;
-    let mut transaction = pool.begin().await?;
+        .ok_or_else(|| AppError::InvalidToken.at(concat!(module_path!(), "::refresh")))?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::refresh")))?;
     let family_id = auth::consume_refresh_token(&mut transaction, &hash, id)
         .await?
-        .ok_or(AppError::InvalidToken)?;
+        .ok_or_else(|| AppError::InvalidToken.at(concat!(module_path!(), "::refresh")))?;
     let tokens = issue_token_pair(&mut transaction, jwt_secret, &account, Some(family_id)).await?;
-    transaction.commit().await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::refresh")))?;
     Ok(tokens)
 }
 
@@ -60,7 +72,10 @@ pub async fn logout(
     actor: &crate::models::AuthenticatedAdmin,
     req: RefreshRequest,
 ) -> Result<(), AppError> {
-    let mut connection = pool.acquire().await?;
+    let mut connection = pool
+        .acquire()
+        .await
+        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::logout")))?;
     auth::delete_refresh_family(&mut connection, actor.id, &hash_token(&req.refresh_token)).await?;
     Ok(())
 }
@@ -75,8 +90,11 @@ async fn issue_token_pair(
     account: &Admin,
     family_id: Option<uuid::Uuid>,
 ) -> Result<TokenResponse, AppError> {
-    let expiration = u64::try_from((Utc::now() + Duration::minutes(10)).timestamp())
-        .map_err(|_| anyhow::anyhow!("timestamp overflow"))?;
+    let expiration =
+        u64::try_from((Utc::now() + Duration::minutes(10)).timestamp()).map_err(|_| {
+            AppError::from(anyhow::anyhow!("timestamp overflow"))
+                .at(concat!(module_path!(), "::issue_token_pair"))
+        })?;
     let claims = Claims {
         admin_id: account.id,
         username: account.username.clone(),
@@ -87,7 +105,8 @@ async fn issue_token_pair(
         &Header::default(),
         &claims,
         &EncodingKey::from_secret(jwt_secret),
-    )?;
+    )
+    .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::issue_token_pair")))?;
     let mut bytes = [0u8; 32];
     rand::rng().fill(&mut bytes);
     let refresh_token = hex::encode(bytes);

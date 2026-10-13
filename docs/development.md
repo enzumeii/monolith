@@ -59,7 +59,9 @@ flowchart LR
 | Internal failure | Generic 500 |
 | Error conversions | Pure; no logging side effects |
 | Error/warning events | `src/error.rs`, once at HTTP/startup/maintenance boundary |
-| Logs / Debug | Operation/category only; redact credentials, causes and database URLs |
+| Normal failure logs | Operation, originating module/function and category; one WARN/ERROR at the handling boundary |
+| DEBUG failure logs | Original error diagnostics and nested context; opt in with `RUST_LOG=info,api=debug`; error text may contain sensitive values |
+| General Debug formatting | `AppError` and configuration formatting remain sanitized; no request bodies or credential objects logged |
 
 ## Runtime
 

@@ -22,7 +22,7 @@ pub async fn list_page(pool: &PgPool, page: AdminPageRequest) -> Result<Vec<Admi
         offset
     )
     .fetch_all(pool)
-    .await?;
+    .await.map_err(|error| AppError::from(error).at(concat!(module_path!(), "::list_page")))?;
 
     Ok(admins)
 }
@@ -46,7 +46,7 @@ pub(crate) async fn add(
         DbAdminRole::from(role) as DbAdminRole
     )
     .fetch_one(connection)
-    .await?;
+    .await.map_err(|error| AppError::from(error).at(concat!(module_path!(), "::add")))?;
 
     Ok(admin)
 }
@@ -74,7 +74,7 @@ pub(crate) async fn update(
         password_hash
     )
     .fetch_optional(connection)
-    .await?;
+    .await.map_err(|error| AppError::from(error).at(concat!(module_path!(), "::update")))?;
 
     Ok(admin)
 }
@@ -91,7 +91,7 @@ pub async fn find_by_username(pool: &PgPool, username: &str) -> Result<Option<Ad
         username
     )
     .fetch_optional(pool)
-    .await?;
+    .await.map_err(|error| AppError::from(error).at(concat!(module_path!(), "::find_by_username")))?;
 
     Ok(admin)
 }
@@ -108,7 +108,7 @@ pub async fn find_by_id(pool: &PgPool, id: i64) -> Result<Option<Admin>, AppErro
         id
     )
     .fetch_optional(pool)
-    .await?;
+    .await.map_err(|error| AppError::from(error).at(concat!(module_path!(), "::find_by_id")))?;
 
     Ok(admin)
 }
@@ -128,7 +128,7 @@ pub(crate) async fn delete(
         id
     )
     .fetch_optional(connection)
-    .await?;
+    .await.map_err(|error| AppError::from(error).at(concat!(module_path!(), "::delete")))?;
 
     Ok(admin)
 }

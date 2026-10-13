@@ -30,11 +30,14 @@ pub async fn add(
     let hash = password::hash(req.password).await?;
     let current = admin::find_by_id(pool, actor.id)
         .await?
-        .ok_or(AppError::InvalidToken)?;
+        .ok_or_else(|| AppError::InvalidToken.at(concat!(module_path!(), "::add")))?;
     if current.role != DbAdminRole::SuperAdmin {
-        return Err(AppError::Forbidden);
+        return Err(AppError::Forbidden.at(concat!(module_path!(), "::add")));
     }
-    let mut connection = pool.acquire().await?;
+    let mut connection = pool
+        .acquire()
+        .await
+        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::add")))?;
     let row = admin::add(&mut connection, req.username, hash, req.role).await?;
     Ok(row.into())
 }
@@ -49,26 +52,31 @@ pub async fn update(
     validate::validate_update_input(&req)?;
     let current = admin::find_by_id(pool, actor.id)
         .await?
-        .ok_or(AppError::InvalidToken)?;
+        .ok_or_else(|| AppError::InvalidToken.at(concat!(module_path!(), "::update")))?;
     validate::validate_update(&AuthenticatedAdmin::from(&current), id)?;
     let hash = match req.password {
         Some(value) => Some(password::hash(value).await?),
         None => None,
     };
-    let mut tx = pool.begin().await?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::update")))?;
 
     let row = admin::update(&mut tx, id, req.username, hash)
         .await?
-        .ok_or(AppError::NotFound)?;
+        .ok_or_else(|| AppError::NotFound.at(concat!(module_path!(), "::update")))?;
     auth::delete_account_refresh_tokens(&mut tx, id).await?;
-    tx.commit().await?;
+    tx.commit()
+        .await
+        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::update")))?;
     Ok(row.into())
 }
 
 pub async fn get(pool: &PgPool, id: i64) -> Result<AdminDTO, AppError> {
     Ok(admin::find_by_id(pool, id)
         .await?
-        .ok_or(AppError::NotFound)?
+        .ok_or_else(|| AppError::NotFound.at(concat!(module_path!(), "::get")))?
         .into())
 }
 
@@ -80,16 +88,19 @@ pub async fn delete(
     validate::validate_delete(actor, id)?;
     let current = admin::find_by_id(pool, actor.id)
         .await?
-        .ok_or(AppError::InvalidToken)?;
+        .ok_or_else(|| AppError::InvalidToken.at(concat!(module_path!(), "::delete")))?;
     let target = admin::find_by_id(pool, id)
         .await?
-        .ok_or(AppError::NotFound)?;
+        .ok_or_else(|| AppError::NotFound.at(concat!(module_path!(), "::delete")))?;
     if current.role != DbAdminRole::SuperAdmin || target.role == DbAdminRole::SuperAdmin {
-        return Err(AppError::Forbidden);
+        return Err(AppError::Forbidden.at(concat!(module_path!(), "::delete")));
     }
-    let mut connection = pool.acquire().await?;
+    let mut connection = pool
+        .acquire()
+        .await
+        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::delete")))?;
     let row = admin::delete(&mut connection, id)
         .await?
-        .ok_or(AppError::NotFound)?;
+        .ok_or_else(|| AppError::NotFound.at(concat!(module_path!(), "::delete")))?;
     Ok(row.into())
 }

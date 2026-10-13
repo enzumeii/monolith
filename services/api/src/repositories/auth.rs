@@ -20,17 +20,19 @@ pub(crate) async fn create_refresh_token(
         family_id
     )
     .execute(connection)
-    .await?;
+    .await
+    .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::create_refresh_token")))?;
     Ok(())
 }
 
 pub(crate) async fn refresh_owner(pool: &PgPool, hash: &str) -> Result<Option<i64>, AppError> {
-    Ok(sqlx::query_scalar!(
+    sqlx::query_scalar!(
         "SELECT admin_id FROM refresh_tokens WHERE token_hash = $1",
         hash
     )
     .fetch_optional(pool)
-    .await?)
+    .await
+    .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::refresh_owner")))
 }
 
 pub(crate) async fn consume_refresh_token(
@@ -38,7 +40,7 @@ pub(crate) async fn consume_refresh_token(
     hash: &str,
     admin_id: i64,
 ) -> Result<Option<uuid::Uuid>, AppError> {
-    Ok(sqlx::query_scalar!(
+    sqlx::query_scalar!(
         r"
         UPDATE refresh_tokens
         SET revoked_at = NOW()
@@ -50,7 +52,8 @@ pub(crate) async fn consume_refresh_token(
         admin_id
     )
     .fetch_optional(connection)
-    .await?)
+    .await
+    .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::consume_refresh_token")))
 }
 
 pub(crate) async fn delete_refresh_family(
@@ -70,7 +73,10 @@ pub(crate) async fn delete_refresh_family(
         hash
     )
     .execute(connection)
-    .await?;
+    .await
+    .map_err(|error| {
+        AppError::from(error).at(concat!(module_path!(), "::delete_refresh_family"))
+    })?;
     Ok(())
 }
 
@@ -80,7 +86,10 @@ pub(crate) async fn delete_account_refresh_tokens(
 ) -> Result<(), AppError> {
     sqlx::query!("DELETE FROM refresh_tokens WHERE admin_id = $1", admin_id)
         .execute(connection)
-        .await?;
+        .await
+        .map_err(|error| {
+            AppError::from(error).at(concat!(module_path!(), "::delete_account_refresh_tokens"))
+        })?;
     Ok(())
 }
 
@@ -98,7 +107,10 @@ pub async fn cleanup_refresh_tokens(pool: &sqlx::PgPool) -> Result<u64, AppError
         ",
     )
     .execute(pool)
-    .await?;
+    .await
+    .map_err(|error| {
+        AppError::from(error).at(concat!(module_path!(), "::cleanup_refresh_tokens"))
+    })?;
     Ok(result.rows_affected())
 }
 

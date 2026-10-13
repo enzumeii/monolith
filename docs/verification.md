@@ -93,3 +93,16 @@ flowchart TB
 | Capacity | Passing tests do not establish production throughput |
 | Independent review | Cleanup `cafe9ab..924aef2`: no validated functional blockers; two stale architecture rows corrected. Earlier branch changes inspected as context, not exhaustively re-audited |
 | Vercel/deployment | No runtime adapter, production deployment, push or merge |
+
+
+## API error logging — 2026-10-13
+
+| Check | Result |
+| --- | --- |
+| `just --justfile services/api/justfile check` | Formatting and strict lint passed |
+| `just --justfile services/api/justfile test` | Native: 38 passed, 2 Docker-dependent tests deferred; Docker phase: all 40 library tests and 36 real HTTP E2E tests passed; Compose teardown completed |
+| Logging regressions | All 9 passed, including PostgreSQL username-conflict source preservation on a connection-owned temporary table |
+| Regression evidence | Missing HTTP/password origin, nested/background diagnostics, JWT validation diagnostic, and PostgreSQL conflict diagnostic reproduced before their fixes |
+| Built API startup | Invalid signing-key configuration: one ERROR summary with configuration origin; diagnostic details present only with `RUST_LOG=info,api=debug` |
+| Independent review | Direct pool/transaction origin gaps and conflict source loss corrected; no remaining blockers |
+| Limits | DEBUG detail tests cover password parsing, pool closure, JWT validation, PostgreSQL conflicts and nested anyhow/background errors; they do not establish all driver errors, browser behavior or production log collection |
