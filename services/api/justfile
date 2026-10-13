@@ -41,20 +41,25 @@ db-down:
 
 # Run all tests: unit tests + e2e tests
 test:
-    cargo test -p api --lib
-    docker compose -p e2e -f docker-compose-e2e.yml up -d --wait
-    cargo api-e2e
-    docker compose -p e2e -f docker-compose-e2e.yml down -v
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo test --locked -p api --lib
+    project="monolith-e2e-$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    export E2E_POSTGRES_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')"
+    export E2E_DATABASE_URL="postgres://e2e:e2e@127.0.0.1:${E2E_POSTGRES_PORT}/e2e"
+    trap 'docker compose -p "$project" -f docker-compose-e2e.yml down -v' EXIT
+    docker compose -p "$project" -f docker-compose-e2e.yml up -d --wait
+    cargo api-e2e --locked
 
 # Check: format + lint check (no changes)
 check:
     cargo fmt --check -p api
-    cargo clippy -p api --all-targets -- -D warnings
+    cargo clippy --locked -p api --all-targets -- -D warnings
 
 # Format: apply format + lint fix
 fix:
     cargo fmt -p api
-    cargo clippy -p api --fix --allow-dirty --allow-staged -- -D warnings
+    cargo clippy --locked -p api --fix --allow-dirty --allow-staged -- -D warnings
     cargo sqlx prepare
 
 # Recreate the dev Postgres database (drop + create)

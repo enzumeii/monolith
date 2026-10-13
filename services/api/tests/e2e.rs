@@ -1,9 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
-//! End-to-end tests. Each test spins up a real Postgres via testcontainers,
-//! runs migrations, builds the real axum router, and calls the actual HTTP
-//! endpoint — asserting the JSON response. Split per endpoint group under
-//! `e2e/`.
+//! Router integration tests backed by real PostgreSQL from Docker Compose.
+//! Requests use `Router::oneshot`; browser/TCP tests live under tests/browser.
 
 #[path = "e2e/mod.rs"]
 mod e2e;

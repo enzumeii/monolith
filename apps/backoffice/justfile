@@ -20,13 +20,13 @@ build:
 
 check:
     cargo fmt --check -p backoffice
-    cargo clippy -p backoffice --features server --all-targets -- -D warnings
-    cargo clippy -p backoffice --no-default-features --features web --target {{web_target}} --all-targets -- -D warnings
+    cargo clippy --locked -p backoffice --features server --all-targets -- -D warnings
+    cargo clippy --locked -p backoffice --no-default-features --features web --target {{web_target}} --all-targets -- -D warnings
 
 fix:
     cargo fmt -p backoffice
-    cargo clippy -p backoffice --features server --fix --allow-dirty --allow-staged -- -D warnings
-    cargo clippy -p backoffice --no-default-features --features web --target {{web_target}} --fix --allow-dirty --allow-staged -- -D warnings
+    cargo clippy --locked -p backoffice --features server --fix --allow-dirty --allow-staged -- -D warnings
+    cargo clippy --locked -p backoffice --no-default-features --features web --target {{web_target}} --fix --allow-dirty --allow-staged -- -D warnings
 
 serve:
     #!/usr/bin/env bash
@@ -39,4 +39,4 @@ run: build
     ../../target/dx/backoffice/debug/web/server
 
 test:
-    cargo test -p backoffice --features server
+    cargo test --locked -p backoffice --features server

@@ -18,11 +18,13 @@ use domain::dto::AdminRole;
 use http_body_util::BodyExt;
 use jsonwebtoken::{EncodingKey, Header, encode};
 use sqlx::PgPool;
-use std::sync::atomic::{AtomicU64, Ordering};
+use uuid::Uuid;
 
 pub const JWT_SECRET: &str = "test-secret";
 
-static COUNTER: AtomicU64 = AtomicU64::new(0);
+fn isolated_database_name() -> String {
+    format!("e2e_test_{}", Uuid::new_v4().simple())
+}
 
 pub struct TestDatabase {
     admin_url: String,
@@ -43,8 +45,7 @@ pub async fn test_database() -> TestDatabase {
         .expect("E2E_DATABASE_URL must be set (see .cargo/config.toml)");
     let admin_pool = PgPool::connect(&admin_url).await.unwrap();
 
-    let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-    let db_name = format!("e2e_test_{n}");
+    let db_name = isolated_database_name();
     // db_name is a controlled test identifier; identifiers can't be bind params.
     sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {db_name}")))
         .execute(&admin_pool)
@@ -53,14 +54,17 @@ pub async fn test_database() -> TestDatabase {
     drop(admin_pool);
 
     let test_url = test_url_for(&admin_url, &db_name);
-    let pool = PgPool::connect(&test_url).await.unwrap();
-    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-
-    TestDatabase {
+    let pool = PgPool::connect_lazy(&test_url).unwrap();
+    let database = TestDatabase {
         admin_url,
         db_name,
         pool,
-    }
+    };
+    sqlx::migrate!("./migrations")
+        .run(&database.pool)
+        .await
+        .unwrap();
+    database
 }
 
 impl Drop for TestDatabase {
@@ -183,4 +187,14 @@ pub fn authed_json(
 pub async fn body_json(response: axum::response::Response) -> serde_json::Value {
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     serde_json::from_slice(&bytes).unwrap()
+}
+
+#[test]
+fn independent_runs_have_distinct_database_names() {
+    let first = isolated_database_name();
+    let second = isolated_database_name();
+    assert_ne!(first, second);
+    assert!(first.starts_with("e2e_test_"));
+    assert!(first.len() < 63);
+    assert!(first.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
 }
