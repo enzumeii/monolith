@@ -3,8 +3,8 @@
 | Record | Scope |
 | --- | --- |
 | Checkout | `feat/backoffice-admin-ui`, including uncommitted API test-runner changes |
-| Evidence | Last observed runs on this date; latest API middleware split passed, latest backoffice native/WASM lint failed |
-| Latest verification | Simplified API runner: fresh-database unit/retention/TCP tests, format, strict API lint and skill validation passed; other results below remain prior evidence |
+| Evidence | Observed cleanup runs on this date; API and backoffice native/WASM lint pass |
+| Latest verification | Approved cleanup plus TOML-only API configuration: fresh-database native/retention/TCP tests, native/WASM lint, bundle, SQL metadata and manual startup checks; earlier client-ui results remain prior evidence |
 | Related docs | [Architecture](architecture.md) · [Operations](development.md) |
 
 ## Results
@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | API unit tests | API `just test`: native tests before Compose starts | 31 passed; retention ignored here |
 | API TCP E2E | API `just test`: local API + shared Docker PostgreSQL | 38 passed, including cookie/origin/CORS/bearer precedence contracts |
-| Startup failure cleanup | API `just test` with invalid `E2E_API_PORT` | Expected nonzero exit; no E2E container or API process remains |
+| Startup failure cleanup | Invalid `E2E_API_PORT`: recipe failure check and filtered healthz test with temporary TOML | Expected nonzero exit; owned config/API removed; E2E database volume deleted |
 | Repository skills | Bundled `quick_validate.py` for both existing skills | Both passed |
 | PostgreSQL retention | `cargo api-e2e`: includes ignored API library tests after Compose starts | 1 retention test passed; 31 native tests rerun |
 | Backoffice unit tests | Backoffice `just test` | 6 passed, including nested-route/base-path/invalid-URL regressions |
@@ -24,7 +24,7 @@
 | Domain WASM | `cargo check --locked --offline -p domain --target wasm32-unknown-unknown` | Passed |
 | Format | `cargo fmt --all --check` | Passed |
 | SQLx metadata | API `cargo sqlx prepare --check -- --lib`; online against existing PostgreSQL | Passed |
-| Dioxus web bundle | Backoffice `just build` | Passed after startup/API relocation; public TOML asset bundled |
+| Dioxus web bundle | Backoffice `just build` | Passed with absolute config resolution and explicit client statuses; public TOML bundled |
 | Client UI workflows | Package `just setup`, `run`, `test`, `check` | Passed; run prints stub, zero test cases |
 | Domain workflows | Package `just setup`, `test`, `check` | Passed; includes contract and WASM checks |
 
@@ -64,16 +64,18 @@ flowchart LR
 | Admins | Permissions, missing records, validation, duplicate usernames, pagination |
 | Transactions | Failed revocation rolls back account update |
 | Bootstrap SQL | Field/hash validation, usable Argon2 hash, duplicate race without overwrite |
-| Backoffice units | Stale response ownership; configured API URL and cookie-mode header; reject API calls before configuration |
+| Backoffice units | Stale response ownership; configured API URL and cookie mode; reject requests before settings; nested-route/base-path/invalid URL asset resolution |
+| Coordination smoke | Temporary bundle without navigator.locks shows coordination error and Retry; status branch uses 503 |
 | Domain contract | Stable roles; public admin serialization excludes credentials |
 
 ## Limits
 
 ```mermaid
 flowchart TB
-    VERIFIED["Verified"] --> USECASES["Bearer API use cases and persistence"]
+    VERIFIED["Verified"] --> USECASES["Bearer/cookie API use cases and persistence"]
     VERIFIED --> COMPILE["Native/WASM compilation and bundle"]
-    GAP["Not established by these checks"] --> COOKIES["Axum cookie/CORS endpoint behavior"]
+    VERIFIED --> COOKIES["Cookie/origin/CORS TCP contracts"]
+    GAP["Not established by these checks"] --> HTTPS["HTTPS browser cookie acceptance"]
     GAP --> BROWSER["Rendered UI and browser synchronization"]
     GAP --> CAPACITY["Production capacity and deployment"]
 ```

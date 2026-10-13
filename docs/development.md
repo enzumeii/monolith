@@ -25,8 +25,9 @@
 
 ```mermaid
 flowchart LR
-    OP["API environment and configuration"] --> API["Local Axum API"]
-    FILE["Public application.toml"] --> LOAD["Typed Settings reader at startup"]
+    OP["API TOML + DB/JWT secrets"] --> API["Local Axum API"]
+    FILE["Public application.toml asset"] --> URL["Resolve against window.location.href"]
+    URL --> LOAD["Fetch and parse typed Settings"]
     LOAD --> UI["Configured Dioxus app"]
     UI -->|"Credentials and Origin"| API
     API --> PG[("Compose PostgreSQL")]
@@ -43,8 +44,8 @@ flowchart LR
 | Current frontend source | `apps/backoffice/application.toml`; one public Dioxus asset |
 | Planned deployment sources | `application.local.toml` / `application.prod.toml`; select and publish as `application.toml` |
 | Deployment selection | Not implemented; runtime reader remains single |
-| Known loader defect | Asset path needs browser-origin resolution before reqwest |
-| Known strict-lint failure | Asset macro inside deserialized Settings impl triggers `unsafe_derive_deserialize` |
+| Asset loading | Module-level asset; resolve against current page URL before reqwest; nested/base-path unit regressions |
+| Strict lint | Native/WASM checks pass; asset macro remains outside deserialized Settings impl |
 
 ## Validation and failures
 
@@ -88,13 +89,13 @@ flowchart LR
 | Refresh migration | Family/retention additions merged into `20260829090958_add_refresh_token.sql` |
 | Two later drafts | Removed under explicit pre-production authorization |
 | Applied production history | Not a precedent for rewriting migrations |
-| Bootstrap | Existing `bootstrap-admin` recipe; explicit SQL outside migrations |
+| Bootstrap | `services/api/bootstrap_admin.sql`; explicit operator SQL outside migrations |
 | Operator input | Username, role, Argon2 PHC hash file |
 | SQL validation | Unicode/role boundaries, PHC parameters/encoding/storage limits |
 | Duplicate bootstrap | Reject; no overwrite |
 | Password handling | Store hash only; operator generates from a 12–128-character password |
 | PHC limitation | Plaintext length cannot be recovered from hash |
-| Key rotation | Old access signatures fail; valid refresh can obtain a newly signed JWT |
+| Key rotation | Old access signatures fail; valid refresh can obtain a newly signed JWT; admin password hash is independent |
 
 ## Tests and commands
 
@@ -118,5 +119,19 @@ flowchart LR
 | Dependency | Existing Compose PostgreSQL; API runs locally over TCP |
 | Fixtures | Unique owned rows; cleanup only own rows/controls |
 | Race controls | Detached connections release advisory locks on failure |
-| Retention test | Connection-owned temporary table/rows |
+| Retention test | Connection-owned temporary table/rows; API keeps public `cleanup_refresh_tokens` export |
+| Refresh scope names | `delete_refresh_family`, `delete_account_refresh_tokens`, `cleanup_refresh_tokens` |
+| E2E requests | `TestClient::send`; real TCP HTTP requests |
+| Client refresh helper | `refresh_session_from_cookie`; rotates through existing refresh endpoint |
 | Backoffice/browser E2E | Excluded by request |
+
+## Client failure classification
+
+| Condition | Status |
+| --- | --- |
+| Not signed in | 401 |
+| Insufficient UI role | 403 |
+| Stale request / account changed | 409 |
+| Malformed upstream response | 502 |
+| Missing configuration / browser coordination / unavailable API | 503 |
+| API HTTP failure | Preserve upstream status; only 401 triggers restoration |

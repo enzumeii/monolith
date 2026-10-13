@@ -3,7 +3,7 @@
 | Snapshot | Value |
 | --- | --- |
 | Date / branch | 2026-10-13 / `feat/backoffice-admin-ui` |
-| Scope | Current checkout, including uncommitted changes, relative to `origin/main` |
+| Scope | Current branch relative to `main`; cleanup scope includes the approved test-runner and TOML corrections |
 | Related docs | [Operations](development.md) · [Verification](verification.md) |
 
 ## Ownership
@@ -58,6 +58,7 @@ flowchart LR
 | | `src/pages/admin/` | Create form, row and table components |
 | | `src/components/` | Shared form, error and confirmation components |
 | | `src/tests/api.rs` | HTTP request/configuration boundary unit tests |
+| | `src/tests/config.rs` | Nested-route/base-path/invalid-URL asset resolution |
 | | `src/tests/session/mod.rs` | Response-ownership unit test |
 
 | Convention | Mapping |
@@ -68,7 +69,7 @@ flowchart LR
 | Auth E2E | `src/routes/v1/auth.rs` → `e2e-test/v1/auth.rs` |
 | Admin E2E | `src/routes/v1/admins.rs` → `e2e-test/v1/admins.rs` |
 | E2E registration | API `Cargo.toml` → `e2e-test/main.rs` |
-| Shared E2E utilities | `e2e-test/common.rs`; endpoint helpers stay with endpoints |
+| Shared E2E utilities | `e2e-test/common.rs`: owned temporary TOML, local child API, readiness, `send`, fixture cleanup; endpoint helpers stay with endpoints |
 
 ## HTTP and authentication
 
@@ -144,7 +145,9 @@ flowchart LR
 | Shared contracts | Persistence/internal auth types moved from domain into API |
 | Browser transport | Axum owns cookies, origin guard and CORS; Dioxus BFF removed |
 | Middleware | Cookie helpers/guard in `cookies.rs`; JWT authentication/role checks in `token.rs` |
-| Client HTTP | Shared helpers in `api.rs`; endpoint calls in `api/{auth,admins}.rs` |
+| Client HTTP | Shared helpers in `api.rs`; named exports; endpoint calls in `api/{auth,admins}.rs`; explicit error statuses |
+| Configuration cleanup | Browser asset resolved against page URL; API non-secret settings remain TOML-only |
+| Readability cleanup | Scoped refresh names, multiline SQL/cleanup, named exports; request extensions carry principal/source only |
 | Refresh credentials | Independent families, atomic rotation, replacement rollback, scoped logout, account-wide revocation |
 | Validation | Unicode boundaries, validated pagination, duplicate username conflict, signing-key checks |
 | Errors | Central logging, sanitized HTTP failures, secret-safe Debug, pure conversions |
@@ -152,7 +155,7 @@ flowchart LR
 | Pagination | Dioxus `use_resource`; navigation disabled while pending; emptied later page steps back |
 | Bootstrap | Operator-supplied Argon2 PHC SQL script; Rust bootstrap CLI/service removed |
 | Migrations | Family/retention additions consolidated into original refresh migration; admin/seed preserved |
-| Test layout | Mirrored separate unit tests; existing API E2E paths and shared Docker database |
+| Test layout | Mirrored separate unit tests; existing API E2E paths; Docker database shared during a run and deleted afterward |
 | Maintenance | Up to 500 expired/revoked rows per batch; `SKIP LOCKED` |
 | Configuration | One public `application.toml`; typed `Settings`/`ApiConfig`; load before pages/API calls |
 | Tooling | Root README indexes four package guides and docs; package justfiles include setup/local workflows |
