@@ -1,12 +1,18 @@
-# Enzumeii Monolith
+# Monolith
 
-A Rust monolith: one HTTP API service plus two Dioxus fullstack apps over a shared domain crate.
+Prerequisites: Rust 1.99.0 with Clippy, rustfmt and `wasm32-unknown-unknown`; Docker Compose; just 1.58.0; SQLx CLI 0.9.0; Dioxus CLI 0.7.10.
 
-- **`services/api`** — the backend. See [README](services/api/README.md)
-- **`apps/backoffice`** — Dioxus fullstack admin website. See [README](apps/backoffice/README.md)
-- **`crates/domain`** — shared types at the app ↔ api boundary.
+```sh
+./init.sh
+just --justfile services/api/justfile setup
+just --justfile services/api/justfile run
+just --justfile apps/backoffice/justfile setup
+just --justfile apps/backoffice/justfile serve
+```
 
-## Quick start
-```bash
-./init.sh                          # installs just, sqlx-cli, dioxus-cli
+```sh
+just --justfile services/api/justfile test
+just --justfile services/api/justfile check
+just --justfile apps/backoffice/justfile test
+just --justfile apps/backoffice/justfile check
 ```

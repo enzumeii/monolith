@@ -1,11 +1,16 @@
 # Backoffice
 
-## Running locally
+Prerequisites: Rust 1.99.0 with `wasm32-unknown-unknown`, just 1.58.0, Dioxus CLI 0.7.10, and a running API.
 
-1. `just setup` — scaffold `.env` once (never overwrites) and report prerequisites.
-2. Start the internal API `cd services/api && just run`
-3. Start the backoffice web app `cd apps/backoffice && just serve` then open <http://127.0.0.1:8084>
+Run these commands from this directory:
 
-## Useful commands
+```sh
+just setup
+just serve
+just build
+just run
+just test
+just check
+```
 
-- `just build` — build the web client + BFF server bundle via `dx build`.
+The local browser URL is http://127.0.0.1:8084. Tests run natively; `just check` covers native and WASM builds. Backoffice has no E2E suite.

@@ -1,8 +1,10 @@
 web_target := "wasm32-unknown-unknown"
 
+# List available backoffice commands.
 default:
     @just --list
 
+# Check pinned prerequisites and scaffold local environment once.
 setup:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -15,19 +17,23 @@ setup:
       printf '%s\n' 'RUN_ENV=local' > .env
     fi
 
+# Build the web client and fullstack server bundle.
 build:
     dx build --web --fullstack --no-default-features --package backoffice
 
+# Check formatting and strict native/WASM lint.
 check:
     cargo fmt --check -p backoffice
     cargo clippy --locked -p backoffice --features server --all-targets -- -D warnings
     cargo clippy --locked -p backoffice --no-default-features --features web --target {{web_target}} --all-targets -- -D warnings
 
+# Apply formatting and lint fixes.
 fix:
     cargo fmt -p backoffice
     cargo clippy --locked -p backoffice --features server --fix --allow-dirty --allow-staged -- -D warnings
     cargo clippy --locked -p backoffice --no-default-features --features web --target {{web_target}} --fix --allow-dirty --allow-staged -- -D warnings
 
+# Start Dioxus development serving at the configured bind address.
 serve:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -35,8 +41,10 @@ serve:
     read -r host port <<< "$binding"
     exec dx serve --web --fullstack --no-default-features --addr "$host" --port "$port"
 
+# Build and run the standalone fullstack bundle.
 run: build
     ../../target/dx/backoffice/debug/web/server
 
+# Run native backoffice behavior tests.
 test:
     cargo test --locked -p backoffice --features server

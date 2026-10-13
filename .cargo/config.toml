@@ -1,6 +1,6 @@
 [alias]
-# Run the API end-to-end tests. Start the dependencies first:
-# `docker compose -f services/api/docker-compose-e2e.yml up -d --wait`
+# Run API TCP tests against a running local API and Docker PostgreSQL.
+# Use `just --justfile services/api/justfile test` for startup and cleanup.
 api-e2e = "test -p api --test e2e"
 
 [env]

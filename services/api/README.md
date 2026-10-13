@@ -1,18 +1,24 @@
-# API Service
+# API
 
-## Running locally
+Prerequisites: Rust 1.99.0, Docker Compose, just 1.58.0, SQLx CLI 0.9.0.
 
-1. `just setup` (scaffolds `services/api/.env`)
-2. Keep the generated `JWT_SECRET` private (hex encoding of at least 32 random bytes). Existing deployments must rotate older text/placeholder keys; users must sign in again.
-3. `just run` (starts Postgres, runs migrations, serves the API)
+Run these commands from this directory:
 
-## Testing & Verification
+```sh
+just setup
+just run
+just test
+just check
+```
 
-1. `just test` — runs unit tests (no Docker) + e2e tests (Postgres via `docker-compose-e2e.yml`)
+`just test` bootstraps the existing Docker PostgreSQL database, launches the API locally, waits for readiness, runs TCP endpoint tests, and stops that API process. It preserves the database and unrelated records. Set `DOCKER_CONTEXT` when using a non-default Docker context. Optional test port override: `E2E_API_PORT`.
 
-## Useful commands
+Additional commands:
 
-1. `just reset-db` — recreate the dev database (`sqlx database drop -y && sqlx database create`)
-2. `sqlx migrate add ${migration name}` — create a new migration script
+```sh
+just e2e-db
+just db-down
+just bootstrap-admin USERNAME SUPER_ADMIN < password-input
+```
 
-Usernames contain 1–20 Unicode characters without surrounding whitespace. New passwords contain 12–128 characters; existing shorter passwords still work at login. Invalid fields return 400 and duplicate usernames return 409.
+Bootstrap reads a password from stdin and rejects duplicates. Keep input private; `password-input` is a placeholder for your input stream.
