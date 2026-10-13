@@ -1,0 +1,7 @@
+$kind: http-request
+name: admins/:id
+url: "{{server}}/v1/admins/:id"
+method: GET
+pathVariables:
+  id: "1"
+order: 2000

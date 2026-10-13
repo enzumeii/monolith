@@ -1,12 +1,15 @@
 # Monolith
 
+## Prerequisites
+
 Install Rust and Docker, then run the prerequisite CLI installer from the repository root:
 
 ```sh
 ./init.sh
 ```
 
-`init.sh` installs the pinned just, SQLx CLI and Dioxus CLI packages. Rustup uses the repository's `rust-toolchain.toml` for Rust, Clippy, rustfmt and the WASM target.
+`init.sh` installs the pinned just, SQLx CLI and Dioxus CLI packages.
+Rustup uses the repository's `rust-toolchain.toml` for Rust, Clippy, rustfmt and the WASM target.
 
 | Module | Setup, local execution and commands |
 | --- | --- |

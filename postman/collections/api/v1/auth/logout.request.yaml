@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{server}}/v1/auth/logout"
+method: GET
+auth:
+  type: bearer
+  credentials:
+    token: "{{access_token}}"
+scripts:
+  - type: afterResponse
+    code: |-
+      // 1. Parse the JSON response body
+      const responseData = pm.response.json();
+      // 2. Set the environment variable
+      pm.environment.set("access_token", "");
+      pm.environment.set("refresh_token", "");
+    language: text/javascript
+order: 3000
