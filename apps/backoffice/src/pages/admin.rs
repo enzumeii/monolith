@@ -1,6 +1,7 @@
 //! Admin management page (super admin only): fetch + orchestration.
 
 mod create_form;
+mod loading;
 mod row;
 mod table;
 
@@ -8,7 +9,7 @@ use self::create_form::AdminCreateForm;
 use self::table::AdminTable;
 use dioxus::prelude::*;
 use domain::AdminRole;
-use domain::dto::{AdminListResponse, ListAdminsQuery};
+use domain::dto::ListAdminsQuery;
 
 use crate::api;
 use crate::components::ErrorMessage;
@@ -18,8 +19,7 @@ const PER_PAGE: u32 = 25;
 
 #[component]
 pub fn Admins() -> Element {
-    let mut list = use_signal(|| None::<AdminListResponse>);
-    let mut error = use_signal(|| None::<String>);
+    let mut requests = use_signal(loading::ListState::default);
     let mut page = use_signal(|| 1u32);
     let mut reload = use_signal(|| 0u32);
     let mut show_create = use_signal(|| false);
@@ -27,19 +27,29 @@ pub fn Admins() -> Element {
     use_effect(move || {
         let p = page();
         let _ = reload();
+        let account = SESSION.read().clone();
+        let request = requests.write().begin();
+        if !account.is_some_and(|session| session.role == AdminRole::SuperAdmin) {
+            return;
+        }
         spawn(async move {
             let query = ListAdminsQuery {
                 page: Some(p),
                 per_page: Some(PER_PAGE),
             };
-            match session::with_session(|| api::list_admins(query)).await {
-                Ok(resp) => {
-                    list.set(Some(resp));
-                    error.set(None);
-                }
-                Err(e) => {
-                    error.set(Some(e.to_string()));
-                }
+            let result = session::with_session(|| api::list_admins(query))
+                .await
+                .map_err(|error| error.to_string());
+            let accepted = requests.write().finish(request, result);
+            if accepted
+                && p > 1
+                && requests
+                    .read()
+                    .data
+                    .as_ref()
+                    .is_some_and(|data| data.page == p && data.admins.is_empty())
+            {
+                page.set(p - 1);
             }
         });
     });
@@ -53,7 +63,9 @@ pub fn Admins() -> Element {
         .as_ref()
         .map(|s| s.admin_id)
         .unwrap_or_default();
-    let list_data = list.read().clone();
+    let list_data = requests.read().data.clone();
+    let loading = requests.read().loading;
+    let error = requests.read().error.clone();
 
     rsx! {
         main { class: "page",
@@ -63,7 +75,7 @@ pub fn Admins() -> Element {
                     message: Some("Not authorized. Admin management requires a super admin.".into()),
                 }
             } else {
-                ErrorMessage { message: error() }
+                ErrorMessage { message: error.clone() }
                 div { class: "toolbar",
                     button {
                         class: "primary",
@@ -79,11 +91,13 @@ pub fn Admins() -> Element {
                         },
                     }
                 }
+                if loading && list_data.is_some() {p {role:"status", "Loading admins…"}}
                 if let Some(data) = &list_data {
                     AdminTable {
                         admins: data.admins.clone(),
                         has_next: data.has_next,
-                        page: page(),
+                        page: data.page,
+                        loading,
                         my_id,
                         on_prev: move |()| {
                             page.set(page().saturating_sub(1).max(1));
@@ -95,7 +109,7 @@ pub fn Admins() -> Element {
                             *reload.write() += 1;
                         },
                     }
-                } else if error().is_none() {
+                } else if error.is_none() {
                     p { "Loading admins…" }
                 }
             }

@@ -10,6 +10,7 @@ pub fn AdminTable(
     admins: Vec<AdminDTO>,
     has_next: bool,
     page: u32,
+    loading: bool,
     my_id: i64,
     on_prev: EventHandler<()>,
     on_next: EventHandler<()>,
@@ -39,14 +40,14 @@ pub fn AdminTable(
         div { class: "pager",
             button {
                 class: "ghost",
-                disabled: page == 1,
+                disabled: loading || page == 1,
                 onclick: move |_| on_prev(()),
                 "Prev"
             }
             span { "Page {page}" }
             button {
                 class: "ghost",
-                disabled: !has_next,
+                disabled: loading || !has_next,
                 onclick: move |_| on_next(()),
                 "Next"
             }
