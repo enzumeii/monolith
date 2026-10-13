@@ -6,7 +6,7 @@ Run `../../init.sh` to install the CLI packages after installing Rust and Docker
 
 ## Run locally
 
-- `just setup` creates `.env` with local defaults and a random JWT signing key; review the database settings before running.
+- `just setup`
 - `just run` and access API server at `localhost:3000`
 
 ## Useful commands
