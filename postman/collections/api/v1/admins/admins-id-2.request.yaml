@@ -1,0 +1,14 @@
+$kind: http-request
+name: admins/:id
+url: "{{server}}/v1/admins/:id"
+method: DELETE
+pathVariables:
+  id: "1"
+body:
+  type: text
+  content: |-
+    {
+        "username": "wichayutdew",
+        "password": "{{password}}"
+    }
+order: 5000

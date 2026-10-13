@@ -1,0 +1,8 @@
+name: Local
+values:
+  - key: server
+    value: 'localhost:3000'
+  - key: refresh_token
+    value: ''
+  - key: access_token
+    value: ''

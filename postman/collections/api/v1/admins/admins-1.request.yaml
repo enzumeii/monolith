@@ -1,0 +1,13 @@
+$kind: http-request
+name: admins
+url: "{{server}}/v1/admins"
+method: POST
+body:
+  type: json
+  content: |-
+    {
+        "username": "test1",
+        "password": "test1",
+        "role": "ADMIN"
+    }
+order: 3000

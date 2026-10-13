@@ -1,0 +1,20 @@
+$kind: http-request
+url: "{{server}}/v1/auth/login"
+method: POST
+body:
+  type: json
+  content: |-
+    {
+        "username": "wichayutdew",
+        "password": ""
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      // 1. Parse the JSON response body
+      const responseData = pm.response.json();
+      // 2. Set the environment variable
+      pm.environment.set("access_token", responseData.access_token);
+      pm.environment.set("refresh_token", responseData.refresh_token);
+    language: text/javascript
+order: 1000

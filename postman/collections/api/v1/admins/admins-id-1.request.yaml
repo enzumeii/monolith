@@ -1,0 +1,14 @@
+$kind: http-request
+name: admins/:id
+url: "{{server}}/v1/admins/:id"
+method: PATCH
+pathVariables:
+  id: "5"
+body:
+  type: json
+  content: |-
+    {
+        "username": "test1",
+        "password": "test1" 
+    }
+order: 4000
