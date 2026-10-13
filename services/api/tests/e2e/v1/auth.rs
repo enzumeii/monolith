@@ -139,18 +139,34 @@ async fn refresh_rejects_unknown_token() {
 #[tokio::test]
 async fn logout_returns_no_content() {
     let db = common::test_database().await;
-    let id = common::seed_admin(&db.pool(), "logout-admin", "secret", AdminRole::Admin).await;
-
+    let id = common::seed_admin(
+        &db.pool(),
+        "logout-admin",
+        "test-password",
+        AdminRole::Admin,
+    )
+    .await;
+    let key = hex::decode(common::JWT_SECRET).unwrap();
+    let tokens = auth::login(
+        &db.pool(),
+        &key,
+        LoginRequest {
+            username: "logout-admin".into(),
+            password: "test-password".into(),
+        },
+    )
+    .await
+    .unwrap();
     let response = common::router(db.pool())
-        .oneshot(common::authed(
+        .oneshot(common::authed_json(
             "POST",
             "/v1/auth/logout",
             id,
             AdminRole::Admin,
+            &serde_json::json!({"refresh_token":tokens.refresh_token}),
         ))
         .await
         .unwrap();
-
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 }
 
@@ -308,8 +324,9 @@ async fn logout_revokes_refresh_but_access_remains_valid_until_expiry() {
             Request::builder()
                 .method("POST")
                 .uri("/v1/auth/logout")
+                .header("content-type", "application/json")
                 .header("authorization", format!("Bearer {}", tokens.access_token))
-                .body(Body::empty())
+                .body(Body::from(serde_json::json!({"refresh_token":tokens.refresh_token.clone()}).to_string()))
                 .unwrap(),
         )
         .await
@@ -378,4 +395,79 @@ async fn password_update_preserves_access_until_expiry() {
         .await
         .unwrap();
     assert_eq!(protected.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn logout_only_revokes_current_browser_family() {
+    let db = common::test_database().await;
+    let id = common::seed_admin(
+        &db.pool(),
+        "two-browsers",
+        "test-password",
+        AdminRole::Admin,
+    )
+    .await;
+    let key = hex::decode(common::JWT_SECRET).unwrap();
+    let first = auth::login(
+        &db.pool(),
+        &key,
+        LoginRequest {
+            username: "two-browsers".into(),
+            password: "test-password".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let second = auth::login(
+        &db.pool(),
+        &key,
+        LoginRequest {
+            username: "two-browsers".into(),
+            password: "test-password".into(),
+        },
+    )
+    .await
+    .unwrap();
+    let first = auth::refresh(
+        &db.pool(),
+        &key,
+        RefreshRequest {
+            refresh_token: first.refresh_token,
+        },
+    )
+    .await
+    .unwrap();
+    let response = common::router(db.pool())
+        .oneshot(common::authed_json(
+            "POST",
+            "/v1/auth/logout",
+            id,
+            AdminRole::Admin,
+            &serde_json::json!({"refresh_token":first.refresh_token.clone()}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert!(
+        auth::refresh(
+            &db.pool(),
+            &key,
+            RefreshRequest {
+                refresh_token: first.refresh_token
+            }
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        auth::refresh(
+            &db.pool(),
+            &key,
+            RefreshRequest {
+                refresh_token: second.refresh_token
+            }
+        )
+        .await
+        .is_ok()
+    );
 }

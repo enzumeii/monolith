@@ -7,12 +7,14 @@ pub(crate) async fn create_refresh_token(
     admin_id: i64,
     token_hash: &str,
     expires_at: DateTime<Utc>,
+    family_id: Option<uuid::Uuid>,
 ) -> Result<(), AppError> {
     sqlx::query!(
-        "INSERT INTO refresh_tokens (admin_id, token_hash, expires_at) VALUES ($1,$2,$3)",
+        "INSERT INTO refresh_tokens (admin_id, token_hash, expires_at, family_id) VALUES ($1,$2,$3,COALESCE($4,gen_random_uuid()))",
         admin_id,
         token_hash,
-        expires_at
+        expires_at,
+        family_id
     )
     .execute(connection)
     .await?;
@@ -32,9 +34,17 @@ pub(crate) async fn consume_refresh_token(
     connection: &mut PgConnection,
     hash: &str,
     admin_id: i64,
-) -> Result<bool, AppError> {
-    let result = sqlx::query!("UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = $1 AND admin_id = $2 AND revoked_at IS NULL AND expires_at > NOW()", hash, admin_id).execute(connection).await?;
-    Ok(result.rows_affected() == 1)
+) -> Result<Option<uuid::Uuid>, AppError> {
+    Ok(sqlx::query_scalar!("UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = $1 AND admin_id = $2 AND revoked_at IS NULL AND expires_at > NOW() RETURNING family_id",hash,admin_id).fetch_optional(connection).await?)
+}
+
+pub(crate) async fn delete_family(
+    connection: &mut PgConnection,
+    id: i64,
+    hash: &str,
+) -> Result<(), AppError> {
+    sqlx::query!("DELETE FROM refresh_tokens WHERE admin_id = $1 AND family_id = (SELECT family_id FROM refresh_tokens WHERE admin_id = $1 AND token_hash = $2)",id,hash).execute(connection).await?;
+    Ok(())
 }
 
 pub(crate) async fn delete_refresh_tokens(

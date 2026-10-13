@@ -47,7 +47,7 @@ pub async fn login(
     let observed = verified_account(pool, req).await?;
     let mut transaction = pool.begin().await?;
     let account = lock_verified(&mut transaction, &observed).await?;
-    let tokens = issue_token_pair(&mut transaction, jwt_secret, &account).await?;
+    let tokens = issue_token_pair(&mut transaction, jwt_secret, &account, None).await?;
     transaction.commit().await?;
     Ok(tokens)
 }
@@ -66,10 +66,10 @@ pub async fn refresh(
     let account = admin::lock(&mut transaction, id)
         .await?
         .ok_or(AppError::InvalidToken)?;
-    if !auth::consume_refresh_token(&mut transaction, &hash, id).await? {
-        return Err(AppError::InvalidToken);
-    }
-    let tokens = issue_token_pair(&mut transaction, jwt_secret, &account).await?;
+    let family_id = auth::consume_refresh_token(&mut transaction, &hash, id)
+        .await?
+        .ok_or(AppError::InvalidToken)?;
+    let tokens = issue_token_pair(&mut transaction, jwt_secret, &account, Some(family_id)).await?;
     transaction.commit().await?;
     Ok(tokens)
 }
@@ -77,12 +77,13 @@ pub async fn refresh(
 pub async fn logout(
     pool: &PgPool,
     actor: &crate::auth::AuthenticatedAdmin,
+    req: RefreshRequest,
 ) -> Result<(), AppError> {
     let mut transaction = pool.begin().await?;
     let _account = admin::lock(&mut transaction, actor.id)
         .await?
         .ok_or(AppError::InvalidToken)?;
-    auth::revoke_account(&mut transaction, actor.id).await?;
+    auth::delete_family(&mut transaction, actor.id, &hash_token(&req.refresh_token)).await?;
     transaction.commit().await?;
     Ok(())
 }
@@ -91,6 +92,7 @@ async fn issue_token_pair(
     connection: &mut PgConnection,
     jwt_secret: &[u8],
     account: &Admin,
+    family_id: Option<uuid::Uuid>,
 ) -> Result<TokenResponse, AppError> {
     let expiration = u64::try_from((Utc::now() + Duration::minutes(10)).timestamp())
         .map_err(|_| anyhow::anyhow!("timestamp overflow"))?;
@@ -111,6 +113,7 @@ async fn issue_token_pair(
         account.id,
         &hash_token(&refresh_token),
         Utc::now() + Duration::days(7),
+        family_id,
     )
     .await?;
     Ok(TokenResponse {

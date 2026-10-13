@@ -4,7 +4,6 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use axum_auth::AuthBearer;
 use domain::dto::AdminRole;
 use jsonwebtoken::{DecodingKey, Validation, decode};
 
@@ -12,27 +11,31 @@ use crate::{error::AppError, state::AppState};
 
 pub async fn auth_middleware(
     State(state): State<AppState>,
-    AuthBearer(token): AuthBearer,
     mut req: Request,
     next: Next,
 ) -> Result<Response, AppError> {
+    let token = req
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .ok_or(AppError::InvalidToken)?;
     let validation = Validation {
         validate_exp: true,
         leeway: 60,
         ..Default::default()
     };
-
-    let token_data = decode::<Claims>(
-        &token,
+    let data = decode::<Claims>(
+        token,
         &DecodingKey::from_secret(state.jwt_key.as_slice()),
         &validation,
     )
     .map_err(|_| AppError::InvalidToken)?;
-
     req.extensions_mut().insert(AuthenticatedAdmin {
-        id: token_data.claims.admin_id,
-        role: token_data.claims.role,
+        id: data.claims.admin_id,
+        role: data.claims.role,
     });
+    req.extensions_mut().insert(data.claims);
 
     Ok(next.run(req).await)
 }

@@ -21,3 +21,10 @@ pub struct TokenResponse {
     pub expires_in: i64,
     pub id: i64,
 }
+
+/// Safe browser-visible account information and access-token expiration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewerResponse {
+    pub admin: super::AdminDTO,
+    pub expires_at: u64,
+}

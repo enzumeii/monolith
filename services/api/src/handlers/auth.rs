@@ -28,8 +28,19 @@ pub async fn refresh(
 pub async fn logout(
     State(state): State<AppState>,
     Extension(claims): Extension<AuthenticatedAdmin>,
+    Json(payload): Json<RefreshRequest>,
 ) -> Result<StatusCode, AppError> {
-    services::auth::logout(&state.pool, &claims).await?;
+    services::auth::logout(&state.pool, &claims, payload).await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn current(
+    State(state): State<AppState>,
+    Extension(claims): Extension<crate::auth::Claims>,
+) -> Result<Json<domain::dto::ViewerResponse>, AppError> {
+    Ok(Json(domain::dto::ViewerResponse {
+        admin: services::admin::get(&state.pool, claims.admin_id).await?,
+        expires_at: claims.expiration,
+    }))
 }
