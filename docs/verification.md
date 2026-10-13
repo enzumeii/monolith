@@ -12,7 +12,7 @@
 | Check | Command / recipe | Result |
 | --- | --- | --- |
 | API unit tests | API `just test`: native tests before Compose starts | 31 passed; retention ignored here |
-| API TCP E2E | API `just test`: local API + shared Docker PostgreSQL | 38 passed, including cookie/origin/CORS/bearer precedence contracts |
+| API TCP E2E | API `just test`: local API + shared Docker PostgreSQL | 36 passed, including cookie/origin/CORS/bearer precedence contracts; optional bootstrap script/tests removed |
 | Startup failure cleanup | Invalid `E2E_API_PORT`: recipe failure check and filtered healthz test with temporary TOML | Expected nonzero exit; owned config/API removed; E2E database volume deleted |
 | Repository skills | Bundled `quick_validate.py` for both existing skills | Both passed |
 | PostgreSQL retention | `cargo api-e2e`: includes ignored API library tests after Compose starts | 1 retention test passed; 31 native tests rerun |
@@ -36,7 +36,7 @@ flowchart LR
     PG --> CARGO["cargo api-e2e: retention and TCP tests"]
     CARGO --> HARNESS["Harness: configure and launch local API"]
     HARNESS --> READY["Harness: wait for healthz"]
-    READY --> TCP["38 real TCP endpoint tests"]
+    READY --> TCP["36 real TCP endpoint tests"]
     TCP --> STOP["Harness: stop owned API"]
     STOP --> DOWN["Compose down -v: delete test database"]
 ```
@@ -64,7 +64,6 @@ flowchart LR
 | In-flight policy | Verified login can issue after concurrent password update |
 | Admins | Permissions, missing records, validation, duplicate usernames, pagination |
 | Transactions | Failed revocation rolls back account update |
-| Bootstrap SQL | Field/hash validation, usable Argon2 hash, duplicate race without overwrite |
 | Backoffice units | Stale response ownership; configured API URL and cookie mode; reject requests before settings; nested-route/base-path/invalid URL asset resolution |
 | Coordination smoke | Temporary bundle without navigator.locks shows coordination error and Retry; status branch uses 503 |
 | Domain contract | Stable roles; public admin serialization excludes credentials |
@@ -89,7 +88,7 @@ flowchart TB
 | HTTPS browser acceptance | Cookie attributes are checked natively; local TCP tests cover cookie/origin/CORS contracts, but do not establish HTTPS browser acceptance |
 | Browser behavior | Web Locks, BroadcastChannel, cookie acceptance and rendered pagination are not verified by compilation |
 | Backoffice/browser E2E | Excluded by request |
-| Removed tests | BFF/custom-pagination counts no longer apply |
+| Removed tests | Two tests specific to the deleted optional bootstrap script removed; BFF/custom-pagination counts no longer apply |
 | Coverage percentages | Not rerun for current architecture; earlier percentages omitted |
 | Capacity | Passing tests do not establish production throughput |
 | Independent review | Cleanup `cafe9ab..924aef2`: no validated functional blockers; two stale architecture rows corrected. Earlier branch changes inspected as context, not exhaustively re-audited |

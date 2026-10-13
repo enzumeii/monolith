@@ -12,7 +12,7 @@ just setup
 
 `application.toml` holds listener/browser settings. Only `DATABASE_URL` and `JWT_SECRET` override settings from the environment; the signing key must be at least 32 bytes encoded as hex.
 
-Setup creates `.env` if missing, including the local database URL and a random JWT signing key. It preserves an existing `.env`; it does not install prerequisites. Optional admin bootstrap requires psql.
+Setup creates `.env` if missing, including the local database URL and a random JWT signing key. It preserves an existing `.env`; it does not install prerequisites.
 
 ## Run locally
 

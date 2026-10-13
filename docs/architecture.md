@@ -46,7 +46,6 @@ flowchart LR
 | | `src/tests/` | Unit tests mirroring production modules |
 | | `e2e-test/` | Real TCP tests mirroring API routes; Cargo test target `e2e` |
 | | `migrations/` / `.sqlx/` | Schema migrations / offline query metadata |
-| | `bootstrap_admin.sql` | Explicit operator SQL outside migrations |
 | `apps/backoffice` | `src/lib.rs` | Module declarations |
 | | `src/main.rs` | Dioxus launch, startup orchestration and root App components |
 | | `application.toml` / `src/config.rs` | Public settings file / typed startup reader |
@@ -153,7 +152,7 @@ flowchart LR
 | Errors | Central logging, sanitized HTTP failures, secret-safe Debug, pure conversions |
 | Async/runtime | Direct Argon2 `spawn_blocking`; native Axum graceful shutdown |
 | Pagination | Dioxus `use_resource`; navigation disabled while pending; emptied later page steps back |
-| Bootstrap | Operator-supplied Argon2 PHC SQL script; Rust bootstrap CLI/service removed |
+| Admin creation | Intentional superadmin seed migration; authenticated admin API for additional accounts |
 | Migrations | Family/retention additions consolidated into original refresh migration; admin/seed preserved |
 | Test layout | Mirrored separate unit tests; existing API E2E paths; Docker database shared during a run and deleted afterward |
 | Maintenance | Up to 500 expired/revoked rows per batch; `SKIP LOCKED` |

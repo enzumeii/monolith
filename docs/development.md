@@ -72,29 +72,23 @@ flowchart LR
 | Refresh retention | Startup + hourly ticks; at most 500 rows per batch; skip locked rows |
 | Vercel | Listener/maintenance not adapted to functions |
 
-## Schema and operator bootstrap
+## Schema and admin creation
 
 ```mermaid
 flowchart LR
-    MIG["Original migrations"] --> SCHEMA["Admin and refresh schema"]
-    INPUT["Operator: username, role, Argon2 PHC hash"] --> SQL["bootstrap_admin.sql"]
-    SQL --> CHECK["Validate fields, parameters and encoding"]
-    CHECK --> INSERT["Insert unique admin; store supplied hash"]
-    SCHEMA --> INSERT
+    MIG["Schema migrations"] --> DB[("PostgreSQL")]
+    SEED["Intentional superadmin seed migration"] --> DB
+    API["Authenticated POST /v1/admins"] --> HASH["API validates and hashes password"]
+    HASH --> DB
 ```
 
-| Operation | Policy |
+| Concern | Rule |
 | --- | --- |
-| Admin/seed migrations | Preserve intentional behavior |
+| Admin/seed migrations | Preserve intentional behavior and the original admin password |
 | Refresh migration | Family/retention additions merged into `20260829090958_add_refresh_token.sql` |
-| Two later drafts | Removed under explicit pre-production authorization |
 | Applied production history | Not a precedent for rewriting migrations |
-| Bootstrap | `services/api/bootstrap_admin.sql`; explicit operator SQL outside migrations |
-| Operator input | Username, role, Argon2 PHC hash file |
-| SQL validation | Unicode/role boundaries, PHC parameters/encoding/storage limits |
-| Duplicate bootstrap | Reject; no overwrite |
-| Password handling | Store hash only; operator generates from a 12–128-character password |
-| PHC limitation | Plaintext length cannot be recovered from hash |
+| Additional admins | Authenticated admin API; super admin permission required |
+| Password handling | API validates new passwords and stores Argon2 hashes |
 | Key rotation | Old access signatures fail; valid refresh can obtain a newly signed JWT; admin password hash is independent |
 
 ## Tests and commands
