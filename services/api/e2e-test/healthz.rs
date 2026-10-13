@@ -8,6 +8,7 @@ use axum::http::{Request, StatusCode};
 async fn returns_ok() {
     let _db = common::fixture().await;
     let response = common::client()
+        .await
         .oneshot(
             Request::builder()
                 .uri("/healthz")

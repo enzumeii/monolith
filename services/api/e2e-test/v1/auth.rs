@@ -10,7 +10,7 @@ async fn login_succeeds_and_returns_token_pair() {
     let db = common::fixture().await;
     common::seed_admin(&db, db.username("login-admin"), "secret", AdminRole::Admin).await;
 
-    let response = common::client()
+    let response = common::client().await
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -37,7 +37,7 @@ async fn login_rejects_wrong_password() {
     let db = common::fixture().await;
     common::seed_admin(&db, db.username("wrong-pass"), "correct", AdminRole::Admin).await;
 
-    let response = common::client()
+    let response = common::client().await
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -64,7 +64,7 @@ async fn refresh_issues_a_new_pair_and_can_only_be_used_once() {
         AdminRole::Admin,
     )
     .await;
-    let router = common::client();
+    let router = common::client().await;
 
     let login = router
         .clone()
@@ -124,6 +124,7 @@ async fn refresh_issues_a_new_pair_and_can_only_be_used_once() {
 async fn refresh_rejects_unknown_token() {
     let _db = common::fixture().await;
     let response = common::client()
+        .await
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -145,6 +146,7 @@ async fn refresh_rejects_unknown_token() {
 async fn protected_routes_reject_malformed_bearer_token() {
     let _db = common::fixture().await;
     let response = common::client()
+        .await
         .oneshot(
             Request::builder()
                 .uri("/v1/admins")
@@ -280,7 +282,7 @@ async fn logout_revokes_refresh_but_access_remains_valid_until_expiry() {
     })
     .await
     .unwrap();
-    let app = common::client();
+    let app = common::client().await;
     let logout = app
         .clone()
         .oneshot(
@@ -328,7 +330,7 @@ async fn password_update_preserves_access_until_expiry() {
     })
     .await
     .unwrap();
-    let app = common::client();
+    let app = common::client().await;
     let response = app
         .clone()
         .oneshot(common::authed_json(
@@ -383,6 +385,7 @@ async fn logout_only_revokes_current_browser_family() {
     .await
     .unwrap();
     let response = common::client()
+        .await
         .oneshot(common::authed_json(
             "POST",
             "/v1/auth/logout",
@@ -423,6 +426,7 @@ async fn token_request(path: &str, body: &serde_json::Value) -> Result<TokenResp
         .body(Body::from(body.to_string()))
         .unwrap();
     let response = common::client()
+        .await
         .oneshot(request)
         .await
         .expect("deployed endpoint");
@@ -454,6 +458,7 @@ async fn protected_routes_reject_missing_wrong_signature_and_expired_access() {
             request = request.header("authorization", format!("Bearer {token}"));
         }
         let response = common::client()
+            .await
             .oneshot(request.body(Body::empty()).unwrap())
             .await
             .unwrap();
@@ -465,6 +470,7 @@ async fn protected_routes_reject_missing_wrong_signature_and_expired_access() {
 async fn login_rejects_malformed_json() {
     let _db = common::fixture().await;
     let response = common::client()
+        .await
         .oneshot(
             Request::builder()
                 .method("POST")

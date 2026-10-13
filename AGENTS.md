@@ -28,7 +28,7 @@ These rules apply to the entire repository.
 - Do not substitute mocks, in-process routers, or directly invoked handlers for deployed services in E2E tests. Use unit or integration tests for those approaches.
 - Use the existing Docker Compose setup and `services/api/e2e-test/` suite registered by the API Cargo manifest. Keep `healthz.rs` and `v1/{auth,admins}.rs` aligned with routes; put only shared fixtures/HTTP utilities in `common.rs`. Do not introduce an alternative E2E location.
 - Use the database configured by Docker Compose. Create uniquely identifiable fixtures and clean up only records owned by the test; do not create or drop a database per test or reset shared data.
-- Keep startup, readiness checks, test execution, and teardown reproducible through documented `justfile` recipes.
+- Keep API `just test` to native `cargo test`, Compose up, `cargo api-e2e`, and Compose down with volumes removed, including on failure. Keep E2E environment defaults and local API startup/readiness/process teardown inside the existing test harness. Share the Compose database during a run and delete its volume afterward.
 
 ## Rust module boundaries and layout
 

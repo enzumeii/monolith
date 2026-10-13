@@ -21,7 +21,8 @@ Read the root [AGENTS.md](../../../AGENTS.md), [architecture](../../../docs/arch
 | Access policy | Natural JWT expiry after revocation; no promised immediate access invalidation |
 | Concurrency | Distinguish atomic writes from global issuance/revocation serialization |
 | Source organization | Exported functions before private helpers; unit files mirror core logic under src/tests, including backoffice src/tests/api.rs |
-| E2E | services/api/e2e-test/main.rs registers healthz and v1/auth/admins; common.rs holds shared utilities |
+| E2E | services/api/e2e-test/main.rs registers healthz and v1/auth/admins; common.rs owns shared fixtures, API environment, local process startup/readiness/teardown |
+| Test orchestration | API just test runs cargo test → Compose up → cargo api-e2e → Compose down -v, also on failure; no API environment exports or process management in justfile |
 | Configuration | One published application.toml and typed reader; verify browser asset URL resolution and startup gating; distinguish planned local/prod sources from implemented code |
 | Modularity | Existing framework mechanisms and cohesive components; no requirement-free layers |
 

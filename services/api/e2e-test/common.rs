@@ -14,7 +14,14 @@ use http_body_util::BodyExt;
 use jsonwebtoken::{EncodingKey, Header, encode};
 use sha2::{Digest, Sha256};
 use sqlx::{Connection, PgPool};
+use std::{
+    process::{Child, Command, Stdio},
+    sync::{Arc, Weak},
+    time::Duration,
+};
 use uuid::Uuid;
+
+static API: tokio::sync::Mutex<Weak<TestApi>> = tokio::sync::Mutex::const_new(Weak::new());
 
 pub const JWT_SECRET: &str = "abababababababababababababababababababababababababababababababab";
 const FIXTURE_LOCK: i64 = 6_843_819_200_123;
@@ -25,6 +32,7 @@ pub struct TestFixture {
     pool: PgPool,
     lock: Option<sqlx::PgConnection>,
     root: i64,
+    _api: Arc<TestApi>,
 }
 impl TestFixture {
     pub fn prefix(&self) -> &str {
@@ -45,7 +53,8 @@ impl TestFixture {
     }
 }
 pub async fn fixture() -> TestFixture {
-    let url = std::env::var("E2E_DATABASE_URL").expect("configured Compose database URL");
+    let api = test_api().await;
+    let url = database_url();
     let mut lock = sqlx::PgConnection::connect(&url).await.unwrap();
     sqlx::query("SELECT pg_advisory_lock($1)")
         .bind(FIXTURE_LOCK)
@@ -58,6 +67,7 @@ pub async fn fixture() -> TestFixture {
         prefix: format!("e{}", &Uuid::new_v4().simple().to_string()[..11]),
         lock: Some(lock),
         root: 0,
+        _api: api,
     };
     fixture.root = seed_admin(
         &fixture,
@@ -91,12 +101,12 @@ impl Drop for TestFixture {
 #[derive(Clone)]
 pub struct TestClient {
     http: reqwest::Client,
-    base: String,
+    api: Arc<TestApi>,
 }
-pub fn client() -> TestClient {
+pub async fn client() -> TestClient {
     TestClient {
         http: reqwest::Client::new(),
-        base: std::env::var("E2E_API_URL").expect("deployed API URL"),
+        api: test_api().await,
     }
 }
 impl TestClient {
@@ -108,7 +118,7 @@ impl TestClient {
         let bytes = body.collect().await.expect("test request").to_bytes();
         let response = self
             .http
-            .request(parts.method, format!("{}{}", self.base, parts.uri))
+            .request(parts.method, format!("{}{}", self.api.base, parts.uri))
             .headers(parts.headers)
             .body(bytes)
             .send()
@@ -190,4 +200,67 @@ pub fn authed_json(
 pub async fn body_json(response: axum::response::Response) -> serde_json::Value {
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     serde_json::from_slice(&bytes).unwrap()
+}
+
+struct TestApi {
+    process: Child,
+    base: String,
+}
+
+impl Drop for TestApi {
+    fn drop(&mut self) {
+        let _ = self.process.kill();
+        let _ = self.process.wait();
+    }
+}
+
+fn database_url() -> String {
+    std::env::var("E2E_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://e2e:e2e@127.0.0.1:5433/e2e".into())
+}
+
+async fn test_api() -> Arc<TestApi> {
+    let mut shared = API.lock().await;
+    if let Some(api) = shared.upgrade() {
+        return api;
+    }
+    let port = std::env::var("E2E_API_PORT").unwrap_or_else(|_| "3100".into());
+    let mut api = TestApi {
+        process: Command::new(env!("CARGO_BIN_EXE_api"))
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .env("RUN_ENV", "local")
+            .env("DATABASE_URL", database_url())
+            .env("JWT_SECRET", JWT_SECRET)
+            .env("API_HOST", "127.0.0.1")
+            .env("API_PORT", &port)
+            .env("PUBLIC_ORIGIN", "http://127.0.0.1:8084")
+            .env("INSECURE_LOCAL_COOKIES", "true")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .spawn()
+            .expect("start local E2E API"),
+        base: format!("http://127.0.0.1:{port}"),
+    };
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(1))
+        .build()
+        .unwrap();
+    for _ in 0..60 {
+        assert!(
+            api.process.try_wait().unwrap().is_none(),
+            "E2E API exited before readiness"
+        );
+        if http
+            .get(format!("{}/healthz", api.base))
+            .send()
+            .await
+            .is_ok_and(|response| response.status().is_success())
+        {
+            let api = Arc::new(api);
+            *shared = Arc::downgrade(&api);
+            return api;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    panic!("E2E API did not become ready at {}", api.base);
 }

@@ -39,34 +39,14 @@ run:
 db-down:
     docker compose -f docker-compose.yml down
 
-# Run shared contracts, domain WASM check, and API tests using Compose PostgreSQL.
+# Run API tests, then TCP E2E with Docker PostgreSQL; always stop Compose afterward.
 test:
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo test --locked -p domain --no-default-features
-    cargo check --locked -p domain --no-default-features --target wasm32-unknown-unknown
-    cargo test --locked -p api --lib
+    cargo test --locked
+    trap 'docker compose -p e2e -f docker-compose-e2e.yml down -v' EXIT
     docker compose -p e2e -f docker-compose-e2e.yml up -d --wait postgres
-    export E2E_DATABASE_URL="${E2E_DATABASE_URL:-postgres://e2e:e2e@127.0.0.1:5433/e2e}"
-    export DATABASE_URL="$E2E_DATABASE_URL"
-    export JWT_SECRET=abababababababababababababababababababababababababababababababab
-    export API_HOST=127.0.0.1
-    export API_PORT="${E2E_API_PORT:-3100}"
-    export E2E_API_URL="http://${API_HOST}:${API_PORT}"
-    cargo build --locked -p api --bins
-    run_dir="$(mktemp -d)"
-    ../../target/debug/api > "$run_dir/api.log" 2>&1 &
-    api_pid=$!
-    trap 'kill "$api_pid" 2>/dev/null || true; wait "$api_pid" 2>/dev/null || true; rm -rf "$run_dir"' EXIT
-    ready=false
-    for attempt in {1..60}; do
-      kill -0 "$api_pid" 2>/dev/null || { cat "$run_dir/api.log"; exit 1; }
-      if curl --silent --fail --max-time 1 "$E2E_API_URL/healthz" >/dev/null; then ready=true; break; fi
-      sleep 0.25
-    done
-    "$ready" || { cat "$run_dir/api.log"; exit 1; }
-    cargo api-e2e --locked
-    cargo test --locked -p api --lib postgres_cleanup -- --ignored
+    cargo api-e2e
 
 # Check: format + lint check (no changes)
 check:

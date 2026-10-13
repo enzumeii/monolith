@@ -2,18 +2,20 @@
 
 | Record | Scope |
 | --- | --- |
-| Checkout | `feat/backoffice-admin-ui`, including uncommitted client-only/test-layout changes |
+| Checkout | `feat/backoffice-admin-ui`, including uncommitted API test-runner changes |
 | Evidence | Last observed runs on this date; latest API middleware split passed, latest backoffice native/WASM lint failed |
-| This reconciliation | Documentation/guidance only; lint and bundle statuses refreshed; earlier successful test results retained as prior evidence |
+| Latest verification | Simplified API runner: fresh-database unit/retention/TCP tests, format, strict API lint and skill validation passed; other results below remain prior evidence |
 | Related docs | [Architecture](architecture.md) · [Operations](development.md) |
 
 ## Results
 
 | Check | Command / recipe | Result |
 | --- | --- | --- |
-| API unit tests | API `just test`: native lib tests | 29 passed; retention ignored here |
+| API unit tests | API `just test`: native tests before Compose starts | 29 passed; retention ignored here |
 | API TCP E2E | API `just test`: local API + shared Docker PostgreSQL | 31 passed |
-| PostgreSQL retention | API `just test`: ignored `postgres_cleanup` test | 1 passed |
+| Startup failure cleanup | API `just test` with invalid `E2E_API_PORT` | Expected nonzero exit; no E2E container or API process remains |
+| Repository skills | Bundled `quick_validate.py` for both existing skills | Both passed |
+| PostgreSQL retention | `cargo api-e2e`: includes ignored API library tests after Compose starts | 1 retention test passed; 29 native tests rerun |
 | Backoffice unit tests | `cargo test --locked --offline -p backoffice --lib` | 3 passed |
 | Domain contract | `cargo test --locked --offline -p domain` | 1 contract test passed |
 | API strict lint | `cargo clippy --locked --offline -p api --all-targets -- -D warnings` | Passed after cookie/token middleware split |
@@ -30,20 +32,21 @@
 
 ```mermaid
 flowchart LR
-    UNIT["API unit tests"] --> PG["Existing Compose PostgreSQL"]
-    PG --> BUILD["Build and launch local API"]
-    BUILD --> READY["Wait for healthz"]
+    UNIT["cargo test: native API tests"] --> PG["Compose up: PostgreSQL"]
+    PG --> CARGO["cargo api-e2e: retention and TCP tests"]
+    CARGO --> HARNESS["Harness: configure and launch local API"]
+    HARNESS --> READY["Harness: wait for healthz"]
     READY --> TCP["31 real TCP endpoint tests"]
-    TCP --> RET["Owned temporary retention test"]
-    RET --> STOP["Stop owned API; retain shared database"]
+    TCP --> STOP["Harness: stop owned API"]
+    STOP --> DOWN["Compose down -v: delete test database"]
 ```
 
 | Resource | Handling |
 | --- | --- |
 | Docker context / DB port | `orbstack` / 5433 |
-| Application | Local API process; real endpoint requests |
+| Application | Harness owns child-process environment, local API startup, readiness and teardown; real endpoint requests |
 | E2E location | `services/api/e2e-test/main.rs`, `healthz.rs`, `v1/{auth,admins}.rs` |
-| Database lifecycle | Retained; no per-test create/drop or shared reset |
+| Database lifecycle | Shared within a run; Compose down `-v` deletes the database afterward, including on failure |
 | Endpoint fixtures | Unique owned rows and race controls; scoped cleanup |
 | Retention fixtures | Connection-owned temporary rows |
 

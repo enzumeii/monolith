@@ -11,6 +11,7 @@ use domain::dto::AdminRole;
 async fn list_returns_seeded_super_admin_with_default_pagination() {
     let db = common::fixture().await;
     let response = common::client()
+        .await
         .oneshot(common::authed(
             "GET",
             "/v1/admins",
@@ -32,6 +33,7 @@ async fn list_returns_seeded_super_admin_with_default_pagination() {
 async fn list_rejects_page_zero() {
     let db = common::fixture().await;
     let response = common::client()
+        .await
         .oneshot(common::authed(
             "GET",
             "/v1/admins?page=0",
@@ -50,6 +52,7 @@ async fn get_returns_the_admin() {
     let id = common::seed_admin(&db, db.username("found-admin"), "secret", AdminRole::Admin).await;
 
     let response = common::client()
+        .await
         .oneshot(common::authed(
             "GET",
             &format!("/v1/admins/{id}"),
@@ -70,6 +73,7 @@ async fn get_returns_the_admin() {
 async fn get_returns_not_found_for_missing() {
     let db = common::fixture().await;
     let response = common::client()
+        .await
         .oneshot(common::authed(
             "GET",
             "/v1/admins/9223372036854775807",
@@ -88,6 +92,7 @@ async fn update_allows_self_rename() {
     let id = common::seed_admin(&db, db.username("self-admin"), "secret", AdminRole::Admin).await;
 
     let response = common::client()
+        .await
         .oneshot(common::authed_json(
             "PATCH",
             &format!("/v1/admins/{id}"),
@@ -112,6 +117,7 @@ async fn update_rejects_other_admins_records() {
         common::seed_admin(&db, db.username("target-admin"), "secret", AdminRole::Admin).await;
 
     let response = common::client()
+        .await
         .oneshot(common::authed_json(
             "PATCH",
             &format!("/v1/admins/{target}"),
@@ -152,6 +158,7 @@ async fn update_allows_super_admin_cross_account_and_revokes_target_tokens() {
         (db.username("cross-super"), "super-secret"),
     ] {
         let login = common::client()
+            .await
             .oneshot(
                 Request::builder()
                     .method("POST")
@@ -169,6 +176,7 @@ async fn update_allows_super_admin_cross_account_and_revokes_target_tokens() {
     }
 
     let response = common::client()
+        .await
         .oneshot(common::authed_json(
             "PATCH",
             &format!("/v1/admins/{target}"),
@@ -196,7 +204,7 @@ async fn update_allows_super_admin_cross_account_and_revokes_target_tokens() {
     assert_eq!(super_tokens, 1);
 
     // The target can authenticate with the rotated password.
-    let login = common::client()
+    let login = common::client().await
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -216,7 +224,7 @@ async fn update_allows_super_admin_cross_account_and_revokes_target_tokens() {
 #[tokio::test]
 async fn add_requires_super_admin() {
     let db = common::fixture().await;
-    let router = common::client();
+    let router = common::client().await;
 
     let by_admin = router
         .clone()
@@ -262,6 +270,7 @@ async fn delete_rejects_self_delete() {
     .await;
 
     let response = common::client()
+        .await
         .oneshot(common::authed(
             "DELETE",
             &format!("/v1/admins/{self_admin}"),
@@ -287,6 +296,7 @@ async fn delete_requires_super_admin_and_protects_super_admins() {
         common::seed_admin(&db, db.username("deletable"), "secret", AdminRole::Admin).await;
 
     let by_admin = common::client()
+        .await
         .oneshot(common::authed(
             "DELETE",
             &format!("/v1/admins/{target}"),
@@ -298,6 +308,7 @@ async fn delete_requires_super_admin_and_protects_super_admins() {
     assert_eq!(by_admin.status(), StatusCode::FORBIDDEN);
 
     let by_super = common::client()
+        .await
         .oneshot(common::authed(
             "DELETE",
             &format!("/v1/admins/{target}"),
@@ -323,6 +334,7 @@ async fn delete_requires_super_admin_and_protects_super_admins() {
     )
     .await;
     let protected = common::client()
+        .await
         .oneshot(common::authed(
             "DELETE",
             &format!("/v1/admins/{sa_id}"),
@@ -337,7 +349,7 @@ async fn delete_requires_super_admin_and_protects_super_admins() {
 #[tokio::test]
 async fn create_rejects_empty_credentials_and_reports_duplicate_username() {
     let db = common::fixture().await;
-    let app = common::client();
+    let app = common::client().await;
     for payload in [
         serde_json::json!({"username":"", "password":"long-test-password", "role":"ADMIN"}),
         serde_json::json!({"username":db.username("valid"), "password":"", "role":"ADMIN"}),
@@ -385,6 +397,7 @@ async fn failed_session_revocation_rolls_back_password_update() {
     .unwrap();
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE FUNCTION {}_reject_revocation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected revocation failure'; END $$; CREATE TRIGGER {}_reject_revoke BEFORE DELETE ON refresh_tokens FOR EACH ROW WHEN (OLD.admin_id = {}) EXECUTE FUNCTION {}_reject_revocation();",db.prefix(),db.prefix(),id,db.prefix()))).execute(&db.pool()).await.unwrap();
     let response = common::client()
+        .await
         .oneshot(common::authed_json(
             "PATCH",
             &format!("/v1/admins/{id}"),
@@ -485,6 +498,7 @@ async fn update_admin(
     request: domain::dto::UpdateAdminRequest,
 ) -> Result<domain::dto::AdminDTO, StatusCode> {
     let response = common::client()
+        .await
         .oneshot(common::authed_json(
             "PATCH",
             &format!("/v1/admins/{id}"),
@@ -523,6 +537,7 @@ async fn list_covers_first_last_and_empty_pages_without_resetting_shared_rows() 
         (last + 1, false, 0),
     ] {
         let response = common::client()
+            .await
             .oneshot(common::authed(
                 "GET",
                 &format!("/v1/admins?page={page}&per_page=2"),

@@ -105,14 +105,16 @@ flowchart LR
 | UI serving/build/test/check | `apps/backoffice/justfile`: `serve`, `build`, `test`, `check` |
 | Client UI local workflow | `apps/client-ui/justfile`: `setup`, `run`, `test`, `check`; run prints the current stub |
 | Domain local workflow | `crates/domain/justfile`: `setup`, `test`, `check`; library has no server |
-| Shared contract checks | API/backoffice `test` recipes include domain contract tests and WASM compilation |
+| Shared contract checks | Domain/backoffice `test` recipes include domain contract tests and WASM compilation |
 | Unit-test convention | When unit tests exist, use the crate's `src/tests/`, mirroring core modules; current API/backoffice tests follow this |
 | Domain contract test | `crates/domain/tests/contracts.rs`; public integration contract, separate from unit-test convention |
 | Backoffice HTTP unit mapping | `src/api.rs` → `src/tests/api.rs` |
 | Unit private access | Test-gated child-module registration |
 | API E2E | `services/api/e2e-test/{healthz,v1/auth,v1/admins}.rs` |
 | E2E registration | API Cargo `[[test]]`: `name = "e2e"`, `path = "e2e-test/main.rs"` |
-| Shared E2E utilities | `e2e-test/common.rs`; endpoint helpers remain with endpoint tests |
+| Shared E2E utilities | `e2e-test/common.rs` owns API environment, child process, readiness and teardown; endpoint helpers remain with endpoint tests |
+| API test sequence | Native `cargo test` → Compose up → `cargo api-e2e` → Compose down `-v`, including on failure |
+| Database lifetime | Shared across tests within a run; deleted after the run |
 | Dependency | Existing Compose PostgreSQL; API runs locally over TCP |
 | Fixtures | Unique owned rows; cleanup only own rows/controls |
 | Race controls | Detached connections release advisory locks on failure |
