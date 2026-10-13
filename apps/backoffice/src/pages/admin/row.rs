@@ -133,7 +133,6 @@ pub fn AdminRow(admin: AdminDTO, my_id: i64, on_changed: EventHandler<()>) -> El
                             on_changed(());
                         }
                         Err(e) => {
-
                             error.set(Some(e.to_string()));
                         }
                     }

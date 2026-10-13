@@ -41,7 +41,12 @@ fn Application(settings: config::Settings) -> Element {
             p { "Restoring session…" }
         } else if let Some(message) = session::RESTORE_ERROR.read().clone() {
             p { role: "alert", "{message}" }
-            button { onclick: move |_| { spawn(async { let _=session::restore().await; }); }, "Retry" }
+            button {
+                onclick: move |_| {
+                    spawn(async { let _ = session::restore().await; });
+                },
+                "Retry"
+            }
         } else if SESSION.read().is_none() {
             Login {}
         } else {

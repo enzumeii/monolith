@@ -10,7 +10,7 @@ pub(super) const BROWSER_ORIGIN: &str = "http://127.0.0.1:8084";
 pub(super) async fn cookie_login(username: &str, password: &str) -> axum::response::Response {
     common::client()
         .await
-        .oneshot(
+        .send(
             Request::builder()
                 .method("POST")
                 .uri("/v1/auth/login")
@@ -33,7 +33,7 @@ pub(super) async fn cookie_request(
 ) -> axum::response::Response {
     common::client()
         .await
-        .oneshot(
+        .send(
             Request::builder()
                 .method(method)
                 .uri(uri)
@@ -63,7 +63,7 @@ async fn login_succeeds_and_returns_token_pair() {
     common::seed_admin(&db, db.username("login-admin"), "secret", AdminRole::Admin).await;
 
     let response = common::client().await
-        .oneshot(
+        .send(
             Request::builder()
                 .method("POST")
                 .uri("/v1/auth/login")
@@ -90,7 +90,7 @@ async fn login_rejects_wrong_password() {
     common::seed_admin(&db, db.username("wrong-pass"), "correct", AdminRole::Admin).await;
 
     let response = common::client().await
-        .oneshot(
+        .send(
             Request::builder()
                 .method("POST")
                 .uri("/v1/auth/login")
@@ -120,7 +120,7 @@ async fn refresh_issues_a_new_pair_and_can_only_be_used_once() {
 
     let login = router
         .clone()
-        .oneshot(
+        .send(
             Request::builder()
                 .method("POST")
                 .uri("/v1/auth/login")
@@ -140,7 +140,7 @@ async fn refresh_issues_a_new_pair_and_can_only_be_used_once() {
 
     let first = router
         .clone()
-        .oneshot(
+        .send(
             Request::builder()
                 .method("POST")
                 .uri("/v1/auth/refresh")
@@ -156,7 +156,7 @@ async fn refresh_issues_a_new_pair_and_can_only_be_used_once() {
 
     // The same refresh token must not be reusable (single-consumption).
     let second = router
-        .oneshot(
+        .send(
             Request::builder()
                 .method("POST")
                 .uri("/v1/auth/refresh")
@@ -177,7 +177,7 @@ async fn refresh_rejects_unknown_token() {
     let _db = common::fixture().await;
     let response = common::client()
         .await
-        .oneshot(
+        .send(
             Request::builder()
                 .method("POST")
                 .uri("/v1/auth/refresh")
@@ -199,7 +199,7 @@ async fn protected_routes_reject_malformed_bearer_token() {
     let _db = common::fixture().await;
     let response = common::client()
         .await
-        .oneshot(
+        .send(
             Request::builder()
                 .uri("/v1/admins")
                 .header("authorization", "Bearer not-a-jwt")
@@ -337,7 +337,7 @@ async fn logout_revokes_refresh_but_access_remains_valid_until_expiry() {
     let app = common::client().await;
     let logout = app
         .clone()
-        .oneshot(
+        .send(
             Request::builder()
                 .method("POST")
                 .uri("/v1/auth/logout")
@@ -352,7 +352,7 @@ async fn logout_revokes_refresh_but_access_remains_valid_until_expiry() {
         .unwrap();
     assert_eq!(logout.status(), StatusCode::NO_CONTENT);
     let protected = app
-        .oneshot(
+        .send(
             Request::builder()
                 .uri("/v1/admins")
                 .header("authorization", format!("Bearer {}", tokens.access_token))
@@ -385,7 +385,7 @@ async fn password_update_preserves_access_until_expiry() {
     let app = common::client().await;
     let response = app
         .clone()
-        .oneshot(common::authed_json(
+        .send(common::authed_json(
             "PATCH",
             &format!("/v1/admins/{id}"),
             id,
@@ -396,7 +396,7 @@ async fn password_update_preserves_access_until_expiry() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let protected = app
-        .oneshot(
+        .send(
             Request::builder()
                 .uri("/v1/admins")
                 .header("authorization", format!("Bearer {}", tokens.access_token))
@@ -438,7 +438,7 @@ async fn logout_only_revokes_current_browser_family() {
     .unwrap();
     let response = common::client()
         .await
-        .oneshot(common::authed_json(
+        .send(common::authed_json(
             "POST",
             "/v1/auth/logout",
             id,
@@ -479,7 +479,7 @@ async fn token_request(path: &str, body: &serde_json::Value) -> Result<TokenResp
         .unwrap();
     let response = common::client()
         .await
-        .oneshot(request)
+        .send(request)
         .await
         .expect("deployed endpoint");
     if !response.status().is_success() {
@@ -511,7 +511,7 @@ async fn protected_routes_reject_missing_wrong_signature_and_expired_access() {
         }
         let response = common::client()
             .await
-            .oneshot(request.body(Body::empty()).unwrap())
+            .send(request.body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
@@ -523,7 +523,7 @@ async fn login_rejects_malformed_json() {
     let _db = common::fixture().await;
     let response = common::client()
         .await
-        .oneshot(
+        .send(
             Request::builder()
                 .method("POST")
                 .uri("/v1/auth/login")
@@ -698,7 +698,7 @@ async fn cookie_mutations_require_origin() {
             };
             let response = common::client()
                 .await
-                .oneshot(builder.body(body).unwrap())
+                .send(builder.body(body).unwrap())
                 .await
                 .unwrap();
             assert_eq!(
@@ -743,7 +743,7 @@ async fn explicit_invalid_bearer_never_falls_back() {
     ] {
         let response = common::client()
             .await
-            .oneshot(
+            .send(
                 Request::builder()
                     .uri(&uri)
                     .header("cookie", &cookie)
@@ -770,7 +770,7 @@ async fn cors_preflight_matches_configured_origin() {
     for origin in [BROWSER_ORIGIN, "https://foreign.example.test"] {
         let response = common::client()
             .await
-            .oneshot(
+            .send(
                 Request::builder()
                     .method("OPTIONS")
                     .uri("/v1/auth/login")

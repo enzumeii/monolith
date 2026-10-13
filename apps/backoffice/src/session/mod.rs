@@ -21,7 +21,9 @@ struct ResponseOwner {
     sequence: u64,
 }
 
-thread_local! {static OWNER:RefCell<ResponseOwner>=RefCell::new(ResponseOwner::default());}
+thread_local! {
+    static OWNER: RefCell<ResponseOwner> = RefCell::new(ResponseOwner::default());
+}
 pub(crate) fn now_unix() -> u64 {
     web_time::SystemTime::now()
         .duration_since(web_time::UNIX_EPOCH)
@@ -31,7 +33,7 @@ pub async fn restore() -> api::ApiResult<()> {
     let ticket = request();
     let result = async {
         let _lock = sync::lock().await?;
-        read_valid().await
+        refresh_session_from_cookie().await
     }
     .await;
     match result {
@@ -59,7 +61,7 @@ pub async fn sign_in(username: String, password: String) -> api::ApiResult<()> {
 pub async fn sign_out() -> api::ApiResult<()> {
     let ticket = transition();
     let _lock = sync::lock().await?;
-    if read_valid().await?.is_some() {
+    if refresh_session_from_cookie().await?.is_some() {
         api::logout().await?;
     }
     apply(ticket, None);
@@ -72,7 +74,7 @@ pub async fn update_self(
 ) -> api::ApiResult<domain::dto::AdminDTO> {
     let ticket = transition();
     let _lock = sync::lock().await?;
-    let current = read_valid()
+    let current = refresh_session_from_cookie()
         .await?
         .ok_or_else(|| api::ApiError::new(StatusCode::UNAUTHORIZED, "not signed in"))?;
     if current.admin_id != id {
@@ -153,7 +155,7 @@ fn apply(ticket: Ticket, session: Option<Session>) {
     }
 }
 
-async fn read_valid() -> api::ApiResult<Option<Session>> {
+async fn refresh_session_from_cookie() -> api::ApiResult<Option<Session>> {
     match api::refresh_session().await {
         Ok(session) => Ok(Some(session)),
         Err(error) if error.status == 401 => Ok(None),

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = $1 AND admin_id = $2 AND revoked_at IS NULL AND expires_at > NOW() RETURNING family_id",
+  "query": "\n        UPDATE refresh_tokens\n        SET revoked_at = NOW()\n        WHERE token_hash = $1 AND admin_id = $2\n          AND revoked_at IS NULL AND expires_at > NOW()\n        RETURNING family_id\n        ",
   "describe": {
     "columns": [
       {
@@ -25,5 +25,5 @@
       false
     ]
   },
-  "hash": "c45346089b9034ab2d6ec08086c1db99e8cbaf2adf2d880d8098d6ba24652e66"
+  "hash": "4c2ae567b8287e695a6f1a147a996e680b5740a6d838c66a24002859a113b49d"
 }

@@ -84,18 +84,34 @@ impl Drop for TestFixture {
         let prefix = self.prefix.clone();
         let lock = self.lock.take();
         std::thread::spawn(move || {
-            let rt=tokio::runtime::Runtime::new().expect("cleanup runtime");
-            rt.block_on(async move {
-                let pool=PgPool::connect(&url).await.expect("cleanup database");
-                // Serialized trigger tests use only their own rows; remove their controls before cleanup.
-                for (trigger,function) in [("reject_refresh","reject_refresh_insert"),("reject_revoke","reject_revocation"),("pause_refresh","pause_refresh")] {
-                    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP TRIGGER IF EXISTS {prefix}_{trigger} ON refresh_tokens; DROP FUNCTION IF EXISTS {prefix}_{function}();"))).execute(&pool).await.expect("owned trigger cleanup");
+            let runtime = tokio::runtime::Runtime::new().expect("cleanup runtime");
+            runtime.block_on(async move {
+                let pool = PgPool::connect(&url).await.expect("cleanup database");
+                // Remove only this fixture's race controls before deleting its rows.
+                for (trigger, function) in [
+                    ("reject_refresh", "reject_refresh_insert"),
+                    ("reject_revoke", "reject_revocation"),
+                    ("pause_refresh", "pause_refresh"),
+                ] {
+                    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                        "DROP TRIGGER IF EXISTS {prefix}_{trigger} ON refresh_tokens; \
+                         DROP FUNCTION IF EXISTS {prefix}_{function}();"
+                    )))
+                    .execute(&pool)
+                    .await
+                    .expect("owned trigger cleanup");
                 }
-                sqlx::query("DELETE FROM admin WHERE left(username,12)=$1").bind(&prefix).execute(&pool).await.expect("owned row cleanup");
+                sqlx::query("DELETE FROM admin WHERE left(username,12)=$1")
+                    .bind(&prefix)
+                    .execute(&pool)
+                    .await
+                    .expect("owned row cleanup");
                 pool.close().await;
                 drop(lock);
             });
-        }).join().expect("fixture cleanup");
+        })
+        .join()
+        .expect("fixture cleanup");
     }
 }
 #[derive(Clone)]
@@ -110,7 +126,7 @@ pub async fn client() -> TestClient {
     }
 }
 impl TestClient {
-    pub async fn oneshot(
+    pub async fn send(
         &self,
         request: Request<Body>,
     ) -> Result<axum::response::Response, reqwest::Error> {

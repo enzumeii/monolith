@@ -10,9 +10,15 @@ async fn postgres_cleanup_is_bounded_and_preserves_live_rows() {
         .await
         .expect("database");
     sqlx::raw_sql("CREATE TEMP TABLE refresh_tokens (id UUID PRIMARY KEY, expires_at TIMESTAMPTZ NOT NULL, revoked_at TIMESTAMPTZ); INSERT INTO refresh_tokens SELECT gen_random_uuid(),NOW()-interval '1 second',NULL FROM generate_series(1,501); INSERT INTO refresh_tokens VALUES (gen_random_uuid(),NOW()+interval '1 day',NOW()),(gen_random_uuid(),NOW()+interval '1 day',NULL);").execute(&pool).await.expect("owned temporary fixtures");
-    assert_eq!(cleanup_expired(&pool).await.expect("first batch"), 500);
-    assert_eq!(cleanup_expired(&pool).await.expect("second batch"), 2);
-    assert_eq!(cleanup_expired(&pool).await.expect("idempotent"), 0);
+    assert_eq!(
+        cleanup_refresh_tokens(&pool).await.expect("first batch"),
+        500
+    );
+    assert_eq!(
+        cleanup_refresh_tokens(&pool).await.expect("second batch"),
+        2
+    );
+    assert_eq!(cleanup_refresh_tokens(&pool).await.expect("idempotent"), 0);
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM refresh_tokens WHERE expires_at>NOW() AND revoked_at IS NULL",
     )

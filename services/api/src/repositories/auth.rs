@@ -10,7 +10,10 @@ pub(crate) async fn create_refresh_token(
     family_id: Option<uuid::Uuid>,
 ) -> Result<(), AppError> {
     sqlx::query!(
-        "INSERT INTO refresh_tokens (admin_id, token_hash, expires_at, family_id) VALUES ($1,$2,$3,COALESCE($4,gen_random_uuid()))",
+        r#"
+        INSERT INTO refresh_tokens (admin_id, token_hash, expires_at, family_id)
+        VALUES ($1, $2, $3, COALESCE($4, gen_random_uuid()))
+        "#,
         admin_id,
         token_hash,
         expires_at,
@@ -35,19 +38,43 @@ pub(crate) async fn consume_refresh_token(
     hash: &str,
     admin_id: i64,
 ) -> Result<Option<uuid::Uuid>, AppError> {
-    Ok(sqlx::query_scalar!("UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = $1 AND admin_id = $2 AND revoked_at IS NULL AND expires_at > NOW() RETURNING family_id",hash,admin_id).fetch_optional(connection).await?)
+    Ok(sqlx::query_scalar!(
+        r#"
+        UPDATE refresh_tokens
+        SET revoked_at = NOW()
+        WHERE token_hash = $1 AND admin_id = $2
+          AND revoked_at IS NULL AND expires_at > NOW()
+        RETURNING family_id
+        "#,
+        hash,
+        admin_id
+    )
+    .fetch_optional(connection)
+    .await?)
 }
 
-pub(crate) async fn delete_family(
+pub(crate) async fn delete_refresh_family(
     connection: &mut PgConnection,
     id: i64,
     hash: &str,
 ) -> Result<(), AppError> {
-    sqlx::query!("DELETE FROM refresh_tokens WHERE admin_id = $1 AND family_id = (SELECT family_id FROM refresh_tokens WHERE admin_id = $1 AND token_hash = $2)",id,hash).execute(connection).await?;
+    sqlx::query!(
+        r#"
+        DELETE FROM refresh_tokens
+        WHERE admin_id = $1 AND family_id = (
+            SELECT family_id FROM refresh_tokens
+            WHERE admin_id = $1 AND token_hash = $2
+        )
+        "#,
+        id,
+        hash
+    )
+    .execute(connection)
+    .await?;
     Ok(())
 }
 
-pub(crate) async fn delete_refresh_tokens(
+pub(crate) async fn delete_account_refresh_tokens(
     connection: &mut PgConnection,
     admin_id: i64,
 ) -> Result<(), AppError> {
@@ -57,8 +84,21 @@ pub(crate) async fn delete_refresh_tokens(
     Ok(())
 }
 
-pub async fn cleanup_expired(pool: &sqlx::PgPool) -> Result<u64, AppError> {
-    let result=sqlx::query("DELETE FROM refresh_tokens WHERE id IN (SELECT id FROM refresh_tokens WHERE expires_at < NOW() OR revoked_at IS NOT NULL ORDER BY expires_at LIMIT 500 FOR UPDATE SKIP LOCKED)").execute(pool).await?;
+pub async fn cleanup_refresh_tokens(pool: &sqlx::PgPool) -> Result<u64, AppError> {
+    let result = sqlx::query(
+        r#"
+        DELETE FROM refresh_tokens
+        WHERE id IN (
+            SELECT id FROM refresh_tokens
+            WHERE expires_at < NOW() OR revoked_at IS NOT NULL
+            ORDER BY expires_at
+            LIMIT 500
+            FOR UPDATE SKIP LOCKED
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
     Ok(result.rows_affected())
 }
 

@@ -9,7 +9,7 @@ async fn returns_ok() {
     let _db = common::fixture().await;
     let response = common::client()
         .await
-        .oneshot(
+        .send(
             Request::builder()
                 .uri("/healthz")
                 .body(Body::empty())

@@ -61,7 +61,7 @@ pub async fn logout(
     req: RefreshRequest,
 ) -> Result<(), AppError> {
     let mut connection = pool.acquire().await?;
-    auth::delete_family(&mut connection, actor.id, &hash_token(&req.refresh_token)).await?;
+    auth::delete_refresh_family(&mut connection, actor.id, &hash_token(&req.refresh_token)).await?;
     Ok(())
 }
 

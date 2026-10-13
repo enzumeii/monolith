@@ -60,7 +60,7 @@ pub async fn update(
     let row = admin::update(&mut tx, id, req.username, hash)
         .await?
         .ok_or(AppError::NotFound)?;
-    auth::delete_refresh_tokens(&mut tx, id).await?;
+    auth::delete_account_refresh_tokens(&mut tx, id).await?;
     tx.commit().await?;
     Ok(row.into())
 }

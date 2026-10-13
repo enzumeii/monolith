@@ -9,4 +9,4 @@ pub(crate) mod services;
 pub mod state;
 pub(crate) mod utils;
 pub(crate) mod validations;
-pub use repositories::auth::cleanup_expired as cleanup_refresh_tokens;
+pub use repositories::auth::cleanup_refresh_tokens;

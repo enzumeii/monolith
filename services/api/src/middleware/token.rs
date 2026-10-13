@@ -33,7 +33,6 @@ pub async fn auth_middleware(
         id: claims.admin_id,
         role: claims.role,
     });
-    req.extensions_mut().insert(claims);
 
     Ok(next.run(req).await)
 }

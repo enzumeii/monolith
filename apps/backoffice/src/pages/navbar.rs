@@ -32,13 +32,21 @@ pub fn Navbar() -> Element {
                 if let Some(s) = &session {
                     span { class: "whoami", "{s.username}" }
                 }
-                if let Some(message)=error() {span {role:"alert", "{message}"}}
+                if let Some(message) = error() {
+                    span { role: "alert", "{message}" }
+                }
                 button {
                     class: "logout",
                     disabled: busy(),
                     onclick: move |_| {
-                        busy.set(true);error.set(None);
-                        spawn(async move { if let Err(e)=session::sign_out().await {error.set(Some(e.to_string()));busy.set(false);} });
+                        busy.set(true);
+                        error.set(None);
+                        spawn(async move {
+                            if let Err(failure) = session::sign_out().await {
+                                error.set(Some(failure.to_string()));
+                                busy.set(false);
+                            }
+                        });
                     },
                     "Logout"
                 }

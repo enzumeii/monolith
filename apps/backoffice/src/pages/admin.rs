@@ -96,7 +96,9 @@ pub fn Admins() -> Element {
                         },
                     }
                 }
-                if loading && list_data.is_some() {p {role:"status", "Loading admins…"}}
+                if loading && list_data.is_some() {
+                    p { role: "status", "Loading admins…" }
+                }
                 if let Some(data) = &list_data {
                     AdminTable {
                         admins: data.admins.clone(),

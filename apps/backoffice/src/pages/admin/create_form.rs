@@ -84,7 +84,6 @@ pub fn AdminCreateForm(on_created: EventHandler<()>) -> Element {
                             on_created(());
                         }
                         Err(e) => {
-
                             error.set(Some(e.to_string()));
                         }
                     }
