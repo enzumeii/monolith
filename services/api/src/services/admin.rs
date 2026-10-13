@@ -1,57 +1,95 @@
-use crate::{error::AppError, repositories::admin, utils::password};
-use domain::dto::{
-    AdminDTO, AdminListResponse, AdminPageRequest, CreateAdminRequest, UpdateAdminRequest,
+use crate::{
+    error::AppError,
+    models::AuthenticatedAdmin,
+    models::DbAdminRole,
+    repositories::{admin, auth},
+    utils::password,
+    validations::admin::{self as validate, AdminPageRequest},
 };
+use domain::dto::{AdminDTO, AdminListResponse, CreateAdminRequest, UpdateAdminRequest};
 use sqlx::PgPool;
 
-#[tracing::instrument(skip(pool))]
 pub async fn list(pool: &PgPool, page: AdminPageRequest) -> Result<AdminListResponse, AppError> {
-    let mut entities = admin::list_page(pool, page).await?;
-    let has_next = entities.len() > page.per_page as usize;
-    entities.truncate(page.per_page as usize);
-    let admins = entities.into_iter().map(AdminDTO::from).collect();
-
+    let mut rows = admin::list_page(pool, page).await?;
+    let has_next = rows.len() > page.per_page() as usize;
+    rows.truncate(page.per_page() as usize);
     Ok(AdminListResponse {
-        admins,
-        page: page.page,
-        per_page: page.per_page,
+        admins: rows.into_iter().map(AdminDTO::from).collect(),
+        page: page.page(),
+        per_page: page.per_page(),
         has_next,
     })
 }
 
-#[tracing::instrument(skip(pool, req), fields(username = %req.username, %req.role))]
-pub async fn add(pool: &PgPool, req: CreateAdminRequest) -> Result<AdminDTO, AppError> {
-    let password_hash = password::hash(req.password).await?;
-    let admin_entity = admin::add(pool, req.username, password_hash, req.role).await?;
-    Ok(admin_entity.into())
+pub async fn add(
+    pool: &PgPool,
+    actor: &AuthenticatedAdmin,
+    req: CreateAdminRequest,
+) -> Result<AdminDTO, AppError> {
+    validate::validate_create(&req)?;
+    let hash = password::hash(req.password).await?;
+    let current = admin::find_by_id(pool, actor.id)
+        .await?
+        .ok_or(AppError::InvalidToken)?;
+    if current.role != DbAdminRole::SuperAdmin {
+        return Err(AppError::Forbidden);
+    }
+    let mut connection = pool.acquire().await?;
+    let row = admin::add(&mut connection, req.username, hash, req.role).await?;
+    Ok(row.into())
 }
 
-#[tracing::instrument(skip(pool, req), fields(username = ?req.username))]
-pub async fn update(pool: &PgPool, id: i64, req: UpdateAdminRequest) -> Result<AdminDTO, AppError> {
-    let password_hash = match req.password {
-        Some(raw_password) => Some(password::hash(raw_password).await?),
+pub async fn update(
+    pool: &PgPool,
+    actor: &AuthenticatedAdmin,
+    id: i64,
+    req: UpdateAdminRequest,
+) -> Result<AdminDTO, AppError> {
+    validate::validate_update(actor, id)?;
+    validate::validate_update_input(&req)?;
+    let current = admin::find_by_id(pool, actor.id)
+        .await?
+        .ok_or(AppError::InvalidToken)?;
+    validate::validate_update(&AuthenticatedAdmin::from(&current), id)?;
+    let hash = match req.password {
+        Some(value) => Some(password::hash(value).await?),
         None => None,
     };
-    let updated_entity = admin::update(pool, id, req.username, password_hash)
+    let mut tx = pool.begin().await?;
+
+    let row = admin::update(&mut tx, id, req.username, hash)
         .await?
         .ok_or(AppError::NotFound)?;
-    Ok(updated_entity.into())
+    auth::delete_account_refresh_tokens(&mut tx, id).await?;
+    tx.commit().await?;
+    Ok(row.into())
 }
 
-#[tracing::instrument(skip(pool))]
 pub async fn get(pool: &PgPool, id: i64) -> Result<AdminDTO, AppError> {
-    let admin_entity = admin::find_by_id(pool, id)
+    Ok(admin::find_by_id(pool, id)
         .await?
-        .ok_or(AppError::NotFound)?;
-    Ok(admin_entity.into())
+        .ok_or(AppError::NotFound)?
+        .into())
 }
 
-#[tracing::instrument(skip(pool))]
-pub async fn delete(pool: &PgPool, id: i64) -> Result<AdminDTO, AppError> {
-    let deleted_admin = admin::delete(pool, id).await?;
-    match deleted_admin {
-        Some(admin_entity) => Ok(admin_entity.into()),
-        None if admin::find_by_id(pool, id).await?.is_some() => Err(AppError::Forbidden),
-        None => Err(AppError::NotFound),
+pub async fn delete(
+    pool: &PgPool,
+    actor: &AuthenticatedAdmin,
+    id: i64,
+) -> Result<AdminDTO, AppError> {
+    validate::validate_delete(actor, id)?;
+    let current = admin::find_by_id(pool, actor.id)
+        .await?
+        .ok_or(AppError::InvalidToken)?;
+    let target = admin::find_by_id(pool, id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    if current.role != DbAdminRole::SuperAdmin || target.role == DbAdminRole::SuperAdmin {
+        return Err(AppError::Forbidden);
     }
+    let mut connection = pool.acquire().await?;
+    let row = admin::delete(&mut connection, id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    Ok(row.into())
 }

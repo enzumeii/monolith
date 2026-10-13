@@ -6,13 +6,8 @@ edition.workspace = true
 [lints]
 workspace = true
 
-[features]
-default = ["dto"]
-dto = ["dep:serde", "dep:uuid", "dep:chrono"]
-db = ["dto", "dep:sqlx"]
-
 [dependencies]
-serde = { workspace = true, optional = true }
-sqlx = { workspace = true, optional = true }
-uuid = { workspace = true, optional = true }
-chrono = { workspace = true, optional = true }
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -1,0 +1,7 @@
+[application]
+name = "backoffice"
+out_dir = "dist"
+asset_dir = "assets"
+
+[web.app]
+title = "Backoffice"

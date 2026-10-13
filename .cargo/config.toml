@@ -1,10 +1,8 @@
 [alias]
-# Run the API end-to-end tests. Start the dependencies first:
-# `docker compose -f services/api/docker-compose-e2e.yml up -d --wait`
-api-e2e = "test -p api --test e2e"
+# Run Docker-dependent API retention and TCP endpoint tests.
+# The E2E harness starts its own local API; Compose PostgreSQL must be ready.
+api-e2e = "test --locked -p api --lib --test e2e -- --include-ignored"
 
 [env]
 # sqlx macros use the committed .sqlx cache; no live DB needed to compile.
 SQLX_OFFLINE = "true"
-# Default e2e database (the docker-compose-e2e.yml Postgres on port 5433).
-E2E_DATABASE_URL = "postgres://e2e:e2e@127.0.0.1:5433/e2e"

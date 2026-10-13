@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO refresh_tokens (admin_id, token_hash, expires_at, family_id)\n        VALUES ($1, $2, $3, COALESCE($4, gen_random_uuid()))\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Varchar",
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b27c6e0cea0efd57823607a06f591398eb84cca62d35ba045e2d0d4e8524a7ce"
+}

@@ -9,7 +9,7 @@ pub fn router(state: AppState) -> Router<AppState> {
     let super_admin_routes = Router::new()
         .nest("/admins", admins::super_admin_router())
         .layer(axum_middleware::from_fn(
-            middleware::auth::require_super_admin,
+            middleware::token::require_super_admin,
         ));
     let protected_routes = Router::new()
         .nest("/auth", auth::authed_router())
@@ -17,7 +17,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(super_admin_routes)
         .layer(axum_middleware::from_fn_with_state(
             state,
-            middleware::auth::auth_middleware,
+            middleware::token::auth_middleware,
         ));
 
     public_routes.merge(protected_routes)

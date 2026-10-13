@@ -1,0 +1,22 @@
+# List domain commands.
+default:
+    @just --list
+
+# Verify the pinned toolchain and compile library dependencies before local use.
+setup:
+    cargo check --locked -p domain
+
+# Run shared serialization contract tests locally.
+test:
+    cargo test --locked -p domain
+
+# Check formatting, strict lint and database-free WASM compilation.
+check:
+    cargo fmt --check -p domain
+    cargo clippy --locked -p domain --all-targets -- -D warnings
+    cargo check --locked -p domain --target wasm32-unknown-unknown
+
+# Apply formatting and lint fixes.
+fix:
+    cargo fmt -p domain
+    cargo clippy --locked -p domain --fix --allow-dirty --allow-staged -- -D warnings

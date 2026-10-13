@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT admin_id FROM refresh_tokens WHERE token_hash = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "admin_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "refresh_tokens",
+            "name": "admin_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b913b704990fd3fabaa54c06f482503550ba1280056a8b6fe1241ebe1ad9fa47"
+}

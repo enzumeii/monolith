@@ -1,12 +1,18 @@
-# Enzumeii Monolith
+# Monolith
 
-A Rust monolith: one HTTP API service plus two Dioxus fullstack apps over a shared domain crate.
+Install Rust and Docker, then run the prerequisite CLI installer from the repository root:
 
-- **`services/api`** — the backend. See [README](services/api/README.md)
-- **`apps/`** — Dioxus fullstack apps.
-- **`crates/domain`** — shared types at the app ↔ api boundary.
-
-## Quick start
-```bash
-./init.sh                          # installs just, sqlx-cli
+```sh
+./init.sh
 ```
+
+`init.sh` installs the pinned just, SQLx CLI and Dioxus CLI packages. Rustup uses the repository's `rust-toolchain.toml` for Rust, Clippy, rustfmt and the WASM target.
+
+| Module | Setup, local execution and commands |
+| --- | --- |
+| API | [services/api](services/api/README.md) |
+| Backoffice | [apps/backoffice](apps/backoffice/README.md) |
+| Client UI | [apps/client-ui](apps/client-ui/README.md) |
+| Domain | [crates/domain](crates/domain/README.md) |
+
+See [docs/](docs/) for architecture, development and verification documentation.

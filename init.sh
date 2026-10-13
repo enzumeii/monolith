@@ -9,8 +9,10 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "→ Installing dev CLI tools (just, sqlx-cli)..."
-cargo install just sqlx-cli
+echo "→ Installing dev CLI tools (just, sqlx-cli, dioxus-cli)..."
+cargo install --locked just --version 1.58.0
+cargo install --locked sqlx-cli --version 0.9.0
+cargo install --locked dioxus-cli --version 0.7.10
 
 echo ""
 echo "✓ Done. Next steps:"

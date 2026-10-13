@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM refresh_tokens\n        WHERE admin_id = $1 AND family_id = (\n            SELECT family_id FROM refresh_tokens\n            WHERE admin_id = $1 AND token_hash = $2\n        )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "209abcbf33c27628bbed04c09eb18f25e7549f6a86d78b37cd6496ff8abc591c"
+}

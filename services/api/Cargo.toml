@@ -7,7 +7,7 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-domain = { path = "../../crates/domain", features = ["db"] }
+domain = { path = "../../crates/domain" }
 serde.workspace = true
 serde_json.workspace = true
 config.workspace = true
@@ -15,9 +15,12 @@ dotenvy.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
 chrono.workspace = true
+uuid.workspace = true
 tracing-subscriber.workspace = true
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 axum = "0.8.9"
+axum-extra = { version="0.10.3", features=["cookie"] }
+tower-http = { version="0.6.11", features=["cors"] }
 axum-auth = "0.8.1"
 jsonwebtoken = { version = "11.0.0", features = ["rust_crypto"] }
 argon2 = { version = "0.5.3", features = ["std"] }
@@ -28,7 +31,13 @@ hex = "0.4.3"
 rand = "0.10.2"
 
 [dev-dependencies]
+reqwest.workspace = true
 http-body-util = "0.1"
 temp-env = "0.3.6"
 tower = { version = "0.5", features = ["util"] }
-uuid.workspace = true
+
+[[test]]
+name = "e2e"
+path = "e2e-test/main.rs"
+# Select Docker-dependent tests explicitly with cargo api-e2e.
+test = false

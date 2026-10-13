@@ -1,17 +1,44 @@
-# Default target
+web_target := "wasm32-unknown-unknown"
+
+# List available backoffice commands.
 default:
     @just --list
 
-# Check: format check + lint check (no changes)
+# Check pinned prerequisites and scaffold local environment once.
+setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v dx >/dev/null || { echo 'Install dioxus-cli 0.7.10 first'; exit 1; }
+    case "$(rustup target list --installed)" in
+      *{{web_target}}*) ;;
+      *) echo 'Run rustup target add {{web_target}} first'; exit 1 ;;
+    esac
+    if [ ! -f .env ]; then
+      printf '%s\n' 'RUN_ENV=local' > .env
+    fi
+
+# Build the client-only web bundle.
+build:
+    dx build --web --package backoffice
+
+# Check formatting and strict native/WASM lint.
 check:
     cargo fmt --check -p backoffice
-    cargo clippy -p backoffice --all-targets -- -D warnings
+    cargo clippy --locked -p backoffice --all-targets -- -D warnings
+    cargo clippy --locked -p backoffice --no-default-features --features web --target {{web_target}} --all-targets -- -D warnings
 
-# Fix: apply format fix + lint fix
+# Apply formatting and lint fixes.
 fix:
     cargo fmt -p backoffice
-    cargo clippy -p backoffice --fix --allow-dirty --allow-staged -- -D warnings
+    cargo clippy --locked -p backoffice --fix --allow-dirty --allow-staged -- -D warnings
+    cargo clippy --locked -p backoffice --no-default-features --features web --target {{web_target}} --fix --allow-dirty --allow-staged -- -D warnings
 
-# Test: run backoffice tests (currently none; validates it builds)
+# Serve the client UI locally; configure the public API URL in application.toml.
+serve:
+    dx serve --web --addr 127.0.0.1 --port 8084
+
+# Run shared contracts, domain WASM check, and native backoffice tests.
 test:
-    cargo test -p backoffice
+    cargo test --locked -p domain --no-default-features
+    cargo check --locked -p domain --no-default-features --target {{web_target}}
+    cargo test --locked -p backoffice

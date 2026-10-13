@@ -1,16 +1,36 @@
-# API Service [services/api]
+# API
 
-## Running locally
+## Prerequisites and setup
 
-1. `just setup` (scaffolds `services/api/.env`)
-2. Edit `.env` and set a real `JWT_SECRET` get from repo's secret
-3. `just run` (starts Postgres, runs migrations, serves the API)
+Rust 1.99.0 with Clippy, rustfmt and `wasm32-unknown-unknown`; just 1.58.0; SQLx CLI 0.9.0; running Docker with Compose; Python 3; Bash. Run `../../init.sh` to install the CLI packages after installing Rust and Docker.
 
-## Testing & Verification
+From `services/api`:
 
-1. `just test` — runs unit tests (no Docker) + e2e tests (Postgres via `docker-compose-e2e.yml`)
+```sh
+just setup
+```
+
+`application.toml` holds listener/browser settings. Only `DATABASE_URL` and `JWT_SECRET` override settings from the environment; the signing key must be at least 32 bytes encoded as hex.
+
+Setup creates `.env` if missing, including the local database URL and a random JWT signing key. It preserves an existing `.env`; it does not install prerequisites.
+
+## Run locally
+
+```sh
+just run
+```
+
+Starts Docker PostgreSQL on port 5432, applies migrations and runs the API at [http://localhost:3000](http://localhost:3000). Check [/healthz](http://localhost:3000/healthz). Set `DOCKER_CONTEXT` if your Docker installation needs a non-default context.
 
 ## Useful commands
 
-1. `just reset-db` — recreate the dev database (`sqlx database drop -y && sqlx database create`)
-2. `sqlx migrate add ${migration name}` — create a new migration script
+| Command | Purpose |
+| --- | --- |
+| `just --list` | List recipes |
+| `just test` | API native tests, Docker PostgreSQL, TCP E2E and retention tests; delete test DB afterward |
+| `just check` | Formatting and strict API lint |
+| `just fix` | Apply formatting/lint fixes and prepare SQLx metadata |
+| `just db-down` | Stop development PostgreSQL |
+| `just reset-db` | Drop and recreate the configured database |
+
+`just test` runs the API locally against Docker PostgreSQL and deletes the test database afterward, including on failure. `E2E_API_PORT` overrides its default API port 3100.

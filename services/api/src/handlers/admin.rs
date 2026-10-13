@@ -1,11 +1,14 @@
+use crate::models::{AuthSource, AuthenticatedAdmin};
 use crate::{error::AppError, services, state::AppState, validations::admin as validate};
+use axum::response::{IntoResponse, Response};
 use axum::{
     Extension, Json,
     extract::{Path, Query, State},
     http::StatusCode,
 };
+use axum_extra::extract::cookie::CookieJar;
 use domain::dto::{
-    AdminDTO, AdminListResponse, Claims, CreateAdminRequest, ListAdminsQuery, UpdateAdminRequest,
+    AdminDTO, AdminListResponse, CreateAdminRequest, ListAdminsQuery, UpdateAdminRequest,
 };
 
 pub async fn list(
@@ -19,25 +22,32 @@ pub async fn list(
 
 pub async fn add(
     State(state): State<AppState>,
+    Extension(actor): Extension<AuthenticatedAdmin>,
     Json(payload): Json<CreateAdminRequest>,
 ) -> Result<(StatusCode, Json<AdminDTO>), AppError> {
-    let response = services::admin::add(&state.pool, payload).await?;
+    let response = services::admin::add(&state.pool, &actor, payload).await?;
 
     Ok((StatusCode::CREATED, Json(response)))
 }
 
 pub async fn update(
     State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
+    Extension(actor): Extension<AuthenticatedAdmin>,
+    Extension(source): Extension<AuthSource>,
     Path(id): Path<i64>,
+    jar: CookieJar,
     Json(payload): Json<UpdateAdminRequest>,
-) -> Result<Json<AdminDTO>, AppError> {
-    validate::validate_update(&claims, id)?;
-
-    let response = services::admin::update(&state.pool, id, payload).await?;
-    services::auth::logout(&state.pool, id).await?;
-
-    Ok(Json(response))
+) -> Result<Response, AppError> {
+    let response = services::admin::update(&state.pool, &actor, id, payload).await?;
+    if source == AuthSource::Cookie && actor.id == id {
+        Ok((
+            crate::middleware::cookies::clear_cookie(jar, &state.settings.browser),
+            Json(response),
+        )
+            .into_response())
+    } else {
+        Ok(Json(response).into_response())
+    }
 }
 
 pub async fn get(
@@ -51,13 +61,10 @@ pub async fn get(
 
 pub async fn delete(
     State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
+    Extension(claims): Extension<AuthenticatedAdmin>,
     Path(id): Path<i64>,
 ) -> Result<Json<AdminDTO>, AppError> {
-    validate::validate_delete(&claims, id)?;
-
-    let response = services::admin::delete(&state.pool, id).await?;
-    services::auth::logout(&state.pool, id).await?;
+    let response = services::admin::delete(&state.pool, &claims, id).await?;
 
     Ok(Json(response))
 }
