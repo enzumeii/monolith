@@ -20,24 +20,27 @@ fn validate_page_applies_defaults_when_omitted() {
 #[test]
 fn validate_page_rejects_zero_page() {
     assert!(matches!(
-        validate_page(&query(Some(0), Some(25))),
-        Err(AppError::BadRequest(_))
+        validate_page(&query(Some(0), Some(25)))
+            .map_err(|error| axum::response::IntoResponse::into_response(error).status()),
+        Err(axum::http::StatusCode::BAD_REQUEST)
     ));
 }
 
 #[test]
 fn validate_page_rejects_zero_per_page() {
     assert!(matches!(
-        validate_page(&query(Some(1), Some(0))),
-        Err(AppError::BadRequest(_))
+        validate_page(&query(Some(1), Some(0)))
+            .map_err(|error| axum::response::IntoResponse::into_response(error).status()),
+        Err(axum::http::StatusCode::BAD_REQUEST)
     ));
 }
 
 #[test]
 fn validate_page_rejects_per_page_over_100() {
     assert!(matches!(
-        validate_page(&query(Some(1), Some(101))),
-        Err(AppError::BadRequest(_))
+        validate_page(&query(Some(1), Some(101)))
+            .map_err(|error| axum::response::IntoResponse::into_response(error).status()),
+        Err(axum::http::StatusCode::BAD_REQUEST)
     ));
 }
 
@@ -55,8 +58,9 @@ fn validate_update_passes_when_ids_match() {
 #[test]
 fn validate_update_returns_forbidden_when_ids_mismatch() {
     assert!(matches!(
-        validate_update(&claims(1, AdminRole::Admin), 2),
-        Err(AppError::Forbidden)
+        validate_update(&claims(1, AdminRole::Admin), 2)
+            .map_err(|error| axum::response::IntoResponse::into_response(error).status()),
+        Err(axum::http::StatusCode::FORBIDDEN)
     ));
 }
 
@@ -73,8 +77,9 @@ fn validate_update_super_admin_passes_for_other_account() {
 #[test]
 fn validate_delete_rejects_self() {
     assert!(matches!(
-        validate_delete(&claims(1, AdminRole::SuperAdmin), 1),
-        Err(AppError::Forbidden)
+        validate_delete(&claims(1, AdminRole::SuperAdmin), 1)
+            .map_err(|error| axum::response::IntoResponse::into_response(error).status()),
+        Err(axum::http::StatusCode::FORBIDDEN)
     ));
 }
 

@@ -21,15 +21,21 @@ async fn main() -> std::process::ExitCode {
     }
 }
 async fn run() -> Result<(), AppError> {
-    let settings =
-        Settings::new().map_err(|error| AppError::from(error).context("load API configuration"))?;
+    let settings = Settings::new().map_err(|error| {
+        AppError::from(error)
+            .context("load API configuration")
+            .at("api::config::Settings::new")
+    })?;
     let pool = repositories::create_pool(&settings).await?;
     tracing::info!("Database connection pool established");
     let address = format!("{}:{}", settings.server.host, settings.server.port);
-    let listener = TcpListener::bind(&address)
-        .await
-        .map_err(|error| AppError::from(error).context("bind API listener"))?;
-    let state = app_state(pool.clone(), settings)?;
+    let listener = TcpListener::bind(&address).await.map_err(|error| {
+        AppError::from(error)
+            .context("bind API listener")
+            .at(concat!(module_path!(), "::run"))
+    })?;
+    let state = app_state(pool.clone(), settings)
+        .map_err(|error| AppError::from(error).at("api::state::app_state"))?;
     let maintenance_pool = pool.clone();
     let maintenance = tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
@@ -45,7 +51,10 @@ async fn run() -> Result<(), AppError> {
     let result = axum::serve(listener, router)
         .with_graceful_shutdown(async {
             if let Err(failure) = shutdown_signal().await {
-                error::log_background_error("shutdown signal", &AppError::from(failure));
+                error::log_background_error(
+                    "shutdown signal",
+                    &AppError::from(failure).at(concat!(module_path!(), "::shutdown_signal")),
+                );
             }
         })
         .await;
@@ -54,7 +63,11 @@ async fn run() -> Result<(), AppError> {
     if result.is_ok() {
         pool.close().await;
     }
-    result.map_err(|error| AppError::from(error).context("serve API"))?;
+    result.map_err(|error| {
+        AppError::from(error)
+            .context("serve API")
+            .at(concat!(module_path!(), "::run"))
+    })?;
     Ok(())
 }
 

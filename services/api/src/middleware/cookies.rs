@@ -17,7 +17,8 @@ pub(crate) fn cookie_mode(headers: &HeaderMap) -> Result<bool, AppError> {
     match headers.get(MODE_HEADER) {
         None => Ok(false),
         Some(value) if value == "cookie" => Ok(true),
-        Some(_) => Err(AppError::BadRequest("Invalid session mode".into())),
+        Some(_) => Err(AppError::BadRequest("Invalid session mode".into())
+            .at(concat!(module_path!(), "::cookie_mode"))),
     }
 }
 pub(crate) fn cookie_credentials<'a>(
@@ -26,15 +27,17 @@ pub(crate) fn cookie_credentials<'a>(
 ) -> Result<(&'a str, &'a str), AppError> {
     let value = jar
         .get(cookie_name(config))
-        .ok_or(AppError::InvalidToken)?
+        .ok_or_else(|| AppError::InvalidToken.at(concat!(module_path!(), "::cookie_credentials")))?
         .value();
-    let (access, refresh) = value.split_once('~').ok_or(AppError::InvalidToken)?;
+    let (access, refresh) = value.split_once('~').ok_or_else(|| {
+        AppError::InvalidToken.at(concat!(module_path!(), "::cookie_credentials"))
+    })?;
     if access.is_empty()
         || access.len() > 3500
         || refresh.len() != 64
         || !refresh.bytes().all(|byte| byte.is_ascii_hexdigit())
     {
-        return Err(AppError::InvalidToken);
+        return Err(AppError::InvalidToken.at(concat!(module_path!(), "::cookie_credentials")));
     }
     Ok((access, refresh))
 }
@@ -91,7 +94,7 @@ pub(crate) async fn browser_guard(
             .and_then(|value| value.to_str().ok())
             != Some(state.settings.browser.public_origin.as_str())
     {
-        return Err(AppError::Forbidden);
+        return Err(AppError::Forbidden.at(concat!(module_path!(), "::browser_guard")));
     }
     let mut response = next.run(request).await;
     response
