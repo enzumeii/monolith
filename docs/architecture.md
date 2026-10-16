@@ -173,3 +173,22 @@ flowchart LR
 | Vercel | No runtime adapter; standalone listener/process maintenance remain |
 | Concurrency/capacity | Pool remains one connection; anticipated user count is not an enforced limit |
 | Deployment | No production deployment, push or merge |
+
+## Shopify client boundary — ENZ-5
+
+```mermaid
+flowchart LR
+    CALLER["Future API service"] --> SHOPIFY["ShopifyClient: six typed operations, all pages"]
+    SHOPIFY --> GQL["GraphqlClient: envelopes and throttle errors"]
+    GQL --> HTTP["HttpClient: JSON, timeout, HTTP errors"]
+    HTTP --> REMOTE["Configured Shopify Admin GraphQL 2026-10 URL"]
+    CONFIG["config.rs: TOML URL + .env token"] --> SHOPIFY
+```
+
+| Component | Owns |
+| --- | --- |
+| `src/client.rs` | Generic per-request headers, reusable reqwest pool, JSON/GraphQL decoding, bounded throttling backoff |
+| `src/client/shopify.rs` | Authentication header, six operations, cursor traversal, inventory candidate selection |
+| `src/models/shopify.rs` | API-owned Shopify wire contracts; exported through `api::shopify_models` |
+| `src/config.rs` | Optional `client.shopify` URL setting and environment-only redacted token |
+| Application lifecycle | No Shopify client initialization, network requests, or new routes at startup |

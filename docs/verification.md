@@ -107,3 +107,30 @@ flowchart TB
 | Built API startup | Invalid signing-key configuration: one ERROR summary with configuration origin; diagnostic details present only with `RUST_LOG=info,api=debug` |
 | Independent review | Direct pool/transaction origin gaps and conflict source loss corrected; no remaining blockers |
 | Limits | DEBUG detail tests cover password parsing, pool closure, JWT validation, PostgreSQL conflicts and nested anyhow/background errors; they do not establish all driver errors, browser behavior or production log collection |
+
+## ENZ-5 Shopify client — 2026-10-16
+
+| Check | Observed result |
+| --- | --- |
+| Baseline `cargo test --locked -p api --lib` | 38 passed, 2 Docker-dependent tests ignored |
+| Transport RED / GREEN | Seven behavior tests failed against stubs, then all seven passed |
+| Token loading RED / GREEN | Configuration returned no token before loading was implemented; configuration tests passed afterward |
+| Six Shopify operations RED / GREEN | Six behavior tests failed against stubs; all passed after implementation |
+| Native regression suite | 62 passed, 2 ignored before final review; final checks recorded below |
+| Scope | Local loopback HTTP contract/integration fixtures; no live Shopify requests, inventory mutations, or E2E execution |
+
+| Coverage | Exercised behavior |
+| --- | --- |
+| Transport | Typed JSON, generic headers, HTTP/GraphQL errors, partial data, missing data, malformed JSON, no redirects, timeout |
+| Retry | 429 and GraphQL THROTTLED, exact replay, four-attempt exhaustion, Retry-After minimum/budget, no HTTP 5xx retries |
+| Pagination | Multiple product/variant and order/line pages; missing/repeated/cyclic cursors; all inventory pages |
+| Contracts | Decimal money and currency, nullable references, all sales statuses/test orders, search escaping, empty tag replacement and mutation user errors |
+| Stock | Positive inactive tracked stock only; quantity arguments omitted on activation; retained quantities and idempotency key |
+
+Limits: native fixtures establish client contracts, not live Shopify schema execution, actual inventory changes, production throughput, or a consistent snapshot during concurrent catalog edits. E2E was explicitly excluded. Existing repository CI remains unchanged.
+
+| Final local check | Result |
+| --- | --- |
+| `just test-native` | 63 passed, 0 failed, 2 pre-existing Docker-dependent tests ignored |
+| `just check` | API format and strict Clippy passed |
+| `cargo fmt --all -- --check` | Passed |

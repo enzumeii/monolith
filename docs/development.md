@@ -131,3 +131,34 @@ flowchart LR
 | Malformed upstream response | 502 |
 | Missing configuration / browser coordination / unavailable API | 503 |
 | API HTTP failure | Preserve upstream status; only 401 triggers restoration |
+
+## Shopify client — ENZ-5
+
+| Configuration | Value/source |
+| --- | --- |
+| `[client.shopify]` / `admin_api_url` | Full HTTPS `https://<shop>.myshopify.com/admin/api/2026-10/graphql.json` in API TOML |
+| `SHOPIFY_ACCESS_TOKEN` | Ignored API `.env` / inherited environment; loaded only by `config.rs` |
+| Token requirements | Optional at API startup; required when constructing `ShopifyClient`; never supplied by TOML |
+| Native verification | From `services/api`: `just test-native` and `just check` |
+| Shopify permissions | `read_products`, `read_inventory`, `read_locations`, `read_orders`, `write_orders`, `write_inventory`; approved older-order access and protected customer data access when needed |
+
+Construct `api::client::shopify::ShopifyClient::new` from `settings.client.as_ref().and_then(|client| client.shopify.as_ref())`. Import request/result types from `api::shopify_models`; use `ShopifyId::new` for resource IDs. All six methods collect every page internally; nested connections returned within products/sales orders contain all nodes and terminal page metadata.
+
+| Method | Behavior |
+| --- | --- |
+| `list_products` | Status-filtered products with nested variants; location-contextual prices always carry currency |
+| `orders_by_payment_id` | All matching orders; Shopify payment ID, not an arbitrary external gateway reference |
+| `sales_in_range` | All orders created in the offset-aware half-open interval; statuses/test flag and original/current quantities retained; upstream services filter and calculate |
+| `replace_order_tags` | Replaces all tags; empty input clears them |
+| `find_inventory_to_activate` | Scans target-location levels, including inactive ones; selects tracked inactive stock with positive on-hand quantity |
+| `activate_inventory` | Explicit inventory item/location IDs and caller UUID; omits available/onHand to preserve quantities |
+
+| Request policy | Behavior |
+| --- | --- |
+| Backoff | HTTP 429 or data-less GraphQL-only THROTTLED errors; at most four total attempts, 1/2/4 seconds plus 0–250 ms jitter |
+| Retry-After | Seconds or HTTP date is a minimum; stop if the total 30-second sleep budget would be exceeded |
+| Never replay | HTTP 5xx, other HTTP errors, network ambiguity/timeouts, decoding, partial data, or mutation user errors |
+| Mutation retries | Preserve exact variables and idempotency UUID when retrying throttling |
+| Error privacy | Typed errors retain sources/upstream details for the caller; Display/Debug omit response bodies, tokens, and customer data; do not log raw error fields or request bodies |
+| Limits | No snapshot isolation across pages; fail if the outer entity changes while paging nested nodes. Shopify platform pagination/access limits still apply. |
+| Compatibility | Inventory discovery retains the currently supported, deprecated singular inventory-item `variant` field for Postman parity; migrate deliberately if Shopify removes it |
