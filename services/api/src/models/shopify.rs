@@ -64,6 +64,9 @@ pub struct ListProductsRequest {
 pub struct OrdersByPaymentRequest {
     pub payment_id: String,
 }
+pub struct OrdersByTagRequest {
+    pub tag: String,
+}
 pub struct SalesRangeRequest {
     pub start: DateTime<FixedOffset>,
     pub end: DateTime<FixedOffset>,
@@ -190,6 +193,34 @@ pub struct Order {
     pub shipping_address: Option<Address>,
     pub current_total_price_set: MoneyBag,
     pub transactions: Vec<OrderTransaction>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresentmentMoneySet {
+    pub presentment_money: Money,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaggedOrderLineItem {
+    pub title: String,
+    pub variant_title: Option<String>,
+    pub sku: Option<String>,
+    pub quantity: i64,
+    pub original_unit_price_set: PresentmentMoneySet,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TaggedOrderLineItems {
+    pub nodes: Vec<TaggedOrderLineItem>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaggedOrder {
+    pub id: ShopifyId,
+    pub number: i64,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+    pub current_total_price_set: PresentmentMoneySet,
+    pub line_items: TaggedOrderLineItems,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResourceReference {
