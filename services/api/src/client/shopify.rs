@@ -4,8 +4,8 @@ use crate::{
     models::shopify::{
         ActivateInventoryRequest, Connection, InventoryActivationCandidate,
         InventoryDiscoveryRequest, InventoryLevel, ListProductsRequest, MutationUserError, Order,
-        OrderTags, OrdersByPaymentRequest, PageInfo, Product, ReplaceOrderTagsRequest, SalesOrder,
-        SalesRangeRequest,
+        OrderTags, OrdersByPaymentRequest, OrdersByTagRequest, PageInfo, Product,
+        ReplaceOrderTagsRequest, SalesOrder, SalesRangeRequest, TaggedOrder,
     },
 };
 use reqwest::{
@@ -122,6 +122,31 @@ impl ShopifyClient {
                 .execute(
                     "OrdersByPayment",
                     include_str!("shopify/payment.graphql"),
+                    json!({"search":search,"after":cursor.after}),
+                )
+                .await?;
+            orders.extend(data.orders.nodes);
+            if !cursor.advance(&data.orders.page_info)? {
+                return Ok(orders);
+            }
+        }
+    }
+
+    pub async fn orders_by_tag(
+        &self,
+        input: &OrdersByTagRequest,
+    ) -> Result<Vec<TaggedOrder>, ClientError> {
+        if input.tag.trim().is_empty() {
+            return Err(ClientError::InvalidInput("order tag is empty"));
+        }
+        let search = format!("tag:\"{}\"", escape_search(&input.tag));
+        let mut orders = Vec::new();
+        let mut cursor = Cursor::default();
+        loop {
+            let data: OrdersByTagData = self
+                .execute(
+                    "OrdersByTag",
+                    include_str!("shopify/orders_by_tag.graphql"),
                     json!({"search":search,"after":cursor.after}),
                 )
                 .await?;
@@ -347,6 +372,10 @@ struct ProductsData {
 #[derive(Deserialize)]
 struct OrdersData {
     orders: Connection<Order>,
+}
+#[derive(Deserialize)]
+struct OrdersByTagData {
+    orders: Connection<TaggedOrder>,
 }
 #[derive(Deserialize)]
 struct SalesData {

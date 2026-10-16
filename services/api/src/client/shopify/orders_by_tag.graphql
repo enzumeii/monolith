@@ -1,0 +1,43 @@
+query OrdersByTag(
+  $search: String!
+  $after: String
+) {
+  orders(
+    first: 100
+    after: $after
+    query: $search
+    sortKey: CREATED_AT
+    reverse: true
+  ) {
+    nodes {
+      id
+      number
+      email
+      phone
+      currentTotalPriceSet {
+        presentmentMoney {
+          amount
+          currencyCode
+        }
+      }
+      lineItems(first: 100) {
+        nodes {
+          title
+          variantTitle
+          sku
+          quantity
+          originalUnitPriceSet {
+            presentmentMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}

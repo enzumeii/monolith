@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::needless_pass_by_value)]
 use super::*;
 use crate::client::tests::{Fixture, Reply};
-use crate::models::shopify::{ProductStatus, ShopifyId};
+use crate::models::shopify::{OrdersByTagRequest, ProductStatus, ShopifyId};
 use serde_json::{Value, json};
 use uuid::Uuid;
 fn id(kind: &str, n: u64) -> ShopifyId {
@@ -332,4 +332,176 @@ async fn missing_on_hand_is_a_protocol_failure_and_missing_location_is_an_error(
                 .is_err()
         );
     }
+}
+
+fn tagged_order(n: u64, lines: Vec<Value>) -> Value {
+    json!({"id":format!("gid://shopify/Order/{n}"),"number":n,"email":null,"phone":null,
+        "currentTotalPriceSet":{"presentmentMoney":money()},"lineItems":{"nodes":lines}})
+}
+fn tagged_line() -> Value {
+    json!({"title":"Shirt","variantTitle":"Blue","sku":"SHIRT-BLUE","quantity":3,
+        "originalUnitPriceSet":{"presentmentMoney":money()}})
+}
+#[tokio::test]
+async fn orders_by_tag_collects_order_pages_and_preserves_order_and_currency() {
+    let f = Fixture::new(vec![
+        Reply::json(json!({"data":{"orders":page(vec![tagged_order(3,vec![tagged_line()]), tagged_order(2,vec![])],Some("next"))}})),
+        Reply::json(json!({"data":{"orders":page(vec![tagged_order(1,vec![])],None)}})),
+    ]).await;
+    let orders = client(&f)
+        .orders_by_tag(&OrdersByTagRequest {
+            tag: "shipping".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        orders.iter().map(|o| o.number).collect::<Vec<_>>(),
+        vec![3, 2, 1]
+    );
+    assert_eq!(
+        orders[0].current_total_price_set.presentment_money.amount,
+        "123.4500"
+    );
+    assert_eq!(
+        orders[0]
+            .current_total_price_set
+            .presentment_money
+            .currency_code,
+        "THB"
+    );
+    let line = &orders[0].line_items.nodes[0];
+    assert_eq!(line.sku.as_deref(), Some("SHIRT-BLUE"));
+    assert_eq!(line.variant_title.as_deref(), Some("Blue"));
+    assert_eq!(line.quantity, 3);
+    assert_eq!(
+        line.original_unit_price_set.presentment_money.amount,
+        "123.4500"
+    );
+    assert_eq!(
+        line.original_unit_price_set.presentment_money.currency_code,
+        "THB"
+    );
+    let requests = f.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].2["operationName"], "OrdersByTag");
+    assert_eq!(
+        requests[0].2["variables"],
+        json!({"search":"tag:\"shipping\"","after":null})
+    );
+    assert_eq!(
+        requests[1].2["variables"],
+        json!({"search":"tag:\"shipping\"","after":"next"})
+    );
+    assert_eq!(requests[0].1["x-shopify-access-token"], "private-token");
+    let query = requests[0].2["query"]
+        .as_str()
+        .unwrap()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        query.contains("first: 100 after: $after query: $search sortKey: CREATED_AT reverse: true")
+    );
+    assert!(query.contains("lineItems(first: 100)"));
+}
+#[tokio::test]
+async fn orders_by_tag_escapes_one_literal_and_rejects_blank_input_without_requests() {
+    for (tag, search) in [
+        ("ready to ship", r#"tag:"ready to ship""#),
+        (r#"a"b\c:(d)"#, r#"tag:"a\"b\\c\:\(d\)""#),
+    ] {
+        let f = Fixture::new(vec![Reply::json(
+            json!({"data":{"orders":page(vec![],None)}}),
+        )])
+        .await;
+        assert!(
+            client(&f)
+                .orders_by_tag(&OrdersByTagRequest { tag: tag.into() })
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(f.requests()[0].2["variables"]["search"], search);
+    }
+    let f = Fixture::new(vec![]).await;
+    for tag in ["", " \t\n"] {
+        assert!(matches!(
+            client(&f)
+                .orders_by_tag(&OrdersByTagRequest { tag: tag.into() })
+                .await,
+            Err(ClientError::InvalidInput(_))
+        ));
+    }
+    assert_eq!(f.requests().len(), 0);
+}
+#[tokio::test]
+async fn orders_by_tag_rejects_missing_repeated_and_cyclic_continuations() {
+    for cursors in [
+        vec![None],
+        vec![Some("")],
+        vec![Some("a"), Some("a")],
+        vec![Some("a"), Some("b"), Some("a")],
+    ] {
+        let replies = cursors
+            .iter()
+            .map(|cursor| {
+                let mut connection = page(vec![], *cursor);
+                connection["pageInfo"]["hasNextPage"] = json!(true);
+                Reply::json(json!({"data":{"orders":connection}}))
+            })
+            .collect();
+        let f = Fixture::new(replies).await;
+        assert!(matches!(
+            client(&f)
+                .orders_by_tag(&OrdersByTagRequest {
+                    tag: "shipping".into()
+                })
+                .await,
+            Err(ClientError::Protocol(_))
+        ));
+        assert_eq!(f.requests().len(), cursors.len());
+    }
+}
+#[tokio::test]
+async fn orders_by_tag_propagates_http_and_graphql_errors_without_partial_results() {
+    for graphql in [false, true] {
+        let failure = if graphql {
+            Reply::json(
+                json!({"data":null,"errors":[{"message":"denied","extensions":{"code":"ACCESS_DENIED"}}]}),
+            )
+        } else {
+            Reply::status(503)
+        };
+        let f = Fixture::new(vec![
+            Reply::json(json!({"data":{"orders":page(vec![tagged_order(2,vec![])],Some("next"))}})),
+            failure,
+        ])
+        .await;
+        let result = client(&f)
+            .orders_by_tag(&OrdersByTagRequest {
+                tag: "shipping".into(),
+            })
+            .await;
+        if graphql {
+            assert!(matches!(result, Err(ClientError::Graphql { .. })));
+        } else {
+            assert!(matches!(result, Err(ClientError::Http { .. })));
+        }
+        assert_eq!(f.requests().len(), 2);
+    }
+}
+#[tokio::test]
+async fn orders_by_tag_returns_first_hundred_line_items_without_nested_requests() {
+    let f = Fixture::new(vec![Reply::json(
+        json!({"data":{"orders":page(vec![tagged_order(1,vec![tagged_line();100])],None)}}),
+    )])
+    .await;
+    let orders = client(&f)
+        .orders_by_tag(&OrdersByTagRequest {
+            tag: "shipping".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(orders[0].line_items.nodes.len(), 100);
+    assert_eq!(f.requests().len(), 1);
 }
