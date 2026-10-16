@@ -27,7 +27,25 @@ pub struct BrowserConfig {
     pub insecure_local: bool,
 }
 #[derive(Debug, Deserialize, Clone)]
+pub struct ClientConfig {
+    pub shopify: Option<ShopifyConfig>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct ShopifyConfig {
+    pub admin_api_url: String,
+    #[serde(skip)]
+    pub access_token: Option<String>,
+}
+impl std::fmt::Debug for ShopifyConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ShopifyConfig { access_token: [REDACTED], .. }")
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
+    pub client: Option<ClientConfig>,
     pub browser: BrowserConfig,
     pub server: ServerConfig,
     pub database: DatabaseConfig,
@@ -90,7 +108,14 @@ impl Settings {
             builder = builder.set_override("jwt.secret", jwt_secret)?;
         }
 
-        let settings: Self = builder.build()?.try_deserialize()?;
+        let mut settings: Self = builder.build()?.try_deserialize()?;
+        if let Some(shopify) = settings
+            .client
+            .as_mut()
+            .and_then(|client| client.shopify.as_mut())
+        {
+            shopify.access_token = env::var("SHOPIFY_ACCESS_TOKEN").ok();
+        }
         settings.validate()?;
         Ok(settings)
     }

@@ -102,3 +102,32 @@ mod invalid_config_tests {
         }
     }
 }
+
+#[test]
+fn shopify_token_is_loaded_by_configuration_and_never_debugged() {
+    let settings = temp_env::with_vars(
+        [
+            ("DATABASE_URL", Some("postgres://unused")),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
+            ("SHOPIFY_ACCESS_TOKEN", Some("private-token")),
+        ],
+        Settings::new,
+    )
+    .unwrap();
+    let shopify = settings.client.unwrap().shopify.unwrap();
+    assert_eq!(shopify.access_token.as_deref(), Some("private-token"));
+    assert!(!format!("{shopify:?}").contains("private-token"));
+}
+
+#[test]
+fn shopify_token_cannot_be_supplied_by_toml() {
+    let config: ShopifyConfig = config::Config::builder()
+        .add_source(config::File::from_str(
+            "admin_api_url = 'https://shop.myshopify.com/admin/api/2026-10/graphql.json'\naccess_token = 'ignored-token'",
+            config::FileFormat::Toml,
+        )).build().unwrap().try_deserialize().unwrap();
+    assert!(config.access_token.is_none());
+}
