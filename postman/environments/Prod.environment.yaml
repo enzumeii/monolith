@@ -1,0 +1,10 @@
+name: Prod
+values:
+  - key: server
+    value: ''
+  - key: refresh_token
+    value: ''
+  - key: access_token
+    value: ''
+  - key: shopify
+    value: ''

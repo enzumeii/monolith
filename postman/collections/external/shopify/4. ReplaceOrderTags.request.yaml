@@ -1,0 +1,27 @@
+$kind: graphql-request
+url: "{{shopify}}/graphql.json"
+query: |-
+  mutation ReplaceOrderTags($input: OrderInput!) {
+    orderUpdate(input: $input) {
+      order {
+        id
+        name
+        tags
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+variables: |-
+  {
+    "input": {
+      "id": "gid://shopify/Order/7131725070507",
+      "tags": ["test"]
+    }
+  }
+settings: {}
+schema:
+  source: auto
+order: 5000

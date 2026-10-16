@@ -3,6 +3,8 @@ values:
   - key: server
     value: 'localhost:3000'
   - key: refresh_token
-    value: ''
+    secret: true
   - key: access_token
+    secret: true
+  - key: shopify
     value: ''
