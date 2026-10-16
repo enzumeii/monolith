@@ -9,6 +9,3 @@ min_connections = 1
 [browser]
 public_origin = "http://localhost:8084"
 insecure_local = true
-
-[client.shopify]
-admin_api_url = "https://your-shop.myshopify.com/admin/api/2026-10/graphql.json"

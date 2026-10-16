@@ -134,3 +134,12 @@ Limits: native fixtures establish client contracts, not live Shopify schema exec
 | `just test-native` | 63 passed, 0 failed, 2 pre-existing Docker-dependent tests ignored |
 | `just check` | API format and strict Clippy passed |
 | `cargo fmt --all -- --check` | Passed |
+
+| Independent review / fix pass | Result |
+| --- | --- |
+| URL precedence | Regression failed with local placeholder overriding configured URL; duplicate local section removed, regression passed |
+| GraphQL execution errors | Typed mutation-null regression failed with lost upstream error; raw envelope now classifies errors before typed data decoding, regression passed |
+| Oversized Retry-After | Regression reproduced duration overflow after an earlier retry; budget checked before duration addition, regression passed |
+| Final native suite | 66 passed, 0 failed, 2 pre-existing Docker-dependent tests ignored |
+| Final strict lint | `just check` passed after fixes |
+| Deferred minor | Fixture does not explicitly assert the generic HTTP method, although it checks headers/body and transport forwarding uses the supplied method |

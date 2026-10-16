@@ -131,3 +131,33 @@ fn shopify_token_cannot_be_supplied_by_toml() {
         )).build().unwrap().try_deserialize().unwrap();
     assert!(config.access_token.is_none());
 }
+
+#[test]
+fn local_overlay_preserves_shopify_url_configured_in_application_toml() {
+    let configured = include_str!("../../application.toml")
+        .replace("your-shop.myshopify.com", "configured-shop.myshopify.com");
+    let settings: Settings = config::Config::builder()
+        .add_source(config::File::from_str(
+            &configured,
+            config::FileFormat::Toml,
+        ))
+        .add_source(config::File::from_str(
+            include_str!("../../application.local.toml"),
+            config::FileFormat::Toml,
+        ))
+        .set_override("database.url", "postgres://unused")
+        .unwrap()
+        .set_override(
+            "jwt.secret",
+            "abababababababababababababababababababababababababababababababab",
+        )
+        .unwrap()
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert_eq!(
+        settings.client.unwrap().shopify.unwrap().admin_api_url,
+        "https://configured-shop.myshopify.com/admin/api/2026-10/graphql.json"
+    );
+}

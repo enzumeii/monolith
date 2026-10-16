@@ -128,7 +128,7 @@ impl GraphqlClient {
             }
             check_status(&response)?;
             let response_headers = response.headers().clone();
-            let envelope: GraphqlResponse<D> = decode(response).await?;
+            let envelope: GraphqlResponse = decode(response).await?;
             if !envelope.errors.is_empty() {
                 if envelope.data.is_none()
                     && envelope.errors.iter().all(|e| {
@@ -144,9 +144,13 @@ impl GraphqlClient {
                     extensions: envelope.extensions,
                 });
             }
-            return envelope
+            let data = envelope
                 .data
-                .ok_or(ClientError::Protocol("GraphQL data is missing"));
+                .ok_or(ClientError::Protocol("GraphQL data is missing"))?;
+            return serde_json::from_value(data).map_err(|source| ClientError::Decode {
+                origin: "api::client::GraphqlClient::execute",
+                source,
+            });
         }
     }
 }
@@ -158,8 +162,8 @@ pub struct GraphqlRequest<'a, V> {
     pub variables: V,
 }
 #[derive(Deserialize)]
-struct GraphqlResponse<D> {
-    data: Option<D>,
+struct GraphqlResponse {
+    data: Option<serde_json::Value>,
     #[serde(default)]
     errors: Vec<GraphqlError>,
     #[serde(default)]
@@ -190,8 +194,12 @@ impl RetryState {
         }
         let base = Duration::from_secs(1 << self.retries);
         let minimum = retry_after(headers).unwrap_or_default();
+        let remaining = Duration::from_secs(30).saturating_sub(self.slept);
+        if minimum > remaining {
+            return Err(ClientError::RetryExhausted);
+        }
         let delay = base.max(minimum) + Duration::from_millis(rand::random_range(0..=250));
-        if self.slept + delay > Duration::from_secs(30) {
+        if delay > remaining {
             return Err(ClientError::RetryExhausted);
         }
         self.retries += 1;

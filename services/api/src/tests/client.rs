@@ -272,3 +272,53 @@ async fn stalled_response_times_out_without_replay() {
     assert!(matches!(result, Err(ClientError::Transport { .. })));
     assert!(start.elapsed() < Duration::from_secs(1));
 }
+
+#[tokio::test]
+async fn typed_mutation_null_preserves_graphql_errors_before_decoding_data() {
+    #[derive(serde::Deserialize)]
+    struct RequiredData {
+        #[serde(rename = "orderUpdate")]
+        _order_update: bool,
+    }
+    let fixture = Fixture::new(vec![Reply::json(json!({
+        "data":{"orderUpdate":null},
+        "errors":[{"message":"Access denied","extensions":{"code":"ACCESS_DENIED"}}],
+        "extensions":{"cost":{"requestedQueryCost":10}}
+    }))])
+    .await;
+    let result: Result<RequiredData, ClientError> = graphql(&fixture)
+        .execute(
+            HeaderMap::new(),
+            &GraphqlRequest {
+                query: "mutation Test { orderUpdate { order { id } } }",
+                operation_name: "Test",
+                variables: json!({}),
+            },
+        )
+        .await;
+    match result {
+        Err(ClientError::Graphql { errors, extensions }) => {
+            assert_eq!(errors[0].message, "Access denied");
+            assert_eq!(extensions["cost"]["requestedQueryCost"], 10);
+        }
+        _ => panic!("GraphQL execution error was discarded"),
+    }
+    assert_eq!(fixture.requests().len(), 1);
+}
+#[tokio::test]
+async fn oversized_retry_after_after_an_earlier_retry_does_not_panic() {
+    let fixture = Fixture::new(vec![
+        Reply::status(429),
+        Reply {
+            status: 429,
+            body: "{}".into(),
+            headers: vec![("retry-after".into(), u64::MAX.to_string())],
+        },
+    ])
+    .await;
+    assert!(matches!(
+        execute(&fixture).await,
+        Err(ClientError::RetryExhausted)
+    ));
+    assert_eq!(fixture.requests().len(), 2);
+}
