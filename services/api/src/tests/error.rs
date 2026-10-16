@@ -358,4 +358,65 @@ mod logging_tests {
         assert!(log.contains("admin_username_key"), "{log}");
         assert!(log.contains("23505"), "{log}");
     }
+    #[test]
+    fn upstream_errors_keep_origin_without_logging_customer_payloads() {
+        for filter in ["info", "info,api=debug"] {
+            let log = capture(filter, || {
+                let error: AppError = crate::client::ClientError::Graphql {
+                    errors: vec![crate::client::GraphqlError {
+                        message: "private-customer-token".into(),
+                        path: vec![],
+                        extensions: std::collections::BTreeMap::new(),
+                    }],
+                    extensions: serde_json::json!({"payload":"private-customer-token"}),
+                }
+                .into();
+                assert_eq!(
+                    error.into_response().status(),
+                    StatusCode::INTERNAL_SERVER_ERROR
+                );
+            });
+            assert!(log.contains("origin=\"api::client\""), "{log}");
+            assert!(!log.contains("private-customer-token"), "{log}");
+            assert_eq!(
+                log.lines()
+                    .filter(|line| line.contains("API operation failed"))
+                    .count(),
+                1
+            );
+        }
+        let error: AppError = crate::client::ClientError::Decode {
+            origin: "api::client::decode",
+            source: serde_json::from_str::<serde_json::Value>("{").unwrap_err(),
+        }
+        .into();
+        assert_eq!(
+            error.at("api::services::caller").origin(),
+            Some("api::client::decode")
+        );
+    }
+}
+
+#[tokio::test]
+async fn upstream_error_converts_with_source_and_safe_public_response() {
+    use crate::client::ClientError;
+    fn failing_operation() -> Result<(), AppError> {
+        Err(ClientError::Graphql {
+            errors: vec![],
+            extensions: serde_json::json!({"private":"customer-token"}),
+        })?;
+        Ok(())
+    }
+    let error = failing_operation().unwrap_err();
+    assert_eq!(error.origin(), Some("api::client"));
+    match error.root() {
+        AppError::Internal(source) => assert!(source.downcast_ref::<ClientError>().is_some()),
+        _ => panic!("typed client source not retained"),
+    }
+    let response = error.into_response();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(
+        body_json(response).await,
+        serde_json::json!({"error":"Internal server error"})
+    );
 }

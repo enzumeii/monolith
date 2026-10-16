@@ -9,7 +9,7 @@ query: |-
       id
       name
       inventoryLevels(
-        first: 100
+        first: 250
         after: $after
         includeInactive: true
       ) {

@@ -35,11 +35,11 @@ fn order(n: u64) -> Value {
     json!({"id":format!("gid://shopify/Order/{n}"),"name":"#1","number":1,"createdAt":"2026-10-01T00:00:00+07:00",
         "displayFinancialStatus":"PENDING","displayFulfillmentStatus":"UNFULFILLED","tags":[],
         "email":null,"phone":null,"shippingAddress":null,
-        "currentTotalPriceSet":{"shopMoney":money(),"presentmentMoney":money()},"transactions":[]})
+        "currentTotalPriceSet":{"shopMoney":money()},"transactions":[]})
 }
 fn line(n: u64) -> Value {
     json!({"id":format!("line-{n}"),"title":"Shirt","variantTitle":null,"sku":null,"quantity":3,"currentQuantity":1,
-        "product":null,"variant":null,"originalUnitPriceSet":{"shopMoney":money(),"presentmentMoney":money()}})
+        "product":null,"variant":null,"originalUnitPriceSet":{"shopMoney":money()}})
 }
 fn sales(n: u64, lines: Value) -> Value {
     json!({"id":format!("gid://shopify/Order/{n}"),"name":"#1","createdAt":"2026-10-01T00:00:00+07:00",
@@ -52,35 +52,73 @@ fn inventory(n: u64, active: bool, on_hand: i64, tracked: bool) -> Value {
         "item":{"id":format!("gid://shopify/InventoryItem/{n}"),"sku":null,"tracked":tracked,
         "variant":{"id":format!("gid://shopify/ProductVariant/{n}"),"title":"M","product":{"id":"gid://shopify/Product/1","title":"Shirt"}}}})
 }
+
 #[tokio::test]
-async fn collects_every_product_and_nested_variant_page() {
-    let f=Fixture::new(vec![
-        Reply::json(json!({"data":{"products":page(vec![product(1,page(vec![variant(1)],Some("v1")))],Some("p1"))}})),
-        Reply::json(json!({"data":{"products":page(vec![product(1,page(vec![variant(2)],None))],Some("p1"))}})),
-        Reply::json(json!({"data":{"products":page(vec![product(2,page(vec![variant(3)],None))],None)}})),
-    ]).await;
-    let products = client(&f)
+async fn catalog_collects_all_parents_and_outer_pages_with_bounded_variants() {
+    let f = Fixture::new(vec![
+        Reply::json(json!({"data":{"products":page(vec![
+            product(1,page(vec![variant(1);250],None)),
+            product(2,page(vec![variant(2)],None))],Some("p1"))}})),
+        Reply::json(json!({"data":{"products":page(vec![product(3,page(vec![],None))],None)}})),
+    ])
+    .await;
+    let result = client(&f)
         .list_products(&ListProductsRequest {
             location_id: id("Location", 1),
             statuses: vec![ProductStatus::Active, ProductStatus::Draft],
         })
         .await
         .unwrap();
-    assert_eq!(products.len(), 2);
-    assert_eq!(products[0].variants.nodes.len(), 2);
     assert_eq!(
-        products[0].variants.nodes[0]
+        result.iter().map(|p| p.id.clone()).collect::<Vec<_>>(),
+        vec![id("Product", 1), id("Product", 2), id("Product", 3)]
+    );
+    assert_eq!(result[0].variants.nodes.len(), 250);
+    assert_eq!(
+        result[0].variants.nodes[0]
             .contextual_pricing
             .price
             .currency_code,
         "THB"
     );
     let requests = f.requests();
-    assert_eq!(requests[0].2["variables"]["search"], "status:active,draft");
-    assert_eq!(requests[1].2["variables"]["variantsAfter"], "v1");
-    assert_eq!(requests[2].2["variables"]["productsAfter"], "p1");
-    assert!(requests[2].2["variables"]["variantsAfter"].is_null());
-    assert_eq!(requests[0].1["x-shopify-access-token"], "private-token");
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        requests[0].2["variables"],
+        json!({"locationId":id("Location",1),"search":"status:active,draft","productsAfter":null})
+    );
+    assert_eq!(requests[1].2["variables"]["productsAfter"], "p1");
+    let query = requests[0].2["query"].as_str().unwrap();
+    assert!(query.contains("products(first: 250"));
+    assert!(query.contains("variants(first: 250)"));
+}
+#[tokio::test]
+async fn catalog_and_sales_reject_nested_overflow_without_partial_success() {
+    let f=Fixture::new(vec![Reply::json(json!({"data":{"products":page(vec![product(1,page(vec![variant(1)],Some("overflow")))],None)}}))]).await;
+    assert!(matches!(
+        client(&f)
+            .list_products(&ListProductsRequest {
+                location_id: id("Location", 1),
+                statuses: vec![]
+            })
+            .await,
+        Err(ClientError::Protocol(_))
+    ));
+    assert_eq!(f.requests().len(), 1);
+    let f = Fixture::new(vec![Reply::json(
+        json!({"data":{"orders":page(vec![sales(1,page(vec![line(1)],Some("overflow")))],None)}}),
+    )])
+    .await;
+    assert!(matches!(
+        client(&f)
+            .sales_in_range(&SalesRangeRequest {
+                start: "2026-09-01T00:00:00Z".parse().unwrap(),
+                end: "2026-10-01T00:00:00Z".parse().unwrap()
+            })
+            .await,
+        Err(ClientError::Protocol(_))
+    ));
+    assert_eq!(f.requests().len(), 1);
 }
 #[tokio::test]
 async fn payment_lookup_escapes_literal_and_collects_all_matches() {
@@ -101,12 +139,12 @@ async fn payment_lookup_escapes_literal_and_collects_all_matches() {
         "payment_id:\"a\\\"b\\\\c\\:\\(d\\)\""
     );
 }
+
 #[tokio::test]
-async fn sales_collects_nested_pages_and_retains_all_statuses_and_test_orders() {
+async fn sales_collects_all_parents_and_outer_pages_and_keeps_offset_range() {
     let f=Fixture::new(vec![
-        Reply::json(json!({"data":{"orders":page(vec![sales(1,page(vec![line(1)],Some("l1")))],Some("o1"))}})),
-        Reply::json(json!({"data":{"orders":page(vec![sales(1,page(vec![line(2)],None))],Some("o1"))}})),
-        Reply::json(json!({"data":{"orders":page(vec![sales(2,page(vec![line(3)],None))],None)}})),
+        Reply::json(json!({"data":{"orders":page(vec![sales(1,page(vec![line(1);250],None)),sales(2,page(vec![],None))],Some("o1"))}})),
+        Reply::json(json!({"data":{"orders":page(vec![sales(3,page(vec![line(3)],None))],None)}}))
     ]).await;
     let result = client(&f)
         .sales_in_range(&SalesRangeRequest {
@@ -115,17 +153,24 @@ async fn sales_collects_nested_pages_and_retains_all_statuses_and_test_orders() 
         })
         .await
         .unwrap();
-    assert_eq!(result.len(), 2);
-    assert_eq!(result[0].line_items.nodes.len(), 2);
+    assert_eq!(result.len(), 3);
+    assert_eq!(result[0].line_items.nodes.len(), 250);
     assert!(result[0].test);
     assert!(result[0].cancelled_at.is_some());
-    assert_eq!(result[0].line_items.nodes[0].quantity, 3);
     assert_eq!(result[0].line_items.nodes[0].current_quantity, 1);
+    let requests = f.requests();
+    assert_eq!(requests.len(), 2);
     assert_eq!(
-        f.requests()[0].2["variables"]["search"],
-        "created_at:>='2026-09-01T00:00:00+07:00' created_at:<'2026-10-01T00:00:00+07:00'"
+        requests[0].2["variables"],
+        json!({"search":"created_at:>='2026-09-01T00:00:00+07:00' created_at:<'2026-10-01T00:00:00+07:00'","ordersAfter":null})
     );
-    assert_eq!(f.requests()[1].2["variables"]["lineItemsAfter"], "l1");
+    assert_eq!(requests[1].2["variables"]["ordersAfter"], "o1");
+    assert!(
+        requests[0].2["query"]
+            .as_str()
+            .unwrap()
+            .contains("lineItems(first: 250)")
+    );
 }
 #[tokio::test]
 async fn inventory_filters_only_inactive_positive_tracked_stock_across_pages() {
@@ -205,25 +250,32 @@ async fn replacing_tags_can_clear_them_and_returns_user_errors() {
         Err(ClientError::Mutation { .. })
     ));
 }
+
 #[test]
-fn constructor_validates_url_and_requires_injected_token() {
-    for url in [
-        "http://shop.myshopify.com/admin/api/2026-10/graphql.json",
-        "https://evil.test/admin/api/2026-10/graphql.json",
-        "https://shop.myshopify.com/incorrect",
-    ] {
-        assert!(
-            ShopifyClient::new(&ShopifyConfig {
-                admin_api_url: url.into(),
-                access_token: Some("token".into())
-            })
-            .is_err()
-        );
-    }
+fn constructor_trusts_configuration_but_rejects_invalid_url_or_token() {
+    let config = ShopifyConfig {
+        admin_api_url: "http://localhost:9999/custom/graphql?version=1".into(),
+        access_token: Some("token".into()),
+    };
+    assert!(ShopifyClient::new(&config).is_ok());
     assert!(
         ShopifyClient::new(&ShopifyConfig {
-            admin_api_url: "https://shop.myshopify.com/admin/api/2026-10/graphql.json".into(),
-            access_token: None
+            admin_api_url: "not a URL".into(),
+            ..config.clone()
+        })
+        .is_err()
+    );
+    assert!(
+        ShopifyClient::new(&ShopifyConfig {
+            access_token: None,
+            ..config.clone()
+        })
+        .is_err()
+    );
+    assert!(
+        ShopifyClient::new(&ShopifyConfig {
+            access_token: Some("bad\nheader".into()),
+            ..config
         })
         .is_err()
     );
@@ -335,12 +387,12 @@ async fn missing_on_hand_is_a_protocol_failure_and_missing_location_is_an_error(
 }
 
 fn tagged_order(n: u64, lines: Vec<Value>) -> Value {
-    json!({"id":format!("gid://shopify/Order/{n}"),"number":n,"email":null,"phone":null,
-        "currentTotalPriceSet":{"presentmentMoney":money()},"lineItems":{"nodes":lines}})
+    json!({"id":format!("gid://shopify/Order/{n}"),"number":n,"tags":["shipping"],"email":null,"phone":null,
+        "currentTotalPriceSet":{"shopMoney":money()},"lineItems":{"nodes":lines}})
 }
 fn tagged_line() -> Value {
     json!({"title":"Shirt","variantTitle":"Blue","sku":"SHIRT-BLUE","quantity":3,
-        "originalUnitPriceSet":{"presentmentMoney":money()}})
+        "originalUnitPriceSet":{"shopMoney":money()}})
 }
 #[tokio::test]
 async fn orders_by_tag_collects_order_pages_and_preserves_order_and_currency() {
@@ -359,28 +411,20 @@ async fn orders_by_tag_collects_order_pages_and_preserves_order_and_currency() {
         vec![3, 2, 1]
     );
     assert_eq!(
-        orders[0].current_total_price_set.presentment_money.amount,
+        orders[0].current_total_price_set.shop_money.amount,
         "123.4500"
     );
     assert_eq!(
-        orders[0]
-            .current_total_price_set
-            .presentment_money
-            .currency_code,
+        orders[0].current_total_price_set.shop_money.currency_code,
         "THB"
     );
+    assert_eq!(orders[0].tags, vec!["shipping"]);
     let line = &orders[0].line_items.nodes[0];
     assert_eq!(line.sku.as_deref(), Some("SHIRT-BLUE"));
     assert_eq!(line.variant_title.as_deref(), Some("Blue"));
     assert_eq!(line.quantity, 3);
-    assert_eq!(
-        line.original_unit_price_set.presentment_money.amount,
-        "123.4500"
-    );
-    assert_eq!(
-        line.original_unit_price_set.presentment_money.currency_code,
-        "THB"
-    );
+    assert_eq!(line.original_unit_price_set.shop_money.amount, "123.4500");
+    assert_eq!(line.original_unit_price_set.shop_money.currency_code, "THB");
     let requests = f.requests();
     assert_eq!(requests.len(), 2);
     assert_eq!(requests[0].2["operationName"], "OrdersByTag");
@@ -400,9 +444,9 @@ async fn orders_by_tag_collects_order_pages_and_preserves_order_and_currency() {
         .collect::<Vec<_>>()
         .join(" ");
     assert!(
-        query.contains("first: 100 after: $after query: $search sortKey: CREATED_AT reverse: true")
+        query.contains("first: 250 after: $after query: $search sortKey: CREATED_AT reverse: true")
     );
-    assert!(query.contains("lineItems(first: 100)"));
+    assert!(query.contains("lineItems(first: 250)"));
 }
 #[tokio::test]
 async fn orders_by_tag_escapes_one_literal_and_rejects_blank_input_without_requests() {
@@ -491,9 +535,9 @@ async fn orders_by_tag_propagates_http_and_graphql_errors_without_partial_result
     }
 }
 #[tokio::test]
-async fn orders_by_tag_returns_first_hundred_line_items_without_nested_requests() {
+async fn orders_by_tag_returns_first_250_line_items_without_nested_requests() {
     let f = Fixture::new(vec![Reply::json(
-        json!({"data":{"orders":page(vec![tagged_order(1,vec![tagged_line();100])],None)}}),
+        json!({"data":{"orders":page(vec![tagged_order(1,vec![tagged_line();250])],None)}}),
     )])
     .await;
     let orders = client(&f)
@@ -502,6 +546,6 @@ async fn orders_by_tag_returns_first_hundred_line_items_without_nested_requests(
         })
         .await
         .unwrap();
-    assert_eq!(orders[0].line_items.nodes.len(), 100);
+    assert_eq!(orders[0].line_items.nodes.len(), 250);
     assert_eq!(f.requests().len(), 1);
 }

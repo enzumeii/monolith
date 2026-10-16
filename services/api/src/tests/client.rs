@@ -143,7 +143,7 @@ async fn generic_json_transport_preserves_method_headers_and_body() {
 }
 #[tokio::test]
 async fn never_retries_server_errors_even_with_throttled_body_and_retry_after() {
-    for status in [500, 502, 503, 504, 401] {
+    for status in [500, 502, 503, 504] {
         let mut reply =
             Reply::json(json!({"errors":[{"message":"wait","extensions":{"code":"THROTTLED"}}]}));
         reply.status = status;
@@ -321,4 +321,59 @@ async fn oversized_retry_after_after_an_earlier_retry_does_not_panic() {
         Err(ClientError::RetryExhausted)
     ));
     assert_eq!(fixture.requests().len(), 2);
+}
+
+#[tokio::test]
+async fn http_4xx_retries_share_policy_between_json_and_graphql() {
+    for status in [400, 401, 403, 404, 408, 409, 422, 429] {
+        let fixture =
+            Fixture::new(vec![Reply::status(status), Reply::json(json!({"ok":true}))]).await;
+        let result: Value = HttpClient::new(Duration::from_secs(1))
+            .unwrap()
+            .request_json(
+                Method::POST,
+                fixture.url.clone(),
+                HeaderMap::new(),
+                Some(&json!({"same":"body"})),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result["ok"], true);
+        assert_eq!(fixture.requests().len(), 2);
+        assert_eq!(fixture.requests()[0], fixture.requests()[1]);
+        let fixture = Fixture::new(vec![
+            Reply::status(status),
+            Reply::json(json!({"data":{"ok":true}})),
+        ])
+        .await;
+        assert_eq!(execute(&fixture).await.unwrap()["ok"], true);
+        assert_eq!(fixture.requests().len(), 2);
+        assert_eq!(fixture.requests()[0], fixture.requests()[1]);
+    }
+}
+#[tokio::test]
+async fn mixed_http_and_graphql_retries_have_one_four_attempt_budget() {
+    let fixture = Fixture::new(vec![
+        Reply::status(400),
+        Reply::json(json!({"errors":[{"message":"wait","extensions":{"code":"THROTTLED"}}]})),
+        Reply::status(429),
+        Reply::status(403),
+        Reply::json(json!({"data":{"unexpected":true}})),
+    ])
+    .await;
+    assert!(matches!(
+        execute(&fixture).await,
+        Err(ClientError::RetryExhausted)
+    ));
+    assert_eq!(fixture.requests().len(), 4);
+}
+#[tokio::test]
+async fn generic_http_4xx_exhausts_four_attempts() {
+    let fixture = Fixture::new(vec![Reply::status(401); 4]).await;
+    let result: Result<Value, _> = HttpClient::new(Duration::from_secs(1))
+        .unwrap()
+        .request_json::<(), Value>(Method::GET, fixture.url.clone(), HeaderMap::new(), None)
+        .await;
+    assert!(matches!(result, Err(ClientError::RetryExhausted)));
+    assert_eq!(fixture.requests().len(), 4);
 }

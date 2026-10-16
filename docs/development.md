@@ -12,13 +12,13 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | Database | `DATABASE_URL` from ignored `.env` or environment | Secret PostgreSQL connection URL |
 | Signing key | `JWT_SECRET` from ignored `.env` or environment | Hex-encoded random key of at least 32 bytes |
 | Shopify URL | `client.shopify.admin_api_url` in `services/api/application.toml` | Full `https://<shop>.myshopify.com/admin/api/2026-10/graphql.json`; local overlay does not replace it |
-| Shopify token | `SHOPIFY_ACCESS_TOKEN` from ignored API `.env` or environment | Loaded by `config.rs` into redacted runtime config; never read directly by the client or accepted from TOML |
+| Shopify token | `SHOPIFY_ACCESS_TOKEN` from ignored API `.env` or environment | Applied by `config.rs` builder overrides into immutable redacted settings; never read directly by the client or accepted from TOML |
 | Backoffice | Public `application.toml`, `[api] base_url` | Default `http://localhost:3000/v1`; loaded once by typed `Settings`/`ApiConfig` |
 | Local browser | UI `http://localhost:8084`, API `http://localhost:3000` | Same hostname is required for exact origins and SameSite cookies |
 | Production browser | HTTPS and exact same-site UI/API origin configuration | Cross-site deployment needs a separate cookie/CORS design |
 | Frontend environments | One published `application.toml` | Build-time local/prod file selection is planned, not implemented |
 
-Inherited environment variables keep dotenvy's normal precedence. API non-secret listener/browser settings do not use environment overrides. Missing Shopify configuration/credentials does not prevent normal API startup; explicit Shopify client construction requires a valid URL and token.
+Inherited environment variables keep dotenvy's normal precedence. API non-secret listener/browser settings do not use environment overrides. Missing Shopify configuration/credentials does not prevent normal API startup; explicit construction parses the trusted configured URL and validates the token/header. just setup scaffolds an empty SHOPIFY_ACCESS_TOKEN only in new .env files and preserves existing files.
 
 ```mermaid
 flowchart LR
@@ -43,7 +43,7 @@ Run recipes from the package directory.
 
 | Package | Recipes |
 | --- | --- |
-| API | `just setup`, `just run`, `just test-native`, `just test`, `just check`, `just fix`, `just db-down` |
+| API | `just setup`, `just run`, `just test`, `just check`, `just fix`, `just db-down` |
 | Backoffice | `just setup`, `just serve`, `just build`, `just test`, `just check` |
 | Domain | `just setup`, `just test`, `just check`; library has no server |
 | Client UI | `just setup`, `just run`, `just test`, `just check`; run currently reports a placeholder |
@@ -51,7 +51,7 @@ Run recipes from the package directory.
 
 | API verification mode | Dependencies and scope |
 | --- | --- |
-| `just test-native` | Native library tests and loopback transport fixtures; no Docker or Shopify credentials |
+| `cargo test --locked -p api --lib` | Native library tests and loopback transport fixtures; no Docker or Shopify credentials |
 | `just test` | Native Cargo tests, Compose PostgreSQL, `cargo api-e2e`, and Compose down with volumes removed even on failure |
 | `just check` | Formatting and strict Clippy on all API targets |
 | API E2E | Existing `e2e-test/healthz.rs` and `e2e-test/v1/{auth,admins}.rs`; real TCP endpoints |
@@ -64,15 +64,16 @@ Do not substitute loopback client fixtures or in-process handler tests for deplo
 
 ## Using the Shopify client
 
-Construct `api::client::shopify::ShopifyClient::new` from the configured `ShopifyConfig` inside `settings.client`. Request/result types are exported through `api::shopify_models`; construct IDs with `ShopifyId::new`. The client collects pages internally; tag lookup collects every order page but returns only the first 100 line items per order, with no overflow indicator.
+Use `AppState::shopify_client()` for state-owned configuration, or construct `api::client::shopify::ShopifyClient::new` directly from `ShopifyConfig`. Request/result types are exported through `api::shopify_models`; construct IDs with `ShopifyId::new`. The client collects pages internally; tag lookup collects every order page but returns only the first 250 line items per order, with no overflow indicator.
 
 | Operation | Caller responsibility |
 | --- | --- |
 | Product listing | Supply location ID and desired product statuses; read each contextual price with its returned currency |
 | Payment lookup | Supply Shopify payment ID; an external gateway reference may need a separate mapping |
-| Tag lookup | Call `orders_by_tag(&OrdersByTagRequest { tag: "shipping".into() })` with one nonblank tag literal, not raw search syntax; results are newest-first and use presentment money with currency |
+| Tag lookup | Call `orders_by_tag(&OrdersByTagRequest { tag: "shipping".into() })` with one nonblank tag literal, not raw search syntax; results are newest-first and return tags and use shop money with currency |
 | Date-range orders | Supply timestamps with offsets and exclusive end; filter statuses and calculate totals in the upstream service |
 | Tag replacement | Supply complete replacement list; empty tags removes all tags |
+| Nested limits | Catalog variants and sales lines stop at 250 and fail on known overflow; tag lines stop at 250 without an overflow flag. Actual nested query cost is unverified against Shopify limits |
 | Inventory discovery | Supply location ID; returned candidates have tracked, inactive inventory and positive on-hand stock |
 | Inventory activation | Supply inventory item ID, location ID, and a stable UUID for the operation; quantity arguments are intentionally absent |
 | Credentials/scopes | Appropriate product, inventory, location, order read/write permissions; approved older-order/protected customer access where applicable |
@@ -82,7 +83,7 @@ Construct `api::client::shopify::ShopifyClient::new` from the configured `Shopif
 | Outbound request behavior | Policy |
 | --- | --- |
 | Timeout / redirects | 30 seconds per attempt; redirects disabled |
-| Retryable rejection | HTTP 429 or data-less GraphQL-only `THROTTLED` |
+| Retryable rejection | HTTP 4xx or data-less GraphQL-only `THROTTLED`, sharing one HttpClient retry budget |
 | Backoff | At most three retries after the initial attempt; 1/2/4 seconds plus jitter and applicable Retry-After |
 | Budget | Shared HTTP/GraphQL attempt count; 30-second total sleep budget |
 | Fail without retry | HTTP 5xx and other errors, ambiguous network failures, decoding/partial-data errors, mutation user errors |

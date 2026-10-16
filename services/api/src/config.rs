@@ -108,14 +108,26 @@ impl Settings {
             builder = builder.set_override("jwt.secret", jwt_secret)?;
         }
 
-        let mut settings: Self = builder.build()?.try_deserialize()?;
-        if let Some(shopify) = settings
-            .client
-            .as_mut()
-            .and_then(|client| client.shopify.as_mut())
-        {
-            shopify.access_token = env::var("SHOPIFY_ACCESS_TOKEN").ok();
-        }
+        Self::from_config(builder.build()?, env::var("SHOPIFY_ACCESS_TOKEN").ok())
+    }
+
+    fn from_config(config: Config, token: Option<String>) -> Result<Self, ConfigError> {
+        let config = if config.get_table("client.shopify").is_ok() {
+            Config::builder()
+                .add_source(config)
+                .set_override("client.shopify.access_token", token)?
+                .build()?
+        } else {
+            config
+        };
+        let settings: Self = config.clone().try_deserialize()?;
+        let client = settings.client.map(|client| ClientConfig {
+            shopify: client.shopify.map(|shopify| ShopifyConfig {
+                access_token: config.get_string("client.shopify.access_token").ok(),
+                ..shopify
+            }),
+        });
+        let settings = Self { client, ..settings };
         settings.validate()?;
         Ok(settings)
     }

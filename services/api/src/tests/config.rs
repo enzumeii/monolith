@@ -135,7 +135,7 @@ fn shopify_token_cannot_be_supplied_by_toml() {
 #[test]
 fn local_overlay_preserves_shopify_url_configured_in_application_toml() {
     let configured = include_str!("../../application.toml")
-        .replace("your-shop.myshopify.com", "configured-shop.myshopify.com");
+        .replace("enzumeii.myshopify.com", "configured-shop.myshopify.com");
     let settings: Settings = config::Config::builder()
         .add_source(config::File::from_str(
             &configured,
@@ -160,4 +160,48 @@ fn local_overlay_preserves_shopify_url_configured_in_application_toml() {
         settings.client.unwrap().shopify.unwrap().admin_api_url,
         "https://configured-shop.myshopify.com/admin/api/2026-10/graphql.json"
     );
+}
+
+#[test]
+fn builder_token_override_excludes_file_tokens_and_keeps_shopify_optional() {
+    for (configured, token) in [
+        (false, None),
+        (false, Some("env-token")),
+        (true, None),
+        (true, Some("env-token")),
+    ] {
+        let source = include_str!("../../application.local.toml");
+        let builder = config::Config::builder()
+            .add_source(config::File::from_str(source, config::FileFormat::Toml))
+            .set_override("database.url", "postgres://unused")
+            .unwrap()
+            .set_override("jwt.secret", "ab".repeat(32))
+            .unwrap();
+        let source = if configured {
+            builder
+                .set_override("client.shopify.admin_api_url", "http://localhost:1/graphql")
+                .unwrap()
+                .set_override("client.shopify.access_token", "file-token")
+                .unwrap()
+                .build()
+                .unwrap()
+        } else {
+            builder.build().unwrap()
+        };
+        let settings = Settings::from_config(source, token.map(str::to_owned)).unwrap();
+        if configured {
+            assert_eq!(
+                settings
+                    .client
+                    .unwrap()
+                    .shopify
+                    .unwrap()
+                    .access_token
+                    .as_deref(),
+                token
+            );
+        } else {
+            assert!(settings.client.is_none());
+        }
+    }
 }

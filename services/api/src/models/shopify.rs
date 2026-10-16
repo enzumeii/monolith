@@ -1,3 +1,4 @@
+pub use super::client::{Connection, PageInfo};
 use crate::client::ClientError;
 pub use crate::client::MutationUserError;
 use chrono::{DateTime, FixedOffset};
@@ -94,23 +95,10 @@ pub struct Money {
 #[serde(rename_all = "camelCase")]
 pub struct MoneyBag {
     pub shop_money: Money,
-    pub presentment_money: Option<Money>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Image {
     pub url: String,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PageInfo {
-    pub has_next_page: bool,
-    pub end_cursor: Option<String>,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Connection<T> {
-    pub nodes: Vec<T>,
-    pub page_info: PageInfo,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InventoryQuantity {
@@ -196,17 +184,12 @@ pub struct Order {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PresentmentMoneySet {
-    pub presentment_money: Money,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TaggedOrderLineItem {
     pub title: String,
     pub variant_title: Option<String>,
     pub sku: Option<String>,
     pub quantity: i64,
-    pub original_unit_price_set: PresentmentMoneySet,
+    pub original_unit_price_set: MoneyBag,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TaggedOrderLineItems {
@@ -215,11 +198,12 @@ pub struct TaggedOrderLineItems {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaggedOrder {
+    pub tags: Vec<String>,
     pub id: ShopifyId,
     pub number: i64,
     pub email: Option<String>,
     pub phone: Option<String>,
-    pub current_total_price_set: PresentmentMoneySet,
+    pub current_total_price_set: MoneyBag,
     pub line_items: TaggedOrderLineItems,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -282,6 +266,53 @@ pub struct InventoryActivationCandidate {
     pub is_active: bool,
     pub quantities: Vec<InventoryQuantity>,
     pub item: InventoryItemSummary,
+}
+#[derive(Deserialize)]
+pub(crate) struct ProductsData {
+    pub(crate) products: Connection<Product>,
+}
+#[derive(Deserialize)]
+pub(crate) struct OrdersData {
+    pub(crate) orders: Connection<Order>,
+}
+#[derive(Deserialize)]
+pub(crate) struct OrdersByTagData {
+    pub(crate) orders: Connection<TaggedOrder>,
+}
+#[derive(Deserialize)]
+pub(crate) struct SalesData {
+    pub(crate) orders: Connection<SalesOrder>,
+}
+#[derive(Deserialize)]
+pub(crate) struct InventoryData {
+    pub(crate) location: Option<LocationInventory>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LocationInventory {
+    pub(crate) inventory_levels: Connection<InventoryActivationCandidate>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OrderUpdateData {
+    pub(crate) order_update: OrderUpdate,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OrderUpdate {
+    pub(crate) order: Option<OrderTags>,
+    pub(crate) user_errors: Vec<MutationUserError>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ActivationData {
+    pub(crate) inventory_activate: Activation,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Activation {
+    pub(crate) inventory_level: Option<InventoryLevel>,
+    pub(crate) user_errors: Vec<MutationUserError>,
 }
 #[cfg(test)]
 #[path = "../tests/models/shopify.rs"]

@@ -13,6 +13,7 @@ setup:
       printf '%s\n' \
         'RUN_ENV=local' \
         'DATABASE_URL=postgres://user:pass@127.0.0.1:5432/core' \
+        'SHOPIFY_ACCESS_TOKEN=' \
         "JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" > .env
       echo '  Generated a random signing key in .env; keep it private.'
     else
@@ -48,10 +49,6 @@ test:
     trap 'docker compose -p e2e -f docker-compose-e2e.yml down -v' EXIT
     docker compose -p e2e -f docker-compose-e2e.yml up -d --wait postgres
     cargo api-e2e
-
-# Run API native library tests without Docker, E2E, or Shopify credentials.
-test-native:
-    cargo test --locked -p api --lib
 
 # Check: format + lint check (no changes)
 check:

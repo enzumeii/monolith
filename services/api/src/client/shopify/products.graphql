@@ -2,9 +2,8 @@ query ProductsWithVariants(
   $locationId: ID!
   $search: String
   $productsAfter: String
-  $variantsAfter: String
 ) {
-  products(first: 1, after: $productsAfter, query: $search, sortKey: CREATED_AT) {
+  products(first: 250, after: $productsAfter, query: $search, sortKey: CREATED_AT) {
     nodes {
       id
       title
@@ -14,7 +13,7 @@ query ProductsWithVariants(
       featuredImage {
         url
       }
-      variants(first: 100, after: $variantsAfter) {
+      variants(first: 250) {
         nodes {
           id
           title

@@ -1,5 +1,5 @@
 query OrdersByPayment($search: String!, $after: String) {
-  orders(first: 50, after: $after, query: $search) {
+  orders(first: 250, after: $after, query: $search) {
     nodes {
       id
       name
@@ -21,10 +21,6 @@ query OrdersByPayment($search: String!, $after: String) {
       }
       currentTotalPriceSet {
         shopMoney {
-          amount
-          currencyCode
-        }
-        presentmentMoney {
           amount
           currencyCode
         }

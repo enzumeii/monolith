@@ -1,10 +1,9 @@
 query SoldVariantsInRange(
   $search: String!
   $ordersAfter: String
-  $lineItemsAfter: String
 ) {
   orders(
-    first: 1
+    first: 250
     after: $ordersAfter
     query: $search
     sortKey: CREATED_AT
@@ -17,7 +16,7 @@ query SoldVariantsInRange(
       test
       displayFulfillmentStatus
       displayFinancialStatus
-      lineItems(first: 100, after: $lineItemsAfter) {
+      lineItems(first: 250) {
         nodes {
           id
           title
@@ -33,10 +32,6 @@ query SoldVariantsInRange(
           }
           originalUnitPriceSet {
             shopMoney {
-              amount
-              currencyCode
-            }
-            presentmentMoney {
               amount
               currencyCode
             }

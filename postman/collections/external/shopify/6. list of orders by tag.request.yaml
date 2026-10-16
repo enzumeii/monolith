@@ -6,7 +6,7 @@ query: |-
     $after: String
   ) {
     orders(
-      first: 100
+      first: 250
       after: $after
       query: $search
       sortKey: CREATED_AT
@@ -15,22 +15,23 @@ query: |-
       nodes {
         id
         number
+        tags
         email
         phone
         currentTotalPriceSet {
-          presentmentMoney {
+          shopMoney {
             amount
             currencyCode
           }
         }
-        lineItems(first: 100) {
+        lineItems(first: 250) {
           nodes {
             title
             variantTitle
             sku
             quantity
             originalUnitPriceSet {
-              presentmentMoney {
+              shopMoney {
                 amount
                 currencyCode
               }

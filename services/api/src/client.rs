@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{collections::BTreeMap, fmt, time::Duration};
 use thiserror::Error;
 
+pub(crate) mod pagination;
 pub mod shopify;
 
 #[derive(Error)]
@@ -69,17 +70,39 @@ impl HttpClient {
         headers: HeaderMap,
         body: Option<&B>,
     ) -> Result<R, ClientError> {
+        self.request_with_retry(method, url, headers, body, |_| false)
+            .await
+    }
+    async fn request_with_retry<B: Serialize, R: DeserializeOwned>(
+        &self,
+        method: Method,
+        url: Url,
+        headers: HeaderMap,
+        body: Option<&B>,
+        should_retry: impl Fn(&R) -> bool,
+    ) -> Result<R, ClientError> {
         let mut retry = RetryState::default();
         loop {
             let response = self
                 .send(method.clone(), url.clone(), headers.clone(), body)
                 .await?;
-            if response.status().as_u16() == 429 {
-                retry.wait(response.headers()).await?;
+            if response.status().is_client_error() {
+                let hints = if response.status().as_u16() == 429 {
+                    response.headers().clone()
+                } else {
+                    HeaderMap::new()
+                };
+                retry.wait(&hints).await?;
                 continue;
             }
             check_status(&response)?;
-            return decode(response).await;
+            let response_headers = response.headers().clone();
+            let decoded = decode(response).await?;
+            if should_retry(&decoded) {
+                retry.wait(&response_headers).await?;
+                continue;
+            }
+            return Ok(decoded);
         }
     }
     async fn send<B: Serialize>(
@@ -111,47 +134,39 @@ impl GraphqlClient {
         headers: HeaderMap,
         request: &GraphqlRequest<'_, V>,
     ) -> Result<D, ClientError> {
-        let mut retry = RetryState::default();
-        loop {
-            let response = self
-                .http
-                .send(
-                    Method::POST,
-                    self.endpoint.clone(),
-                    headers.clone(),
-                    Some(request),
-                )
-                .await?;
-            if response.status().as_u16() == 429 {
-                retry.wait(response.headers()).await?;
-                continue;
-            }
-            check_status(&response)?;
-            let response_headers = response.headers().clone();
-            let envelope: GraphqlResponse = decode(response).await?;
-            if !envelope.errors.is_empty() {
-                if envelope.data.is_none()
-                    && envelope.errors.iter().all(|e| {
-                        e.extensions.get("code").and_then(serde_json::Value::as_str)
-                            == Some("THROTTLED")
-                    })
-                {
-                    retry.wait(&response_headers).await?;
-                    continue;
-                }
-                return Err(ClientError::Graphql {
-                    errors: envelope.errors,
-                    extensions: envelope.extensions,
-                });
-            }
-            let data = envelope
-                .data
-                .ok_or(ClientError::Protocol("GraphQL data is missing"))?;
-            return serde_json::from_value(data).map_err(|source| ClientError::Decode {
-                origin: "api::client::GraphqlClient::execute",
-                source,
+        let envelope: GraphqlResponse = self
+            .http
+            .request_with_retry(
+                Method::POST,
+                self.endpoint.clone(),
+                headers,
+                Some(request),
+                |response: &GraphqlResponse| {
+                    response.data.is_none()
+                        && !response.errors.is_empty()
+                        && response.errors.iter().all(|error| {
+                            error
+                                .extensions
+                                .get("code")
+                                .and_then(serde_json::Value::as_str)
+                                == Some("THROTTLED")
+                        })
+                },
+            )
+            .await?;
+        if !envelope.errors.is_empty() {
+            return Err(ClientError::Graphql {
+                errors: envelope.errors,
+                extensions: envelope.extensions,
             });
         }
+        let data = envelope
+            .data
+            .ok_or(ClientError::Protocol("GraphQL data is missing"))?;
+        serde_json::from_value(data).map_err(|source| ClientError::Decode {
+            origin: "api::client::GraphqlClient::execute",
+            source,
+        })
     }
 }
 #[derive(Serialize)]

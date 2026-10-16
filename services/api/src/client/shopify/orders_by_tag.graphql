@@ -3,7 +3,7 @@ query OrdersByTag(
   $after: String
 ) {
   orders(
-    first: 100
+    first: 250
     after: $after
     query: $search
     sortKey: CREATED_AT
@@ -12,25 +12,20 @@ query OrdersByTag(
     nodes {
       id
       number
+      tags
       email
       phone
       currentTotalPriceSet {
-        presentmentMoney {
-          amount
-          currencyCode
-        }
+        shopMoney { amount currencyCode }
       }
-      lineItems(first: 100) {
+      lineItems(first: 250) {
         nodes {
           title
           variantTitle
           sku
           quantity
           originalUnitPriceSet {
-            presentmentMoney {
-              amount
-              currencyCode
-            }
+            shopMoney { amount currencyCode }
           }
         }
       }

@@ -2,56 +2,52 @@ $kind: graphql-request
 url: "{{shopify}}/graphql.json"
 query: |
   query OrdersByPayment($search: String!, $after: String) {
-  	orders(first: 50, after: $after, query: $search) {
-  		nodes {
-  			id
-  			name
-  			number
-  			createdAt
-  			displayFinancialStatus
-  			displayFulfillmentStatus
-  			tags
-  			email
-  			phone
-  			shippingAddress {
-  				name
-  				address1
-  				address2
-  				city
-  				zip
-  				countryCode
-  				phone
-  			}
-  			currentTotalPriceSet {
-  				shopMoney {
-  					amount
-  					currencyCode
-  				}
-  				presentmentMoney {
-  					amount
-  					currencyCode
-  				}
-  			}
-  			transactions {
-  				id
-  				paymentId
-  				gateway
-  				kind
-  				status
-  				processedAt
-  				amountSet {
-  					shopMoney {
-  						amount
-  						currencyCode
-  					}
-  				}
-  			}
-  		}
-  		pageInfo {
-  			hasNextPage
-  			endCursor
-  		}
-  	}
+    orders(first: 250, after: $after, query: $search) {
+      nodes {
+        id
+        name
+        number
+        createdAt
+        displayFinancialStatus
+        displayFulfillmentStatus
+        tags
+        email
+        phone
+        shippingAddress {
+          name
+          address1
+          address2
+          city
+          zip
+          countryCode
+          phone
+        }
+        currentTotalPriceSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
+        }
+        transactions {
+          id
+          paymentId
+          gateway
+          kind
+          status
+          processedAt
+          amountSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
   }
 variables: |-
   {

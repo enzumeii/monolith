@@ -27,7 +27,7 @@ flowchart LR
 | `apps/backoffice` | Browser pages, forms, direct API requests, session coordination | Public configuration only; Axum owns cookies, CORS, and origin checks |
 | `apps/client-ui` | Placeholder client application | No implemented service integration |
 
-The Shopify client is available to API callers but is not wired into routes, startup, scheduled jobs, or persistence.
+The Shopify client is available lazily through AppState::shopify_client; it is not invoked by routes, startup, scheduled jobs, or persistence.
 
 ## Module responsibilities
 
@@ -44,7 +44,7 @@ The Shopify client is available to API callers but is not wired into routes, sta
 | `src/validations/` / `src/utils/password.rs` | Input rules / Argon2 operations |
 | `src/error.rs` | Public error mapping and centralized boundary logging |
 | `src/client.rs` | Generic HTTP/GraphQL request envelopes, decoding, failures, throttling backoff |
-| `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication, seven operations, pagination / query documents |
+| `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication, seven operations, shared outer pagination / query documents |
 | `src/tests/` | Tests mirroring implementation paths through test-gated child modules |
 | `e2e-test/` | Real TCP endpoint tests and shared application/database fixtures |
 | `migrations/` / `.sqlx/` | Database migrations / offline SQLx metadata |
@@ -128,31 +128,31 @@ flowchart LR
 | --- | --- |
 | `HttpClient` | Reusable reqwest pool; per-request generic headers; 30-second per-attempt timeout; redirects disabled |
 | `GraphqlClient` | Typed variables; raw envelope error classification before successful data decoding; reject partial-data errors |
-| `ShopifyClient` | Token header supplied by this layer; validated configured Admin API URL; API version 2026-10 |
-| DTOs | Public through `api::shopify_models`; decimal money remains a string paired with currency; nullable references remain nullable |
-| Configuration | `config.rs` reads the token from dotenv/environment; `[client.shopify]` in TOML contains only `admin_api_url` |
+| `ShopifyClient` | Token header supplied by this layer; parsed configured Admin API URL; endpoint trusted from configuration; API version 2026-10 |
+| DTOs | Public through `api::shopify_models`; shop-only money sets retain decimal amounts and currency; nullable references remain nullable; internal response envelopes live in API models |
+| Configuration | `config.rs` applies the dotenv/environment token through builder overrides; `[client.shopify]` in TOML contains only `admin_api_url` |
 | Initialization | Shopify credentials are optional for API startup and required when constructing the client |
 
 | Method | Result |
 | --- | --- |
-| `list_products` | Status-filtered products containing all variants, SKUs, location-contextual prices/currencies, images, and quantities |
+| `list_products` | Status-filtered products containing up to 250 variants per product (explicit error on overflow), SKUs, location-contextual prices/currencies, images, and quantities |
 | `orders_by_payment_id` | All matching orders and transaction/contact details using Shopify's payment ID |
-| `orders_by_tag` | Newest-first orders matching one literal tag; all order pages, first 100 line items per order, and presentment prices paired with currency |
-| `sales_in_range` | Every order created in an offset-aware half-open interval; statuses, test flag, quantities, and original prices retained |
+| `orders_by_tag` | Newest-first orders matching one literal tag; all order pages, first 250 line items per order, returned tags, and shop-currency prices |
+| `sales_in_range` | Every order created in an offset-aware half-open interval; up to 250 distinct lines per order (explicit error on overflow); statuses, test flag, quantities, and original prices retained |
 | `replace_order_tags` | Replace the complete tag list; empty input clears it |
 | `find_inventory_to_activate` | Target-location levels filtered in Rust to tracked, inactive items with positive on-hand stock |
 | `activate_inventory` | Activate the supplied inventory item/location with caller idempotency UUID; omit quantity arguments to preserve stored stock |
 
 | Request policy | Guarantee / limit |
 | --- | --- |
-| Pagination | Client traverses all order/product pages and nested catalog/sales pages; tag lookup deliberately returns only the first 100 line items per order without nested pagination or overflow detection; rejects missing/repeated/cyclic cursors and changed parent identity |
-| Throttling | Retry HTTP 429 or data-less GraphQL responses containing only `THROTTLED` errors |
+| Pagination | Shared collector traverses all outer pages at 250 nodes per request and rejects missing/repeated/cyclic cursors. Nested variants/lines use first:250 without pagination; catalog/sales fail on known overflow, tagged lines have no overflow indicator |
+| Throttling | HttpClient owns one retry loop for HTTP 4xx and data-less all-THROTTLED GraphQL responses; GraphqlClient supplies the envelope classifier |
 | Budget | Four total attempts; 1/2/4-second backoff plus 0–250 ms jitter; total retry sleep at most 30 seconds |
 | Retry-After | Honor seconds/HTTP-date minimums; stop rather than exceed the sleep budget or overflow duration arithmetic |
-| No replay | HTTP 5xx, other HTTP failures, network ambiguity/timeouts, decoding errors, partial data, and mutation user errors |
+| No replay | HTTP 3xx/5xx, network ambiguity/timeouts, decoding errors, partial data, and mutation user errors |
 | Mutations | Preserve exact variables and idempotency key during throttling retries; discovery never activates automatically |
 | Sales semantics | Upstream services calculate/filter; current quantities can reflect refunds after the selected order-creation range |
-| Platform limits | No snapshot isolation, bulk-export guarantee, or bypass of Shopify access/pagination limits |
+| Platform limits | No snapshot isolation, bulk-export guarantee, or bypass of Shopify limits. Nested 250-by-250 query cost remains unverified against the 1,000-point maximum; non-throttle cost errors propagate without retry |
 | Compatibility | Discovery retains Shopify's supported deprecated singular inventory-item `variant` field |
 
 ## Errors and operational boundaries

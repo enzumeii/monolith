@@ -6,8 +6,8 @@ Results describe the tested revision and scope; they do not establish live Shopi
 
 | Evidence | Result |
 | --- | --- |
-| Implementation revision | `34adeb5` (orders-by-tag code and tests) |
-| Local native API tests | `just test-native`: 72 passed, 0 failed, 2 pre-existing Docker-dependent tests ignored |
+| Implementation revision | Review corrections following `06a8738`; exact published head is recorded in PR checks |
+| Local native API tests | `cargo test --locked -p api --lib`: 80 passed, 0 failed, 2 pre-existing Docker-dependent tests ignored |
 | Local API format/lint | `just check`: passed, including strict Clippy for all API targets |
 | Local workspace formatting | `cargo fmt --all -- --check`: passed |
 | Current published CI | Exact published-head results are recorded in [PR #6 checks](https://github.com/enzumeii/monolith/pull/6/checks); local checks do not establish a CI pass |
@@ -23,13 +23,15 @@ The existing CI workflow runs API E2E even though this client change required no
 | --- | --- |
 | JSON transport | Typed decoding, generic headers/body, malformed JSON, HTTP failures, timeout, redirect rejection |
 | GraphQL errors | Errors classified before typed data decoding; null mutation results retain upstream errors/metadata; partial-data errors rejected |
-| Backoff | HTTP 429 and GraphQL throttling; unchanged replay payload; four-attempt exhaustion; Retry-After minimum and budget; oversized-delay overflow regression |
+| Backoff | HTTP 4xx and GraphQL throttling use one HttpClient loop/budget; unchanged replay payload; mixed-rejection four-attempt exhaustion; Retry-After minimum and budget; oversized-delay overflow regression |
 | No replay | HTTP 500/502/503/504, unrelated GraphQL errors, mutation user errors, and ambiguous timeout |
-| Configuration | dotenv/environment token loading in config.rs, secret-safe Debug, TOML token rejection, configured URL preserved through local overlay |
+| Configuration | Immutable settings from builder token overrides, TOML token rejection, optional Shopify configuration, state-owned lazy construction, redacted Debug, configured URL preserved through overlays |
 | Money and IDs | Decimal strings paired with currency; malformed/wrong-resource IDs rejected |
-| Catalog pagination | Multiple products with multiple variant pages; nested cursors reset between products |
-| Order pagination | Sales traverses orders and nested line-item pages; date offsets and exclusive boundary; test/cancelled/unpaid statuses retained |
-| Tagged orders | Multiple order pages preserve response order; empty results, literal tag escaping, blank-input rejection, cursor failures, HTTP/GraphQL failure propagation, precise presentment money and currency; 100 line items returned without nested fetches |
+| Catalog pagination | Multiple products per page and multiple outer pages; 250 variants per product; known overflow is a protocol error |
+| Order pagination | Sales traverses all outer order pages with multiple parents per page; 250 lines per order; known overflow fails; quoted date offsets and exclusive end; statuses/test/cancellation fields retained |
+| Tagged orders | Multiple order pages preserve response order; empty results, literal tag escaping, blank-input rejection, cursor failures, HTTP/GraphQL failure propagation, returned tags, precise shop money and currency; 250 line items returned without nested fetches |
+| Error integration | ClientError converts to AppError with typed source and origin; public errors and INFO/DEBUG logs do not expose fixture customer payloads |
+| Setup/Postman | Isolated setup preserves existing .env and scaffolds an empty token once; five edited YAML requests parse and preserve non-query data |
 | Cursor safety | Missing, repeated, and cyclic continuations rejected |
 | Payment/tag behavior | Search-literal escaping for payment ID and single-tag lookup, multiple matches, empty tag replacement, mutation errors |
 | Inventory discovery | All location pages; include only tracked inactive positive-on-hand levels; missing quantities fail |
@@ -43,10 +45,10 @@ The existing CI workflow runs API E2E even though this client change required no
 | Independent implementation review | Configuration-overlay and typed-GraphQL-error defects reproduced and fixed with regression tests |
 | Additional fix-pass check | Oversized Retry-After reproduced a duration overflow; regression passes after budget validation precedes arithmetic |
 | Deferred test minor | Generic HTTP fixture checks headers/body but does not explicitly assert the HTTP method |
-| Shopify compatibility | Official documentation and local contract fixtures were checked; no real shop schema/request execution |
-| Platform pagination | Client follows available cursors; platform access/pagination caps still apply; tag lookup intentionally returns at most 100 line items per order and cannot detect overflow |
-| Concurrent changes | No snapshot isolation; parent identity changes during nested pagination fail explicitly |
+| Shopify compatibility | Official docs and local fixtures checked; no live schema/request execution; nested 250-by-250 query cost unverified against the single-query maximum |
+| Platform pagination | Client follows outer cursors; nested connections use a store-specific 250-node bound, not a Shopify-wide limit; tag lookup cannot detect overflow |
+| Concurrent changes | No snapshot isolation; catalog/sales known nested overflow fails rather than silently returning partial results |
 | Browser behavior | No new browser verification, rendered E2E, or HTTPS cookie acceptance evidence |
 | Coverage percentage | Not measured; no percentage claim |
 | Performance/deployment | No load test, production capacity result, deployment, or merge |
-| Postman preservation | User-owned collection changes are preserved in `2f9eaae`; tag lookup does not modify Postman files |
+| Postman preservation | User-owned collection changes are preserved in `06a8738`; review edits only corresponding query bodies; non-query data preserved |
