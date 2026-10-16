@@ -44,7 +44,7 @@ The Shopify client is available to API callers but is not wired into routes, sta
 | `src/validations/` / `src/utils/password.rs` | Input rules / Argon2 operations |
 | `src/error.rs` | Public error mapping and centralized boundary logging |
 | `src/client.rs` | Generic HTTP/GraphQL request envelopes, decoding, failures, throttling backoff |
-| `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication, six operations, pagination / query documents |
+| `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication, seven operations, pagination / query documents |
 | `src/tests/` | Tests mirroring implementation paths through test-gated child modules |
 | `e2e-test/` | Real TCP endpoint tests and shared application/database fixtures |
 | `migrations/` / `.sqlx/` | Database migrations / offline SQLx metadata |
@@ -137,6 +137,7 @@ flowchart LR
 | --- | --- |
 | `list_products` | Status-filtered products containing all variants, SKUs, location-contextual prices/currencies, images, and quantities |
 | `orders_by_payment_id` | All matching orders and transaction/contact details using Shopify's payment ID |
+| `orders_by_tag` | Newest-first orders matching one literal tag; all order pages, first 100 line items per order, and presentment prices paired with currency |
 | `sales_in_range` | Every order created in an offset-aware half-open interval; statuses, test flag, quantities, and original prices retained |
 | `replace_order_tags` | Replace the complete tag list; empty input clears it |
 | `find_inventory_to_activate` | Target-location levels filtered in Rust to tracked, inactive items with positive on-hand stock |
@@ -144,7 +145,7 @@ flowchart LR
 
 | Request policy | Guarantee / limit |
 | --- | --- |
-| Pagination | Client traverses every available outer/nested page; rejects missing/repeated/cyclic cursors and changed parent identity |
+| Pagination | Client traverses all order/product pages and nested catalog/sales pages; tag lookup deliberately returns only the first 100 line items per order without nested pagination or overflow detection; rejects missing/repeated/cyclic cursors and changed parent identity |
 | Throttling | Retry HTTP 429 or data-less GraphQL responses containing only `THROTTLED` errors |
 | Budget | Four total attempts; 1/2/4-second backoff plus 0–250 ms jitter; total retry sleep at most 30 seconds |
 | Retry-After | Honor seconds/HTTP-date minimums; stop rather than exceed the sleep budget or overflow duration arithmetic |

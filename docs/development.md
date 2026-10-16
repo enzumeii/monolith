@@ -64,12 +64,13 @@ Do not substitute loopback client fixtures or in-process handler tests for deplo
 
 ## Using the Shopify client
 
-Construct `api::client::shopify::ShopifyClient::new` from the configured `ShopifyConfig` inside `settings.client`. Request/result types are exported through `api::shopify_models`; construct IDs with `ShopifyId::new`. The client collects pages internally.
+Construct `api::client::shopify::ShopifyClient::new` from the configured `ShopifyConfig` inside `settings.client`. Request/result types are exported through `api::shopify_models`; construct IDs with `ShopifyId::new`. The client collects pages internally; tag lookup collects every order page but returns only the first 100 line items per order, with no overflow indicator.
 
 | Operation | Caller responsibility |
 | --- | --- |
 | Product listing | Supply location ID and desired product statuses; read each contextual price with its returned currency |
 | Payment lookup | Supply Shopify payment ID; an external gateway reference may need a separate mapping |
+| Tag lookup | Call `orders_by_tag(&OrdersByTagRequest { tag: "shipping".into() })` with one nonblank tag literal, not raw search syntax; results are newest-first and use presentment money with currency |
 | Date-range orders | Supply timestamps with offsets and exclusive end; filter statuses and calculate totals in the upstream service |
 | Tag replacement | Supply complete replacement list; empty tags removes all tags |
 | Inventory discovery | Supply location ID; returned candidates have tracked, inactive inventory and positive on-hand stock |
