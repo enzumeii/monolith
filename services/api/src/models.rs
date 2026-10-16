@@ -1,5 +1,4 @@
 mod admin;
-pub(crate) mod client;
 
 pub use admin::{Admin, DbAdminRole};
 mod auth;

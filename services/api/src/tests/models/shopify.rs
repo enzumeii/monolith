@@ -56,3 +56,123 @@ fn tagged_order_decodes_only_requested_fields_and_keeps_shop_currency() {
             .is_empty()
     );
 }
+
+#[test]
+fn requests_own_validation_and_preserve_literal_values() {
+    let location = ShopifyId::new("gid://shopify/Location/123").unwrap();
+    let order = ShopifyId::new("gid://shopify/Order/456").unwrap();
+    let request = ListProductsRequest {
+        location_id: location.clone(),
+        statuses: vec![ProductStatus::Active, ProductStatus::Draft],
+    };
+    let variables = request.variables(Some("next")).unwrap();
+    assert_eq!(variables["search"], "status:active,draft");
+    assert_eq!(variables["productsAfter"], "next");
+    assert!(
+        ListProductsRequest {
+            location_id: order.clone(),
+            statuses: vec![]
+        }
+        .variables(None)
+        .is_err()
+    );
+    assert!(
+        InventoryDiscoveryRequest {
+            location_id: order.clone()
+        }
+        .variables(None)
+        .is_err()
+    );
+    assert!(
+        ReplaceOrderTagsRequest {
+            order_id: location.clone(),
+            tags: vec![]
+        }
+        .variables()
+        .is_err()
+    );
+    assert_eq!(
+        ReplaceOrderTagsRequest {
+            order_id: order.clone(),
+            tags: vec![" shipping ".into()]
+        }
+        .variables()
+        .unwrap()["input"]["tags"],
+        json!([" shipping "])
+    );
+    assert_eq!(
+        OrdersByTagRequest {
+            tag: " shipping ".into()
+        }
+        .variables(None)
+        .unwrap()["search"],
+        "tag:\" shipping \""
+    );
+    assert_eq!(
+        OrdersByPaymentRequest {
+            payment_id: " a:b ".into()
+        }
+        .variables(None)
+        .unwrap()["search"],
+        "payment_id:\" a\\:b \""
+    );
+    for blank in ["", " \t "] {
+        assert!(
+            OrdersByTagRequest { tag: blank.into() }
+                .variables(None)
+                .is_err()
+        );
+        assert!(
+            OrdersByPaymentRequest {
+                payment_id: blank.into()
+            }
+            .variables(None)
+            .is_err()
+        );
+    }
+    let time = DateTime::parse_from_rfc3339("2026-01-01T00:00:00+07:00").unwrap();
+    assert!(
+        SalesRangeRequest {
+            start: time,
+            end: time
+        }
+        .variables(None)
+        .is_err()
+    );
+}
+
+#[test]
+fn activation_request_validates_resource_kinds_and_never_sets_quantities() {
+    let location = ShopifyId::new("gid://shopify/Location/123").unwrap();
+    let order = ShopifyId::new("gid://shopify/Order/456").unwrap();
+    let item = ShopifyId::new("gid://shopify/InventoryItem/789").unwrap();
+    let key = Uuid::new_v4();
+    assert!(
+        ActivateInventoryRequest {
+            inventory_item_id: order.clone(),
+            location_id: location.clone(),
+            idempotency_key: key
+        }
+        .variables()
+        .is_err()
+    );
+    assert!(
+        ActivateInventoryRequest {
+            inventory_item_id: item.clone(),
+            location_id: order,
+            idempotency_key: key
+        }
+        .variables()
+        .is_err()
+    );
+    let variables = ActivateInventoryRequest {
+        inventory_item_id: item,
+        location_id: location,
+        idempotency_key: key,
+    }
+    .variables()
+    .unwrap();
+    assert_eq!(variables["idempotencyKey"], key.to_string());
+    assert!(variables.get("available").is_none());
+    assert!(variables.get("onHand").is_none());
+}

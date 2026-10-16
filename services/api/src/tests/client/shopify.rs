@@ -92,33 +92,25 @@ async fn catalog_collects_all_parents_and_outer_pages_with_bounded_variants() {
     assert!(query.contains("products(first: 250"));
     assert!(query.contains("variants(first: 250)"));
 }
+
 #[tokio::test]
-async fn catalog_and_sales_reject_nested_overflow_without_partial_success() {
-    let f=Fixture::new(vec![Reply::json(json!({"data":{"products":page(vec![product(1,page(vec![variant(1)],Some("overflow")))],None)}}))]).await;
-    assert!(matches!(
-        client(&f)
-            .list_products(&ListProductsRequest {
-                location_id: id("Location", 1),
-                statuses: vec![]
-            })
-            .await,
-        Err(ClientError::Protocol(_))
-    ));
+async fn catalog_keeps_first_250_variants_without_child_cursor_or_overflow_error() {
+    let f=Fixture::new(vec![Reply::json(json!({"data":{"products":page(vec![product(1,page(vec![variant(1);250],Some("unused")))],None)}}))]).await;
+    let products = client(&f)
+        .list_products(&ListProductsRequest {
+            location_id: id("Location", 1),
+            statuses: vec![],
+        })
+        .await
+        .unwrap();
+    assert_eq!(products[0].variants.nodes.len(), 250);
+    assert!(products[0].variants.page_info.has_next_page);
     assert_eq!(f.requests().len(), 1);
-    let f = Fixture::new(vec![Reply::json(
-        json!({"data":{"orders":page(vec![sales(1,page(vec![line(1)],Some("overflow")))],None)}}),
-    )])
-    .await;
-    assert!(matches!(
-        client(&f)
-            .sales_in_range(&SalesRangeRequest {
-                start: "2026-09-01T00:00:00Z".parse().unwrap(),
-                end: "2026-10-01T00:00:00Z".parse().unwrap()
-            })
-            .await,
-        Err(ClientError::Protocol(_))
-    ));
-    assert_eq!(f.requests().len(), 1);
+    assert!(
+        f.requests()[0].2["variables"]
+            .get("variantsAfter")
+            .is_none()
+    );
 }
 #[tokio::test]
 async fn payment_lookup_escapes_literal_and_collects_all_matches() {
@@ -140,12 +132,20 @@ async fn payment_lookup_escapes_literal_and_collects_all_matches() {
     );
 }
 
+fn child_order(n: u64, lines: Value) -> Value {
+    json!({"data":{"order":{"id":format!("gid://shopify/Order/{n}"),"lineItems":lines}}})
+}
 #[tokio::test]
-async fn sales_collects_all_parents_and_outer_pages_and_keeps_offset_range() {
+async fn sales_collects_all_parents_and_child_pages_and_keeps_offset_range() {
     let f=Fixture::new(vec![
-        Reply::json(json!({"data":{"orders":page(vec![sales(1,page(vec![line(1);250],None)),sales(2,page(vec![],None))],Some("o1"))}})),
-        Reply::json(json!({"data":{"orders":page(vec![sales(3,page(vec![line(3)],None))],None)}}))
-    ]).await;
+  Reply::json(json!({"data":{"orders":page(vec![sales(1,page(vec![],None)),sales(2,page(vec![],None))],Some("o1"))}})),
+  Reply::json(json!({"data":{"orders":page(vec![sales(3,page(vec![],None))],None)}})),
+  Reply::json(child_order(1,page(vec![line(1);100],Some("a")))),
+  Reply::json(child_order(1,page(vec![line(2);100],Some("b")))),
+  Reply::json(child_order(1,page(vec![line(3);51],None))),
+  Reply::json(child_order(2,page(vec![],None))),
+  Reply::json(child_order(3,page(vec![line(4)],None))),
+ ]).await;
     let result = client(&f)
         .sales_in_range(&SalesRangeRequest {
             start: "2026-09-01T00:00:00+07:00".parse().unwrap(),
@@ -153,23 +153,55 @@ async fn sales_collects_all_parents_and_outer_pages_and_keeps_offset_range() {
         })
         .await
         .unwrap();
-    assert_eq!(result.len(), 3);
-    assert_eq!(result[0].line_items.nodes.len(), 250);
+    assert_eq!(
+        result.iter().map(|o| o.id.clone()).collect::<Vec<_>>(),
+        vec![id("Order", 1), id("Order", 2), id("Order", 3)]
+    );
+    assert_eq!(result[0].line_items.nodes.len(), 251);
+    assert_eq!(result[0].line_items.nodes[100].id, "line-2");
+    assert_eq!(result[0].line_items.nodes[200].id, "line-3");
+    assert!(!result[0].line_items.page_info.has_next_page);
     assert!(result[0].test);
     assert!(result[0].cancelled_at.is_some());
     assert_eq!(result[0].line_items.nodes[0].current_quantity, 1);
+    assert_eq!(
+        result[0].line_items.nodes[0]
+            .original_unit_price_set
+            .shop_money
+            .currency_code,
+        "THB"
+    );
     let requests = f.requests();
-    assert_eq!(requests.len(), 2);
+    assert_eq!(requests.len(), 7);
     assert_eq!(
         requests[0].2["variables"],
         json!({"search":"created_at:>='2026-09-01T00:00:00+07:00' created_at:<'2026-10-01T00:00:00+07:00'","ordersAfter":null})
     );
     assert_eq!(requests[1].2["variables"]["ordersAfter"], "o1");
+    for (index, parent, after) in [
+        (2, 1, Value::Null),
+        (3, 1, json!("a")),
+        (4, 1, json!("b")),
+        (5, 2, Value::Null),
+        (6, 3, Value::Null),
+    ] {
+        assert_eq!(
+            requests[index].2["variables"],
+            json!({"id":id("Order",parent),"after":after})
+        );
+    }
     assert!(
         requests[0].2["query"]
             .as_str()
             .unwrap()
-            .contains("lineItems(first: 250)")
+            .find("lineItems")
+            .is_none()
+    );
+    assert!(
+        requests[2].2["query"]
+            .as_str()
+            .unwrap()
+            .contains("lineItems(first: 100, after: $after)")
     );
 }
 #[tokio::test]
@@ -399,6 +431,9 @@ async fn orders_by_tag_collects_order_pages_and_preserves_order_and_currency() {
     let f = Fixture::new(vec![
         Reply::json(json!({"data":{"orders":page(vec![tagged_order(3,vec![tagged_line()]), tagged_order(2,vec![])],Some("next"))}})),
         Reply::json(json!({"data":{"orders":page(vec![tagged_order(1,vec![])],None)}})),
+        Reply::json(child_order(3,page(vec![tagged_line()],None))),
+        Reply::json(child_order(2,page(vec![],None))),
+        Reply::json(child_order(1,page(vec![],None))),
     ]).await;
     let orders = client(&f)
         .orders_by_tag(&OrdersByTagRequest {
@@ -426,7 +461,7 @@ async fn orders_by_tag_collects_order_pages_and_preserves_order_and_currency() {
     assert_eq!(line.original_unit_price_set.shop_money.amount, "123.4500");
     assert_eq!(line.original_unit_price_set.shop_money.currency_code, "THB");
     let requests = f.requests();
-    assert_eq!(requests.len(), 2);
+    assert_eq!(requests.len(), 5);
     assert_eq!(requests[0].2["operationName"], "OrdersByTag");
     assert_eq!(
         requests[0].2["variables"],
@@ -446,7 +481,7 @@ async fn orders_by_tag_collects_order_pages_and_preserves_order_and_currency() {
     assert!(
         query.contains("first: 250 after: $after query: $search sortKey: CREATED_AT reverse: true")
     );
-    assert!(query.contains("lineItems(first: 250)"));
+    assert!(!query.contains("lineItems"));
 }
 #[tokio::test]
 async fn orders_by_tag_escapes_one_literal_and_rejects_blank_input_without_requests() {
@@ -534,18 +569,91 @@ async fn orders_by_tag_propagates_http_and_graphql_errors_without_partial_result
         assert_eq!(f.requests().len(), 2);
     }
 }
+
 #[tokio::test]
-async fn orders_by_tag_returns_first_250_line_items_without_nested_requests() {
-    let f = Fixture::new(vec![Reply::json(
-        json!({"data":{"orders":page(vec![tagged_order(1,vec![tagged_line();250])],None)}}),
-    )])
-    .await;
+async fn tagged_orders_collect_more_than_250_lines_and_reset_child_cursors() {
+    let f=Fixture::new(vec![
+  Reply::json(json!({"data":{"orders":page(vec![tagged_order(1,vec![]),tagged_order(2,vec![])],None)}})),
+  Reply::json(child_order(1,page(vec![tagged_line();100],Some("a")))),
+  Reply::json(child_order(1,page(vec![tagged_line();100],Some("b")))),
+  Reply::json(child_order(1,page(vec![tagged_line();51],None))),
+  Reply::json(child_order(2,page(vec![],None))),
+ ]).await;
     let orders = client(&f)
         .orders_by_tag(&OrdersByTagRequest {
             tag: "shipping".into(),
         })
         .await
         .unwrap();
-    assert_eq!(orders[0].line_items.nodes.len(), 250);
-    assert_eq!(f.requests().len(), 1);
+    assert_eq!(orders[0].line_items.nodes.len(), 251);
+    assert_eq!(
+        orders[0].line_items.nodes[250]
+            .original_unit_price_set
+            .shop_money
+            .currency_code,
+        "THB"
+    );
+    assert_eq!(orders[1].line_items.nodes.len(), 0);
+    let requests = f.requests();
+    assert_eq!(requests.len(), 5);
+    assert_eq!(requests[2].2["variables"]["after"], "a");
+    assert_eq!(requests[3].2["variables"]["after"], "b");
+    assert_eq!(
+        requests[4].2["variables"],
+        json!({"id":id("Order",2),"after":null})
+    );
+}
+#[tokio::test]
+async fn child_order_failures_never_return_partial_success() {
+    for child in [
+        json!({"data":{"order":null}}),
+        child_order(99, page(vec![], None)),
+        child_order(
+            1,
+            json!({"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":null}}),
+        ),
+        child_order(
+            1,
+            json!({"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":""}}),
+        ),
+        child_order(1, page(vec![], Some("a"))),
+        json!({"data":null,"errors":[{"message":"denied"}]}),
+    ] {
+        for tagged in [false, true] {
+            let root = if tagged {
+                tagged_order(1, vec![])
+            } else {
+                sales(1, page(vec![], None))
+            };
+            let lines = if tagged {
+                vec![tagged_line()]
+            } else {
+                vec![line(1)]
+            };
+            let f = Fixture::new(vec![
+                Reply::json(json!({"data":{"orders":page(vec![root],None)}})),
+                Reply::json(child_order(1, page(lines, Some("a")))),
+                Reply::json(child.clone()),
+            ])
+            .await;
+            let failed = if tagged {
+                client(&f)
+                    .orders_by_tag(&OrdersByTagRequest {
+                        tag: "shipping".into(),
+                    })
+                    .await
+                    .is_err()
+            } else {
+                client(&f)
+                    .sales_in_range(&SalesRangeRequest {
+                        start: "2026-01-01T00:00:00Z".parse().unwrap(),
+                        end: "2026-02-01T00:00:00Z".parse().unwrap(),
+                    })
+                    .await
+                    .is_err()
+            };
+            assert!(failed);
+            assert_eq!(f.requests().len(), 3);
+        }
+    }
 }

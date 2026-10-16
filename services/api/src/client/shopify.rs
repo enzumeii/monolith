@@ -1,13 +1,14 @@
-use super::pagination::collect_pages;
+use super::pagination::{collect_connection, collect_pages};
 use crate::{
     client::{ClientError, GraphqlClient, GraphqlRequest, HttpClient},
     config::ShopifyConfig,
     models::shopify::{
-        ActivateInventoryRequest, ActivationData, InventoryActivationCandidate, InventoryData,
-        InventoryDiscoveryRequest, InventoryLevel, ListProductsRequest, MutationUserError, Order,
-        OrderTags, OrderUpdateData, OrdersByPaymentRequest, OrdersByTagData, OrdersByTagRequest,
-        OrdersData, Product, ProductsData, ReplaceOrderTagsRequest, SalesData, SalesOrder,
-        SalesRangeRequest, TaggedOrder,
+        ActivateInventoryRequest, ActivationData, Connection, InventoryActivationCandidate,
+        InventoryData, InventoryDiscoveryRequest, InventoryLevel, ListProductsRequest,
+        MutationUserError, Order, OrderLinesData, OrderTags, OrderUpdateData,
+        OrdersByPaymentRequest, OrdersByTagData, OrdersByTagRequest, OrdersData, Product,
+        ProductsData, ReplaceOrderTagsRequest, SalesData, SalesOrder, SalesRangeRequest, ShopifyId,
+        TaggedOrder, TaggedOrderLineItems,
     },
 };
 use reqwest::{
@@ -33,38 +34,14 @@ impl ShopifyClient {
         &self,
         input: &ListProductsRequest,
     ) -> Result<Vec<Product>, ClientError> {
-        input.location_id.require_kind("Location")?;
-        let search = if input.statuses.is_empty() {
-            None
-        } else {
-            Some(format!(
-                "status:{}",
-                input
-                    .statuses
-                    .iter()
-                    .map(|s| s.search_value())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ))
-        };
         collect_pages(async |after| {
             let data: ProductsData = self
                 .execute(
                     "ProductsWithVariants",
                     include_str!("shopify/products.graphql"),
-                    json!({"locationId":input.location_id,"search":search,"productsAfter":after}),
+                    input.variables(after.as_deref())?,
                 )
                 .await?;
-            if data
-                .products
-                .nodes
-                .iter()
-                .any(|product| product.variants.page_info.has_next_page)
-            {
-                return Err(ClientError::Protocol(
-                    "product exceeds 250 supported variants",
-                ));
-            }
             Ok(data.products)
         })
         .await
@@ -74,16 +51,12 @@ impl ShopifyClient {
         &self,
         input: &OrdersByPaymentRequest,
     ) -> Result<Vec<Order>, ClientError> {
-        if input.payment_id.trim().is_empty() {
-            return Err(ClientError::InvalidInput("payment ID is empty"));
-        }
-        let search = format!("payment_id:\"{}\"", escape_search(&input.payment_id));
         collect_pages(async |after| {
             let data: OrdersData = self
                 .execute(
                     "OrdersByPayment",
                     include_str!("shopify/payment.graphql"),
-                    json!({"search":search,"after":after}),
+                    input.variables(after.as_deref())?,
                 )
                 .await?;
             Ok(data.orders)
@@ -95,70 +68,69 @@ impl ShopifyClient {
         &self,
         input: &OrdersByTagRequest,
     ) -> Result<Vec<TaggedOrder>, ClientError> {
-        if input.tag.trim().is_empty() {
-            return Err(ClientError::InvalidInput("order tag is empty"));
-        }
-        let search = format!("tag:\"{}\"", escape_search(&input.tag));
-        collect_pages(async |after| {
+        let headers = collect_pages(async |after| {
             let data: OrdersByTagData = self
                 .execute(
                     "OrdersByTag",
                     include_str!("shopify/orders_by_tag.graphql"),
-                    json!({"search":search,"after":after}),
+                    input.variables(after.as_deref())?,
                 )
                 .await?;
             Ok(data.orders)
         })
-        .await
+        .await?;
+        let mut orders = Vec::with_capacity(headers.len());
+        for header in headers {
+            let lines = self
+                .order_lines(
+                    &header.id,
+                    "TaggedOrderLines",
+                    include_str!("shopify/tagged_order_lines.graphql"),
+                )
+                .await?;
+            orders.push(header.with_lines(TaggedOrderLineItems { nodes: lines.nodes }));
+        }
+        Ok(orders)
     }
 
     pub async fn sales_in_range(
         &self,
         input: &SalesRangeRequest,
     ) -> Result<Vec<SalesOrder>, ClientError> {
-        if input.start >= input.end {
-            return Err(ClientError::InvalidInput("sales start must precede end"));
-        }
-        let search = format!(
-            "created_at:>='{}' created_at:<'{}'",
-            input.start.to_rfc3339(),
-            input.end.to_rfc3339()
-        );
-        collect_pages(async |after| {
+        let headers = collect_pages(async |after| {
             let data: SalesData = self
                 .execute(
                     "SoldVariantsInRange",
                     include_str!("shopify/sales.graphql"),
-                    json!({"search":search,"ordersAfter":after}),
+                    input.variables(after.as_deref())?,
                 )
                 .await?;
-            if data
-                .orders
-                .nodes
-                .iter()
-                .any(|order| order.line_items.page_info.has_next_page)
-            {
-                return Err(ClientError::Protocol(
-                    "order exceeds 250 supported line items",
-                ));
-            }
             Ok(data.orders)
         })
-        .await
+        .await?;
+        let mut orders = Vec::with_capacity(headers.len());
+        for header in headers {
+            let lines = self
+                .order_lines(
+                    &header.id,
+                    "SalesOrderLines",
+                    include_str!("shopify/sales_lines.graphql"),
+                )
+                .await?;
+            orders.push(header.with_lines(lines));
+        }
+        Ok(orders)
     }
 
     pub async fn replace_order_tags(
         &self,
         input: &ReplaceOrderTagsRequest,
     ) -> Result<OrderTags, ClientError> {
-        input.order_id.require_kind("Order")?;
         let data: OrderUpdateData = self
             .execute(
                 "ReplaceOrderTags",
                 include_str!("shopify/tags.graphql"),
-                json!({
-                    "input":{"id":input.order_id,"tags":input.tags},
-                }),
+                input.variables()?,
             )
             .await?;
         check_user_errors(data.order_update.user_errors)?;
@@ -171,13 +143,12 @@ impl ShopifyClient {
         &self,
         input: &InventoryDiscoveryRequest,
     ) -> Result<Vec<InventoryActivationCandidate>, ClientError> {
-        input.location_id.require_kind("Location")?;
         let levels = collect_pages(async |after| {
             let data: InventoryData = self
                 .execute(
                     "FindInventoryToActivate",
                     include_str!("shopify/inventory.graphql"),
-                    json!({"locationId":input.location_id,"after":after}),
+                    input.variables(after.as_deref())?,
                 )
                 .await?;
             Ok(data
@@ -205,17 +176,42 @@ impl ShopifyClient {
         &self,
         input: &ActivateInventoryRequest,
     ) -> Result<InventoryLevel, ClientError> {
-        input.inventory_item_id.require_kind("InventoryItem")?;
-        input.location_id.require_kind("Location")?;
-        let data: ActivationData = self.execute("ActivateExistingInventory", include_str!("shopify/activate.graphql"), json!({
-            "inventoryItemId":input.inventory_item_id,"locationId":input.location_id,"idempotencyKey":input.idempotency_key,
-        })).await?;
+        let data: ActivationData = self
+            .execute(
+                "ActivateExistingInventory",
+                include_str!("shopify/activate.graphql"),
+                input.variables()?,
+            )
+            .await?;
         check_user_errors(data.inventory_activate.user_errors)?;
         data.inventory_activate
             .inventory_level
             .ok_or(ClientError::Protocol(
                 "activated inventory level is missing",
             ))
+    }
+
+    async fn order_lines<T: DeserializeOwned>(
+        &self,
+        id: &ShopifyId,
+        operation: &str,
+        query: &str,
+    ) -> Result<Connection<T>, ClientError> {
+        collect_connection(async |after| {
+            let data: OrderLinesData<T> = self
+                .execute(operation, query, json!({"id": id, "after": after}))
+                .await?;
+            let order = data.order.ok_or(ClientError::Protocol(
+                "order is missing during line-item pagination",
+            ))?;
+            if &order.id != id {
+                return Err(ClientError::Protocol(
+                    "line items belong to a different order",
+                ));
+            }
+            Ok(order.line_items)
+        })
+        .await
     }
 
     fn with_endpoint(config: &ShopifyConfig, endpoint: Url) -> Result<Self, ClientError> {
@@ -251,16 +247,6 @@ impl ShopifyClient {
             )
             .await
     }
-}
-fn escape_search(value: &str) -> String {
-    let mut escaped = String::new();
-    for character in value.chars() {
-        if matches!(character, '\\' | '"' | ':' | '(' | ')') {
-            escaped.push('\\');
-        }
-        escaped.push(character);
-    }
-    escaped
 }
 fn check_user_errors(errors: Vec<MutationUserError>) -> Result<(), ClientError> {
     if errors.is_empty() {

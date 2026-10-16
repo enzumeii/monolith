@@ -1,9 +1,22 @@
-pub use super::client::{Connection, PageInfo};
 use crate::client::ClientError;
 pub use crate::client::MutationUserError;
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use uuid::Uuid;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageInfo {
+    pub has_next_page: bool,
+    pub end_cursor: Option<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Connection<T> {
+    pub nodes: Vec<T>,
+    pub page_info: PageInfo,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(transparent)]
@@ -83,6 +96,74 @@ pub struct ActivateInventoryRequest {
     pub inventory_item_id: ShopifyId,
     pub location_id: ShopifyId,
     pub idempotency_key: Uuid,
+}
+
+impl ListProductsRequest {
+    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+        self.location_id.require_kind("Location")?;
+        let search = if self.statuses.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "status:{}",
+                self.statuses
+                    .iter()
+                    .map(|s| s.search_value())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ))
+        };
+        Ok(json!({"locationId": self.location_id, "search": search, "productsAfter": after}))
+    }
+}
+impl OrdersByPaymentRequest {
+    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+        if self.payment_id.trim().is_empty() {
+            return Err(ClientError::InvalidInput("payment ID is empty"));
+        }
+        Ok(
+            json!({"search": format!("payment_id:\"{}\"", escape_search(&self.payment_id)), "after": after}),
+        )
+    }
+}
+impl OrdersByTagRequest {
+    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+        if self.tag.trim().is_empty() {
+            return Err(ClientError::InvalidInput("order tag is empty"));
+        }
+        Ok(json!({"search": format!("tag:\"{}\"", escape_search(&self.tag)), "after": after}))
+    }
+}
+impl SalesRangeRequest {
+    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+        if self.start >= self.end {
+            return Err(ClientError::InvalidInput("sales start must precede end"));
+        }
+        Ok(
+            json!({"search": format!("created_at:>='{}' created_at:<'{}'", self.start.to_rfc3339(), self.end.to_rfc3339()), "ordersAfter": after}),
+        )
+    }
+}
+impl ReplaceOrderTagsRequest {
+    pub(crate) fn variables(&self) -> Result<Value, ClientError> {
+        self.order_id.require_kind("Order")?;
+        Ok(json!({"input": {"id": self.order_id, "tags": self.tags}}))
+    }
+}
+impl InventoryDiscoveryRequest {
+    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+        self.location_id.require_kind("Location")?;
+        Ok(json!({"locationId": self.location_id, "after": after}))
+    }
+}
+impl ActivateInventoryRequest {
+    pub(crate) fn variables(&self) -> Result<Value, ClientError> {
+        self.inventory_item_id.require_kind("InventoryItem")?;
+        self.location_id.require_kind("Location")?;
+        Ok(
+            json!({"inventoryItemId": self.inventory_item_id, "locationId": self.location_id, "idempotencyKey": self.idempotency_key}),
+        )
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -268,6 +349,56 @@ pub struct InventoryActivationCandidate {
     pub item: InventoryItemSummary,
 }
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TaggedOrderHeader {
+    pub(crate) tags: Vec<String>,
+    pub(crate) id: ShopifyId,
+    pub(crate) number: i64,
+    pub(crate) email: Option<String>,
+    pub(crate) phone: Option<String>,
+    pub(crate) current_total_price_set: MoneyBag,
+}
+impl TaggedOrderHeader {
+    pub(crate) fn with_lines(self, line_items: TaggedOrderLineItems) -> TaggedOrder {
+        TaggedOrder {
+            tags: self.tags,
+            id: self.id,
+            number: self.number,
+            email: self.email,
+            phone: self.phone,
+            current_total_price_set: self.current_total_price_set,
+            line_items,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SalesOrderHeader {
+    pub(crate) id: ShopifyId,
+    pub(crate) name: String,
+    pub(crate) created_at: DateTime<FixedOffset>,
+    pub(crate) cancelled_at: Option<DateTime<FixedOffset>>,
+    pub(crate) test: bool,
+    pub(crate) display_financial_status: Option<String>,
+    pub(crate) display_fulfillment_status: String,
+}
+impl SalesOrderHeader {
+    pub(crate) fn with_lines(self, line_items: Connection<SalesLine>) -> SalesOrder {
+        SalesOrder {
+            id: self.id,
+            name: self.name,
+            created_at: self.created_at,
+            cancelled_at: self.cancelled_at,
+            test: self.test,
+            display_financial_status: self.display_financial_status,
+            display_fulfillment_status: self.display_fulfillment_status,
+            line_items,
+        }
+    }
+}
+
+#[derive(Deserialize)]
 pub(crate) struct ProductsData {
     pub(crate) products: Connection<Product>,
 }
@@ -277,11 +408,11 @@ pub(crate) struct OrdersData {
 }
 #[derive(Deserialize)]
 pub(crate) struct OrdersByTagData {
-    pub(crate) orders: Connection<TaggedOrder>,
+    pub(crate) orders: Connection<TaggedOrderHeader>,
 }
 #[derive(Deserialize)]
 pub(crate) struct SalesData {
-    pub(crate) orders: Connection<SalesOrder>,
+    pub(crate) orders: Connection<SalesOrderHeader>,
 }
 #[derive(Deserialize)]
 pub(crate) struct InventoryData {
@@ -317,3 +448,24 @@ pub(crate) struct Activation {
 #[cfg(test)]
 #[path = "../tests/models/shopify.rs"]
 mod tests;
+
+#[derive(Deserialize)]
+pub(crate) struct OrderLinesData<T> {
+    pub(crate) order: Option<OrderLines<T>>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OrderLines<T> {
+    pub(crate) id: ShopifyId,
+    pub(crate) line_items: Connection<T>,
+}
+fn escape_search(value: &str) -> String {
+    let mut escaped = String::new();
+    for character in value.chars() {
+        if matches!(character, '\\' | '"' | ':' | '(' | ')') {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
+}

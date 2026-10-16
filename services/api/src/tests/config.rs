@@ -163,7 +163,7 @@ fn local_overlay_preserves_shopify_url_configured_in_application_toml() {
 }
 
 #[test]
-fn builder_token_override_excludes_file_tokens_and_keeps_shopify_optional() {
+fn runtime_token_excludes_file_tokens_and_keeps_shopify_optional() {
     for (configured, token) in [
         (false, None),
         (false, Some("env-token")),

@@ -16,29 +16,6 @@ query SoldVariantsInRange(
       test
       displayFulfillmentStatus
       displayFinancialStatus
-      lineItems(first: 250) {
-        nodes {
-          id
-          title
-          variantTitle
-          sku
-          quantity
-          currentQuantity
-          product {
-            id
-          }
-          variant {
-            id
-          }
-          originalUnitPriceSet {
-            shopMoney {
-              amount
-              currencyCode
-            }
-          }
-        }
-        pageInfo { hasNextPage endCursor }
-      }
     }
     pageInfo {
       hasNextPage

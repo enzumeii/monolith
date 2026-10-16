@@ -18,17 +18,6 @@ query OrdersByTag(
       currentTotalPriceSet {
         shopMoney { amount currencyCode }
       }
-      lineItems(first: 250) {
-        nodes {
-          title
-          variantTitle
-          sku
-          quantity
-          originalUnitPriceSet {
-            shopMoney { amount currencyCode }
-          }
-        }
-      }
     }
     pageInfo {
       hasNextPage

@@ -358,6 +358,89 @@ mod logging_tests {
         assert!(log.contains("admin_username_key"), "{log}");
         assert!(log.contains("23505"), "{log}");
     }
+
+    #[test]
+    fn every_client_error_logs_once_at_either_handling_boundary() {
+        use crate::client::{ClientError, GraphqlError, MutationUserError};
+        fn errors() -> Vec<ClientError> {
+            vec![
+                ClientError::Transport {
+                    origin: "api::client::send",
+                    source: reqwest::Client::new()
+                        .get("invalid URL")
+                        .build()
+                        .unwrap_err(),
+                },
+                ClientError::Http {
+                    status: 503,
+                    request_id: Some("private-upstream-value".into()),
+                },
+                ClientError::Decode {
+                    origin: "api::client::decode",
+                    source: serde_json::from_str::<serde_json::Value>("{").unwrap_err(),
+                },
+                ClientError::Graphql {
+                    errors: vec![GraphqlError {
+                        message: "private-upstream-value".into(),
+                        path: vec![],
+                        extensions: std::collections::BTreeMap::new(),
+                    }],
+                    extensions: serde_json::json!({"secret": "private-upstream-value"}),
+                },
+                ClientError::Mutation {
+                    errors: vec![MutationUserError {
+                        field: Some(vec!["private-upstream-value".into()]),
+                        message: "private-upstream-value".into(),
+                    }],
+                },
+                ClientError::Protocol("invalid page"),
+                ClientError::InvalidInput("invalid argument"),
+                ClientError::RetryExhausted,
+            ]
+        }
+        for background in [false, true] {
+            for filter in ["info", "info,api=debug"] {
+                for source in errors() {
+                    let origin = match &source {
+                        ClientError::Transport { origin, .. }
+                        | ClientError::Decode { origin, .. } => *origin,
+                        _ => "api::client",
+                    };
+                    let mut converted = None;
+                    let log = capture(filter, || {
+                        converted = Some(AppError::from(source).context("upstream operation"));
+                    });
+                    assert!(log.is_empty(), "{log}");
+                    let error = converted.unwrap();
+                    assert_eq!(error.origin(), Some(origin));
+                    match error.root() {
+                        AppError::Internal(source) => {
+                            assert!(source.downcast_ref::<ClientError>().is_some());
+                        }
+                        _ => panic!("client cause lost"),
+                    }
+                    let log = capture(filter, || {
+                        if background {
+                            log_background_error("upstream job", &error);
+                        } else {
+                            assert_eq!(
+                                error.into_response().status(),
+                                StatusCode::INTERNAL_SERVER_ERROR
+                            );
+                        }
+                    });
+                    assert_eq!(
+                        log.lines().filter(|line| line.contains("ERROR")).count(),
+                        1,
+                        "{log}"
+                    );
+                    assert!(log.contains(&format!("origin=\"{origin}\"")), "{log}");
+                    assert!(!log.contains("private-upstream-value"), "{log}");
+                }
+            }
+        }
+    }
+
     #[test]
     fn upstream_errors_keep_origin_without_logging_customer_payloads() {
         for filter in ["info", "info,api=debug"] {

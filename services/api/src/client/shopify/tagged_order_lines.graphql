@@ -1,0 +1,17 @@
+query TaggedOrderLines($id: ID!, $after: String) {
+  order(id: $id) {
+    id
+    lineItems(first: 100, after: $after) {
+      nodes {
+        title
+        variantTitle
+        sku
+        quantity
+        originalUnitPriceSet {
+          shopMoney { amount currencyCode }
+        }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}

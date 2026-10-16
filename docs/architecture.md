@@ -27,7 +27,7 @@ flowchart LR
 | `apps/backoffice` | Browser pages, forms, direct API requests, session coordination | Public configuration only; Axum owns cookies, CORS, and origin checks |
 | `apps/client-ui` | Placeholder client application | No implemented service integration |
 
-The Shopify client is available lazily through AppState::shopify_client; it is not invoked by routes, startup, scheduled jobs, or persistence.
+Callers explicitly construct ShopifyClient from state.settings.client.shopify. Routes, startup, scheduled jobs and persistence do not invoke it.
 
 ## Module responsibilities
 
@@ -44,7 +44,7 @@ The Shopify client is available lazily through AppState::shopify_client; it is n
 | `src/validations/` / `src/utils/password.rs` | Input rules / Argon2 operations |
 | `src/error.rs` | Public error mapping and centralized boundary logging |
 | `src/client.rs` | Generic HTTP/GraphQL request envelopes, decoding, failures, throttling backoff |
-| `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication, seven operations, shared outer pagination / query documents |
+| `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication, seven operations, outer and order-line pagination / query documents |
 | `src/tests/` | Tests mirroring implementation paths through test-gated child modules |
 | `e2e-test/` | Real TCP endpoint tests and shared application/database fixtures |
 | `migrations/` / `.sqlx/` | Database migrations / offline SQLx metadata |
@@ -129,23 +129,25 @@ flowchart LR
 | `HttpClient` | Reusable reqwest pool; per-request generic headers; 30-second per-attempt timeout; redirects disabled |
 | `GraphqlClient` | Typed variables; raw envelope error classification before successful data decoding; reject partial-data errors |
 | `ShopifyClient` | Token header supplied by this layer; parsed configured Admin API URL; endpoint trusted from configuration; API version 2026-10 |
+| Request types | Own operation validation, resource-kind checks and search/variable construction; the client orchestrates execution and pagination |
+| Shopify models | Connection and PageInfo live beside Shopify contracts; the shared collector imports them |
 | DTOs | Public through `api::shopify_models`; shop-only money sets retain decimal amounts and currency; nullable references remain nullable; internal response envelopes live in API models |
-| Configuration | `config.rs` applies the dotenv/environment token through builder overrides; `[client.shopify]` in TOML contains only `admin_api_url` |
+| Configuration | `config.rs` reads SHOPIFY_ACCESS_TOKEN after dotenv loading and injects it into immutable runtime settings; token deserialization is skipped; `[client.shopify]` in TOML contains only `admin_api_url` |
 | Initialization | Shopify credentials are optional for API startup and required when constructing the client |
 
 | Method | Result |
 | --- | --- |
-| `list_products` | Status-filtered products containing up to 250 variants per product (explicit error on overflow), SKUs, location-contextual prices/currencies, images, and quantities |
+| `list_products` | Status-filtered products containing the first 250 variants per product (no variant cursor or overflow error), SKUs, location-contextual prices/currencies, images, and quantities |
 | `orders_by_payment_id` | All matching orders and transaction/contact details using Shopify's payment ID |
-| `orders_by_tag` | Newest-first orders matching one literal tag; all order pages, first 250 line items per order, returned tags, and shop-currency prices |
-| `sales_in_range` | Every order created in an offset-aware half-open interval; up to 250 distinct lines per order (explicit error on overflow); statuses, test flag, quantities, and original prices retained |
+| `orders_by_tag` | Newest-first orders matching one literal tag; all order pages and all line-item pages per order, returned tags, and shop-currency prices |
+| `sales_in_range` | Every order created in an offset-aware half-open interval; all line-item pages per order; statuses, test flag, quantities, and original prices retained |
 | `replace_order_tags` | Replace the complete tag list; empty input clears it |
 | `find_inventory_to_activate` | Target-location levels filtered in Rust to tracked, inactive items with positive on-hand stock |
 | `activate_inventory` | Activate the supplied inventory item/location with caller idempotency UUID; omit quantity arguments to preserve stored stock |
 
 | Request policy | Guarantee / limit |
 | --- | --- |
-| Pagination | Shared collector traverses all outer pages at 250 nodes per request and rejects missing/repeated/cyclic cursors. Nested variants/lines use first:250 without pagination; catalog/sales fail on known overflow, tagged lines have no overflow indicator |
+| Pagination | Shared collector traverses outer pages at 250 nodes per request and per-order sales/tag line pages at 100. Child requests use stable order IDs, reset cursors for each order and reject missing/mismatched parents. Missing/repeated/cyclic cursors fail. Products retain first:250 variants without a variant cursor; pageInfo exposes possible truncation |
 | Throttling | HttpClient owns one retry loop for HTTP 4xx and data-less all-THROTTLED GraphQL responses; GraphqlClient supplies the envelope classifier |
 | Budget | Four total attempts; 1/2/4-second backoff plus 0–250 ms jitter; total retry sleep at most 30 seconds |
 | Retry-After | Honor seconds/HTTP-date minimums; stop rather than exceed the sleep budget or overflow duration arithmetic |
@@ -161,7 +163,7 @@ flowchart LR
 | --- | --- |
 | API failures | Sanitized public responses; one WARN/ERROR summary at the handling boundary with operation, category, and innermost origin |
 | API DEBUG diagnostics | Underlying causes/context are opt-in; conversions do not log |
-| Client failures | Distinct transport, HTTP, GraphQL, protocol, mutation, and retry-budget errors; safe Display/Debug |
+| Client failures | Distinct transport, HTTP, decode, GraphQL, protocol, input, mutation and retry-budget errors; safe Display/Debug; every handled ClientError logs once at ERROR through AppError response or log_background_error; creation/conversion is silent |
 | Sensitive fields | Configuration Debug redacts secrets; do not log raw requests, upstream bodies, or client error fields |
 | Persistence | Transactions remain service-owned, SQL remains repository-owned; intentional admin/seed migrations are preserved |
 | Runtime | Standalone Axum listener and Tokio maintenance; no serverless adapter or production deployment mechanism |

@@ -112,18 +112,10 @@ impl Settings {
     }
 
     fn from_config(config: Config, token: Option<String>) -> Result<Self, ConfigError> {
-        let config = if config.get_table("client.shopify").is_ok() {
-            Config::builder()
-                .add_source(config)
-                .set_override("client.shopify.access_token", token)?
-                .build()?
-        } else {
-            config
-        };
-        let settings: Self = config.clone().try_deserialize()?;
+        let settings: Self = config.try_deserialize()?;
         let client = settings.client.map(|client| ClientConfig {
             shopify: client.shopify.map(|shopify| ShopifyConfig {
-                access_token: config.get_string("client.shopify.access_token").ok(),
+                access_token: token,
                 ..shopify
             }),
         });

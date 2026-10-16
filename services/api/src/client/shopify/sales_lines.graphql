@@ -1,0 +1,28 @@
+query SalesOrderLines($id: ID!, $after: String) {
+  order(id: $id) {
+    id
+    lineItems(first: 100, after: $after) {
+      nodes {
+        id
+        title
+        variantTitle
+        sku
+        quantity
+        currentQuantity
+        product {
+          id
+        }
+        variant {
+          id
+        }
+        originalUnitPriceSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
+        }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}
