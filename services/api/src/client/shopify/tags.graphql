@@ -1,0 +1,13 @@
+mutation ReplaceOrderTags($input: OrderInput!) {
+  orderUpdate(input: $input) {
+    order {
+      id
+      name
+      tags
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}

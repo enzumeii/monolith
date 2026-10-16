@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::needless_pass_by_value)]
 use super::*;
 use axum::{
     Router,
@@ -181,7 +181,7 @@ async fn rejects_invalid_json_and_redirects_without_following_them() {
         execute(&fixture).await,
         Err(ClientError::Http { status: 302, .. })
     ));
-    assert!(destination.requests().is_empty());
+    assert_eq!(destination.requests().len(), 0);
     let fixture = Fixture::new(vec![Reply {
         status: 200,
         body: "invalid".into(),
@@ -215,4 +215,60 @@ async fn excessive_retry_after_does_not_replay() {
         Err(ClientError::RetryExhausted)
     ));
     assert_eq!(fixture.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn throttling_stops_after_four_attempts() {
+    let fixture = Fixture::new(vec![Reply::status(429); 4]).await;
+    assert!(matches!(
+        execute(&fixture).await,
+        Err(ClientError::RetryExhausted)
+    ));
+    assert_eq!(fixture.requests().len(), 4);
+}
+#[tokio::test]
+async fn retry_after_is_a_minimum_and_invalid_values_fall_back() {
+    for header in ["2", "not-a-date"] {
+        let fixture = Fixture::new(vec![
+            Reply {
+                status: 429,
+                body: "{}".into(),
+                headers: vec![("retry-after".into(), header.into())],
+            },
+            Reply::json(json!({"data":{}})),
+        ])
+        .await;
+        let start = std::time::Instant::now();
+        execute(&fixture).await.unwrap();
+        assert!(start.elapsed() >= Duration::from_secs(if header == "2" { 2 } else { 1 }));
+        assert_eq!(fixture.requests().len(), 2);
+    }
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "retry-after",
+        "Wed, 21 Oct 2099 07:28:00 GMT".parse().unwrap(),
+    );
+    assert!(retry_after(&headers).unwrap() > Duration::from_secs(30));
+}
+#[tokio::test]
+async fn stalled_response_times_out_without_replay() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    let gql = GraphqlClient::new(
+        HttpClient::new(Duration::from_millis(50)).unwrap(),
+        endpoint,
+    );
+    let start = std::time::Instant::now();
+    let result: Result<Value, _> = gql
+        .execute(
+            HeaderMap::new(),
+            &GraphqlRequest {
+                query: "query { shop { name } }",
+                operation_name: "Test",
+                variables: json!({}),
+            },
+        )
+        .await;
+    assert!(matches!(result, Err(ClientError::Transport { .. })));
+    assert!(start.elapsed() < Duration::from_secs(1));
 }

@@ -1,0 +1,55 @@
+query ProductsWithVariants(
+  $locationId: ID!
+  $search: String
+  $productsAfter: String
+  $variantsAfter: String
+) {
+  products(first: 1, after: $productsAfter, query: $search, sortKey: CREATED_AT) {
+    nodes {
+      id
+      title
+      description
+      status
+      tags
+      featuredImage {
+        url
+      }
+      variants(first: 100, after: $variantsAfter) {
+        nodes {
+          id
+          title
+          sku
+          contextualPricing(context: { locationId: $locationId }) {
+            price {
+              amount
+              currencyCode
+            }
+          }
+          image {
+            url
+          }
+          inventoryItem {
+            id
+            tracked
+            inventoryLevel(locationId: $locationId) {
+              id
+              isActive
+              quantities(names: ["on_hand", "available"]) {
+                name
+                quantity
+              }
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
