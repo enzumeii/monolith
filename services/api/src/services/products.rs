@@ -1,146 +1,95 @@
-use super::pagination::collect_connection;
+use super::pagination::for_each_page;
 use crate::{
     client::{ClientError, shopify::ShopifyClient},
     error::AppError,
     models::{
         products::ReportRow,
-        shopify::{
-            ListProductsRequest, OrderLinesRequest, OrdersByTagRequest, PageInfo, PageRequest,
-            ProductStatus, ProductVariantsRequest, ShopifyId,
-        },
+        shopify::{ListProductsRequest, OrdersByTagRequest, PageRequest, ProductStatus, ShopifyId},
     },
-    validations::products::{ReportSource, ValidatedReport},
+    state::AppState,
+    validations::products::ReportSource,
 };
-use domain::dto::{ProductsResponse, products::ProductReportPageInfo};
+use domain::dto::ProductsResponse;
 use std::collections::HashMap;
 
 pub async fn product_report(
-    client: &ShopifyClient,
-    input: ValidatedReport,
+    state: &AppState,
+    source: ReportSource,
 ) -> Result<ProductsResponse, AppError> {
-    let (rows, page_info) = match input.source {
-        ReportSource::Inventory(location) => inventory_page(client, location, &input.page).await?,
-        ReportSource::OrderTag(tag) => tagged_page(client, tag, &input.page).await?,
+    let client = shopify_client(state)?;
+    let rows = match source {
+        ReportSource::Inventory(location) => inventory_report(client, location).await?,
+        ReportSource::OrderTag(tag) => tagged_report(client, tag).await?,
     };
     Ok(ProductsResponse {
         products: rows.into_iter().map(ReportRow::into_dto).collect(),
-        page_info: ProductReportPageInfo {
-            has_next_page: page_info.has_next_page,
-            end_cursor: page_info.end_cursor,
-        },
     })
 }
-async fn inventory_page(
+async fn inventory_report(
     client: &ShopifyClient,
     location_id: ShopifyId,
-    page: &PageRequest,
-) -> Result<(Vec<ReportRow>, PageInfo), AppError> {
+) -> Result<Vec<ReportRow>, AppError> {
     validate_location(client, &location_id).await?;
-    let catalog = client
-        .products_with_variants(
-            &ListProductsRequest {
-                location_id: location_id.clone(),
-                statuses: vec![ProductStatus::Active],
-                variants_first: 10,
-            },
-            page,
-        )
-        .await
-        .map_err(upstream)?;
-    catalog
-        .page_info
-        .validate_after(page.after.as_deref())
-        .map_err(upstream)?;
+    let request = ListProductsRequest {
+        location_id,
+        statuses: vec![ProductStatus::Active],
+    };
     let mut rows = Vec::new();
-    for product in catalog.nodes {
-        let id = product.id;
-        let mut initial = Some(product.variants);
-        let variants = collect_connection(|after| {
-            let first = initial.take();
-            let location_id = &location_id;
-            let id = &id;
-            async move {
-                if let Some(first) = first {
-                    return Ok(first);
+    for_each_page(
+        async |after| {
+            client
+                .products_with_variants(&request, &PageRequest { first: 1, after })
+                .await
+        },
+        |products| {
+            for product in products {
+                for variant in product.variants.into_complete_nodes()? {
+                    if let Some(row) =
+                        variant.into_report_row(&product.title, &product.product_type)?
+                    {
+                        rows.push(row);
+                    }
                 }
-                client
-                    .product_variants(
-                        &ProductVariantsRequest {
-                            product_id: id.clone(),
-                            location_id: location_id.clone(),
-                        },
-                        &PageRequest { first: 100, after },
-                    )
-                    .await?
-                    .into_connection(id)
             }
-        })
-        .await
-        .map_err(upstream)?;
-        for variant in variants.nodes {
-            if let Some(row) = variant
-                .into_report_row(&product.title, &product.product_type)
-                .map_err(upstream)?
-            {
-                rows.push(row);
-            }
-        }
-    }
-    Ok((rows, catalog.page_info))
+            Ok(())
+        },
+    )
+    .await
+    .map_err(upstream)?;
+    Ok(rows)
 }
-async fn tagged_page(
-    client: &ShopifyClient,
-    tag: String,
-    page: &PageRequest,
-) -> Result<(Vec<ReportRow>, PageInfo), AppError> {
-    let orders = client
-        .orders_by_tag(
-            &OrdersByTagRequest {
-                tag,
-                lines_first: 10,
-            },
-            page,
-        )
-        .await
-        .map_err(upstream)?;
-    orders
-        .page_info
-        .validate_after(page.after.as_deref())
-        .map_err(upstream)?;
+async fn tagged_report(client: &ShopifyClient, tag: String) -> Result<Vec<ReportRow>, AppError> {
+    let request = OrdersByTagRequest { tag };
     let mut rows = Vec::new();
     let mut by_sku = HashMap::new();
-    for order in orders.nodes {
-        let id = order.id;
-        let mut initial = Some(order.line_items);
-        let lines = collect_connection(|after| {
-            let first = initial.take();
-            let id = &id;
-            async move {
-                if let Some(first) = first {
-                    return Ok(first);
+    for_each_page(
+        async |after| {
+            client
+                .orders_by_tag(&request, &PageRequest { first: 1, after })
+                .await
+        },
+        |orders| {
+            for order in orders {
+                for line in order.line_items.into_complete_nodes()? {
+                    merge(&mut rows, &mut by_sku, line.into_report_row()?)?;
                 }
-                client
-                    .tagged_order_lines(
-                        &OrderLinesRequest {
-                            order_id: id.clone(),
-                        },
-                        &PageRequest { first: 100, after },
-                    )
-                    .await?
-                    .into_connection(id)
             }
-        })
-        .await
-        .map_err(upstream)?;
-        for line in lines.nodes {
-            merge(
-                &mut rows,
-                &mut by_sku,
-                line.into_report_row().map_err(upstream)?,
-            )?;
-        }
-    }
-    Ok((rows, orders.page_info))
+            Ok(())
+        },
+    )
+    .await
+    .map_err(upstream)?;
+    Ok(rows)
+}
+fn shopify_client(state: &AppState) -> Result<&ShopifyClient, AppError> {
+    state
+        .shopify
+        .as_ref()
+        .map_err(|error| {
+            AppError::ReportUnavailable(Some(error.clone())).at("api::client::shopify")
+        })?
+        .as_deref()
+        .ok_or_else(|| AppError::ReportUnavailable(None).at(module_path!()))
 }
 async fn validate_location(client: &ShopifyClient, id: &ShopifyId) -> Result<(), AppError> {
     if !client.location_exists(id).await.map_err(upstream)? {
@@ -159,7 +108,7 @@ fn merge(
     rows: &mut Vec<ReportRow>,
     by_sku: &mut HashMap<String, Vec<usize>>,
     row: ReportRow,
-) -> Result<(), AppError> {
+) -> Result<(), ClientError> {
     let candidates = row
         .sku()
         .map(|sku| by_sku.entry(sku.to_owned()).or_default());
@@ -167,7 +116,7 @@ fn merge(
         .as_ref()
         .and_then(|indices| indices.iter().copied().find(|&i| rows[i].can_merge(&row)));
     if let Some(index) = existing {
-        rows[index].add_quantity(row.quantity()).map_err(upstream)
+        rows[index].add_quantity(row.quantity())
     } else {
         if let Some(indices) = candidates {
             indices.push(rows.len());

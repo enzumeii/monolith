@@ -1,7 +1,4 @@
-use crate::{
-    error::AppError,
-    models::shopify::{PageRequest, ShopifyId},
-};
+use crate::{error::AppError, models::shopify::ShopifyId};
 use axum::extract::{Query, rejection::QueryRejection};
 use domain::dto::{ProductReportQuery, ProductReportType};
 
@@ -10,38 +7,16 @@ pub enum ReportSource {
     OrderTag(String),
 }
 
-pub struct ValidatedReport {
-    pub source: ReportSource,
-    pub page: PageRequest,
-}
 pub fn extract_report_query(
     query: Result<Query<ProductReportQuery>, QueryRejection>,
-) -> Result<ValidatedReport, AppError> {
+) -> Result<ReportSource, AppError> {
     let Query(query) = query.map_err(|_| {
-        AppError::BadRequest(
-            "Expected type INVENTORY or ORDER_TAG and an id with valid pagination".into(),
-        )
-        .at(module_path!())
+        AppError::BadRequest("Expected type INVENTORY or ORDER_TAG and an id".into())
+            .at(module_path!())
     })?;
     validate_report_query(query)
 }
-pub fn validate_report_query(query: ProductReportQuery) -> Result<ValidatedReport, AppError> {
-    let first = query.page_size.unwrap_or(10);
-    if !(1..=50).contains(&first)
-        || query
-            .cursor
-            .as_ref()
-            .is_some_and(|cursor| cursor.trim().is_empty())
-    {
-        return Err(AppError::BadRequest(
-            "Expected page_size between 1 and 50 and a nonempty cursor".into(),
-        )
-        .at(module_path!()));
-    }
-    let page = PageRequest {
-        first,
-        after: query.cursor,
-    };
+pub fn validate_report_query(query: ProductReportQuery) -> Result<ReportSource, AppError> {
     let invalid =
         || AppError::BadRequest("A valid report id is required".into()).at(module_path!());
     if query.id.trim().is_empty() {
@@ -59,7 +34,7 @@ pub fn validate_report_query(query: ProductReportQuery) -> Result<ValidatedRepor
         }
         ProductReportType::OrderTag => ReportSource::OrderTag(query.id),
     };
-    Ok(ValidatedReport { source, page })
+    Ok(source)
 }
 #[cfg(test)]
 #[path = "../tests/validations/products.rs"]

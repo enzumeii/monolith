@@ -13,13 +13,5 @@ pub async fn list(
     query: Result<Query<ProductReportQuery>, QueryRejection>,
 ) -> Result<Json<ProductsResponse>, AppError> {
     let input = extract_report_query(query)?;
-    let client = state
-        .shopify
-        .as_ref()
-        .map_err(|error| {
-            AppError::ReportUnavailable(Some(error.clone())).at("api::client::shopify")
-        })?
-        .as_ref()
-        .ok_or_else(|| AppError::ReportUnavailable(None).at(module_path!()))?;
-    Ok(Json(product_report(client, input).await?))
+    Ok(Json(product_report(&state, input).await?))
 }

@@ -31,10 +31,12 @@ async fn product_route_auth_validation_and_unconfigured_shopify() {
             "type=OTHER&id=1",
             "type=INVENTORY&id=bad",
             "type=ORDER_TAG&id=",
+            "type=INVENTORY&id=1&page_size=1",
             "type=INVENTORY&id=1&page_size=0",
             "type=INVENTORY&id=1&page_size=51",
             "type=INVENTORY&id=1&page_size=-1",
             "type=INVENTORY&id=1&page_size=abc",
+            "type=INVENTORY&id=1&cursor=next",
             "type=INVENTORY&id=1&cursor=%20",
         ] {
             let response = client
@@ -51,7 +53,7 @@ async fn product_route_auth_validation_and_unconfigured_shopify() {
         let response = client
             .send(authed(
                 "GET",
-                "/v1/products?type=INVENTORY&id=1&page_size=1",
+                "/v1/products?type=INVENTORY&id=1",
                 fixture.root_id(),
                 role,
             ))
@@ -94,7 +96,13 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
         "ProductsWithVariants" => {
             assert_eq!(v["search"], "status:active");
             assert_eq!(v["first"], 1);
-            assert_eq!(v["variantsFirst"], 10);
+            assert!(v.get("variantsFirst").is_none());
+            assert!(
+                request["query"]
+                    .as_str()
+                    .unwrap()
+                    .contains("variants(first: 250)")
+            );
             match v["locationId"].as_str().unwrap() {
                 "gid://shopify/Location/998" => {
                     return (
@@ -124,8 +132,13 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
                     inactive["inventoryItem"]["inventoryLevel"]["isActive"] = json!(false);
                     let variants = if first {
                         page(
-                            vec![report_variant(Some(3)), report_variant(None), inactive],
-                            Some("variants-2"),
+                            vec![
+                                report_variant(Some(3)),
+                                report_variant(Some(-2)),
+                                report_variant(None),
+                                inactive,
+                            ],
+                            None,
                         )
                     } else {
                         page(vec![report_variant(Some(0))], None)
@@ -134,16 +147,23 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
                 }
             }
         }
-        "ProductVariants" => {
-            assert_eq!(v["first"], 100);
-            assert_eq!(v["after"], "variants-2");
-            json!({"product":{"id":"gid://shopify/Product/1","variants":page(vec![report_variant(Some(-2))],None)}})
-        }
         "OrdersByTag" => {
             assert_eq!(v["first"], 1);
-            assert_eq!(v["linesFirst"], 10);
-            assert!(v["search"] == "tag:\"empty\"" || v["search"] == "tag:\"report\"");
-            if v["search"] == "tag:\"empty\"" {
+            assert!(v.get("linesFirst").is_none());
+            assert!(
+                request["query"]
+                    .as_str()
+                    .unwrap()
+                    .contains("lineItems(first: 250)")
+            );
+            assert!(
+                v["search"] == "tag:\"empty\""
+                    || v["search"] == "tag:\"report\""
+                    || v["search"] == "tag:\"too-many\""
+            );
+            if v["search"] == "tag:\"too-many\"" {
+                json!({"orders":page(vec![json!({"id":"gid://shopify/Order/1","number":1,"tags":[],"email":null,"phone":null,"currentTotalPriceSet":{"shopMoney":{"amount":"1","currencyCode":"USD"}},"lineItems":page(vec![report_line(1,"0.1","USD");250],Some("more"))})],None)})
+            } else if v["search"] == "tag:\"empty\"" {
                 json!({"orders":page(vec![],None)})
             } else {
                 let first = v["after"].is_null();
@@ -151,7 +171,14 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
                     assert_eq!(v["after"], "orders-2")
                 }
                 let lines = if first {
-                    page(vec![report_line(2, "0.10", "USD")], Some("lines-2"))
+                    page(
+                        vec![
+                            report_line(2, "0.10", "USD"),
+                            report_line(3, "0.1", "USD"),
+                            report_line(1, "0.2", "USD"),
+                        ],
+                        None,
+                    )
                 } else {
                     let mut deleted = report_line(1, "1", "USD");
                     deleted["sku"] = Value::Null;
@@ -169,12 +196,6 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
                 };
                 json!({"orders":page(vec![json!({"id":if first {"gid://shopify/Order/1"}else{"gid://shopify/Order/2"},"number":1,"tags":[],"email":null,"phone":null,"currentTotalPriceSet":{"shopMoney":{"amount":"1","currencyCode":"USD"}},"lineItems":lines})],if first {Some("orders-2")}else{None})})
             }
-        }
-        "TaggedOrderLines" => {
-            assert_eq!(v["id"], "gid://shopify/Order/1");
-            assert_eq!(v["first"], 100);
-            assert_eq!(v["after"], "lines-2");
-            json!({"order":{"id":v["id"],"lineItems":page(vec![report_line(3,"0.1","USD"),report_line(1,"0.2","USD")],None)}})
         }
         other => panic!("unexpected operation {other}"),
     };
@@ -207,7 +228,7 @@ async fn product_reports_use_real_api_tcp_and_mocked_shopify() {
         let response = client
             .send(authed(
                 "GET",
-                "/v1/products?type=INVENTORY&id=1&page_size=1",
+                "/v1/products?type=INVENTORY&id=1",
                 fixture.root_id(),
                 role,
             ))
@@ -216,22 +237,20 @@ async fn product_reports_use_real_api_tcp_and_mocked_shopify() {
         assert_eq!(response.status(), 200);
         let body = body_json(response).await;
         let rows = body["products"].as_array().unwrap();
-        assert_eq!(
-            body["page_info"],
-            json!({"has_next_page":true,"end_cursor":"products-2"})
-        );
-        assert_eq!(rows.len(), 2);
+        assert!(body.get("page_info").is_none());
+        assert_eq!(rows.len(), 3);
         assert_eq!(
             rows[0],
             json!({"category":"KEYCHAIN","collection":"STSWOW","sku":"GENSTSWOW01","title":"Item","variant":"Large","cost":0.03,"cost_currency":"USD","weight":2.5,"unit":"GRAMS","selling_price":0.1,"selling_price_currency":"USD","quantity":3,"total_selling_price":0.3,"total_weight":7.5})
         );
         assert_eq!(rows[1]["quantity"], -2);
         assert_eq!(rows[1]["total_weight"], -5);
+        assert_eq!(rows[2]["quantity"], 0);
     }
     let response = client
         .send(authed(
             "GET",
-            "/v1/products?type=ORDER_TAG&id=report&page_size=1",
+            "/v1/products?type=ORDER_TAG&id=report",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -240,79 +259,56 @@ async fn product_reports_use_real_api_tcp_and_mocked_shopify() {
     assert_eq!(response.status(), 200);
     let body = body_json(response).await;
     let rows = body["products"].as_array().unwrap();
-    assert_eq!(
-        body["page_info"],
-        json!({"has_next_page":true,"end_cursor":"orders-2"})
-    );
-    assert_eq!(rows.len(), 2);
-    assert_eq!(rows[0]["quantity"], 5);
-    assert_eq!(rows[0]["total_selling_price"], 0.5);
+    assert!(body.get("page_info").is_none());
+    assert_eq!(rows.len(), 5);
+    assert_eq!(rows[0]["quantity"], 6);
+    assert_eq!(rows[0]["total_selling_price"], 0.6);
     assert!(rows[0]["cost"].is_null());
     assert!(rows[0]["total_weight"].is_null());
     assert_eq!(rows[1]["selling_price"], 0.2);
 
-    for (query, quantity, count) in [
-        ("type=INVENTORY&id=1&cursor=products-2", 0, 1),
-        ("type=ORDER_TAG&id=report&cursor=orders-2", 1, 4),
-    ] {
-        let response = client
-            .send(authed(
-                "GET",
-                &format!("/v1/products?{query}&page_size=1"),
-                fixture.root_id(),
-                AdminRole::Admin,
-            ))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), 200);
-        let body = body_json(response).await;
-        assert_eq!(
-            body["page_info"],
-            json!({"has_next_page":false,"end_cursor":null})
-        );
-        let rows = body["products"].as_array().unwrap();
-        assert_eq!(rows.len(), count);
-        assert_eq!(rows[0]["quantity"], quantity);
-        if count == 4 {
-            assert_eq!(rows[1]["selling_price_currency"], "THB");
-            assert!(rows[2]["category"].is_null());
-        }
-    }
+    assert_eq!(rows[2]["selling_price_currency"], "THB");
+    assert!(rows[3]["category"].is_null());
     let response = client
         .send(authed(
             "GET",
-            "/v1/products?type=INVENTORY&id=994&page_size=1",
+            "/v1/products?type=ORDER_TAG&id=too-many",
+            fixture.root_id(),
+            AdminRole::Admin,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 502);
+    assert!(body_json(response).await.get("products").is_none());
+    let response = client
+        .send(authed(
+            "GET",
+            "/v1/products?type=INVENTORY&id=994",
             fixture.root_id(),
             AdminRole::Admin,
         ))
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
-    assert_eq!(
-        body_json(response).await,
-        json!({"products":[],"page_info":{"has_next_page":true,"end_cursor":"empty-next"}})
-    );
+    assert_eq!(body_json(response).await, json!({"products":[]}));
     for query in ["type=ORDER_TAG&id=empty", "type=INVENTORY&id=995"] {
         let response = client
             .send(authed(
                 "GET",
-                &format!("/v1/products?{query}&page_size=1"),
+                &format!("/v1/products?{query}"),
                 fixture.root_id(),
                 AdminRole::Admin,
             ))
             .await
             .unwrap();
         assert_eq!(response.status(), 200);
-        assert_eq!(
-            body_json(response).await,
-            json!({"products":[],"page_info":{"has_next_page":false,"end_cursor":null}})
-        );
+        assert_eq!(body_json(response).await, json!({"products":[]}));
     }
     for (id, status) in [(999, 404), (998, 502), (997, 502), (996, 502)] {
         let response = client
             .send(authed(
                 "GET",
-                &format!("/v1/products?type=INVENTORY&id={id}&page_size=1"),
+                &format!("/v1/products?type=INVENTORY&id={id}"),
                 fixture.root_id(),
                 AdminRole::Admin,
             ))

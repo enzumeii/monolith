@@ -64,7 +64,6 @@ fn requests_own_validation_and_preserve_literal_values() {
     let request = ListProductsRequest {
         location_id: location.clone(),
         statuses: vec![ProductStatus::Active, ProductStatus::Draft],
-        variants_first: 10,
     };
     let variables = request
         .variables(&PageRequest {
@@ -78,7 +77,6 @@ fn requests_own_validation_and_preserve_literal_values() {
         ListProductsRequest {
             location_id: order.clone(),
             statuses: vec![],
-            variants_first: 10
         }
         .variables(&PageRequest {
             first: 10,
@@ -119,7 +117,6 @@ fn requests_own_validation_and_preserve_literal_values() {
 fn search_requests_preserve_literals_and_validate_ranges() {
     assert_eq!(
         OrdersByTagRequest {
-            lines_first: 10,
             tag: " shipping ".into()
         }
         .variables(&PageRequest {
@@ -142,15 +139,12 @@ fn search_requests_preserve_literals_and_validate_ranges() {
     );
     for blank in ["", " \t "] {
         assert!(
-            OrdersByTagRequest {
-                lines_first: 10,
-                tag: blank.into()
-            }
-            .variables(&PageRequest {
-                first: 10,
-                after: None
-            })
-            .is_err()
+            OrdersByTagRequest { tag: blank.into() }
+                .variables(&PageRequest {
+                    first: 10,
+                    after: None
+                })
+                .is_err()
         );
         assert!(
             OrdersByPaymentRequest {
@@ -245,4 +239,24 @@ fn page_sizes_and_continuation_metadata_are_validated() {
             valid
         );
     }
+}
+
+#[test]
+fn bounded_nested_connections_reject_incomplete_data() {
+    let complete = Connection {
+        nodes: vec![1; 250],
+        page_info: PageInfo {
+            has_next_page: false,
+            end_cursor: None,
+        },
+    };
+    assert_eq!(complete.into_complete_nodes().unwrap().len(), 250);
+    let incomplete = Connection {
+        nodes: vec![1; 250],
+        page_info: PageInfo {
+            has_next_page: true,
+            end_cursor: Some("more".into()),
+        },
+    };
+    assert!(incomplete.into_complete_nodes().is_err());
 }

@@ -60,16 +60,6 @@ fn tagged_line() -> Value {
     json!({"title":"Shirt","variantTitle":"Blue","sku":"SHIRT-BLUE","quantity":3,
         "originalUnitPriceSet":{"shopMoney":money()},"product":null,"variant":null})
 }
-fn tagged_lines(first: u64, count: u64) -> Vec<Value> {
-    (first..first + count)
-        .map(|n| {
-            let mut line = tagged_line();
-            line["title"] = json!(format!("line-{n}"));
-            line
-        })
-        .collect()
-}
-
 #[test]
 fn constructor_trusts_configuration_but_rejects_invalid_url_or_token() {
     let config = ShopifyConfig {
@@ -207,12 +197,6 @@ async fn location_lookup_has_no_catalog_pricing_dependency() {
     }
 }
 
-fn request_page() -> PageRequest {
-    PageRequest {
-        first: 7,
-        after: Some("incoming".into()),
-    }
-}
 #[tokio::test]
 async fn proxy_returns_one_parent_page_without_following_root_or_child_cursors() {
     let mut first = product(1, vec![variant(1)]);
@@ -226,7 +210,6 @@ async fn proxy_returns_one_parent_page_without_following_root_or_child_cursors()
             &ListProductsRequest {
                 location_id: id("Location", 1),
                 statuses: vec![ProductStatus::Active],
-                variants_first: 3,
             },
             &request_page(),
         )
@@ -239,45 +222,169 @@ async fn proxy_returns_one_parent_page_without_following_root_or_child_cursors()
     assert_eq!(requests.len(), 1);
     assert_eq!(
         requests[0].2["variables"],
-        json!({"locationId":id("Location",1),"search":"status:active","first":7,"after":"incoming","variantsFirst":3})
+        json!({"locationId":id("Location",1),"search":"status:active","first":7,"after":"incoming"})
     );
 }
+
 #[tokio::test]
-async fn every_paginated_proxy_forwards_size_cursor_and_returns_uncollected_page() {
+async fn tag_lookup_escapes_one_literal_instead_of_accepting_search_syntax() {
+    for (tag, search) in [
+        ("shipping", r#"tag:"shipping""#),
+        (r#"a"b\c:(d)"#, r#"tag:"a\"b\\c\:\(d\)""#),
+    ] {
+        let f = Fixture::new(vec![Reply::json(
+            json!({"data":{"orders":page(vec![],None)}}),
+        )])
+        .await;
+        assert!(
+            client(&f)
+                .orders_by_tag(&OrdersByTagRequest { tag: tag.into() }, &request_page())
+                .await
+                .unwrap()
+                .nodes
+                .is_empty()
+        );
+        assert_eq!(f.requests()[0].2["variables"]["search"], search);
+    }
+}
+
+#[tokio::test]
+async fn proxy_preserves_typed_upstream_failures() {
+    for (kind, reply) in [
+        ("http", Reply::status(503)),
+        (
+            "graphql",
+            Reply::json(json!({"data":null,"errors":[{"message":"private"}]})),
+        ),
+        (
+            "decode",
+            Reply {
+                status: 200,
+                body: "{".into(),
+                headers: vec![],
+            },
+        ),
+    ] {
+        let f = Fixture::new(vec![reply]).await;
+        let error = client(&f)
+            .orders_by_tag(&OrdersByTagRequest { tag: "tag".into() }, &request_page())
+            .await
+            .err()
+            .unwrap();
+        let ClientError::Origin { origin, source } = error else {
+            panic!("origin missing")
+        };
+        assert_eq!(origin, "api::client::shopify");
+        assert!(matches!(
+            (kind, *source),
+            ("http", ClientError::Http { status: 503, .. })
+                | ("graphql", ClientError::Graphql { .. })
+                | ("decode", ClientError::Decode { .. })
+        ));
+    }
+}
+#[tokio::test]
+async fn bounded_product_query_uses_fixed_250_variants() {
+    let f = Fixture::new(vec![Reply::json(
+        json!({"data":{"products":page(vec![],None)}}),
+    )])
+    .await;
+    client(&f)
+        .products_with_variants(
+            &ListProductsRequest {
+                location_id: id("Location", 1),
+                statuses: vec![ProductStatus::Active],
+            },
+            &request_page(),
+        )
+        .await
+        .unwrap();
+    let requests = f.requests();
+    let query = requests[0].2["query"].as_str().unwrap();
+    assert!(query.contains("variants(first: 250)"));
+    assert!(requests[0].2["variables"].get("variantsFirst").is_none());
+}
+
+fn request_page() -> PageRequest {
+    PageRequest {
+        first: 7,
+        after: Some("incoming".into()),
+    }
+}
+#[tokio::test]
+async fn root_proxies_forward_pages_without_collecting_them() {
     for operation in [
         "OrdersByPayment",
         "OrdersByTag",
         "SoldVariantsInRange",
-        "SalesOrderLines",
-        "TaggedOrderLines",
-        "ProductVariants",
         "FindInventoryToActivate",
     ] {
-        let response = paginated_response(operation);
+        let nodes = match operation {
+            "OrdersByPayment" => vec![order(1)],
+            "OrdersByTag" => vec![tagged_order(1, vec![tagged_line()])],
+            "SoldVariantsInRange" => vec![sales(1, page(vec![], None))],
+            _ => vec![inventory(1, false, 0, true)],
+        };
+        let connection = page(nodes, Some("next"));
+        let response = if operation == "FindInventoryToActivate" {
+            json!({"data":{"location":{"inventoryLevels":connection}}})
+        } else {
+            json!({"data":{"orders":connection}})
+        };
         let f = Fixture::new(vec![Reply::json(response)]).await;
         let c = client(&f);
-        let page = request_page();
-        let (count, info) = call_paginated_proxy(&c, operation, &page).await;
+        let p = request_page();
+        let (count, info) = call_root_proxy(&c, operation, &p).await;
         assert_eq!(count, 1);
         assert_eq!(info.end_cursor.as_deref(), Some("next"));
         assert!(info.has_next_page);
         let requests = f.requests();
         assert_eq!(requests.len(), 1);
-        let v = &requests[0].2["variables"];
-        assert_eq!(v["first"], 7);
+        let request = &requests[0].2;
+        let variables = &request["variables"];
+        assert_eq!(request["operationName"], operation);
+        assert_eq!(variables["first"], 7);
         assert_eq!(
-            v[if operation == "SoldVariantsInRange" {
+            variables[if operation == "SoldVariantsInRange" {
                 "ordersAfter"
             } else {
                 "after"
             }],
             "incoming"
         );
-        assert_eq!(requests[0].2["operationName"], operation);
+        assert!(variables.get("linesFirst").is_none());
         if operation == "OrdersByTag" {
-            assert_eq!(v["linesFirst"], 4);
+            assert!(
+                request["query"]
+                    .as_str()
+                    .unwrap()
+                    .contains("lineItems(first: 250)")
+            );
         }
     }
+}
+#[tokio::test]
+async fn bounded_sales_lines_accept_only_order_id() {
+    let f = Fixture::new(vec![Reply::json(child_order(1, page(vec![line(1)], None)))]).await;
+    let result = client(&f)
+        .sales_order_lines(&OrderLinesRequest {
+            order_id: id("Order", 1),
+        })
+        .await
+        .unwrap()
+        .order
+        .unwrap();
+    assert_eq!(result.id, id("Order", 1));
+    assert_eq!(result.line_items.nodes[0].quantity, 3);
+    let requests = f.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].2["variables"], json!({"id":id("Order",1)}));
+    assert!(
+        requests[0].2["query"]
+            .as_str()
+            .unwrap()
+            .contains("lineItems(first: 250)")
+    );
 }
 #[tokio::test]
 async fn invalid_client_inputs_are_rejected_before_network() {
@@ -285,32 +392,13 @@ async fn invalid_client_inputs_are_rejected_before_network() {
     let c = client(&f);
     let p = request_page();
     for error in [
-        c.orders_by_tag(
-            &OrdersByTagRequest {
-                tag: " ".into(),
-                lines_first: 10,
-            },
-            &p,
-        )
-        .await
-        .err()
-        .unwrap(),
-        c.sales_order_lines(
-            &OrderLinesRequest {
-                order_id: id("Location", 1),
-            },
-            &p,
-        )
-        .await
-        .err()
-        .unwrap(),
-        c.product_variants(
-            &ProductVariantsRequest {
-                product_id: id("Order", 1),
-                location_id: id("Location", 1),
-            },
-            &p,
-        )
+        c.orders_by_tag(&OrdersByTagRequest { tag: " ".into() }, &p)
+            .await
+            .err()
+            .unwrap(),
+        c.sales_order_lines(&OrderLinesRequest {
+            order_id: id("Location", 1),
+        })
         .await
         .err()
         .unwrap(),
@@ -337,96 +425,7 @@ async fn invalid_client_inputs_are_rejected_before_network() {
     }
     assert_eq!(f.requests().len(), 0);
 }
-#[tokio::test]
-async fn tag_lookup_escapes_one_literal_instead_of_accepting_search_syntax() {
-    for (tag, search) in [
-        ("shipping", r#"tag:"shipping""#),
-        (r#"a"b\c:(d)"#, r#"tag:"a\"b\\c\:\(d\)""#),
-    ] {
-        let f = Fixture::new(vec![Reply::json(
-            json!({"data":{"orders":page(vec![],None)}}),
-        )])
-        .await;
-        assert!(
-            client(&f)
-                .orders_by_tag(
-                    &OrdersByTagRequest {
-                        tag: tag.into(),
-                        lines_first: 10
-                    },
-                    &request_page()
-                )
-                .await
-                .unwrap()
-                .nodes
-                .is_empty()
-        );
-        assert_eq!(f.requests()[0].2["variables"]["search"], search);
-    }
-}
-#[tokio::test]
-async fn proxy_preserves_typed_upstream_failures() {
-    for (kind, reply) in [
-        ("http", Reply::status(503)),
-        (
-            "graphql",
-            Reply::json(json!({"data":null,"errors":[{"message":"private"}]})),
-        ),
-        (
-            "decode",
-            Reply {
-                status: 200,
-                body: "{".into(),
-                headers: vec![],
-            },
-        ),
-    ] {
-        let f = Fixture::new(vec![reply]).await;
-        let error = client(&f)
-            .orders_by_tag(
-                &OrdersByTagRequest {
-                    tag: "tag".into(),
-                    lines_first: 10,
-                },
-                &request_page(),
-            )
-            .await
-            .err()
-            .unwrap();
-        let ClientError::Origin { origin, source } = error else {
-            panic!("origin missing")
-        };
-        assert_eq!(origin, "api::client::shopify");
-        assert!(matches!(
-            (kind, *source),
-            ("http", ClientError::Http { status: 503, .. })
-                | ("graphql", ClientError::Graphql { .. })
-                | ("decode", ClientError::Decode { .. })
-        ));
-    }
-}
-fn paginated_response(operation: &str) -> Value {
-    let connection = match operation {
-        "OrdersByPayment" => page(vec![order(1)], Some("next")),
-        "OrdersByTag" => page(vec![tagged_order(1, vec![tagged_line()])], Some("next")),
-        "SoldVariantsInRange" => page(vec![sales(1, page(vec![], None))], Some("next")),
-        "SalesOrderLines" => page(vec![line(1)], Some("next")),
-        "TaggedOrderLines" => page(tagged_lines(1, 1), Some("next")),
-        "ProductVariants" => page(vec![variant(1)], Some("next")),
-        _ => page(vec![inventory(1, false, 0, true)], Some("next")),
-    };
-    match operation {
-        "SalesOrderLines" | "TaggedOrderLines" => child_order(1, connection),
-        "ProductVariants" => {
-            json!({"data":{"product":{"id":id("Product",1),"variants":connection}}})
-        }
-        "FindInventoryToActivate" => {
-            json!({"data":{"location":{"inventoryLevels":connection}}})
-        }
-        _ => json!({"data":{"orders":connection}}),
-    }
-}
-async fn call_paginated_proxy(
+async fn call_root_proxy(
     c: &ShopifyClient,
     operation: &str,
     page: &PageRequest,
@@ -449,7 +448,6 @@ async fn call_paginated_proxy(
                 .orders_by_tag(
                     &OrdersByTagRequest {
                         tag: "shipping".into(),
-                        lines_first: 4,
                     },
                     page,
                 )
@@ -468,49 +466,6 @@ async fn call_paginated_proxy(
                     page,
                 )
                 .await
-                .unwrap();
-            (p.nodes.len(), p.page_info)
-        }
-        "SalesOrderLines" => {
-            let p = c
-                .sales_order_lines(
-                    &OrderLinesRequest {
-                        order_id: id("Order", 1),
-                    },
-                    page,
-                )
-                .await
-                .unwrap()
-                .into_connection(&id("Order", 1))
-                .unwrap();
-            (p.nodes.len(), p.page_info)
-        }
-        "TaggedOrderLines" => {
-            let p = c
-                .tagged_order_lines(
-                    &OrderLinesRequest {
-                        order_id: id("Order", 1),
-                    },
-                    page,
-                )
-                .await
-                .unwrap()
-                .into_connection(&id("Order", 1))
-                .unwrap();
-            (p.nodes.len(), p.page_info)
-        }
-        "ProductVariants" => {
-            let p = c
-                .product_variants(
-                    &ProductVariantsRequest {
-                        product_id: id("Product", 1),
-                        location_id: id("Location", 1),
-                    },
-                    page,
-                )
-                .await
-                .unwrap()
-                .into_connection(&id("Product", 1))
                 .unwrap();
             (p.nodes.len(), p.page_info)
         }

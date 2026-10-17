@@ -1,9 +1,4 @@
-query OrdersByTag(
-  $first: Int!
-  $linesFirst: Int!
-  $search: String!
-  $after: String
-) {
+query OrdersByTag($first: Int!, $search: String!, $after: String) {
   orders(
     first: $first
     after: $after
@@ -17,7 +12,7 @@ query OrdersByTag(
       tags
       email
       phone
-      lineItems(first: $linesFirst) {
+      lineItems(first: 250) {
         nodes {
           title
           variantTitle

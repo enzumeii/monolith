@@ -538,7 +538,6 @@ mod logging_tests {
                             .orders_by_tag(
                                 &OrdersByTagRequest {
                                     tag: "private-upstream-value".into(),
-                                    lines_first: 10,
                                 },
                                 &crate::shopify_models::PageRequest {
                                     first: 10,

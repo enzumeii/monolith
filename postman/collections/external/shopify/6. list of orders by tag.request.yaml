@@ -1,12 +1,7 @@
 $kind: graphql-request
 url: "{{shopify}}/graphql.json"
 query: |
-  query OrdersByTag(
-    $first: Int!
-    $linesFirst: Int!
-    $search: String!
-    $after: String
-  ) {
+  query OrdersByTag($first: Int!, $search: String!, $after: String) {
     orders(
       first: $first
       after: $after
@@ -20,7 +15,7 @@ query: |
         tags
         email
         phone
-        lineItems(first: $linesFirst) {
+        lineItems(first: 250) {
           nodes {
             title
             variantTitle
@@ -72,8 +67,7 @@ variables: |
   {
     "search": "tag:\"shipping\"",
     "after": null,
-    "first": 10,
-    "linesFirst": 10
+    "first": 1
   }
 settings: {}
 schema:

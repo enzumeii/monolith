@@ -1,10 +1,10 @@
 $kind: graphql-request
 url: "{{shopify}}/graphql.json"
 query: |
-  query SalesOrderLines($first: Int!, $id: ID!, $after: String) {
+  query SalesOrderLines($id: ID!) {
     order(id: $id) {
       id
-      lineItems(first: $first, after: $after) {
+      lineItems(first: 250) {
         nodes {
           id
           title
@@ -34,9 +34,7 @@ query: |
   }
 variables: |
   {
-    "id": "gid://shopify/Order/123",
-    "after": null,
-    "first": 10
+    "id": "gid://shopify/Order/123"
   }
 settings: {}
 schema:

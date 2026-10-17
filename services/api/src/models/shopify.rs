@@ -72,7 +72,6 @@ impl ProductStatus {
     }
 }
 pub struct ListProductsRequest {
-    pub variants_first: u16,
     pub location_id: ShopifyId,
     pub statuses: Vec<ProductStatus>,
 }
@@ -80,17 +79,15 @@ pub struct OrdersByPaymentRequest {
     pub payment_id: String,
 }
 pub struct OrdersByTagRequest {
-    pub lines_first: u16,
     pub tag: String,
 }
 pub struct OrderLinesRequest {
     pub order_id: ShopifyId,
 }
 impl OrderLinesRequest {
-    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
-        page.validate()?;
+    pub(crate) fn variables(&self) -> Result<Value, ClientError> {
         self.order_id.require_kind("Order")?;
-        Ok(json!({"id": self.order_id, "after": page.after, "first": page.first}))
+        Ok(json!({"id":self.order_id}))
     }
 }
 
@@ -114,7 +111,6 @@ pub struct ActivateInventoryRequest {
 impl ListProductsRequest {
     pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
         page.validate()?;
-        validate_size(self.variants_first)?;
         self.location_id.require_kind("Location")?;
         let search = if self.statuses.is_empty() {
             None
@@ -129,7 +125,7 @@ impl ListProductsRequest {
             ))
         };
         Ok(
-            json!({"locationId": self.location_id, "search": search, "variantsFirst": self.variants_first, "after": page.after, "first": page.first}),
+            json!({"locationId": self.location_id, "search": search, "after": page.after, "first": page.first}),
         )
     }
 }
@@ -147,12 +143,11 @@ impl OrdersByPaymentRequest {
 impl OrdersByTagRequest {
     pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
         page.validate()?;
-        validate_size(self.lines_first)?;
         if self.tag.trim().is_empty() {
             return Err(ClientError::InvalidInput("order tag is empty"));
         }
         Ok(
-            json!({"search": format!("tag:\"{}\"", escape_search(&self.tag)), "linesFirst": self.lines_first, "after": page.after, "first": page.first}),
+            json!({"search": format!("tag:\"{}\"", escape_search(&self.tag)), "after": page.after, "first": page.first}),
         )
     }
 }
@@ -483,16 +478,6 @@ pub struct LineProduct {
     pub product_type: String,
 }
 #[derive(Deserialize)]
-pub struct VariantPageData {
-    pub product: Option<VariantPage>,
-}
-#[derive(Deserialize)]
-pub struct VariantPage {
-    pub id: ShopifyId,
-    pub variants: Connection<Variant>,
-}
-
-#[derive(Deserialize)]
 pub struct LocationData {
     pub location: Option<ResourceReference>,
 }
@@ -514,20 +499,6 @@ impl PageRequest {
         Ok(())
     }
 }
-pub struct ProductVariantsRequest {
-    pub product_id: ShopifyId,
-    pub location_id: ShopifyId,
-}
-impl ProductVariantsRequest {
-    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
-        page.validate()?;
-        self.product_id.require_kind("Product")?;
-        self.location_id.require_kind("Location")?;
-        Ok(
-            json!({"id": self.product_id,"locationId":self.location_id,"first":page.first,"after":page.after}),
-        )
-    }
-}
 impl PageInfo {
     pub fn validate_after(&self, after: Option<&str>) -> Result<(), ClientError> {
         if self.has_next_page
@@ -542,31 +513,6 @@ impl PageInfo {
             );
         }
         Ok(())
-    }
-}
-impl<T> OrderLinesData<T> {
-    pub(crate) fn into_connection(self, id: &ShopifyId) -> Result<Connection<T>, ClientError> {
-        let parent = self.order.ok_or(ClientError::Protocol(
-            "order disappeared during line pagination",
-        ))?;
-        if &parent.id != id {
-            return Err(ClientError::Protocol("line items belong to another order"));
-        }
-        Ok(parent.line_items)
-    }
-}
-impl VariantPageData {
-    pub(crate) fn into_connection(
-        self,
-        id: &ShopifyId,
-    ) -> Result<Connection<Variant>, ClientError> {
-        let parent = self.product.ok_or(ClientError::Protocol(
-            "product disappeared during variant pagination",
-        ))?;
-        if &parent.id != id {
-            return Err(ClientError::Protocol("variants belong to another product"));
-        }
-        Ok(parent.variants)
     }
 }
 fn validate_size(first: u16) -> Result<(), ClientError> {
@@ -591,5 +537,17 @@ impl Sku {
     #[must_use]
     pub fn into_string(self) -> String {
         self.0
+    }
+}
+
+impl<T> Connection<T> {
+    pub(crate) fn into_complete_nodes(self) -> Result<Vec<T>, ClientError> {
+        if self.page_info.has_next_page {
+            return Err(
+                ClientError::Protocol("nested connection exceeds report limit")
+                    .at("api::models::shopify"),
+            );
+        }
+        Ok(self.nodes)
     }
 }

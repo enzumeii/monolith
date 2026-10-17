@@ -1,6 +1,5 @@
 query ProductsWithVariants(
   $first: Int!
-  $variantsFirst: Int!
   $locationId: ID!
   $search: String
   $after: String
@@ -16,7 +15,7 @@ query ProductsWithVariants(
       featuredImage {
         url
       }
-      variants(first: $variantsFirst) {
+      variants(first: 250) {
         nodes {
           id
           title

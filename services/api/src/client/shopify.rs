@@ -5,9 +5,9 @@ use crate::{
         ActivateInventoryRequest, ActivationData, Connection, InventoryActivationCandidate,
         InventoryData, InventoryDiscoveryRequest, ListProductsRequest, Order, OrderLinesData,
         OrderLinesRequest, OrderUpdateData, OrdersByPaymentRequest, OrdersByTagData,
-        OrdersByTagRequest, OrdersData, PageRequest, Product, ProductVariantsRequest, ProductsData,
+        OrdersByTagRequest, OrdersData, PageRequest, Product, ProductsData,
         ReplaceOrderTagsRequest, SalesData, SalesLine, SalesOrderHeader, SalesRangeRequest,
-        ShopifyId, TaggedOrder, TaggedOrderLineItem, VariantPageData,
+        ShopifyId, TaggedOrder,
     },
 };
 use reqwest::{
@@ -119,50 +119,13 @@ impl ShopifyClient {
     pub async fn sales_order_lines(
         &self,
         input: &OrderLinesRequest,
-        page: &PageRequest,
     ) -> Result<OrderLinesData<SalesLine>, ClientError> {
         async {
             let data: OrderLinesData<SalesLine> = self
                 .execute(
                     "SalesOrderLines",
                     include_str!("shopify/sales_order_lines.graphql"),
-                    input.variables(page)?,
-                )
-                .await?;
-            Ok(data)
-        }
-        .await
-        .map_err(|error: ClientError| error.at(ORIGIN))
-    }
-    pub async fn tagged_order_lines(
-        &self,
-        input: &OrderLinesRequest,
-        page: &PageRequest,
-    ) -> Result<OrderLinesData<TaggedOrderLineItem>, ClientError> {
-        async {
-            let data: OrderLinesData<TaggedOrderLineItem> = self
-                .execute(
-                    "TaggedOrderLines",
-                    include_str!("shopify/tagged_order_lines.graphql"),
-                    input.variables(page)?,
-                )
-                .await?;
-            Ok(data)
-        }
-        .await
-        .map_err(|error: ClientError| error.at(ORIGIN))
-    }
-    pub async fn product_variants(
-        &self,
-        input: &ProductVariantsRequest,
-        page: &PageRequest,
-    ) -> Result<VariantPageData, ClientError> {
-        async {
-            let data: VariantPageData = self
-                .execute(
-                    "ProductVariants",
-                    include_str!("shopify/product_variants.graphql"),
-                    input.variables(page)?,
+                    input.variables()?,
                 )
                 .await?;
             Ok(data)

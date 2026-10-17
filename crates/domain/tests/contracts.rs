@@ -49,8 +49,7 @@ fn products_contract_preserves_numeric_values_nulls_and_query_enum() {
             "quantity":3,
             "total_selling_price":0.3,
             "total_weight":7.5
-        }],
-        "page_info":{"has_next_page":false,"end_cursor":null}
+        }]
     });
     let report: ProductsResponse = serde_json::from_value(value.clone()).expect("decode report");
     assert_eq!(
@@ -60,10 +59,27 @@ fn products_contract_preserves_numeric_values_nulls_and_query_enum() {
 }
 
 #[test]
-fn products_contract_keeps_continuation_metadata() {
-    let value =
-        serde_json::json!({"products":[],"page_info":{"has_next_page":true,"end_cursor":"next"}});
+fn complete_report_wire_has_only_products() {
+    let value = serde_json::json!({"products":[]});
     let report: domain::dto::ProductsResponse =
-        serde_json::from_value(value.clone()).expect("report");
-    assert_eq!(serde_json::to_value(report).expect("wire report"), value);
+        serde_json::from_value(value.clone()).expect("complete report");
+    assert_eq!(
+        serde_json::to_value(report).expect("serialize report"),
+        value
+    );
+}
+
+#[test]
+fn report_query_rejects_removed_pagination_fields() {
+    for extra in [
+        serde_json::json!({"page_size":1}),
+        serde_json::json!({"cursor":"next"}),
+    ] {
+        let mut query = serde_json::json!({"type":"ORDER_TAG","id":"report"});
+        query
+            .as_object_mut()
+            .expect("query object")
+            .extend(extra.as_object().expect("extra object").clone());
+        assert!(serde_json::from_value::<domain::dto::ProductReportQuery>(query).is_err());
+    }
 }

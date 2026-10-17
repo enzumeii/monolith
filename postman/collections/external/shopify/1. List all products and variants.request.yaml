@@ -3,7 +3,6 @@ url: "{{shopify}}/graphql.json"
 query: |
   query ProductsWithVariants(
     $first: Int!
-    $variantsFirst: Int!
     $locationId: ID!
     $search: String
     $after: String
@@ -19,7 +18,7 @@ query: |
         featuredImage {
           url
         }
-        variants(first: $variantsFirst) {
+        variants(first: 250) {
           nodes {
             id
             title
@@ -73,8 +72,7 @@ variables: |
     "locationId": "gid://shopify/Location/123",
     "search": "status:active",
     "after": null,
-    "first": 10,
-    "variantsFirst": 10
+    "first": 1
   }
 settings: {}
 schema:
