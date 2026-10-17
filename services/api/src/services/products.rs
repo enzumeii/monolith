@@ -38,7 +38,7 @@ async fn inventory_report(
     for_each_page(
         async |after| {
             client
-                .products_with_variants(&request, &PageRequest { first: 1, after })
+                .products_with_variants(&request, &PageRequest { first: 250, after })
                 .await
         },
         |products| {
@@ -65,7 +65,7 @@ async fn tagged_report(client: &ShopifyClient, tag: String) -> Result<Vec<Report
     for_each_page(
         async |after| {
             client
-                .orders_by_tag(&request, &PageRequest { first: 1, after })
+                .orders_by_tag(&request, &PageRequest { first: 250, after })
                 .await
         },
         |orders| {
