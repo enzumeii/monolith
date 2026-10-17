@@ -12,8 +12,7 @@ flowchart LR
     REPO --> DB[("PostgreSQL")]
     DOMAIN["Shared request/response DTOs"] -.-> UI
     DOMAIN -.-> API
-    CALLER["Future caller"] -.-> SHOPIFYSERVICE["Shopify service: complete use cases"]
-    SHOPIFYSERVICE --> SHOPIFY["ShopifyClient: nine operation proxies"]
+    CALLER["Future caller"] -.-> SHOPIFY["ShopifyClient: automatic query pagination"]
     SHOPIFY --> GQL["GraphqlClient"]
     GQL --> HTTP["HttpClient: reqwest pool"]
     HTTP --> REMOTE["Shopify Admin GraphQL"]
@@ -28,7 +27,7 @@ flowchart LR
 | `apps/backoffice` | Browser pages, forms, direct API requests, session coordination | Public configuration only; Axum owns cookies, CORS, and origin checks |
 | `apps/client-ui` | Placeholder client application | No implemented service integration |
 
-Callers explicitly construct ShopifyClient from state.settings.client.shopify. Complete use cases are exported as api::shopify_service. Routes, startup, scheduled jobs and persistence do not invoke Shopify.
+Callers explicitly construct ShopifyClient from state.settings.client.shopify. Routes, startup, scheduled jobs and persistence do not invoke Shopify.
 
 ## Module responsibilities
 
@@ -45,8 +44,7 @@ Callers explicitly construct ShopifyClient from state.settings.client.shopify. C
 | `src/validations/` / `src/utils/password.rs` | Input rules / Argon2 operations |
 | `src/error.rs` | Public error mapping and centralized boundary logging |
 | `src/client.rs` | Generic HTTP/GraphQL request envelopes, decoding, failures, throttling backoff |
-| `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication and nine single-operation GraphQL proxies / matching query documents |
-| `src/services/shopify.rs` | Seven complete Shopify workflows: pagination, order assembly, inventory selection and mutation interpretation |
+| `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication, seven automatically paginated queries and two raw mutations / matching query documents |
 | `src/tests/` | Tests mirroring implementation paths through test-gated child modules |
 | `e2e-test/` | Real TCP endpoint tests and shared application/database fixtures |
 | `migrations/` / `.sqlx/` | Database migrations / offline SQLx metadata |
@@ -130,47 +128,36 @@ flowchart LR
 | --- | --- |
 | `HttpClient` | Reusable reqwest pool; per-request generic headers; 30-second per-attempt timeout; redirects disabled |
 | `GraphqlClient` | Typed variables; raw envelope error classification before successful data decoding; reject partial-data errors |
-| `ShopifyClient` | Nine typed single-page proxies, aligned method/document/operation names; token header and HTTP construction in new; trusted configured Admin API URL, version 2026-10 |
-| Request types | Own operation validation, resource-kind checks and search/variable construction; the client forwards validated variables for one operation |
+| `ShopifyClient` | Nine typed methods with aligned operation/document names; seven queries collect every page internally; constructor supplies the token header and trusted configured Admin API URL, version 2026-10 |
+| Request types | Own operation validation, resource-kind checks and search/variable construction; the client supplies internal continuation cursors |
 | Shopify models | Connection and PageInfo live beside Shopify contracts; the shared collector imports them |
-| DTOs | Public through `api::shopify_models`; shop-only money sets retain decimal amounts and currency; nullable references remain nullable; public raw response envelopes retain pageInfo, userErrors and optional results |
-| Shopify service | Complete seven use cases in api::shopify_service; owns cursor traversal, parent checks, assembly, inventory selection and mutation interpretation |
-| Configuration | `config.rs` reads SHOPIFY_ACCESS_TOKEN after dotenv loading and assigns it once into the configured optional Shopify subtree during settings construction; token deserialization is skipped; `[client.shopify]` in TOML contains only `admin_api_url` |
-| Initialization | Shopify credentials are optional for API startup and required when constructing the client |
+| DTOs | Public through `api::shopify_models`; shop-only money sets retain decimal amounts and currency; nullable references remain nullable; queries return complete Vec node collections, nested product variants retain pageInfo, mutations retain raw userErrors and optional results |
+| Configuration | `config.rs` uses one ConfigBuilder build/deserialization; dotenv/environment DATABASE_URL, JWT_SECRET and SHOPIFY_ACCESS_TOKEN override matching file values before deserialization; `[client.shopify]` in TOML contains only `admin_api_url` |
+| Initialization | Absent Shopify configuration remains optional without a token override; a token override requires its file-configured admin URL; client construction requires a nonblank token |
 
-| Service function (api::shopify_service) | Result |
-| --- | --- |
-| `list_products` | Status-filtered products containing the first 250 variants per product (no variant cursor or overflow error), SKUs, location-contextual prices/currencies, images, and quantities |
-| `orders_by_payment_id` | All matching orders and transaction/contact details using Shopify's payment ID |
-| `orders_by_tag` | Newest-first orders matching one literal tag; all order pages and all line-item pages per order, returned tags, and shop-currency prices |
-| `sales_in_range` | Every order created in an offset-aware half-open interval; all line-item pages per order; statuses, test flag, quantities, and original prices retained |
-| `replace_order_tags` | Replace the complete tag list; empty input clears it |
-| `find_inventory_to_activate` | Target-location levels filtered in Rust to tracked, inactive items with positive on-hand stock |
-| `activate_inventory` | Activate the supplied inventory item/location with caller idempotency UUID; omit quantity arguments to preserve stored stock |
-
-| Client method / GraphQL filename stem | GraphQL operation | Result boundary |
+| Client method / GraphQL filename stem | GraphQL operation | Result |
 | --- | --- | --- |
-| products_with_variants | ProductsWithVariants | One products page; nested variants first250 |
-| orders_by_payment | OrdersByPayment | One matching orders page |
-| orders_by_tag | OrdersByTag | One matching order-header page |
-| sold_variants_in_range | SoldVariantsInRange | One date-filtered order-header page |
-| sales_order_lines | SalesOrderLines | One order's sales-line page, first250 |
-| tagged_order_lines | TaggedOrderLines | One order's tag-result line page, first250 |
-| replace_order_tags | ReplaceOrderTags | Raw userErrors and optional order |
-| find_inventory_to_activate | FindInventoryToActivate | Raw optional location with unfiltered inventory page |
-| activate_existing_inventory | ActivateExistingInventory | Raw userErrors and optional inventory level |
+| products_with_variants | ProductsWithVariants | Vec<Product>; all products, each with first250 variants, SKU/images/location quantities and contextual price/currency |
+| orders_by_payment | OrdersByPayment | Vec<Order>; all payment-ID matches, contacts/transactions and money |
+| orders_by_tag | OrdersByTag | Vec<TaggedOrderHeader>; all newest-first matching headers, tags and shop money |
+| sold_variants_in_range | SoldVariantsInRange | Vec<SalesOrderHeader>; all offset-aware half-open date matches, statuses/test/cancellation |
+| sales_order_lines | SalesOrderLines | Vec<SalesLine>; every line page for the supplied order, quantities and original money |
+| tagged_order_lines | TaggedOrderLines | Vec<TaggedOrderLineItem>; every line page for the supplied order |
+| replace_order_tags | ReplaceOrderTags | Raw userErrors and optional updated order; empty tags clears the complete list |
+| find_inventory_to_activate | FindInventoryToActivate | Vec<InventoryActivationCandidate>; all raw location levels, including active/untracked/zero stock |
+| activate_existing_inventory | ActivateExistingInventory | Raw userErrors/optional inventory level; supplied UUID; quantity arguments absent |
 
-Each query proxy accepts an explicit cursor and returns pageInfo without following it. Service functions take a client and request, preserve the assembled result shapes and fail rather than return partial success.
+Queries accept requests without cursor arguments and preserve response order across pages. Header and line-item methods are independent; there is no automatic order/line assembly or inventory selection layer. Callers inspect raw inventory and mutation results.
 
 | Request policy | Guarantee / limit |
 | --- | --- |
-| Pagination | Service uses the shared collector to traverse outer pages at 250 nodes per request and per-order sales/tag line pages at 250. Child requests use stable order IDs, reset cursors for each order and reject missing/mismatched parents. Missing/repeated/cyclic cursors fail. Products retain first:250 variants without a variant cursor; pageInfo exposes possible truncation |
+| Pagination | Client uses the shared collector for each query at 250 nodes per request. Every method call starts without a cursor; line methods use the supplied order ID and reject missing/mismatched parents. Missing/repeated/cyclic cursors fail. Products retain first:250 variants without a variant cursor; pageInfo exposes possible truncation |
 | Throttling | HttpClient owns one retry loop for HTTP 4xx and data-less all-THROTTLED GraphQL responses; GraphqlClient supplies the envelope classifier |
 | Budget | Four total attempts; 1/2/4-second backoff plus 0–250 ms jitter; total retry sleep at most 30 seconds |
 | Retry-After | Honor seconds/HTTP-date minimums; stop rather than exceed the sleep budget or overflow duration arithmetic |
 | No replay | HTTP 3xx/5xx, network ambiguity/timeouts, decoding errors, partial data, and mutation user errors |
 | Mutations | Preserve exact variables and idempotency key during throttling retries; discovery never activates automatically |
-| Sales semantics | Upstream services calculate/filter; current quantities can reflect refunds after the selected order-creation range |
+| Sales semantics | Callers calculate/filter; current quantities can reflect refunds after the selected order-creation range |
 | Platform limits | No snapshot isolation, bulk-export guarantee, or bypass of Shopify limits. Nested 250-by-250 query cost remains unverified against the 1,000-point maximum; non-throttle cost errors propagate without retry |
 | Compatibility | Discovery retains Shopify's supported deprecated singular inventory-item `variant` field |
 
@@ -180,7 +167,7 @@ Each query proxy accepts an explicit cursor and returns pageInfo without followi
 | --- | --- |
 | API failures | Sanitized public responses; one WARN/ERROR summary at the handling boundary with operation, category, and innermost origin |
 | API DEBUG diagnostics | Underlying causes/context are opt-in; conversions do not log |
-| Client failures | Distinct transport, HTTP, decode, GraphQL, protocol, input, mutation and retry-budget errors; safe Display/Debug; every handled ClientError logs once at ERROR through AppError response or log_background_error; creation/conversion is silent |
+| Client failures | Shopify entry-point failures carry origin api::client::shopify through ClientError::Origin, retaining typed causes and lower-level transport/decode origins. Generic unwrapped client errors retain their existing origins. One ERROR at AppError response/background handling; no events during creation/conversion/propagation; safe Display/Debug |
 | Sensitive fields | Configuration Debug redacts secrets; do not log raw requests, upstream bodies, or client error fields |
 | Persistence | Transactions remain service-owned, SQL remains repository-owned; intentional admin/seed migrations are preserved |
 | Runtime | Standalone Axum listener and Tokio maintenance; no serverless adapter or production deployment mechanism |

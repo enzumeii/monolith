@@ -123,13 +123,13 @@ fn shopify_token_is_loaded_by_configuration_and_never_debugged() {
 }
 
 #[test]
-fn shopify_token_cannot_be_supplied_by_toml() {
+fn shopify_file_token_follows_normal_deserialization() {
     let config: ShopifyConfig = config::Config::builder()
         .add_source(config::File::from_str(
             "admin_api_url = 'https://shop.myshopify.com/admin/api/2026-10/graphql.json'\naccess_token = 'ignored-token'",
             config::FileFormat::Toml,
         )).build().unwrap().try_deserialize().unwrap();
-    assert!(config.access_token.is_none());
+    assert_eq!(config.access_token.as_deref(), Some("ignored-token"));
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn local_overlay_preserves_shopify_url_configured_in_application_toml() {
 }
 
 #[test]
-fn runtime_token_excludes_file_tokens_and_keeps_shopify_optional() {
+fn builder_token_precedence_and_missing_url_follow_normal_configuration() {
     for (configured, token) in [
         (false, None),
         (false, Some("env-token")),
@@ -177,18 +177,29 @@ fn runtime_token_excludes_file_tokens_and_keeps_shopify_optional() {
             .unwrap()
             .set_override("jwt.secret", "ab".repeat(32))
             .unwrap();
-        let source = if configured {
+        let builder = if configured {
             builder
                 .set_override("client.shopify.admin_api_url", "http://localhost:1/graphql")
                 .unwrap()
                 .set_override("client.shopify.access_token", "file-token")
                 .unwrap()
-                .build()
+        } else {
+            builder
+        };
+        let builder = if let Some(token) = token {
+            builder
+                .set_override("client.shopify.access_token", token)
                 .unwrap()
         } else {
-            builder.build().unwrap()
+            builder
         };
-        let settings = Settings::from_config(source, token.map(str::to_owned)).unwrap();
+        let result = builder.build().unwrap().try_deserialize::<Settings>();
+        if !configured && token.is_some() {
+            assert!(result.is_err());
+            continue;
+        }
+        let settings = result.unwrap();
+        settings.validate().unwrap();
         if configured {
             assert_eq!(
                 settings
@@ -198,10 +209,26 @@ fn runtime_token_excludes_file_tokens_and_keeps_shopify_optional() {
                     .unwrap()
                     .access_token
                     .as_deref(),
-                token
+                token.or(Some("file-token"))
             );
         } else {
             assert!(settings.client.is_none());
         }
     }
+}
+
+#[test]
+fn builder_override_populates_shopify_token_without_a_construction_helper() {
+    let config: ShopifyConfig = config::Config::builder()
+        .add_source(config::File::from_str(
+            "admin_api_url = 'https://shop.myshopify.com/graphql'\naccess_token = 'file-token'",
+            config::FileFormat::Toml,
+        ))
+        .set_override("access_token", "env-token")
+        .unwrap()
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert_eq!(config.access_token.as_deref(), Some("env-token"));
 }

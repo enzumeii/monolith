@@ -123,7 +123,7 @@ impl ListProductsRequest {
                     .join(",")
             ))
         };
-        Ok(json!({"locationId": self.location_id, "search": search, "productsAfter": after}))
+        Ok(json!({"locationId": self.location_id, "search": search, "after": after}))
     }
 }
 impl OrdersByPaymentRequest {
@@ -368,19 +368,6 @@ pub struct TaggedOrderHeader {
     pub phone: Option<String>,
     pub current_total_price_set: MoneyBag,
 }
-impl TaggedOrderHeader {
-    pub(crate) fn with_lines(self, line_items: TaggedOrderLineItems) -> TaggedOrder {
-        TaggedOrder {
-            tags: self.tags,
-            id: self.id,
-            number: self.number,
-            email: self.email,
-            phone: self.phone,
-            current_total_price_set: self.current_total_price_set,
-            line_items,
-        }
-    }
-}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -392,20 +379,6 @@ pub struct SalesOrderHeader {
     pub test: bool,
     pub display_financial_status: Option<String>,
     pub display_fulfillment_status: String,
-}
-impl SalesOrderHeader {
-    pub(crate) fn with_lines(self, line_items: Connection<SalesLine>) -> SalesOrder {
-        SalesOrder {
-            id: self.id,
-            name: self.name,
-            created_at: self.created_at,
-            cancelled_at: self.cancelled_at,
-            test: self.test,
-            display_financial_status: self.display_financial_status,
-            display_fulfillment_status: self.display_fulfillment_status,
-            line_items,
-        }
-    }
 }
 
 #[derive(Deserialize)]

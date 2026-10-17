@@ -67,7 +67,7 @@ fn requests_own_validation_and_preserve_literal_values() {
     };
     let variables = request.variables(Some("next")).unwrap();
     assert_eq!(variables["search"], "status:active,draft");
-    assert_eq!(variables["productsAfter"], "next");
+    assert_eq!(variables["after"], "next");
     assert!(
         ListProductsRequest {
             location_id: order.clone(),

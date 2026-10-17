@@ -8,10 +8,16 @@ query TaggedOrderLines($id: ID!, $after: String) {
         sku
         quantity
         originalUnitPriceSet {
-          shopMoney { amount currencyCode }
+          shopMoney {
+            amount
+            currencyCode
+          }
         }
       }
-      pageInfo { hasNextPage endCursor }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
     }
   }
 }

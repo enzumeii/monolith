@@ -377,3 +377,44 @@ async fn generic_http_4xx_exhausts_four_attempts() {
     assert!(matches!(result, Err(ClientError::RetryExhausted)));
     assert_eq!(fixture.requests().len(), 4);
 }
+
+#[test]
+fn client_origin_wraps_once_and_preserves_the_typed_source_chain() {
+    use std::error::Error;
+    let error = ClientError::Decode {
+        origin: "api::client::decode",
+        source: serde_json::from_str::<Value>("{").unwrap_err(),
+    }
+    .at("api::client::shopify")
+    .at("api::caller");
+    assert!(error.to_string().contains("api::client::shopify"));
+    match &error {
+        ClientError::Origin { origin, source } => {
+            assert_eq!(*origin, "api::client::shopify");
+            assert!(matches!(
+                source.as_ref(),
+                ClientError::Decode {
+                    origin: "api::client::decode",
+                    ..
+                }
+            ));
+        }
+        _ => panic!("client identity missing"),
+    }
+    assert!(
+        error
+            .source()
+            .unwrap()
+            .downcast_ref::<ClientError>()
+            .is_some()
+    );
+    assert!(
+        error
+            .source()
+            .unwrap()
+            .source()
+            .unwrap()
+            .downcast_ref::<serde_json::Error>()
+            .is_some()
+    );
+}

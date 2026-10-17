@@ -22,7 +22,10 @@ query SalesOrderLines($id: ID!, $after: String) {
           }
         }
       }
-      pageInfo { hasNextPage endCursor }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
     }
   }
 }

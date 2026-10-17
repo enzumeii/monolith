@@ -257,7 +257,8 @@ impl std::fmt::Debug for Diagnostic<'_> {
 impl From<crate::client::ClientError> for AppError {
     fn from(error: crate::client::ClientError) -> Self {
         let origin = match &error {
-            crate::client::ClientError::Transport { origin, .. }
+            crate::client::ClientError::Origin { origin, .. }
+            | crate::client::ClientError::Transport { origin, .. }
             | crate::client::ClientError::Decode { origin, .. } => *origin,
             _ => "api::client",
         };

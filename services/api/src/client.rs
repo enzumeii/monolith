@@ -4,43 +4,74 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{collections::BTreeMap, fmt, time::Duration};
-use thiserror::Error;
 
 pub(crate) mod pagination;
 pub mod shopify;
 
-#[derive(Error)]
 pub enum ClientError {
-    #[error("HTTP transport failed in {origin}")]
+    Origin {
+        origin: &'static str,
+        source: Box<Self>,
+    },
     Transport {
         origin: &'static str,
-        #[source]
         source: reqwest::Error,
     },
-    #[error("HTTP request failed ({status})")]
     Http {
         status: u16,
         request_id: Option<String>,
     },
-    #[error("Response decoding failed in {origin}")]
     Decode {
         origin: &'static str,
-        #[source]
         source: serde_json::Error,
     },
-    #[error("GraphQL operation failed")]
     Graphql {
         errors: Vec<GraphqlError>,
         extensions: serde_json::Value,
     },
-    #[error("GraphQL mutation rejected")]
-    Mutation { errors: Vec<MutationUserError> },
-    #[error("Invalid upstream response: {0}")]
+    Mutation {
+        errors: Vec<MutationUserError>,
+    },
     Protocol(&'static str),
-    #[error("Invalid client input: {0}")]
     InvalidInput(&'static str),
-    #[error("Retry budget exhausted")]
     RetryExhausted,
+}
+impl fmt::Display for ClientError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Origin { origin, .. } => write!(f, "Client operation failed in {origin}"),
+            Self::Transport { origin, .. } => write!(f, "HTTP transport failed in {origin}"),
+            Self::Http { status, .. } => write!(f, "HTTP request failed ({status})"),
+            Self::Decode { origin, .. } => write!(f, "Response decoding failed in {origin}"),
+            Self::Graphql { .. } => f.write_str("GraphQL operation failed"),
+            Self::Mutation { .. } => f.write_str("GraphQL mutation rejected"),
+            Self::Protocol(message) => write!(f, "Invalid upstream response: {message}"),
+            Self::InvalidInput(message) => write!(f, "Invalid client input: {message}"),
+            Self::RetryExhausted => f.write_str("Retry budget exhausted"),
+        }
+    }
+}
+impl std::error::Error for ClientError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Origin { source, .. } => Some(source.as_ref()),
+            Self::Transport { source, .. } => Some(source),
+            Self::Decode { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+}
+impl ClientError {
+    pub(crate) fn at(self, origin: &'static str) -> Self {
+        if matches!(self, Self::Origin { .. }) {
+            self
+        } else {
+            Self::Origin {
+                origin,
+                source: Box::new(self),
+            }
+        }
+    }
 }
 impl fmt::Debug for ClientError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

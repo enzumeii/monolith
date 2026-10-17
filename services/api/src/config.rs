@@ -34,7 +34,6 @@ pub struct ClientConfig {
 #[derive(Deserialize, Clone)]
 pub struct ShopifyConfig {
     pub admin_api_url: String,
-    #[serde(skip)]
     pub access_token: Option<String>,
 }
 impl std::fmt::Debug for ShopifyConfig {
@@ -108,18 +107,10 @@ impl Settings {
             builder = builder.set_override("jwt.secret", jwt_secret)?;
         }
 
-        Self::from_config(builder.build()?, env::var("SHOPIFY_ACCESS_TOKEN").ok())
-    }
-
-    fn from_config(config: Config, token: Option<String>) -> Result<Self, ConfigError> {
-        let mut settings: Self = config.try_deserialize()?;
-        if let Some(shopify) = settings
-            .client
-            .as_mut()
-            .and_then(|client| client.shopify.as_mut())
-        {
-            shopify.access_token = token;
+        if let Ok(shopify_access_token) = env::var("SHOPIFY_ACCESS_TOKEN") {
+            builder = builder.set_override("client.shopify.access_token", shopify_access_token)?;
         }
+        let settings: Self = builder.build()?.try_deserialize()?;
         settings.validate()?;
         Ok(settings)
     }

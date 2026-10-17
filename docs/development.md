@@ -12,13 +12,13 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | Database | `DATABASE_URL` from ignored `.env` or environment | Secret PostgreSQL connection URL |
 | Signing key | `JWT_SECRET` from ignored `.env` or environment | Hex-encoded random key of at least 32 bytes |
 | Shopify URL | `client.shopify.admin_api_url` in `services/api/application.toml` | Full `https://<shop>.myshopify.com/admin/api/2026-10/graphql.json`; local overlay does not replace it |
-| Shopify token | `SHOPIFY_ACCESS_TOKEN` from ignored API `.env` or environment | Assigned once by `config.rs` through the configured optional Shopify subtree during construction; never read directly by the client or accepted from TOML |
+| Shopify token | `SHOPIFY_ACCESS_TOKEN` from ignored API `.env` or environment | ConfigBuilder overrides client.shopify.access_token before one deserialization; standard file values apply when there is no environment override; Debug redacts credentials |
 | Backoffice | Public `application.toml`, `[api] base_url` | Default `http://localhost:3000/v1`; loaded once by typed `Settings`/`ApiConfig` |
 | Local browser | UI `http://localhost:8084`, API `http://localhost:3000` | Same hostname is required for exact origins and SameSite cookies |
 | Production browser | HTTPS and exact same-site UI/API origin configuration | Cross-site deployment needs a separate cookie/CORS design |
 | Frontend environments | One published `application.toml` | Build-time local/prod file selection is planned, not implemented |
 
-Inherited environment variables keep dotenvy's normal precedence. API non-secret listener/browser settings do not use environment overrides. Missing Shopify configuration/credentials does not prevent normal API startup; explicit construction parses the trusted configured URL and validates the token/header. just setup scaffolds an empty SHOPIFY_ACCESS_TOKEN only in new .env files and preserves existing files.
+Inherited environment variables keep dotenvy's normal precedence. API non-secret listener/browser settings do not use environment overrides. Absent Shopify configuration is optional when no token override is supplied. A token override requires the admin URL from file configuration; missing required fields produce normal configuration errors. Explicit client construction parses the trusted URL and validates the token/header. just setup scaffolds an empty SHOPIFY_ACCESS_TOKEN only in new .env files and preserves existing files.
 
 ```mermaid
 flowchart LR
@@ -26,7 +26,6 @@ flowchart LR
     SECRETS["Ignored .env / environment"] --> SETTINGS
     SETTINGS --> API["Axum listener and database pool"]
     SETTINGS --> CLIENT["Explicit ShopifyClient construction"]
-    SERVICE["Shopify service: complete workflows"] --> CLIENT
     ASSET["Public frontend TOML asset"] --> LOADER["Fetch and parse once"]
     LOADER --> UI["Pages and session restoration"]
     UI -->|"Credentials and Origin"| API
@@ -65,22 +64,24 @@ Do not substitute loopback client fixtures or in-process handler tests for deplo
 
 ## Using the Shopify client
 
-Read state.settings.client.shopify and construct `api::client::shopify::ShopifyClient::new` directly from `ShopifyConfig`. Request/result types are exported through `api::shopify_models`; construct IDs with `ShopifyId::new`. Each client method sends one named GraphQL operation and accepts an explicit cursor for queries. Use api::shopify_service functions with a client reference for complete pagination, order assembly, inventory selection and mutation interpretation. Product variants remain limited to the first 250 per product.
+Read state.settings.client.shopify and construct api::client::shopify::ShopifyClient::new from ShopifyConfig. Request/result DTOs are exported through api::shopify_models; construct IDs with ShopifyId::new. Seven query methods collect all continuation pages automatically and return Vec nodes; callers pass no cursor.
 
-| Complete service operation | Caller responsibility |
+| Operation | Caller responsibility |
 | --- | --- |
-| Raw proxy access | Call the nine operation-named client methods; inspect returned pageInfo and pass its cursor explicitly. OrdersByTag/SoldVariantsInRange and their order-line operations are independent; raw inventory is unfiltered, and raw mutations retain userErrors/optional outputs |
-| Product listing | Supply location ID and desired product statuses; read each contextual price with its returned currency |
-| Payment lookup | Supply Shopify payment ID; an external gateway reference may need a separate mapping |
-| Tag lookup | Call `api::shopify_service::orders_by_tag(&client, &OrdersByTagRequest { tag: "shipping".into() })` with one nonblank tag literal, not raw search syntax; results are newest-first and return tags and use shop money with currency |
-| Date-range orders | Supply timestamps with offsets and exclusive end; filter statuses and calculate totals in the upstream service |
-| Tag replacement | Supply complete replacement list; empty tags removes all tags |
-| Nested limits | Product variants use first:250 with no child cursor or overflow error; inspect pageInfo for truncation. Sales/tag services use 250-node child pages until complete. Actual catalog query cost is unverified against Shopify limits |
-| Inventory discovery | Supply location ID; returned candidates have tracked, inactive inventory and positive on-hand stock |
-| Inventory activation | Supply inventory item ID, location ID, and a stable UUID for the operation; quantity arguments are intentionally absent |
-| Credentials/scopes | Appropriate product, inventory, location, order read/write permissions; approved older-order/protected customer access where applicable |
-| Privacy | Do not log tokens, request/response bodies, raw upstream errors, payment references, or customer information |
-| Failure handling | Convert typed client errors to AppError at the response boundary or use log_background_error for standalone handling; each handled failure logs once at ERROR, retaining origin/source without raw payloads. Raw Result creation/propagation is silent |
+| Product listing | products_with_variants(request): location ID and statuses; all products, first250 variants each; contextual money includes currency |
+| Payment lookup | orders_by_payment(request): Shopify payment ID; external references may require separate mapping |
+| Tag lookup | orders_by_tag(request): one literal tag; all header pages, tags and shop-money currency |
+| Date-range headers | sold_variants_in_range(request): timestamps with offsets and exclusive end; statuses/test/cancellation remain available |
+| Order lines | sales_order_lines or tagged_order_lines with OrderLinesRequest.order_id: all line pages; independent from header lookup |
+| Tag replacement | replace_order_tags(request): complete replacement list; empty list clears; inspect userErrors and optional order |
+| Inventory discovery | find_inventory_to_activate(request): all raw levels; caller decides eligibility from tracked/isActive/on_hand |
+| Inventory activation | activate_existing_inventory(request): item/location IDs and stable UUID; no quantity arguments; inspect userErrors/optional level |
+| Nested product bound | Variants retain first250 and nested pageInfo, with no cursor or overflow error. All order-line pages are collected at250 per page |
+| Credentials/scopes | Appropriate product/inventory/location/order permissions and approved older-order/protected-customer access where applicable |
+| Failure handling | Shopify ClientError failures identify api::client::shopify and retain their typed cause. Convert to AppError at the response boundary or use log_background_error for one ERROR; returning/propagating a Result does not log |
+| Privacy | Do not log token values, request/response bodies, raw upstream fields, payment references or customer information |
+
+There is no Shopify service module. The client paginates each named query independently and does not chain header searches into line requests, select inventory candidates or interpret raw mutation userErrors.
 
 | Outbound request behavior | Policy |
 | --- | --- |

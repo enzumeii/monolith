@@ -1,9 +1,9 @@
 query ProductsWithVariants(
   $locationId: ID!
   $search: String
-  $productsAfter: String
+  $after: String
 ) {
-  products(first: 250, after: $productsAfter, query: $search, sortKey: CREATED_AT) {
+  products(first: 250, after: $after, query: $search, sortKey: CREATED_AT) {
     nodes {
       id
       title
