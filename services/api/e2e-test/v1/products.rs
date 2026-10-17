@@ -83,9 +83,7 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
         }
         "ProductsWithVariants" => {
             assert_eq!(v["search"], "status:active");
-            if v["locationId"] == "gid://shopify/Location/999" {
-                json!({"location":null,"products":page(vec![],None)})
-            } else if v["locationId"] == "gid://shopify/Location/998" {
+            if v["locationId"] == "gid://shopify/Location/998" {
                 return (
                     StatusCode::OK,
                     Json(json!({"errors":[{"message":"secret upstream payload"}]})),
@@ -100,11 +98,11 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
             } else if v["locationId"] == "gid://shopify/Location/996" {
                 return (StatusCode::OK, "{").into_response();
             } else if v["locationId"] == "gid://shopify/Location/995" {
-                json!({"location":{"id":"gid://shopify/Location/995"},"products":page(vec![],None)})
+                json!({"products":page(vec![],None)})
             } else if v["after"].is_null() {
-                json!({"location":{"id":"gid://shopify/Location/1"},"products":page(vec![json!({"id":"gid://shopify/Product/1","title":"Item","description":"","status":"ACTIVE","tags":[],"featuredImage":null,"productType":"KEYCHAIN","variants":page(vec![report_variant(Some(3)),report_variant(None)],Some("variants-2"))})],Some("products-2"))})
+                json!({"products":page(vec![json!({"id":"gid://shopify/Product/1","title":"Item","description":"","status":"ACTIVE","tags":[],"featuredImage":null,"productType":"KEYCHAIN","variants":page(vec![report_variant(Some(3)),report_variant(None)],Some("variants-2"))})],Some("products-2"))})
             } else {
-                json!({"location":{"id":"gid://shopify/Location/1"},"products":page(vec![],None)})
+                json!({"products":page(vec![],None)})
             }
         }
         "ProductVariants" => {

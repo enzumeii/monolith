@@ -3,22 +3,28 @@ use super::*;
 use serde_json::json;
 
 fn row(quantity: i64, price: &str) -> ProductReportRow {
-    ProductReportRow {
-        category: Some("KEYCHAIN".into()),
-        collection: Some("STSWOW".into()),
-        sku: Some("GENSTSWOW01".into()),
-        title: "Item".into(),
-        variant: None,
-        cost: None,
-        cost_currency: None,
-        weight: Some(number("2.5").unwrap()),
-        unit: Some("GRAMS".into()),
-        selling_price: number(price).unwrap(),
-        selling_price_currency: "USD".into(),
+    use crate::models::shopify::{Measurement, Weight};
+    report_row(
+        "Item".into(),
+        None,
+        Some("GENSTSWOW01".into()),
+        Some("KEYCHAIN".into()),
+        Money {
+            amount: price.into(),
+            currency_code: "USD".into(),
+        },
         quantity,
-        total_selling_price: number("0").unwrap(),
-        total_weight: None,
-    }
+        Some(InventoryMetadata {
+            unit_cost: None,
+            measurement: Measurement {
+                weight: Some(Weight {
+                    value: "2.5".parse().unwrap(),
+                    unit: "GRAMS".into(),
+                }),
+            },
+        }),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -38,29 +44,32 @@ fn totals_use_exact_decimal_and_preserve_negative_inventory() {
 #[test]
 fn merge_groups_sku_price_currency_metadata_and_recalculates_totals() {
     let mut rows = vec![];
+    let mut by_sku = HashMap::new();
     for value in [row(2, "1.00"), row(3, "1"), row(1, "2")] {
-        merge(&mut rows, value).unwrap();
+        merge(&mut rows, &mut by_sku, value).unwrap();
     }
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].quantity, 5);
     assert_eq!(rows[0].total_selling_price.to_string(), "5");
     let mut other = row(1, "1");
     other.selling_price_currency = "THB".into();
-    merge(&mut rows, other).unwrap();
+    merge(&mut rows, &mut by_sku, other).unwrap();
     let mut other = row(1, "1");
     other.unit = Some("POUNDS".into());
-    merge(&mut rows, other).unwrap();
+    merge(&mut rows, &mut by_sku, other).unwrap();
     for _ in 0..2 {
         let mut other = row(1, "1");
         other.sku = None;
-        merge(&mut rows, other).unwrap();
+        other.collection = None;
+        merge(&mut rows, &mut by_sku, other).unwrap();
     }
     assert_eq!(rows.len(), 6);
 }
 
 #[test]
 fn overflow_and_invalid_upstream_numbers_are_rejected() {
-    let mut value = row(i64::MAX, "79228162514264337593543950335");
+    let mut value = row(1, "79228162514264337593543950335");
+    value.quantity = i64::MAX;
     assert!(totals(&mut value).is_err());
     assert!(number("NaN").is_err());
     let mut value = row(3, "1234567890123456789012345678.1");
@@ -72,8 +81,10 @@ fn overflow_and_invalid_upstream_numbers_are_rejected() {
         "37037036703703703670370370343"
     );
     assert!(number("0.00000000000000000000000000001").is_err());
-    let mut rows = vec![row(i64::MAX, "1")];
-    assert!(merge(&mut rows, row(1, "1")).is_err());
+    let mut rows = vec![];
+    let mut by_sku = HashMap::new();
+    merge(&mut rows, &mut by_sku, row(i64::MAX, "1")).unwrap();
+    assert!(merge(&mut rows, &mut by_sku, row(1, "1")).is_err());
 }
 
 #[test]
@@ -95,11 +106,23 @@ fn scientific_weights_and_exact_scaled_totals_are_preserved() {
         ("1e7", "10000000"),
         ("1.25E+2", "125"),
     ] {
-        let mut value = row(3, "1");
-        let measurement: Measurement =
-            serde_json::from_str(&format!(r#"{{"weight":{{"value":{raw},"unit":"GRAMS"}}}}"#))
-                .unwrap();
-        weight_metadata(&mut value, &measurement).unwrap();
+        let metadata: InventoryMetadata = serde_json::from_str(&format!(
+            r#"{{"unitCost":null,"measurement":{{"weight":{{"value":{raw},"unit":"GRAMS"}}}}}}"#
+        ))
+        .unwrap();
+        let mut value = report_row(
+            "Item".into(),
+            None,
+            Some("GENSTSWOW01".into()),
+            Some("KEYCHAIN".into()),
+            Money {
+                amount: "1".into(),
+                currency_code: "USD".into(),
+            },
+            3,
+            Some(metadata),
+        )
+        .unwrap();
         assert_eq!(value.weight.as_ref().unwrap().to_string(), expected);
         totals(&mut value).unwrap();
     }
@@ -142,4 +165,34 @@ async fn unavailable_shopify_retains_constructor_cause() {
     assert!(found);
     let response = axum::response::IntoResponse::into_response(error);
     assert_eq!(response.status(), 503);
+}
+
+#[test]
+fn local_report_failures_keep_the_service_origin() {
+    let error = number("invalid-price").unwrap_err();
+    assert!(matches!(
+        error,
+        AppError::Origin {
+            function: "api::services::products",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn sku_index_preserves_first_seen_order_and_separate_missing_skus() {
+    let mut rows = vec![];
+    let mut by_sku = HashMap::new();
+    for sku in [None, Some("A"), Some("B"), None, Some("A")] {
+        let mut value = row(1, "1");
+        value.sku = sku.map(str::to_owned);
+        value.collection = collection(value.sku.as_deref());
+        merge(&mut rows, &mut by_sku, value).unwrap();
+    }
+    assert_eq!(
+        rows.iter()
+            .map(|row| (row.sku.as_deref(), row.quantity))
+            .collect::<Vec<_>>(),
+        vec![(None, 1), (Some("A"), 2), (Some("B"), 1), (None, 1)]
+    );
 }

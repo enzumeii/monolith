@@ -209,8 +209,8 @@ pub struct VariantInventory {
     pub id: ShopifyId,
     pub tracked: bool,
     pub inventory_level: Option<InventoryLevel>,
-    pub unit_cost: Option<Money>,
-    pub measurement: Measurement,
+    #[serde(flatten)]
+    pub metadata: InventoryMetadata,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Pricing {
@@ -470,11 +470,11 @@ pub struct Weight {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LineVariant {
-    pub inventory_item: LineInventoryItem,
+    pub inventory_item: InventoryMetadata,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LineInventoryItem {
+pub struct InventoryMetadata {
     pub unit_cost: Option<Money>,
     pub measurement: Measurement,
 }
@@ -483,17 +483,17 @@ pub struct LineInventoryItem {
 pub struct LineProduct {
     pub product_type: String,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Deserialize)]
 pub struct VariantPageData {
     pub product: Option<VariantPage>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Deserialize)]
 pub struct VariantPage {
     pub id: ShopifyId,
     pub variants: Connection<Variant>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Deserialize)]
 pub struct LocationData {
     pub location: Option<ResourceReference>,
 }

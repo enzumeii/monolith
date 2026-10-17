@@ -3,15 +3,15 @@ use crate::{
     config::Settings,
     error::AppError,
     models::shopify::{
-        ListProductsRequest, Measurement, OrderLinesRequest, OrdersByTagRequest, ProductStatus,
-        VariantInventory,
+        InventoryMetadata, ListProductsRequest, Money, OrderLinesRequest, OrdersByTagRequest,
+        ProductStatus,
     },
     validations::products::ReportSource,
 };
 use domain::dto::{ProductReportRow, ProductsResponse};
 use rust_decimal::Decimal;
 use serde_json::Number;
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 pub async fn product_report(
     settings: &Settings,
@@ -37,7 +37,8 @@ pub async fn product_report(
                 .map_err(upstream)?;
             for product in catalog {
                 for variant in product.variants.nodes {
-                    let Some(level) = variant.inventory_item.inventory_level.as_ref() else {
+                    let item = variant.inventory_item;
+                    let Some(level) = item.inventory_level else {
                         continue;
                     };
                     let quantity = level
@@ -46,29 +47,20 @@ pub async fn product_report(
                         .find(|q| q.name == "on_hand")
                         .ok_or_else(|| protocol("on_hand quantity is missing"))?
                         .quantity;
-                    let mut row = ProductReportRow {
-                        category: nonempty(&product.product_type),
-                        collection: collection(variant.sku.as_deref()),
-                        sku: variant.sku,
-                        title: product.title.clone(),
-                        variant: Some(variant.title),
-                        cost: None,
-                        cost_currency: None,
-                        weight: None,
-                        unit: None,
-                        selling_price: number(&variant.contextual_pricing.price.amount)?,
-                        selling_price_currency: variant.contextual_pricing.price.currency_code,
+                    products.push(report_row(
+                        product.title.clone(),
+                        Some(variant.title),
+                        variant.sku,
+                        Some(product.product_type.clone()),
+                        variant.contextual_pricing.price,
                         quantity,
-                        total_selling_price: Number::from(0),
-                        total_weight: None,
-                    };
-                    inventory_metadata(&mut row, &variant.inventory_item)?;
-                    totals(&mut row)?;
-                    products.push(row);
+                        Some(item.metadata),
+                    )?);
                 }
             }
         }
         ReportSource::OrderTag(tag) => {
+            let mut by_sku = HashMap::new();
             let orders = client
                 .orders_by_tag(&OrdersByTagRequest { tag })
                 .await
@@ -79,38 +71,59 @@ pub async fn product_report(
                     .await
                     .map_err(upstream)?;
                 for line in lines {
-                    let mut row = ProductReportRow {
-                        category: line
-                            .product
-                            .as_ref()
-                            .and_then(|p| nonempty(&p.product_type)),
-                        collection: collection(line.sku.as_deref()),
-                        sku: line.sku,
-                        title: line.title,
-                        variant: line.variant_title,
-                        cost: None,
-                        cost_currency: None,
-                        weight: None,
-                        unit: None,
-                        selling_price: number(&line.original_unit_price_set.shop_money.amount)?,
-                        selling_price_currency: line
-                            .original_unit_price_set
-                            .shop_money
-                            .currency_code,
-                        quantity: line.quantity,
-                        total_selling_price: Number::from(0),
-                        total_weight: None,
-                    };
-                    if let Some(variant) = line.variant {
-                        cost_metadata(&mut row, variant.inventory_item.unit_cost.as_ref())?;
-                        weight_metadata(&mut row, &variant.inventory_item.measurement)?;
-                    }
-                    merge(&mut products, row)?;
+                    let row = report_row(
+                        line.title,
+                        line.variant_title,
+                        line.sku,
+                        line.product.map(|p| p.product_type),
+                        line.original_unit_price_set.shop_money,
+                        line.quantity,
+                        line.variant.map(|v| v.inventory_item),
+                    )?;
+                    merge(&mut products, &mut by_sku, row)?;
                 }
             }
         }
     }
     Ok(ProductsResponse { products })
+}
+
+fn report_row(
+    title: String,
+    variant: Option<String>,
+    sku: Option<String>,
+    category: Option<String>,
+    price: Money,
+    quantity: i64,
+    metadata: Option<InventoryMetadata>,
+) -> Result<ProductReportRow, AppError> {
+    let (cost, weight) = metadata
+        .map(|item| (item.unit_cost, item.measurement.weight))
+        .unwrap_or_default();
+    let mut row = ProductReportRow {
+        collection: collection(sku.as_deref()),
+        sku,
+        title,
+        variant,
+        category: category.filter(|value| !value.is_empty()),
+        cost: cost
+            .as_ref()
+            .map(|value| number(&value.amount))
+            .transpose()?,
+        cost_currency: cost.map(|value| value.currency_code),
+        weight: weight
+            .as_ref()
+            .map(|value| number(&value.value.to_string()))
+            .transpose()?,
+        unit: weight.map(|value| value.unit),
+        selling_price: number(&price.amount)?,
+        selling_price_currency: price.currency_code,
+        quantity,
+        total_selling_price: Number::from(0),
+        total_weight: None,
+    };
+    totals(&mut row)?;
+    Ok(row)
 }
 
 fn shopify_client(settings: &Settings) -> Result<ShopifyClient, AppError> {
@@ -127,7 +140,7 @@ fn upstream(error: ClientError) -> AppError {
     AppError::ReportUpstream(error).at("api::client::shopify")
 }
 fn protocol(message: &'static str) -> AppError {
-    upstream(ClientError::Protocol(message))
+    AppError::ReportUpstream(ClientError::Protocol(message)).at(module_path!())
 }
 fn number(raw: &str) -> Result<Number, AppError> {
     let value = if let Some((base, _)) = raw.split_once(['e', 'E']) {
@@ -139,11 +152,10 @@ fn number(raw: &str) -> Result<Number, AppError> {
     .map_err(|_| protocol("invalid report decimal"))?;
     Number::from_str(&value.normalize().to_string()).map_err(|_| protocol("invalid JSON decimal"))
 }
-fn decimal(value: &Number) -> Result<Decimal, AppError> {
-    Decimal::from_str_exact(&value.to_string()).map_err(|_| protocol("invalid report decimal"))
-}
 fn total(value: &Number, quantity: i64) -> Result<Number, AppError> {
-    let value = decimal(value)?.normalize();
+    let value = Decimal::from_str_exact(&value.to_string())
+        .map_err(|_| protocol("invalid report decimal"))?
+        .normalize();
     let mut mantissa = value.mantissa();
     let mut multiplier = i128::from(quantity);
     let mut scale = value.scale();
@@ -182,52 +194,39 @@ fn collection(sku: Option<&str>) -> Option<String> {
     let chars = sku?.chars().skip(3).take(6).collect::<String>();
     (chars.chars().count() == 6).then_some(chars)
 }
-fn nonempty(value: &str) -> Option<String> {
-    (!value.is_empty()).then(|| value.to_owned())
-}
-fn cost_metadata(
-    row: &mut ProductReportRow,
-    cost: Option<&crate::models::shopify::Money>,
+fn merge(
+    rows: &mut Vec<ProductReportRow>,
+    by_sku: &mut HashMap<String, Vec<usize>>,
+    row: ProductReportRow,
 ) -> Result<(), AppError> {
-    if let Some(cost) = cost {
-        row.cost = Some(number(&cost.amount)?);
-        row.cost_currency = Some(cost.currency_code.clone());
-    }
-    Ok(())
-}
-fn weight_metadata(row: &mut ProductReportRow, measurement: &Measurement) -> Result<(), AppError> {
-    if let Some(weight) = &measurement.weight {
-        row.weight = Some(number(&weight.value.to_string())?);
-        row.unit = Some(weight.unit.clone());
-    }
-    Ok(())
-}
-fn inventory_metadata(row: &mut ProductReportRow, item: &VariantInventory) -> Result<(), AppError> {
-    cost_metadata(row, item.unit_cost.as_ref())?;
-    weight_metadata(row, &item.measurement)
-}
-fn merge(rows: &mut Vec<ProductReportRow>, mut row: ProductReportRow) -> Result<(), AppError> {
-    let price = decimal(&row.selling_price)?;
-    let existing = rows.iter_mut().find(|old| {
-        row.sku.as_ref().is_some_and(|sku| !sku.is_empty())
-            && old.sku == row.sku
-            && decimal(&old.selling_price).ok() == Some(price)
-            && old.selling_price_currency == row.selling_price_currency
-            && old.category == row.category
-            && old.collection == row.collection
-            && old.cost == row.cost
-            && old.cost_currency == row.cost_currency
-            && old.weight == row.weight
-            && old.unit == row.unit
+    let candidates = row
+        .sku
+        .as_ref()
+        .filter(|sku| !sku.is_empty())
+        .map(|sku| by_sku.entry(sku.clone()).or_default());
+    let existing = candidates.as_ref().and_then(|indices| {
+        indices.iter().copied().find(|&index| {
+            let old = &rows[index];
+            old.selling_price == row.selling_price
+                && old.selling_price_currency == row.selling_price_currency
+                && old.category == row.category
+                && old.cost == row.cost
+                && old.cost_currency == row.cost_currency
+                && old.weight == row.weight
+                && old.unit == row.unit
+        })
     });
-    if let Some(old) = existing {
+    if let Some(index) = existing {
+        let old = &mut rows[index];
         old.quantity = old
             .quantity
             .checked_add(row.quantity)
             .ok_or_else(|| protocol("report quantity overflow"))?;
         totals(old)
     } else {
-        totals(&mut row)?;
+        if let Some(indices) = candidates {
+            indices.push(rows.len());
+        }
         rows.push(row);
         Ok(())
     }

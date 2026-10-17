@@ -611,3 +611,34 @@ async fn upstream_error_converts_with_source_and_safe_public_response() {
         serde_json::json!({"error":"Internal server error"})
     );
 }
+
+#[tokio::test]
+async fn report_transport_timeout_maps_to_504_and_other_transport_errors_to_502() {
+    use crate::client::{ClientError, HttpClient};
+    use reqwest::{Method, Url, header::HeaderMap};
+    use std::time::Duration;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let stalled = format!("http://{}/private", listener.local_addr().unwrap());
+    for (url, status) in [(stalled.as_str(), 504), ("file:///private", 502)] {
+        let error = HttpClient::new(Duration::from_millis(50))
+            .unwrap()
+            .request_json::<(), serde_json::Value>(
+                Method::GET,
+                Url::parse(url).unwrap(),
+                HeaderMap::new(),
+                None,
+            )
+            .await
+            .unwrap_err();
+        let response = AppError::ReportUpstream(ClientError::Origin {
+            origin: "api::client::shopify",
+            source: Box::new(error),
+        })
+        .into_response();
+        assert_eq!(response.status(), status);
+        assert_eq!(
+            body_json(response).await,
+            serde_json::json!({"error":"Shopify upstream failure"})
+        );
+    }
+}

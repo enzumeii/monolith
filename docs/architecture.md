@@ -187,15 +187,3 @@ Queries accept requests without cursor arguments and preserve response order acr
 | Completeness | Shared catalog method traverses product and variant pages; shared tag/header and line methods traverse all order and line pages |
 | Precision | API checked decimal arithmetic; domain JSON numbers preserve decimal precision; overflow/invalid upstream numbers fail the whole report |
 | Failures | 400 invalid input, 401 authentication, 404 location absent, 503 missing configuration, 502 upstream failure, 504 upstream timeout; sanitized responses |
-
-```mermaid
-flowchart LR
-    HTTP[GET /v1/products] --> AUTH[Existing authentication]
-    AUTH --> VALIDATE[Report query validation]
-    VALIDATE --> REPORT[Product report service]
-    REPORT --> INVENTORY[Paginated products and variants]
-    REPORT --> TAG[Paginated tagged orders and lines]
-    INVENTORY --> ROWS[Metadata and exact totals]
-    TAG --> ROWS
-    ROWS --> JSON[Products response]
-```
