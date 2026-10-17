@@ -1,4 +1,4 @@
-use super::pagination::collect_pages;
+use super::pagination::{collect_connection, collect_pages};
 use crate::{
     client::{ClientError, GraphqlClient, GraphqlRequest, HttpClient},
     config::ShopifyConfig,
@@ -51,7 +51,7 @@ impl ShopifyClient {
         &self,
         input: &ListProductsRequest,
     ) -> Result<Vec<Product>, ClientError> {
-        collect_pages(async |after| {
+        let products = collect_pages(async |after| {
             let data: ProductsData = self
                 .execute(
                     "ProductsWithVariants",
@@ -62,7 +62,39 @@ impl ShopifyClient {
             Ok(data.products)
         })
         .await
-        .map_err(|error| error.at(ORIGIN))
+        .map_err(|error| error.at(ORIGIN))?;
+        let mut result = Vec::new();
+        for mut product in products {
+            let id = product.id.clone();
+            let mut initial = Some(product.variants);
+            product.variants = collect_connection(|after| {
+                let first = initial.take();
+                let id = &id;
+                async move {
+                    if let Some(first) = first { return Ok(first); }
+                    let data: crate::models::shopify::VariantPageData = self.execute("ProductVariants", include_str!("shopify/product_variants.graphql"), serde_json::json!({"id":id,"locationId":input.location_id,"after":after})).await?;
+                    let parent = data.product.ok_or(ClientError::Protocol("product disappeared during variant pagination"))?;
+                    if &parent.id != id { return Err(ClientError::Protocol("variants belong to another product")); }
+                    Ok(parent.variants)
+                }
+            }).await.map_err(|error| error.at(ORIGIN))?;
+            result.push(product);
+        }
+        Ok(result)
+    }
+
+    pub async fn location_exists(&self, id: &ShopifyId) -> Result<bool, ClientError> {
+        id.require_kind("Location")
+            .map_err(|error| error.at(ORIGIN))?;
+        let data: crate::models::shopify::LocationData = self
+            .execute(
+                "Location",
+                include_str!("shopify/location.graphql"),
+                serde_json::json!({"id":id}),
+            )
+            .await
+            .map_err(|error| error.at(ORIGIN))?;
+        Ok(data.location.is_some())
     }
     pub async fn orders_by_payment(
         &self,
@@ -231,5 +263,3 @@ fn require_lines<T>(data: OrderLinesData<T>, id: &ShopifyId) -> Result<Connectio
 #[cfg(test)]
 #[path = "../tests/client/shopify.rs"]
 mod tests;
-
-mod report;

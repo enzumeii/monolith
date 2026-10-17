@@ -3,8 +3,8 @@ use crate::{
     config::Settings,
     error::AppError,
     models::shopify::{
-        ListProductsRequest, OrderLinesRequest, OrdersByTagRequest, ProductStatus,
-        report::{Measurement, ReportInventoryItem},
+        ListProductsRequest, Measurement, OrderLinesRequest, OrdersByTagRequest, ProductStatus,
+        VariantInventory,
     },
     validations::products::ReportSource,
 };
@@ -17,24 +17,24 @@ pub async fn product_report(
     settings: &Settings,
     source: ReportSource,
 ) -> Result<ProductsResponse, AppError> {
-    let config = settings
-        .client
-        .as_ref()
-        .and_then(|c| c.shopify.as_ref())
-        .ok_or(AppError::ReportUnavailable(None).at(module_path!()))?;
-    let client = ShopifyClient::new(config)
-        .map_err(|error| AppError::ReportUnavailable(Some(error)).at("api::client::shopify"))?;
+    let client = shopify_client(settings)?;
     let mut products = Vec::new();
     match source {
         ReportSource::Inventory(location_id) => {
+            if !client
+                .location_exists(&location_id)
+                .await
+                .map_err(upstream)?
+            {
+                return Err(AppError::NotFound.at(module_path!()));
+            }
             let catalog = client
-                .inventory_report_products(&ListProductsRequest {
+                .products_with_variants(&ListProductsRequest {
                     location_id,
                     statuses: vec![ProductStatus::Active],
                 })
                 .await
-                .map_err(upstream)?
-                .ok_or(AppError::NotFound.at(module_path!()))?;
+                .map_err(upstream)?;
             for product in catalog {
                 for variant in product.variants.nodes {
                     let Some(level) = variant.inventory_item.inventory_level.as_ref() else {
@@ -75,7 +75,7 @@ pub async fn product_report(
                 .map_err(upstream)?;
             for order in orders {
                 let lines = client
-                    .report_tagged_order_lines(&OrderLinesRequest { order_id: order.id })
+                    .tagged_order_lines(&OrderLinesRequest { order_id: order.id })
                     .await
                     .map_err(upstream)?;
                 for line in lines {
@@ -111,6 +111,16 @@ pub async fn product_report(
         }
     }
     Ok(ProductsResponse { products })
+}
+
+fn shopify_client(settings: &Settings) -> Result<ShopifyClient, AppError> {
+    let config = settings
+        .client
+        .as_ref()
+        .and_then(|c| c.shopify.as_ref())
+        .ok_or(AppError::ReportUnavailable(None).at(module_path!()))?;
+    ShopifyClient::new(config)
+        .map_err(|error| AppError::ReportUnavailable(Some(error)).at("api::client::shopify"))
 }
 
 fn upstream(error: ClientError) -> AppError {
@@ -192,10 +202,7 @@ fn weight_metadata(row: &mut ProductReportRow, measurement: &Measurement) -> Res
     }
     Ok(())
 }
-fn inventory_metadata(
-    row: &mut ProductReportRow,
-    item: &ReportInventoryItem,
-) -> Result<(), AppError> {
+fn inventory_metadata(row: &mut ProductReportRow, item: &VariantInventory) -> Result<(), AppError> {
     cost_metadata(row, item.unit_cost.as_ref())?;
     weight_metadata(row, &item.measurement)
 }

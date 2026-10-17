@@ -67,21 +67,21 @@ fn page(nodes: Vec<Value>, next: Option<&str>) -> Value {
     json!({"nodes":nodes,"pageInfo":{"hasNextPage":next.is_some(),"endCursor":next}})
 }
 fn report_variant(quantity: Option<i64>) -> Value {
-    json!({"title":"Large","sku":"GENSTSWOW01","contextualPricing":{"price":{"amount":"0.10","currencyCode":"USD"}},"inventoryItem":{
-        "unitCost":{"amount":"0.03","currencyCode":"USD"},"measurement":{"weight":{"value":2.5,"unit":"GRAMS"}},
+    json!({"id":"gid://shopify/ProductVariant/1","image":null,"title":"Large","sku":"GENSTSWOW01","contextualPricing":{"price":{"amount":"0.10","currencyCode":"USD"}},"inventoryItem":{
+        "id":"gid://shopify/InventoryItem/1","tracked":true,"unitCost":{"amount":"0.03","currencyCode":"USD"},"measurement":{"weight":{"value":2.5,"unit":"GRAMS"}},
         "inventoryLevel":quantity.map(|q|json!({"id":"level","isActive":true,"quantities":[{"name":"on_hand","quantity":q}]}))}})
 }
 async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
     let v = &request["variables"];
     let response = match request["operationName"].as_str().unwrap() {
-        "ReportLocation" => {
+        "Location" => {
             if v["id"] == "gid://shopify/Location/999" {
                 json!({"location":null})
             } else {
                 json!({"location":{"id":v["id"]}})
             }
         }
-        "ReportProductsWithVariants" => {
+        "ProductsWithVariants" => {
             assert_eq!(v["search"], "status:active");
             if v["locationId"] == "gid://shopify/Location/999" {
                 json!({"location":null,"products":page(vec![],None)})
@@ -102,16 +102,17 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
             } else if v["locationId"] == "gid://shopify/Location/995" {
                 json!({"location":{"id":"gid://shopify/Location/995"},"products":page(vec![],None)})
             } else if v["after"].is_null() {
-                json!({"location":{"id":"gid://shopify/Location/1"},"products":page(vec![json!({"id":"gid://shopify/Product/1","title":"Item","productType":"KEYCHAIN","variants":page(vec![report_variant(Some(3)),report_variant(None)],Some("variants-2"))})],Some("products-2"))})
+                json!({"location":{"id":"gid://shopify/Location/1"},"products":page(vec![json!({"id":"gid://shopify/Product/1","title":"Item","description":"","status":"ACTIVE","tags":[],"featuredImage":null,"productType":"KEYCHAIN","variants":page(vec![report_variant(Some(3)),report_variant(None)],Some("variants-2"))})],Some("products-2"))})
             } else {
                 json!({"location":{"id":"gid://shopify/Location/1"},"products":page(vec![],None)})
             }
         }
-        "ReportProductVariants" => {
+        "ProductVariants" => {
             assert_eq!(v["after"], "variants-2");
             json!({"product":{"id":"gid://shopify/Product/1","variants":page(vec![report_variant(Some(-2))],None)}})
         }
         "OrdersByTag" => {
+            assert!(v["search"] == "tag:\"empty\"" || v["search"] == "tag:\"report\"");
             if v["search"] == "tag:\"empty\"" {
                 json!({"orders":page(vec![],None)})
             } else {
@@ -123,7 +124,7 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
                 json!({"orders":page(vec![json!({"id":format!("gid://shopify/Order/{id}"),"number":id,"tags":[],"email":null,"phone":null,"currentTotalPriceSet":{"shopMoney":{"amount":"1","currencyCode":"USD"}}})],next)})
             }
         }
-        "ReportTaggedOrderLines" => {
+        "TaggedOrderLines" => {
             let line = |qty, price, currency| {
                 json!({"title":"Item","variantTitle":"Large","sku":"GENSTSWOW01","quantity":qty,
                 "originalUnitPriceSet":{"shopMoney":{"amount":price,"currencyCode":currency}},"product":{"productType":"KEYCHAIN"},"variant":{"inventoryItem":{"unitCost":null,"measurement":{"weight":null}}}})

@@ -1,7 +1,7 @@
 $kind: graphql-request
 url: "{{shopify}}/graphql.json"
 query: |
-  query ReportLocation($id: ID!) {
+  query Location($id: ID!) {
     location(id: $id) { id }
   }
 variables: |-
@@ -11,4 +11,4 @@ variables: |-
 settings: {}
 schema:
   source: auto
-order: 1000
+order: 2900

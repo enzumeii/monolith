@@ -1,3 +1,0 @@
-query ReportLocation($id: ID!) {
-  location(id: $id) { id }
-}

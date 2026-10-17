@@ -7,8 +7,8 @@ Results describe the tested revision and scope; they do not establish live Shopi
 | Evidence | Result |
 | --- | --- |
 | Implementation | ENZ-11 product reports; published head and CI recorded in this change's PR checks |
-| Native API tests | 95 passed, 2 Docker-dependent tests ignored in native phase |
-| API with Docker PostgreSQL | 97 library tests and 38 real TCP E2E tests passed; Compose teardown completed |
+| Native API tests | 96 passed, 2 Docker-dependent tests ignored in native phase |
+| API with Docker PostgreSQL | 98 library tests and 38 real TCP E2E tests passed; Compose teardown completed |
 | Formatting/lint | Workspace formatting and strict API, domain, backoffice and client-ui checks passed |
 | Shared contracts / WASM | 2 domain contracts passed; domain WASM and backoffice native/WASM lint passed |
 | Downstream tests | Backoffice 6 tests passed; client-ui build/test passed with no tests |
@@ -27,7 +27,7 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with a mocked Shop
 | Configuration | Literal ConfigBuilder token override and standard file/env precedence; no construction helper or skipped token field; URL retained through overlays; optional absent section and ordinary missing-URL errors; redacted Debug |
 | Money and IDs | Decimal strings paired with currency; malformed/wrong-resource IDs rejected |
 | Client boundary | Nine aligned operation/document names; queries automatically collect every page without caller cursors; root and child methods remain independent; raw inventory and mutation userErrors/optional results retained |
-| Catalog pagination | Nodes-only fixtures failed before the DTO correction and passed afterward; multiple outer pages, empty variants, 250 variants and currency covered; nested pageInfo is neither requested nor required |
+| Catalog pagination | Existing-method regression failed with one variant instead of two before consolidation; shared product/variant continuation now passes alongside root-page, empty-child and failure/cursor cases |
 | Order pagination | Header queries traverse all outer pages independently; line methods return501 ordered lines over250/250/1 pages; no root/line chaining; date offsets/status/test/cancellation retained |
 | Tagged orders | Multiple order pages preserve response order; empty results, literal tag escaping, blank-input rejection, cursor failures, HTTP/GraphQL failure propagation, returned tags, precise shop money and currency; independent line lookup collects501 nodes; each query call starts without a cursor |
 | Error source chain | Origin exposes the original ClientError through standard Error::source, retaining deeper reqwest/serde causes and the first client identity; focused regression reproduced the derive-generated box downcast defect and passes with explicit chaining |
@@ -49,9 +49,9 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with a mocked Shop
 | Independent implementation review | Independent review found scientific-number parsing, exact scaled-total overflow and private diagnostic defects; regression tests cover corrections, including constructor source retention |
 | Additional fix-pass checks | Scientific weights, Decimal maximum exact totals, constructor causes and private DEBUG diagnostics reproduced failures and pass after correction; missing location is checked before catalog/pricing |
 | Deferred minor | Tagged-line grouping scans accumulated rows linearly per input row; very large distinct-row reports may need an index. No load test or capacity guarantee |
-| Shopify compatibility | Official docs and local fixtures checked; no live schema/request execution; nested 250-by-250 query cost unverified against the single-query maximum |
-| Platform pagination | General catalog retains first250 variants; report catalog traverses product and variant pages; report order lines traverse independent order/line pages |
-| Concurrent changes | No snapshot isolation; missing/mismatched order and child-page failures return errors rather than partial success. The general catalog retains its variant bound; the report catalog follows variant continuations |
+| Shopify compatibility | Official docs and local fixtures checked; no live schema/request execution; actual Shopify query cost unverified against the single-query maximum |
+| Platform pagination | Shared catalog traverses product and variant pages; shared tag and line methods traverse independent order/line pages |
+| Concurrent changes | No snapshot isolation; missing/mismatched order and child-page failures return errors rather than partial success. The shared catalog follows variant continuations |
 | Browser behavior | No new browser verification, rendered E2E, or HTTPS cookie acceptance evidence |
 | Coverage percentage | Not measured; no percentage claim |
 | Performance/deployment | No load test, production capacity result, deployment, or merge |

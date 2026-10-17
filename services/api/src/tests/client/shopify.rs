@@ -25,10 +25,10 @@ fn money() -> Value {
 fn variant(n: u64) -> Value {
     json!({"id":format!("gid://shopify/ProductVariant/{n}"),"title":"M","sku":null,
         "contextualPricing":{"price":money()},"image":null,
-        "inventoryItem":{"id":"gid://shopify/InventoryItem/1","tracked":true,"inventoryLevel":null}})
+        "inventoryItem":{"id":"gid://shopify/InventoryItem/1","tracked":true,"unitCost":null,"measurement":{"weight":null},"inventoryLevel":null}})
 }
 fn product(n: u64, variants: Vec<Value>) -> Value {
-    json!({"id":format!("gid://shopify/Product/{n}"),"title":"Shirt","description":"Cotton","status":"ACTIVE","tags":[],"featuredImage":null,"variants":{"nodes":variants}})
+    json!({"id":format!("gid://shopify/Product/{n}"),"title":"Shirt","description":"Cotton","productType":"KEYCHAIN","status":"ACTIVE","tags":[],"featuredImage":null,"variants":page(variants,None)})
 }
 fn order(n: u64) -> Value {
     json!({"id":format!("gid://shopify/Order/{n}"),"name":"#1","number":1,"createdAt":"2026-10-01T00:00:00+07:00",
@@ -38,7 +38,7 @@ fn order(n: u64) -> Value {
 }
 fn line(n: u64) -> Value {
     json!({"id":format!("line-{n}"),"title":"Shirt","variantTitle":null,"sku":null,"quantity":3,"currentQuantity":1,
-        "product":null,"variant":null,"originalUnitPriceSet":{"shopMoney":money()}})
+        "product":null,"variant":null,"originalUnitPriceSet":{"shopMoney":money()},"product":null,"variant":null})
 }
 fn sales(n: u64, lines: Value) -> Value {
     json!({"id":format!("gid://shopify/Order/{n}"),"name":"#1","createdAt":"2026-10-01T00:00:00+07:00",
@@ -60,7 +60,7 @@ fn tagged_order(n: u64, lines: Vec<Value>) -> Value {
 }
 fn tagged_line() -> Value {
     json!({"title":"Shirt","variantTitle":"Blue","sku":"SHIRT-BLUE","quantity":3,
-        "originalUnitPriceSet":{"shopMoney":money()}})
+        "originalUnitPriceSet":{"shopMoney":money()},"product":null,"variant":null})
 }
 fn tagged_lines(first: u64, count: u64) -> Vec<Value> {
     (first..first + count)
@@ -110,7 +110,7 @@ fn constructor_trusts_configuration_but_rejects_invalid_url_or_token() {
 }
 
 #[tokio::test]
-async fn catalog_collects_all_parents_and_outer_pages_with_bounded_variants() {
+async fn catalog_collects_all_parents_and_outer_pages() {
     let f = Fixture::new(vec![
         Reply::json(json!({"data":{"products":page(vec![
             product(1,vec![variant(1);250]),
@@ -146,12 +146,12 @@ async fn catalog_collects_all_parents_and_outer_pages_with_bounded_variants() {
     );
     assert_eq!(requests[1].2["variables"]["after"], "p1");
     let query = requests[0].2["query"].as_str().unwrap();
-    assert!(query.contains("products(first: 250"));
-    assert!(query.contains("variants(first: 250)"));
+    assert!(query.contains("products(first: 10"));
+    assert!(query.contains("variants(first: 10)"));
 }
 
 #[tokio::test]
-async fn catalog_keeps_first_250_variants_without_child_cursor_or_overflow_error() {
+async fn catalog_complete_variant_page_needs_no_child_request() {
     let f = Fixture::new(vec![Reply::json(
         json!({"data":{"products":page(vec![product(1,vec![variant(1);250])],None)}}),
     )])
@@ -357,7 +357,11 @@ async fn line_queries_collect_501_distinct_nodes_without_root_order_searches() {
                 requests[index].2["query"]
                     .as_str()
                     .unwrap()
-                    .contains("lineItems(first: 250, after: $after)")
+                    .contains(if tagged {
+                        "lineItems(first: 100, after: $after)"
+                    } else {
+                        "lineItems(first: 250, after: $after)"
+                    })
             );
             assert!(
                 !requests[index].2["query"]
@@ -653,90 +657,102 @@ async fn tag_lookup_escapes_one_literal_instead_of_accepting_search_syntax() {
     }
 }
 
-fn report_variant() -> Value {
-    json!({"title":"M","sku":"GENSTSWOW01","contextualPricing":{"price":money()},"inventoryItem":{"unitCost":null,"measurement":{"weight":null},"inventoryLevel":null}})
-}
 #[tokio::test]
-async fn report_catalog_collects_root_and_variant_pages_and_checks_location() {
-    let p = |n, cursor| json!({"id":id("Product",n),"title":"Item","productType":"KEYCHAIN","variants":page(vec![report_variant()],cursor)});
+async fn catalog_collects_root_and_variant_pages() {
+    let p = |n, cursor| {
+        let mut value = product(n, vec![variant(n)]);
+        value["variants"] = page(vec![variant(n)], cursor);
+        value
+    };
     let f=Fixture::new(vec![
-        Reply::json(json!({"data":{"location":{"id":id("Location",1)}}})),
-        Reply::json(json!({"data":{"location":{"id":id("Location",1)},"products":page(vec![p(1,Some("v1"))],Some("p1"))}})),
-        Reply::json(json!({"data":{"location":{"id":id("Location",1)},"products":page(vec![p(2,None)],None)}})),
-        Reply::json(json!({"data":{"product":{"id":id("Product",1),"variants":page(vec![report_variant()],None)}}})),
+        Reply::json(json!({"data":{"products":page(vec![p(1,Some("v1"))],Some("p1"))}})),
+        Reply::json(json!({"data":{"products":page(vec![p(2,None)],None)}})),
+        Reply::json(json!({"data":{"product":{"id":id("Product",1),"variants":page(vec![variant(3)],None)}}})),
     ]).await;
     let products = client(&f)
-        .inventory_report_products(&ListProductsRequest {
+        .products_with_variants(&ListProductsRequest {
             location_id: id("Location", 1),
             statuses: vec![ProductStatus::Active],
         })
         .await
-        .unwrap()
         .unwrap();
     assert_eq!(products.len(), 2);
     assert_eq!(products[0].variants.nodes.len(), 2);
     let requests = f.requests();
-    assert_eq!(requests[2].2["variables"]["after"], "p1");
-    assert_eq!(requests[3].2["variables"]["after"], "v1");
-    assert_eq!(requests[1].2["variables"]["search"], "status:active");
-    let f = Fixture::new(vec![Reply::json(
-        json!({"data":{"location":null,"products":page(vec![],None)}}),
-    )])
-    .await;
-    assert!(
-        client(&f)
-            .inventory_report_products(&ListProductsRequest {
-                location_id: id("Location", 1),
-                statuses: vec![ProductStatus::Active]
-            })
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert_eq!(requests[1].2["variables"]["after"], "p1");
+    assert_eq!(requests[2].2["variables"]["after"], "v1");
+    assert_eq!(requests[0].2["variables"]["search"], "status:active");
 }
 
 #[tokio::test]
-async fn report_variant_failure_never_returns_partial_catalog() {
+async fn variant_failure_never_returns_partial_catalog() {
     for parent in [
         json!(null),
         json!({"id":id("Product",99),"variants":page(vec![],None)}),
         json!({"id":id("Product",1),"variants":page(vec![],Some("again"))}),
     ] {
-        let f=Fixture::new(vec![
-        Reply::json(json!({"data":{"location":{"id":id("Location",1)}}})),
-            Reply::json(json!({"data":{"location":{"id":id("Location",1)},"products":page(vec![json!({"id":id("Product",1),"title":"Item","productType":"","variants":page(vec![report_variant()],Some("again"))})],None)}})),
+        let mut first = product(1, vec![variant(1)]);
+        first["variants"] = page(vec![variant(1)], Some("again"));
+        let f = Fixture::new(vec![
+            Reply::json(json!({"data":{"products":page(vec![first],None)}})),
             Reply::json(json!({"data":{"product":parent}})),
-        ]).await;
+        ])
+        .await;
         assert!(
             client(&f)
-                .inventory_report_products(&ListProductsRequest {
+                .products_with_variants(&ListProductsRequest {
                     location_id: id("Location", 1),
                     statuses: vec![ProductStatus::Active]
                 })
                 .await
                 .is_err()
         );
+        assert_eq!(f.requests().len(), 2);
     }
 }
 
 #[tokio::test]
-async fn report_missing_location_is_checked_before_catalog_pricing() {
-    let f = Fixture::new(vec![Reply::json(json!({"data":{"location":null}}))]).await;
-    assert!(
-        client(&f)
-            .inventory_report_products(&ListProductsRequest {
-                location_id: id("Location", 1),
-                statuses: vec![ProductStatus::Active]
-            })
-            .await
-            .unwrap()
-            .is_none()
-    );
-    assert_eq!(f.requests().len(), 1);
-    assert!(
-        !f.requests()[0].2["query"]
-            .as_str()
-            .unwrap()
-            .contains("contextualPricing")
-    );
+async fn location_lookup_has_no_catalog_pricing_dependency() {
+    for exists in [false, true] {
+        let location = if exists {
+            json!({"id":id("Location",1)})
+        } else {
+            Value::Null
+        };
+        let f = Fixture::new(vec![Reply::json(json!({"data":{"location":location}}))]).await;
+        assert_eq!(
+            client(&f)
+                .location_exists(&id("Location", 1))
+                .await
+                .unwrap(),
+            exists
+        );
+        assert_eq!(f.requests().len(), 1);
+        assert!(
+            !f.requests()[0].2["query"]
+                .as_str()
+                .unwrap()
+                .contains("contextualPricing")
+        );
+    }
+}
+
+#[tokio::test]
+async fn existing_catalog_method_collects_child_variant_pages() {
+    let mut first = product(1, vec![variant(1)]);
+    first["variants"]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"child"});
+    let f=Fixture::new(vec![
+        Reply::json(json!({"data":{"products":page(vec![first],None)}})),
+        Reply::json(json!({"data":{"product":{"id":id("Product",1),"variants":page(vec![variant(2)],None)}}})),
+    ]).await;
+    let products = client(&f)
+        .products_with_variants(&ListProductsRequest {
+            location_id: id("Location", 1),
+            statuses: vec![ProductStatus::Active],
+        })
+        .await
+        .unwrap();
+    assert_eq!(products[0].variants.nodes.len(), 2);
+    assert_eq!(products[0].variants.nodes[1].id, id("ProductVariant", 2));
+    assert_eq!(f.requests()[1].2["variables"]["after"], "child");
 }

@@ -1,11 +1,13 @@
-query ReportProductVariants($id: ID!, $locationId: ID!, $after: String) {
+query ProductVariants($id: ID!, $locationId: ID!, $after: String) {
   product(id: $id) {
     id
     variants(first: 100, after: $after) {
       nodes {
-        title sku
+        id title sku
+        image { url }
         contextualPricing(context: { locationId: $locationId }) { price { amount currencyCode } }
         inventoryItem {
+          id tracked
           unitCost { amount currencyCode }
           measurement { weight { value unit } }
           inventoryLevel(locationId: $locationId) { id isActive quantities(names: ["on_hand"]) { name quantity } }

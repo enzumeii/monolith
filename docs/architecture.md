@@ -45,7 +45,6 @@ The product report service explicitly constructs ShopifyClient from state.settin
 | `src/error.rs` | Public error mapping and centralized boundary logging |
 | `src/client.rs` | Generic HTTP/GraphQL request envelopes, decoding, failures, throttling backoff |
 | `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication, seven automatically paginated queries and two raw mutations / matching query documents |
-| `src/client/shopify/report.rs` / `report/*.graphql` | Complete report catalog/variant pagination and tagged-order metadata lines |
 | `src/tests/` | Tests mirroring implementation paths through test-gated child modules |
 | `e2e-test/` | Real TCP endpoint tests and shared application/database fixtures |
 | `migrations/` / `.sqlx/` | Database migrations / offline SQLx metadata |
@@ -129,21 +128,23 @@ flowchart LR
 | --- | --- |
 | `HttpClient` | Reusable reqwest pool; per-request generic headers; 30-second per-attempt timeout; redirects disabled |
 | `GraphqlClient` | Typed variables; raw envelope error classification before successful data decoding; reject partial-data errors |
-| `ShopifyClient` | General workflow methods and report-specific queries use aligned operation/document names and collect continuation pages internally; constructor supplies the token header and trusted configured Admin API URL, version 2026-10 |
+| `ShopifyClient` | Shared workflow methods use aligned operation/document names and collect continuation pages internally; constructor supplies the token header and trusted configured Admin API URL, version 2026-10 |
 | Request types | Own operation validation, resource-kind checks and search/variable construction; the client supplies internal continuation cursors |
 | Shopify models | Connection and PageInfo live beside Shopify contracts; the shared collector imports them |
-| DTOs | Public through `api::shopify_models`; shop-only money sets retain decimal amounts and currency; nullable references remain nullable; queries return complete Vec node collections, nested product variants contain nodes only, mutations retain raw userErrors and optional results |
+| DTOs | Public through `api::shopify_models`; shop-only money sets retain decimal amounts and currency; nullable references remain nullable; queries return complete Vec node collections, nested product variants include connection metadata, mutations retain raw userErrors and optional results |
 | Configuration | `config.rs` uses one ConfigBuilder build/deserialization; dotenv/environment DATABASE_URL, JWT_SECRET and SHOPIFY_ACCESS_TOKEN override matching file values before deserialization; `[client.shopify]` in TOML contains only `admin_api_url` |
 | Initialization | Absent Shopify configuration remains optional without a token override; a token override requires its file-configured admin URL; client construction requires a nonblank token |
 
 | Client method / GraphQL filename stem | GraphQL operation | Result |
 | --- | --- | --- |
-| products_with_variants | ProductsWithVariants | Vec<Product>; all products, each with first250 variants, SKU/images/location quantities and contextual price/currency |
+| products_with_variants | ProductsWithVariants | Vec<Product>; all products and variant pages, category, SKU/images, inventory quantities, cost/weight and contextual price/currency |
 | orders_by_payment | OrdersByPayment | Vec<Order>; all payment-ID matches, contacts/transactions and money |
 | orders_by_tag | OrdersByTag | Vec<TaggedOrderHeader>; all newest-first matching headers, tags and shop money |
 | sold_variants_in_range | SoldVariantsInRange | Vec<SalesOrderHeader>; all offset-aware half-open date matches, statuses/test/cancellation |
 | sales_order_lines | SalesOrderLines | Vec<SalesLine>; every line page for the supplied order, quantities and original money |
-| tagged_order_lines | TaggedOrderLines | Vec<TaggedOrderLineItem>; every line page for the supplied order |
+| tagged_order_lines | TaggedOrderLines | Vec<TaggedOrderLineItem>; every line page with product category and variant cost/weight |
+| location_exists | Location | bool; validates location before catalog pricing |
+| product_variants (internal continuation) | ProductVariants | Variant connection for the supplied product/location |
 | replace_order_tags | ReplaceOrderTags | Raw userErrors and optional updated order; empty tags clears the complete list |
 | find_inventory_to_activate | FindInventoryToActivate | Vec<InventoryActivationCandidate>; all raw location levels, including active/untracked/zero stock |
 | activate_existing_inventory | ActivateExistingInventory | Raw userErrors/optional inventory level; supplied UUID; quantity arguments absent |
@@ -152,14 +153,14 @@ Queries accept requests without cursor arguments and preserve response order acr
 
 | Request policy | Guarantee / limit |
 | --- | --- |
-| Pagination | General workflow queries use 250 nodes per request; report queries use smaller pages and collect nested variant continuations. Every method call starts without a cursor; line methods use the supplied order ID and reject missing/mismatched parents. Missing/repeated/cyclic cursors fail. Products retain first:250 variants as nodes only, without nested pageInfo or a variant cursor; truncation is not reported |
+| Pagination | Products start at10 parents with10 variants each and continue child pages at100 variants. Tagged lines use100 per page; other workflow pages use250. Every method call starts without a cursor; missing/mismatched parents and missing/repeated/cyclic continuations fail. |
 | Throttling | HttpClient owns one retry loop for HTTP 4xx and data-less all-THROTTLED GraphQL responses; GraphqlClient supplies the envelope classifier |
 | Budget | Four total attempts; 1/2/4-second backoff plus 0–250 ms jitter; total retry sleep at most 30 seconds |
 | Retry-After | Honor seconds/HTTP-date minimums; stop rather than exceed the sleep budget or overflow duration arithmetic |
 | No replay | HTTP 3xx/5xx, network ambiguity/timeouts, decoding errors, partial data, and mutation user errors |
 | Mutations | Preserve exact variables and idempotency key during throttling retries; discovery never activates automatically |
 | Sales semantics | Callers calculate/filter; current quantities can reflect refunds after the selected order-creation range |
-| Platform limits | No snapshot isolation, bulk-export guarantee, or bypass of Shopify limits. Nested 250-by-250 query cost remains unverified against the 1,000-point maximum; non-throttle cost errors propagate without retry |
+| Platform limits | No snapshot isolation, bulk-export guarantee, or bypass of Shopify limits. Actual query cost remains unverified against the 1,000-point maximum; non-throttle cost errors propagate without retry |
 | Compatibility | Discovery retains Shopify's supported deprecated singular inventory-item `variant` field |
 
 ## Errors and operational boundaries
@@ -183,7 +184,7 @@ Queries accept requests without cursor arguments and preserve response order acr
 | Inventory | Numeric location ID; active products and stocked variants; on_hand includes zero/negative quantities; missing location is 404 |
 | Metadata | Category = productType; collection = SKU characters 4–9 inclusive, null for short/missing SKU; cost and weight are current inventory metadata |
 | Orders | Literal tag; original quantities and original unit shop-money prices; merge SKU + price + currency with compatible cost/weight/category; missing SKUs stay separate |
-| Completeness | Report-specific product and variant queries paginate independently; order headers and report lines paginate independently; existing general catalog method retains its first250 variant contract |
+| Completeness | Shared catalog method traverses product and variant pages; shared tag/header and line methods traverse all order and line pages |
 | Precision | API checked decimal arithmetic; domain JSON numbers preserve decimal precision; overflow/invalid upstream numbers fail the whole report |
 | Failures | 400 invalid input, 401 authentication, 404 location absent, 503 missing configuration, 502 upstream failure, 504 upstream timeout; sanitized responses |
 

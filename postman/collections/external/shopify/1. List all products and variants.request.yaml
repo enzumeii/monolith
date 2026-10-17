@@ -4,19 +4,20 @@ query: |
   query ProductsWithVariants(
     $locationId: ID!
     $search: String
-    $productsAfter: String
+    $after: String
   ) {
-    products(first: 250, after: $productsAfter, query: $search, sortKey: CREATED_AT) {
+    products(first: 10, after: $after, query: $search, sortKey: CREATED_AT) {
       nodes {
         id
         title
+        productType
         description
         status
         tags
         featuredImage {
           url
         }
-        variants(first: 250) {
+        variants(first: 10) {
           nodes {
             id
             title
@@ -33,7 +34,11 @@ query: |
             inventoryItem {
               id
               tracked
+              unitCost { amount currencyCode }
+              measurement { weight { value unit } }
               inventoryLevel(locationId: $locationId) {
+                id
+                isActive
                 quantities(names: ["on_hand", "available"]) {
                   name
                   quantity
@@ -41,6 +46,7 @@ query: |
               }
             }
           }
+          pageInfo { hasNextPage endCursor }
         }
       }
       pageInfo {
@@ -51,9 +57,9 @@ query: |
   }
 variables: |-
   {
-  	"locationId": "gid://shopify/Location/123",
-  	"search": "status:active",
-  	"productsAfter": null
+    "locationId": "gid://shopify/Location/123",
+    "search": "status:active",
+    "after": null
   }
 settings: {}
 schema:

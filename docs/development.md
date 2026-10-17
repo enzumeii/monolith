@@ -68,7 +68,7 @@ Read state.settings.client.shopify and construct api::client::shopify::ShopifyCl
 
 | Operation | Caller responsibility |
 | --- | --- |
-| Product listing | products_with_variants(request): location ID and statuses; all products, first250 variants each; contextual money includes currency |
+| Product listing | products_with_variants(request): location ID and statuses; all product and variant pages, category, cost, weight and contextual money/currency |
 | Payment lookup | orders_by_payment(request): Shopify payment ID; external references may require separate mapping |
 | Tag lookup | orders_by_tag(request): one literal tag; all header pages, tags and shop-money currency |
 | Date-range headers | sold_variants_in_range(request): timestamps with offsets and exclusive end; statuses/test/cancellation remain available |
@@ -76,7 +76,7 @@ Read state.settings.client.shopify and construct api::client::shopify::ShopifyCl
 | Tag replacement | replace_order_tags(request): complete replacement list; empty list clears; inspect userErrors and optional order |
 | Inventory discovery | find_inventory_to_activate(request): all raw levels; caller decides eligibility from tracked/isActive/on_hand |
 | Inventory activation | activate_existing_inventory(request): item/location IDs and stable UUID; no quantity arguments; inspect userErrors/optional level |
-| Nested product bound | Variants retain first250 as nodes only, without nested pageInfo, a child cursor or an overflow error. All order-line pages are collected at250 per page |
+| Nested pagination | Product and variant connections are fully collected. Tagged lines use100 per page; sales lines use250 per page |
 | Credentials/scopes | Appropriate product/inventory/location/order permissions and approved older-order/protected-customer access where applicable |
 | Failure handling | Shopify ClientError failures identify api::client::shopify and retain their typed cause. Convert to AppError at the response boundary or use log_background_error for one ERROR; returning/propagating a Result does not log |
 | Privacy | Do not log token values, request/response bodies, raw upstream fields, payment references or customer information |

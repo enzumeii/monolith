@@ -209,6 +209,8 @@ pub struct VariantInventory {
     pub id: ShopifyId,
     pub tracked: bool,
     pub inventory_level: Option<InventoryLevel>,
+    pub unit_cost: Option<Money>,
+    pub measurement: Measurement,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Pricing {
@@ -225,10 +227,6 @@ pub struct Variant {
     pub inventory_item: VariantInventory,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ProductVariants {
-    pub nodes: Vec<Variant>,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Product {
     pub id: ShopifyId,
@@ -237,7 +235,8 @@ pub struct Product {
     pub status: ProductStatus,
     pub tags: Vec<String>,
     pub featured_image: Option<Image>,
-    pub variants: ProductVariants,
+    pub variants: Connection<Variant>,
+    pub product_type: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -285,6 +284,8 @@ pub struct TaggedOrderLineItem {
     pub sku: Option<String>,
     pub quantity: i64,
     pub original_unit_price_set: MoneyBag,
+    pub product: Option<LineProduct>,
+    pub variant: Option<LineVariant>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TaggedOrderLineItems {
@@ -457,4 +458,42 @@ fn escape_search(value: &str) -> String {
     escaped
 }
 
-pub mod report;
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Measurement {
+    pub weight: Option<Weight>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Weight {
+    pub value: serde_json::Number,
+    pub unit: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineVariant {
+    pub inventory_item: LineInventoryItem,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineInventoryItem {
+    pub unit_cost: Option<Money>,
+    pub measurement: Measurement,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineProduct {
+    pub product_type: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VariantPageData {
+    pub product: Option<VariantPage>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VariantPage {
+    pub id: ShopifyId,
+    pub variants: Connection<Variant>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LocationData {
+    pub location: Option<ResourceReference>,
+}

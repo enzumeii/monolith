@@ -22,7 +22,7 @@ fn tagged_order_decodes_only_requested_fields_and_keeps_shop_currency() {
         "id": "gid://shopify/Order/123", "number": 1001, "tags": ["shipping"], "email": null, "phone": null,
         "currentTotalPriceSet": {"shopMoney": {"amount": "1234567890.0123456789", "currencyCode": "THB"}},
         "lineItems": {"nodes": [{
-            "title": "Shirt", "variantTitle": null, "sku": null, "quantity": 2,
+            "title": "Shirt", "variantTitle": null, "sku": null, "quantity": 2, "product": null, "variant": null,
             "originalUnitPriceSet": {"shopMoney": {"amount": "45.6700", "currencyCode": "THB"}}
         }]}
     });
