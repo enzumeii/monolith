@@ -12,3 +12,4 @@ pub mod state;
 pub(crate) mod utils;
 pub(crate) mod validations;
 pub use repositories::auth::cleanup_refresh_tokens;
+pub use services::shopify as shopify_service;

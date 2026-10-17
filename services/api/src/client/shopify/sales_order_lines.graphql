@@ -1,7 +1,7 @@
 query SalesOrderLines($id: ID!, $after: String) {
   order(id: $id) {
     id
-    lineItems(first: 100, after: $after) {
+    lineItems(first: 250, after: $after) {
       nodes {
         id
         title

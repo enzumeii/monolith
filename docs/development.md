@@ -12,7 +12,7 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | Database | `DATABASE_URL` from ignored `.env` or environment | Secret PostgreSQL connection URL |
 | Signing key | `JWT_SECRET` from ignored `.env` or environment | Hex-encoded random key of at least 32 bytes |
 | Shopify URL | `client.shopify.admin_api_url` in `services/api/application.toml` | Full `https://<shop>.myshopify.com/admin/api/2026-10/graphql.json`; local overlay does not replace it |
-| Shopify token | `SHOPIFY_ACCESS_TOKEN` from ignored API `.env` or environment | Applied by `config.rs` directly from the environment into immutable redacted settings; never read directly by the client or accepted from TOML |
+| Shopify token | `SHOPIFY_ACCESS_TOKEN` from ignored API `.env` or environment | Assigned once by `config.rs` through the configured optional Shopify subtree during construction; never read directly by the client or accepted from TOML |
 | Backoffice | Public `application.toml`, `[api] base_url` | Default `http://localhost:3000/v1`; loaded once by typed `Settings`/`ApiConfig` |
 | Local browser | UI `http://localhost:8084`, API `http://localhost:3000` | Same hostname is required for exact origins and SameSite cookies |
 | Production browser | HTTPS and exact same-site UI/API origin configuration | Cross-site deployment needs a separate cookie/CORS design |
@@ -26,6 +26,7 @@ flowchart LR
     SECRETS["Ignored .env / environment"] --> SETTINGS
     SETTINGS --> API["Axum listener and database pool"]
     SETTINGS --> CLIENT["Explicit ShopifyClient construction"]
+    SERVICE["Shopify service: complete workflows"] --> CLIENT
     ASSET["Public frontend TOML asset"] --> LOADER["Fetch and parse once"]
     LOADER --> UI["Pages and session restoration"]
     UI -->|"Credentials and Origin"| API
@@ -64,16 +65,17 @@ Do not substitute loopback client fixtures or in-process handler tests for deplo
 
 ## Using the Shopify client
 
-Read state.settings.client.shopify and construct `api::client::shopify::ShopifyClient::new` directly from `ShopifyConfig`. Request/result types are exported through `api::shopify_models`; construct IDs with `ShopifyId::new`. The client collects pages internally; sales and tag lookup collect every order page, then all line-item pages through per-order requests. Product variants remain limited to the first 250 per product.
+Read state.settings.client.shopify and construct `api::client::shopify::ShopifyClient::new` directly from `ShopifyConfig`. Request/result types are exported through `api::shopify_models`; construct IDs with `ShopifyId::new`. Each client method sends one named GraphQL operation and accepts an explicit cursor for queries. Use api::shopify_service functions with a client reference for complete pagination, order assembly, inventory selection and mutation interpretation. Product variants remain limited to the first 250 per product.
 
-| Operation | Caller responsibility |
+| Complete service operation | Caller responsibility |
 | --- | --- |
+| Raw proxy access | Call the nine operation-named client methods; inspect returned pageInfo and pass its cursor explicitly. OrdersByTag/SoldVariantsInRange and their order-line operations are independent; raw inventory is unfiltered, and raw mutations retain userErrors/optional outputs |
 | Product listing | Supply location ID and desired product statuses; read each contextual price with its returned currency |
 | Payment lookup | Supply Shopify payment ID; an external gateway reference may need a separate mapping |
-| Tag lookup | Call `orders_by_tag(&OrdersByTagRequest { tag: "shipping".into() })` with one nonblank tag literal, not raw search syntax; results are newest-first and return tags and use shop money with currency |
+| Tag lookup | Call `api::shopify_service::orders_by_tag(&client, &OrdersByTagRequest { tag: "shipping".into() })` with one nonblank tag literal, not raw search syntax; results are newest-first and return tags and use shop money with currency |
 | Date-range orders | Supply timestamps with offsets and exclusive end; filter statuses and calculate totals in the upstream service |
 | Tag replacement | Supply complete replacement list; empty tags removes all tags |
-| Nested limits | Product variants use first:250 with no child cursor or overflow error; inspect pageInfo for truncation. Sales/tag lines use 100-node child pages until complete. Actual catalog query cost is unverified against Shopify limits |
+| Nested limits | Product variants use first:250 with no child cursor or overflow error; inspect pageInfo for truncation. Sales/tag services use 250-node child pages until complete. Actual catalog query cost is unverified against Shopify limits |
 | Inventory discovery | Supply location ID; returned candidates have tracked, inactive inventory and positive on-hand stock |
 | Inventory activation | Supply inventory item ID, location ID, and a stable UUID for the operation; quantity arguments are intentionally absent |
 | Credentials/scopes | Appropriate product, inventory, location, order read/write permissions; approved older-order/protected customer access where applicable |

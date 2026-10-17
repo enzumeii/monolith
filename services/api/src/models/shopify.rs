@@ -81,6 +81,16 @@ pub struct OrdersByPaymentRequest {
 pub struct OrdersByTagRequest {
     pub tag: String,
 }
+pub struct OrderLinesRequest {
+    pub order_id: ShopifyId,
+}
+impl OrderLinesRequest {
+    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+        self.order_id.require_kind("Order")?;
+        Ok(json!({"id": self.order_id, "after": after}))
+    }
+}
+
 pub struct SalesRangeRequest {
     pub start: DateTime<FixedOffset>,
     pub end: DateTime<FixedOffset>,
@@ -350,13 +360,13 @@ pub struct InventoryActivationCandidate {
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct TaggedOrderHeader {
-    pub(crate) tags: Vec<String>,
-    pub(crate) id: ShopifyId,
-    pub(crate) number: i64,
-    pub(crate) email: Option<String>,
-    pub(crate) phone: Option<String>,
-    pub(crate) current_total_price_set: MoneyBag,
+pub struct TaggedOrderHeader {
+    pub tags: Vec<String>,
+    pub id: ShopifyId,
+    pub number: i64,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+    pub current_total_price_set: MoneyBag,
 }
 impl TaggedOrderHeader {
     pub(crate) fn with_lines(self, line_items: TaggedOrderLineItems) -> TaggedOrder {
@@ -374,14 +384,14 @@ impl TaggedOrderHeader {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SalesOrderHeader {
-    pub(crate) id: ShopifyId,
-    pub(crate) name: String,
-    pub(crate) created_at: DateTime<FixedOffset>,
-    pub(crate) cancelled_at: Option<DateTime<FixedOffset>>,
-    pub(crate) test: bool,
-    pub(crate) display_financial_status: Option<String>,
-    pub(crate) display_fulfillment_status: String,
+pub struct SalesOrderHeader {
+    pub id: ShopifyId,
+    pub name: String,
+    pub created_at: DateTime<FixedOffset>,
+    pub cancelled_at: Option<DateTime<FixedOffset>>,
+    pub test: bool,
+    pub display_financial_status: Option<String>,
+    pub display_fulfillment_status: String,
 }
 impl SalesOrderHeader {
     pub(crate) fn with_lines(self, line_items: Connection<SalesLine>) -> SalesOrder {
@@ -399,65 +409,65 @@ impl SalesOrderHeader {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct ProductsData {
-    pub(crate) products: Connection<Product>,
+pub struct ProductsData {
+    pub products: Connection<Product>,
 }
 #[derive(Deserialize)]
-pub(crate) struct OrdersData {
-    pub(crate) orders: Connection<Order>,
+pub struct OrdersData {
+    pub orders: Connection<Order>,
 }
 #[derive(Deserialize)]
-pub(crate) struct OrdersByTagData {
-    pub(crate) orders: Connection<TaggedOrderHeader>,
+pub struct OrdersByTagData {
+    pub orders: Connection<TaggedOrderHeader>,
 }
 #[derive(Deserialize)]
-pub(crate) struct SalesData {
-    pub(crate) orders: Connection<SalesOrderHeader>,
+pub struct SalesData {
+    pub orders: Connection<SalesOrderHeader>,
 }
 #[derive(Deserialize)]
-pub(crate) struct InventoryData {
-    pub(crate) location: Option<LocationInventory>,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct LocationInventory {
-    pub(crate) inventory_levels: Connection<InventoryActivationCandidate>,
+pub struct InventoryData {
+    pub location: Option<LocationInventory>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct OrderUpdateData {
-    pub(crate) order_update: OrderUpdate,
+pub struct LocationInventory {
+    pub inventory_levels: Connection<InventoryActivationCandidate>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct OrderUpdate {
-    pub(crate) order: Option<OrderTags>,
-    pub(crate) user_errors: Vec<MutationUserError>,
+pub struct OrderUpdateData {
+    pub order_update: OrderUpdate,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ActivationData {
-    pub(crate) inventory_activate: Activation,
+pub struct OrderUpdate {
+    pub order: Option<OrderTags>,
+    pub user_errors: Vec<MutationUserError>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Activation {
-    pub(crate) inventory_level: Option<InventoryLevel>,
-    pub(crate) user_errors: Vec<MutationUserError>,
+pub struct ActivationData {
+    pub inventory_activate: Activation,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Activation {
+    pub inventory_level: Option<InventoryLevel>,
+    pub user_errors: Vec<MutationUserError>,
 }
 #[cfg(test)]
 #[path = "../tests/models/shopify.rs"]
 mod tests;
 
 #[derive(Deserialize)]
-pub(crate) struct OrderLinesData<T> {
-    pub(crate) order: Option<OrderLines<T>>,
+pub struct OrderLinesData<T> {
+    pub order: Option<OrderLines<T>>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct OrderLines<T> {
-    pub(crate) id: ShopifyId,
-    pub(crate) line_items: Connection<T>,
+pub struct OrderLines<T> {
+    pub id: ShopifyId,
+    pub line_items: Connection<T>,
 }
 fn escape_search(value: &str) -> String {
     let mut escaped = String::new();

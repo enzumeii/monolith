@@ -112,14 +112,14 @@ impl Settings {
     }
 
     fn from_config(config: Config, token: Option<String>) -> Result<Self, ConfigError> {
-        let settings: Self = config.try_deserialize()?;
-        let client = settings.client.map(|client| ClientConfig {
-            shopify: client.shopify.map(|shopify| ShopifyConfig {
-                access_token: token,
-                ..shopify
-            }),
-        });
-        let settings = Self { client, ..settings };
+        let mut settings: Self = config.try_deserialize()?;
+        if let Some(shopify) = settings
+            .client
+            .as_mut()
+            .and_then(|client| client.shopify.as_mut())
+        {
+            shopify.access_token = token;
+        }
         settings.validate()?;
         Ok(settings)
     }

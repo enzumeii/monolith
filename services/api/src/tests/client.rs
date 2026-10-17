@@ -15,7 +15,7 @@ use std::{
 use tokio::{net::TcpListener, task::JoinHandle};
 
 #[derive(Clone)]
-pub(super) struct Reply {
+pub(crate) struct Reply {
     pub status: u16,
     pub body: String,
     pub headers: Vec<(String, String)>,
@@ -42,7 +42,7 @@ struct FixtureState {
     replies: Arc<Mutex<VecDeque<Reply>>>,
     requests: Arc<Mutex<Vec<Captured>>>,
 }
-pub(super) struct Fixture {
+pub(crate) struct Fixture {
     pub url: Url,
     state: FixtureState,
     server: JoinHandle<()>,

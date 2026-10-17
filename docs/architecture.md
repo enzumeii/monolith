@@ -12,7 +12,8 @@ flowchart LR
     REPO --> DB[("PostgreSQL")]
     DOMAIN["Shared request/response DTOs"] -.-> UI
     DOMAIN -.-> API
-    CALLER["Future service caller"] -.-> SHOPIFY["ShopifyClient"]
+    CALLER["Future caller"] -.-> SHOPIFYSERVICE["Shopify service: complete use cases"]
+    SHOPIFYSERVICE --> SHOPIFY["ShopifyClient: nine operation proxies"]
     SHOPIFY --> GQL["GraphqlClient"]
     GQL --> HTTP["HttpClient: reqwest pool"]
     HTTP --> REMOTE["Shopify Admin GraphQL"]
@@ -27,7 +28,7 @@ flowchart LR
 | `apps/backoffice` | Browser pages, forms, direct API requests, session coordination | Public configuration only; Axum owns cookies, CORS, and origin checks |
 | `apps/client-ui` | Placeholder client application | No implemented service integration |
 
-Callers explicitly construct ShopifyClient from state.settings.client.shopify. Routes, startup, scheduled jobs and persistence do not invoke it.
+Callers explicitly construct ShopifyClient from state.settings.client.shopify. Complete use cases are exported as api::shopify_service. Routes, startup, scheduled jobs and persistence do not invoke Shopify.
 
 ## Module responsibilities
 
@@ -44,7 +45,8 @@ Callers explicitly construct ShopifyClient from state.settings.client.shopify. R
 | `src/validations/` / `src/utils/password.rs` | Input rules / Argon2 operations |
 | `src/error.rs` | Public error mapping and centralized boundary logging |
 | `src/client.rs` | Generic HTTP/GraphQL request envelopes, decoding, failures, throttling backoff |
-| `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication, seven operations, outer and order-line pagination / query documents |
+| `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication and nine single-operation GraphQL proxies / matching query documents |
+| `src/services/shopify.rs` | Seven complete Shopify workflows: pagination, order assembly, inventory selection and mutation interpretation |
 | `src/tests/` | Tests mirroring implementation paths through test-gated child modules |
 | `e2e-test/` | Real TCP endpoint tests and shared application/database fixtures |
 | `migrations/` / `.sqlx/` | Database migrations / offline SQLx metadata |
@@ -128,14 +130,15 @@ flowchart LR
 | --- | --- |
 | `HttpClient` | Reusable reqwest pool; per-request generic headers; 30-second per-attempt timeout; redirects disabled |
 | `GraphqlClient` | Typed variables; raw envelope error classification before successful data decoding; reject partial-data errors |
-| `ShopifyClient` | Token header supplied by this layer; parsed configured Admin API URL; endpoint trusted from configuration; API version 2026-10 |
-| Request types | Own operation validation, resource-kind checks and search/variable construction; the client orchestrates execution and pagination |
+| `ShopifyClient` | Nine typed single-page proxies, aligned method/document/operation names; token header and HTTP construction in new; trusted configured Admin API URL, version 2026-10 |
+| Request types | Own operation validation, resource-kind checks and search/variable construction; the client forwards validated variables for one operation |
 | Shopify models | Connection and PageInfo live beside Shopify contracts; the shared collector imports them |
-| DTOs | Public through `api::shopify_models`; shop-only money sets retain decimal amounts and currency; nullable references remain nullable; internal response envelopes live in API models |
-| Configuration | `config.rs` reads SHOPIFY_ACCESS_TOKEN after dotenv loading and injects it into immutable runtime settings; token deserialization is skipped; `[client.shopify]` in TOML contains only `admin_api_url` |
+| DTOs | Public through `api::shopify_models`; shop-only money sets retain decimal amounts and currency; nullable references remain nullable; public raw response envelopes retain pageInfo, userErrors and optional results |
+| Shopify service | Complete seven use cases in api::shopify_service; owns cursor traversal, parent checks, assembly, inventory selection and mutation interpretation |
+| Configuration | `config.rs` reads SHOPIFY_ACCESS_TOKEN after dotenv loading and assigns it once into the configured optional Shopify subtree during settings construction; token deserialization is skipped; `[client.shopify]` in TOML contains only `admin_api_url` |
 | Initialization | Shopify credentials are optional for API startup and required when constructing the client |
 
-| Method | Result |
+| Service function (api::shopify_service) | Result |
 | --- | --- |
 | `list_products` | Status-filtered products containing the first 250 variants per product (no variant cursor or overflow error), SKUs, location-contextual prices/currencies, images, and quantities |
 | `orders_by_payment_id` | All matching orders and transaction/contact details using Shopify's payment ID |
@@ -145,9 +148,23 @@ flowchart LR
 | `find_inventory_to_activate` | Target-location levels filtered in Rust to tracked, inactive items with positive on-hand stock |
 | `activate_inventory` | Activate the supplied inventory item/location with caller idempotency UUID; omit quantity arguments to preserve stored stock |
 
+| Client method / GraphQL filename stem | GraphQL operation | Result boundary |
+| --- | --- | --- |
+| products_with_variants | ProductsWithVariants | One products page; nested variants first250 |
+| orders_by_payment | OrdersByPayment | One matching orders page |
+| orders_by_tag | OrdersByTag | One matching order-header page |
+| sold_variants_in_range | SoldVariantsInRange | One date-filtered order-header page |
+| sales_order_lines | SalesOrderLines | One order's sales-line page, first250 |
+| tagged_order_lines | TaggedOrderLines | One order's tag-result line page, first250 |
+| replace_order_tags | ReplaceOrderTags | Raw userErrors and optional order |
+| find_inventory_to_activate | FindInventoryToActivate | Raw optional location with unfiltered inventory page |
+| activate_existing_inventory | ActivateExistingInventory | Raw userErrors and optional inventory level |
+
+Each query proxy accepts an explicit cursor and returns pageInfo without following it. Service functions take a client and request, preserve the assembled result shapes and fail rather than return partial success.
+
 | Request policy | Guarantee / limit |
 | --- | --- |
-| Pagination | Shared collector traverses outer pages at 250 nodes per request and per-order sales/tag line pages at 100. Child requests use stable order IDs, reset cursors for each order and reject missing/mismatched parents. Missing/repeated/cyclic cursors fail. Products retain first:250 variants without a variant cursor; pageInfo exposes possible truncation |
+| Pagination | Service uses the shared collector to traverse outer pages at 250 nodes per request and per-order sales/tag line pages at 250. Child requests use stable order IDs, reset cursors for each order and reject missing/mismatched parents. Missing/repeated/cyclic cursors fail. Products retain first:250 variants without a variant cursor; pageInfo exposes possible truncation |
 | Throttling | HttpClient owns one retry loop for HTTP 4xx and data-less all-THROTTLED GraphQL responses; GraphqlClient supplies the envelope classifier |
 | Budget | Four total attempts; 1/2/4-second backoff plus 0–250 ms jitter; total retry sleep at most 30 seconds |
 | Retry-After | Honor seconds/HTTP-date minimums; stop rather than exceed the sleep budget or overflow duration arithmetic |
