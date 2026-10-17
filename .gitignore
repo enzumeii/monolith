@@ -4,3 +4,7 @@
 target/
 
 *.profraw
+
+# Local implementation plans and execution artifacts.
+/docs/superpowers/
+/.superpowers/

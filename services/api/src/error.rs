@@ -254,6 +254,18 @@ impl std::fmt::Debug for Diagnostic<'_> {
     }
 }
 
+impl From<crate::client::ClientError> for AppError {
+    fn from(error: crate::client::ClientError) -> Self {
+        let origin = match &error {
+            crate::client::ClientError::Origin { origin, .. }
+            | crate::client::ClientError::Transport { origin, .. }
+            | crate::client::ClientError::Decode { origin, .. } => *origin,
+            _ => "api::client",
+        };
+        Self::Internal(anyhow::Error::new(error)).at(origin)
+    }
+}
+
 impl From<sqlx::Error> for AppError {
     fn from(error: sqlx::Error) -> Self {
         if let sqlx::Error::Database(ref db) = error

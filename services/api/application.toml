@@ -10,3 +10,6 @@ min_connections = 1
 [browser]
 public_origin = ""
 insecure_local = true
+
+[client.shopify]
+admin_api_url = "https://enzumeii.myshopify.com/admin/api/2026-10/graphql.json"

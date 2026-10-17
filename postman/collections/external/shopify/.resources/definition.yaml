@@ -1,0 +1,9 @@
+$kind: collection
+auth:
+  - id: 309d773f-b8dd-40f5-850e-60b1c6d046c0
+    type: apikey
+    name: API Key
+    credentials:
+      key: X-Shopify-Access-Token
+      value: "{{vault:shopify_token}}"
+order: 1000

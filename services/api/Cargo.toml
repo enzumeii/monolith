@@ -7,6 +7,7 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
+reqwest.workspace = true
 domain = { path = "../../crates/domain" }
 serde.workspace = true
 serde_json.workspace = true

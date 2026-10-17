@@ -1,175 +1,174 @@
-# Architecture and branch summary
+# Service architecture
 
-| Snapshot | Value |
-| --- | --- |
-| Date / branch | 2026-10-13 / `feat/backoffice-admin-ui` |
-| Scope | Current branch relative to `main`; cleanup scope includes the approved test-runner and TOML corrections |
-| Related docs | [Operations](development.md) · [Verification](verification.md) |
+The application consists of an Axum API, a client-only Dioxus backoffice, shared wire contracts, and a placeholder client UI. [Development and operations](development.md) describes configuration and commands; [verification](verification.md) records measured results and limits.
 
-## Ownership
+## Ownership and dependencies
 
 ```mermaid
 flowchart LR
-    UI["Backoffice: Dioxus web client"] -->|"HTTP and cookies"| API["Axum API"]
+    UI["Dioxus backoffice"] -->|"HTTP, cookies, Origin"| API["Axum routes and handlers"]
     API --> SERVICES["Services: use cases and transactions"]
-    SERVICES --> REPO["Repositories: SQLx"]
+    SERVICES --> REPO["Repositories: SQLx queries"]
     REPO --> DB[("PostgreSQL")]
-    DOMAIN["Domain: shared Serde DTOs"] -.-> UI
+    DOMAIN["Shared request/response DTOs"] -.-> UI
     DOMAIN -.-> API
+    CALLER["Future caller"] -.-> SHOPIFY["ShopifyClient: automatic query pagination"]
+    SHOPIFY --> GQL["GraphqlClient"]
+    GQL --> HTTP["HttpClient: reqwest pool"]
+    HTTP --> REMOTE["Shopify Admin GraphQL"]
+    CONFIG["API typed configuration"] --> API
+    CONFIG --> SHOPIFY
 ```
 
-| Package | Owns | Boundary |
+| Package | Responsibility | Boundary |
 | --- | --- | --- |
-| `crates/domain` | Request/response DTOs, wire `AdminRole` | No database models, SQLx, claims or transactions |
-| `services/api` | HTTP, authorization, credentials, cookies, CORS, PostgreSQL | All persistence and credential operations |
-| `apps/backoffice` | Pages, forms, safe viewer state, browser synchronization | Direct Axum calls; client-only |
-| `apps/client-ui` | Existing placeholder app | Outside this backoffice implementation |
+| `services/api` | HTTP endpoints, authentication, authorization, persistence, outbound clients | Database objects, principals, JWT claims, and Shopify wire DTOs remain API-owned |
+| `crates/domain` | Shared request/response DTOs and wire enums | No database models, SQLx, JWT claims, or transactions |
+| `apps/backoffice` | Browser pages, forms, direct API requests, session coordination | Public configuration only; Axum owns cookies, CORS, and origin checks |
+| `apps/client-ui` | Placeholder client application | No implemented service integration |
 
-## Project structure
+Callers explicitly construct ShopifyClient from state.settings.client.shopify. Routes, startup, scheduled jobs and persistence do not invoke Shopify.
 
-| Root | Path | Responsibility |
-| --- | --- | --- |
-| `crates/domain` | `src/dto/{admin,auth}.rs` | Shared contracts |
-| | `tests/contracts.rs` | Public serialization contract |
-| `services/api` | `src/{lib,main}.rs` | Module registration; startup, listener, maintenance, shutdown |
-| | `src/{config,state}.rs` | Settings, pool and signing key |
-| | `src/routes/` | healthz and v1 route composition |
-| | `src/handlers/` | HTTP inputs, responses, cookie transport |
-| | `src/middleware/token.rs` | Bearer/cookie access-token authentication, JWT validation and role checks |
-| | `src/middleware/cookies.rs` | Cookie transport, session mode and browser-origin guard |
-| | `src/services/` | Validation, permissions and transaction boundaries |
-| | `src/repositories/` | SQLx queries and retention |
-| | `src/models/` | Rows, database roles, claims and principals |
-| | `src/validations/` | Credential, pagination and account-action rules |
-| | `src/utils/password.rs` | Argon2 hashing/verification |
-| | `src/error.rs` | Error mapping and centralized failure logging |
-| | `src/tests/` | Unit tests mirroring production modules |
-| | `e2e-test/` | Real TCP tests mirroring API routes; Cargo test target `e2e` |
-| | `migrations/` / `.sqlx/` | Schema migrations / offline query metadata |
-| `apps/backoffice` | `src/lib.rs` | Module declarations |
-| | `src/main.rs` | Dioxus launch, startup orchestration and root App components |
-| | `application.toml` / `src/config.rs` | Public settings file / typed startup reader |
-| | `src/api.rs` | Shared HTTP request construction, decoding and errors |
-| | `src/api/` | Auth/admin endpoint calls |
-| | `src/session/` | Safe viewer signals, response ownership, browser sync |
-| | `src/route.rs` | UI routes and layout |
-| | `src/pages/` | Login, home, profile, navbar, admin management |
-| | `src/pages/admin/` | Create form, row and table components |
-| | `src/components/` | Shared form, error and confirmation components |
-| | `src/tests/api.rs` | HTTP request/configuration boundary unit tests |
-| | `src/tests/config.rs` | Nested-route/base-path/invalid-URL asset resolution |
-| | `src/tests/session/mod.rs` | Response-ownership unit test |
+## Module responsibilities
 
-| Convention | Mapping |
+| API path | Responsibility |
 | --- | --- |
-| Function order | Exported functions → private helpers |
-| Unit tests | `src/utils/password.rs` → `src/tests/utils/password.rs` |
-| Private access | Test-gated child-module declaration; helpers remain private |
-| Auth E2E | `src/routes/v1/auth.rs` → `e2e-test/v1/auth.rs` |
-| Admin E2E | `src/routes/v1/admins.rs` → `e2e-test/v1/admins.rs` |
-| E2E registration | API `Cargo.toml` → `e2e-test/main.rs` |
-| Shared E2E utilities | `e2e-test/common.rs`: owned temporary TOML, local child API, readiness, `send`, fixture cleanup; endpoint helpers stay with endpoints |
+| `src/lib.rs` | Module declarations and public re-exports, including `shopify_models` |
+| `src/main.rs` | Configuration, database startup, listener, maintenance task, graceful shutdown |
+| `src/config.rs` / `src/state.rs` | Typed settings; pool, settings, and signing key in application state |
+| `src/routes/` / `src/handlers/` | Route composition; HTTP inputs, responses, and transport |
+| `src/middleware/cookies.rs` | Cookie helpers, session transport, origin enforcement |
+| `src/middleware/token.rs` | JWT validation and role checks |
+| `src/services/` / `src/repositories/` | Use cases and transaction boundaries / SQL queries |
+| `src/models/` | Persistence/authentication models and API-owned Shopify contracts |
+| `src/validations/` / `src/utils/password.rs` | Input rules / Argon2 operations |
+| `src/error.rs` | Public error mapping and centralized boundary logging |
+| `src/client.rs` | Generic HTTP/GraphQL request envelopes, decoding, failures, throttling backoff |
+| `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication, seven automatically paginated queries and two raw mutations / matching query documents |
+| `src/tests/` | Tests mirroring implementation paths through test-gated child modules |
+| `e2e-test/` | Real TCP endpoint tests and shared application/database fixtures |
+| `migrations/` / `.sqlx/` | Database migrations / offline SQLx metadata |
+
+| Backoffice path | Responsibility |
+| --- | --- |
+| `src/lib.rs` / `src/main.rs` | Module declarations / startup and root App |
+| `src/config.rs` / `application.toml` | Single typed startup reader / published public settings |
+| `src/api.rs` / `src/api/{auth,admins}.rs` | HTTP construction, decoding, errors / endpoint calls |
+| `src/session/` | Viewer state, response ownership, browser synchronization |
+| `src/route.rs`, `src/pages/`, `src/components/` | Navigation, pages, forms, confirmation, reusable UI |
+| `src/tests/` | Configuration, HTTP boundary, and session tests |
 
 ## HTTP and authentication
 
 ```mermaid
 sequenceDiagram
-    participant UI as Backoffice client
+    participant UI as Browser
     participant API as Axum API
     participant DB as PostgreSQL
-    UI->>API: Login JSON, cookie mode, Origin
-    API->>DB: Load account; store new refresh family
-    API-->>UI: Safe session JSON; HttpOnly cookie
-    UI->>API: Protected request with Cookie
-    API->>API: Validate JWT; authorize request
-    API-->>UI: DTO response
-    UI->>API: Refresh with Cookie and Origin
-    API->>DB: Consume old refresh; insert replacement in transaction
-    API-->>UI: Safe session JSON; rotated cookie
+    UI->>API: Login with cookie mode and Origin
+    API->>DB: Verify account and create refresh family
+    API-->>UI: Safe identity response and HttpOnly cookies
+    UI->>API: Authenticated request with cookies
+    API->>API: Validate JWT and authorize operation
+    API-->>UI: Response DTO
+    UI->>API: Refresh with cookie and Origin
+    API->>DB: Atomically consume token and insert replacement
+    API-->>UI: Rotated credentials
 ```
 
-| Operation | Server behavior |
+| Concern | Behavior |
 | --- | --- |
-| Login | One Argon2 verification; new refresh family per login |
-| Access | JWT signature/expiry; 600-second lifetime + 60-second leeway |
-| Refresh | Single-use consumption + replacement in one transaction; same family |
-| Logout | Revoke current authenticated account's refresh family |
-| Account/password update | Update + all target refresh revocations in one transaction |
+| Login | Argon2 verification; independent refresh family for each login |
+| Access token | JWT validation; 10-minute lifetime and 60-second validation leeway |
+| Refresh | Single-use consumption and replacement in one transaction; seven-day refresh lifetime |
+| Logout | Revoke the current authenticated account's refresh family |
+| Account/password changes | Update and account-wide refresh revocation in one transaction |
 | Account deletion | Foreign-key cascade removes refresh credentials |
-| Access after revocation | Existing JWT remains valid until its expiry window ends |
-| Write authorization | Route checks plus current actor lookup in services; UI checks are presentation only |
+| Revocation limit | Existing access JWTs remain valid until expiry; no immediate access-token revocation |
+| Concurrent issuance | An in-flight login may issue after a concurrent password change; no cross-request global locking |
+| Write authorization | Route checks and current actor lookup in services |
+| Retention | Startup/hourly cleanup; at most 500 expired/revoked rows per batch with `SKIP LOCKED` |
 
 | Browser transport | Policy |
 | --- | --- |
-| Request | `x-session-mode: cookie`; browser credentials included |
-| Login/refresh JSON | `SessionResponse`: identity, role, expiry; no token pair |
-| Cookie | Access/refresh pair; HttpOnly, SameSite=Lax, Path=/; seven days |
-| Production | Secure `__Host-backoffice_auth`; no Domain |
-| Explicit loopback HTTP | `backoffice_auth`; insecure-local mode |
-| Clearing | Successful cookie logout and self-update |
-| Bearer clients | Token JSON and refresh-request bodies retained |
-| Bearer precedence | Present invalid bearer rejects; no cookie fallback |
-| CORS | Credentialed requests from exact `browser.public_origin` in TOML |
-| Mutation origin | Cookie requests reject missing/null/foreign Origin |
-| Caching | Responses passing through cookie guard: `Cache-Control: no-store` |
-| Site assumption | UI/API same-site; use consistent local host spelling |
+| Cookie mode | `x-session-mode: cookie`; credentialed requests; identity responses exclude token pairs |
+| Cookie attributes | HttpOnly, SameSite=Lax, Path=/; secure `__Host-backoffice_auth` in HTTPS mode |
+| Local mode | Explicit loopback HTTP permits `backoffice_auth`; UI and API use `localhost` |
+| Bearer clients | Token JSON remains supported; an invalid supplied bearer token does not fall back to cookies |
+| CORS/origin | Exact configured browser origin; reject missing/null/foreign origins on guarded cookie mutations |
+| Caching | Cookie-guarded responses use `Cache-Control: no-store` |
+
+## Browser state and configuration
 
 ```mermaid
 flowchart LR
-    EVENT["Login, logout, restore, self-update"] --> LOCK["Browser Web Lock"]
-    LOCK --> HTTP["Direct Axum request"]
-    HTTP --> TICKET["Epoch and sequence ownership"]
-    TICKET --> VIEWER["Safe Dioxus viewer signals"]
-    VIEWER --> SYNC["BroadcastChannel notification"]
-    SYNC --> RESTORE["Other tabs restore through refresh"]
-    FOCUS["Window focus"] --> RESTORE
+    FILE["Public application.toml"] --> LOAD["Load typed settings once"]
+    LOAD --> RESTORE["Restore session"]
+    EVENTS["Login, logout, profile change"] --> LOCK["Browser Web Lock"]
+    LOCK --> REQUEST["Direct API request"]
+    REQUEST --> OWNER["Epoch and sequence ownership"]
+    OWNER --> VIEWER["Safe viewer signals"]
+    VIEWER --> SYNC["BroadcastChannel"]
+    SYNC --> RESTORE
 ```
 
-| Coordination | Guarantee / limit |
+| Concern | Mechanism |
 | --- | --- |
-| Web Locks | Serialize same-origin cookie-changing UI operations; support required |
-| Epoch/sequence | Reject stale results after account transitions |
-| Restoration | Existing refresh endpoint; legacy LocalStorage credentials removed |
-| Independent logins | Separate refresh families |
-| Transactions | Atomic writes within each operation |
-| Concurrent revocation | In-flight issuance can outlive revocation; no global serialization guarantee |
-| Demonstrated race | Login verified before password update can issue credentials after revocation |
+| Startup | Resolve the configuration asset against the current page URL; render pages and call APIs only after loading |
+| Failure | Configuration error/Retry view; no configured application calls until recovery |
+| Cookie-changing operations | Same-origin Web Locks serialize browser operations |
+| Stale responses | Epoch/sequence checks reject results from an earlier account state |
+| Other tabs/focus | Broadcast notifications and refresh-based restoration |
+| Pagination | Dioxus resources own fetch lifecycle; disable navigation while pending |
+| Deployment configuration | Publishing selected local/prod source as one `application.toml` is planned; selection is not implemented |
 
-## Branch changes
+## Outbound Shopify operations
 
-| Area | Final state |
+| Layer | Contract |
 | --- | --- |
-| Backoffice UI | Login, profile, admin management; reusable forms, confirmation, rows and tables |
-| Entry points | Backoffice modules in `lib.rs`; startup/root components in `main.rs`; standalone API listener |
-| Shared contracts | Persistence/internal auth types moved from domain into API |
-| Browser transport | Axum owns cookies, origin guard and CORS; Dioxus BFF removed |
-| Middleware | Cookie helpers/guard in `cookies.rs`; JWT authentication/role checks in `token.rs` |
-| Client HTTP | Shared helpers in `api.rs`; named exports; endpoint calls in `api/{auth,admins}.rs`; explicit error statuses |
-| Configuration cleanup | Browser asset resolved against page URL; API non-secret settings remain TOML-only |
-| Readability cleanup | Scoped refresh names, multiline SQL/cleanup, named exports; request extensions carry principal/source only |
-| Refresh credentials | Independent families, atomic rotation, replacement rollback, scoped logout, account-wide revocation |
-| Validation | Unicode boundaries, validated pagination, duplicate username conflict, signing-key checks |
-| Errors | Central logging, sanitized HTTP failures, secret-safe Debug, pure conversions |
-| Async/runtime | Direct Argon2 `spawn_blocking`; native Axum graceful shutdown |
-| Pagination | Dioxus `use_resource`; navigation disabled while pending; emptied later page steps back |
-| Admin creation | Intentional superadmin seed migration; authenticated admin API for additional accounts |
-| Migrations | Family/retention additions consolidated into original refresh migration; admin/seed preserved |
-| Test layout | Mirrored separate unit tests; existing API E2E paths; Docker database shared during a run and deleted afterward |
-| Maintenance | Up to 500 expired/revoked rows per batch; `SKIP LOCKED` |
-| Configuration | One public `application.toml`; typed `Settings`/`ApiConfig`; load before pages/API calls |
-| Tooling | Root README indexes four package guides and docs; package justfiles include setup/local workflows |
-| Removed layers | BFF server/config/state, refresh map/cache, custom account locks, PasswordLimiter, shutdown deadlines |
+| `HttpClient` | Reusable reqwest pool; per-request generic headers; 30-second per-attempt timeout; redirects disabled |
+| `GraphqlClient` | Typed variables; raw envelope error classification before successful data decoding; reject partial-data errors |
+| `ShopifyClient` | Nine typed methods with aligned operation/document names; seven queries collect every page internally; constructor supplies the token header and trusted configured Admin API URL, version 2026-10 |
+| Request types | Own operation validation, resource-kind checks and search/variable construction; the client supplies internal continuation cursors |
+| Shopify models | Connection and PageInfo live beside Shopify contracts; the shared collector imports them |
+| DTOs | Public through `api::shopify_models`; shop-only money sets retain decimal amounts and currency; nullable references remain nullable; queries return complete Vec node collections, nested product variants contain nodes only, mutations retain raw userErrors and optional results |
+| Configuration | `config.rs` uses one ConfigBuilder build/deserialization; dotenv/environment DATABASE_URL, JWT_SECRET and SHOPIFY_ACCESS_TOKEN override matching file values before deserialization; `[client.shopify]` in TOML contains only `admin_api_url` |
+| Initialization | Absent Shopify configuration remains optional without a token override; a token override requires its file-configured admin URL; client construction requires a nonblank token |
 
-## Current limits
+| Client method / GraphQL filename stem | GraphQL operation | Result |
+| --- | --- | --- |
+| products_with_variants | ProductsWithVariants | Vec<Product>; all products, each with first250 variants, SKU/images/location quantities and contextual price/currency |
+| orders_by_payment | OrdersByPayment | Vec<Order>; all payment-ID matches, contacts/transactions and money |
+| orders_by_tag | OrdersByTag | Vec<TaggedOrderHeader>; all newest-first matching headers, tags and shop money |
+| sold_variants_in_range | SoldVariantsInRange | Vec<SalesOrderHeader>; all offset-aware half-open date matches, statuses/test/cancellation |
+| sales_order_lines | SalesOrderLines | Vec<SalesLine>; every line page for the supplied order, quantities and original money |
+| tagged_order_lines | TaggedOrderLines | Vec<TaggedOrderLineItem>; every line page for the supplied order |
+| replace_order_tags | ReplaceOrderTags | Raw userErrors and optional updated order; empty tags clears the complete list |
+| find_inventory_to_activate | FindInventoryToActivate | Vec<InventoryActivationCandidate>; all raw location levels, including active/untracked/zero stock |
+| activate_existing_inventory | ActivateExistingInventory | Raw userErrors/optional inventory level; supplied UUID; quantity arguments absent |
 
-| Area | Status |
+Queries accept requests without cursor arguments and preserve response order across pages. Header and line-item methods are independent; there is no automatic order/line assembly or inventory selection layer. Callers inspect raw inventory and mutation results.
+
+| Request policy | Guarantee / limit |
 | --- | --- |
-| Backoffice configuration loader | Fixed; nested-route/base-path URL tests, manual startup smoke and strict native/WASM lint pass |
-| Environment split | Agreed local/prod source selection for deployment; source files/build selection not implemented |
-| API cookie/CORS endpoint coverage | Covered by TCP tests; HTTPS browser cookie acceptance remains unverified |
-| Browser behavior | Web Locks, BroadcastChannel, cookie acceptance and rendered pagination unverified by native checks |
-| Backoffice/browser E2E | Excluded by request |
-| Coverage percentages | Not rerun after simplification; earlier percentages omitted |
-| Vercel | No runtime adapter; standalone listener/process maintenance remain |
-| Concurrency/capacity | Pool remains one connection; anticipated user count is not an enforced limit |
-| Deployment | No production deployment, push or merge |
+| Pagination | Client uses the shared collector for each query at 250 nodes per request. Every method call starts without a cursor; line methods use the supplied order ID and reject missing/mismatched parents. Missing/repeated/cyclic cursors fail. Products retain first:250 variants as nodes only, without nested pageInfo or a variant cursor; truncation is not reported |
+| Throttling | HttpClient owns one retry loop for HTTP 4xx and data-less all-THROTTLED GraphQL responses; GraphqlClient supplies the envelope classifier |
+| Budget | Four total attempts; 1/2/4-second backoff plus 0–250 ms jitter; total retry sleep at most 30 seconds |
+| Retry-After | Honor seconds/HTTP-date minimums; stop rather than exceed the sleep budget or overflow duration arithmetic |
+| No replay | HTTP 3xx/5xx, network ambiguity/timeouts, decoding errors, partial data, and mutation user errors |
+| Mutations | Preserve exact variables and idempotency key during throttling retries; discovery never activates automatically |
+| Sales semantics | Callers calculate/filter; current quantities can reflect refunds after the selected order-creation range |
+| Platform limits | No snapshot isolation, bulk-export guarantee, or bypass of Shopify limits. Nested 250-by-250 query cost remains unverified against the 1,000-point maximum; non-throttle cost errors propagate without retry |
+| Compatibility | Discovery retains Shopify's supported deprecated singular inventory-item `variant` field |
+
+## Errors and operational boundaries
+
+| Area | Contract |
+| --- | --- |
+| API failures | Sanitized public responses; one WARN/ERROR summary at the handling boundary with operation, category, and innermost origin |
+| API DEBUG diagnostics | Underlying causes/context are opt-in; conversions do not log |
+| Client failures | Shopify entry-point failures carry origin api::client::shopify through ClientError::Origin, retaining typed causes and lower-level transport/decode origins. Generic unwrapped client errors retain their existing origins. One ERROR at AppError response/background handling; no events during creation/conversion/propagation; safe Display/Debug |
+| Sensitive fields | Configuration Debug redacts secrets; do not log raw requests, upstream bodies, or client error fields |
+| Persistence | Transactions remain service-owned, SQL remains repository-owned; intentional admin/seed migrations are preserved |
+| Runtime | Standalone Axum listener and Tokio maintenance; no serverless adapter or production deployment mechanism |
+| Capacity | Default database pool has one connection; throughput and deployment guarantees require separate evidence |

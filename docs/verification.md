@@ -1,109 +1,55 @@
-# Verification — 2026-10-13
+# Verification
 
-| Record | Scope |
+Results describe the tested revision and scope; they do not establish live Shopify behavior or production capacity. [Architecture](architecture.md) and [operations](development.md) describe the current system separately from these results.
+
+## Verified revision and checks
+
+| Evidence | Result |
 | --- | --- |
-| Checkout | `feat/backoffice-admin-ui`, including uncommitted API test-runner changes |
-| Evidence | Observed cleanup runs on this date; API and backoffice native/WASM lint pass |
-| Latest verification | Approved cleanup plus TOML-only API configuration: fresh-database native/retention/TCP tests, native/WASM lint, bundle, SQL metadata and manual startup checks; earlier client-ui results remain prior evidence |
-| Related docs | [Architecture](architecture.md) · [Operations](development.md) |
+| Implementation revision | Nodes-only variant correction following `2ac1422`; exact published head is recorded in PR checks |
+| Local native API tests | `just test` native phase: 84 passed, 0 failed, 2 Docker-dependent tests ignored |
+| Local API format/lint | `just check`: passed, including strict Clippy for all API targets |
+| Local formatting scope | API formatting passed through `just check`; workspace-wide formatting not rerun for this correction |
+| Current published CI | Exact published-head results are recorded in [PR #6 checks](https://github.com/enzumeii/monolith/pull/6/checks); local checks do not establish a CI pass |
+| Local PostgreSQL / real TCP endpoints | `just test`: 86 library tests passed with Docker PostgreSQL; 36 real TCP endpoint tests passed; Compose teardown completed |
+| Backoffice/client UI checks | Not run locally for this change; CI skipped their unchanged-package steps |
+| Live Shopify execution | Not run; no store mutations performed |
 
-## Results
+The existing API test recipe and CI workflow run the database and real TCP endpoint suites; no new endpoint tests were needed for this client DTO correction. Local Shopify fixtures exercise HTTP over loopback and are not described as real Shopify E2E.
 
-| Check | Command / recipe | Result |
-| --- | --- | --- |
-| API unit tests | API `just test`: native tests before Compose starts | 31 passed; retention ignored here |
-| API TCP E2E | API `just test`: local API + shared Docker PostgreSQL | 36 passed, including cookie/origin/CORS/bearer precedence contracts; optional bootstrap script/tests removed |
-| Startup failure cleanup | Invalid `E2E_API_PORT`: recipe failure check and filtered healthz test with temporary TOML | Expected nonzero exit; owned config/API removed; E2E database volume deleted |
-| Repository skills | Bundled `quick_validate.py` for both existing skills | Both passed |
-| PostgreSQL retention | `cargo api-e2e`: includes ignored API library tests after Compose starts | 1 retention test passed; 31 native tests rerun |
-| Backoffice unit tests | Backoffice `just test` | 6 passed, including nested-route/base-path/invalid-URL regressions |
-| Domain contract | `cargo test --locked --offline -p domain` | 1 contract test passed |
-| API strict lint | `cargo clippy --locked --offline -p api --all-targets -- -D warnings` | Passed after cookie/token middleware split |
-| Backoffice native strict lint | Backoffice `just check` | Passed after moving the asset macro to module scope |
-| UI WASM strict lint | Backoffice `just check` | Passed |
-| Domain WASM | `cargo check --locked --offline -p domain --target wasm32-unknown-unknown` | Passed |
-| Format | `cargo fmt --all --check` | Passed |
-| SQLx metadata | API `cargo sqlx prepare --check -- --lib`; online against existing PostgreSQL | Passed |
-| Dioxus web bundle | Backoffice `just build` | Passed with absolute config resolution and explicit client statuses; public TOML bundled |
-| Client UI workflows | Package `just setup`, `run`, `test`, `check` | Passed; run prints stub, zero test cases |
-| Domain workflows | Package `just setup`, `test`, `check` | Passed; includes contract and WASM checks |
+## Exercised contracts
 
-## E2E execution
-
-```mermaid
-flowchart LR
-    UNIT["cargo test: native API tests"] --> PG["Compose up: PostgreSQL"]
-    PG --> CARGO["cargo api-e2e: retention and TCP tests"]
-    CARGO --> HARNESS["Harness: configure and launch local API"]
-    HARNESS --> READY["Harness: wait for healthz"]
-    READY --> TCP["36 real TCP endpoint tests"]
-    TCP --> STOP["Harness: stop owned API"]
-    STOP --> DOWN["Compose down -v: delete test database"]
-```
-
-| Resource | Handling |
+| Area | Evidence |
 | --- | --- |
-| Docker context / DB port | `orbstack` / 5433 |
-| Application | Harness owns child-process environment, local API startup, readiness and teardown; real endpoint requests |
-| E2E location | `services/api/e2e-test/main.rs`, `healthz.rs`, `v1/{auth,admins}.rs` |
-| Database lifecycle | Shared within a run; Compose down `-v` deletes the database afterward, including on failure |
-| Endpoint fixtures | Unique owned rows and race controls; scoped cleanup |
-| Retention fixtures | Connection-owned temporary rows |
+| JSON transport | Typed decoding, generic headers/body, malformed JSON, HTTP failures, timeout, redirect rejection |
+| GraphQL errors | Errors classified before typed data decoding; null mutation results retain upstream errors/metadata; partial-data errors rejected |
+| Backoff | HTTP 4xx and GraphQL throttling use one HttpClient loop/budget; unchanged replay payload; mixed-rejection four-attempt exhaustion; Retry-After minimum and budget; oversized-delay overflow regression |
+| No replay | HTTP 500/502/503/504, unrelated GraphQL errors, mutation user errors, and ambiguous timeout |
+| Configuration | Literal ConfigBuilder token override and standard file/env precedence; no construction helper or skipped token field; URL retained through overlays; optional absent section and ordinary missing-URL errors; redacted Debug |
+| Money and IDs | Decimal strings paired with currency; malformed/wrong-resource IDs rejected |
+| Client boundary | Nine aligned operation/document names; queries automatically collect every page without caller cursors; root and child methods remain independent; raw inventory and mutation userErrors/optional results retained |
+| Catalog pagination | Nodes-only fixtures failed before the DTO correction and passed afterward; multiple outer pages, empty variants, 250 variants and currency covered; nested pageInfo is neither requested nor required |
+| Order pagination | Header queries traverse all outer pages independently; line methods return501 ordered lines over250/250/1 pages; no root/line chaining; date offsets/status/test/cancellation retained |
+| Tagged orders | Multiple order pages preserve response order; empty results, literal tag escaping, blank-input rejection, cursor failures, HTTP/GraphQL failure propagation, returned tags, precise shop money and currency; independent line lookup collects501 nodes; each query call starts without a cursor |
+| Error source chain | Origin exposes the original ClientError through standard Error::source, retaining deeper reqwest/serde causes and the first client identity; focused regression reproduced the derive-generated box downcast defect and passes with explicit chaining |
+| Error integration | Each original ClientError family retains its type/source when wrapped with the Shopify origin; real constructor/HTTP/decode/protocol failures log one ERROR under INFO/DEBUG at response/background boundaries; conversion/attachment silent, payloads private |
+| Cursor safety | Missing, repeated, and cyclic continuations rejected |
+| Payment/tag behavior | Search-literal escaping for payment ID and single-tag lookup, multiple matches, empty tag replacement, mutation errors |
+| Inventory discovery | All location pages returned unfiltered, including active/untracked/zero/positive stock; missing location errors |
+| Activation | Quantity arguments absent; available/on-hand retained in fixtures; stable idempotency key across throttling |
+| Existing API | CI exercises authentication, authorization, cookie/origin handling, database operations, and registered endpoint tests |
 
-## Exercised behavior
+## Review and limits
 
-| Area | Covered scenarios |
+| Area | Result / limit |
 | --- | --- |
-| Login/access | Credentials, malformed JSON, malformed/expired/wrongly signed JWTs; cookie identity response and explicit bearer precedence |
-| Cookie transport | Login/rotation/replay/logout, family isolation, self-update revocation, missing/null/foreign Origin and trusted/foreign preflight |
-| Cookie attributes | Native development and production creation/removal name, path, Secure, HttpOnly, Lax and no Domain |
-| Localhost browser fix | UI/API TOML defaults aligned to localhost; exact-origin preflight passed; in-app browser renders Sign in at http://localhost:8084 |
-| Local API startup | just run succeeded with invalid API_HOST/API_PORT/PUBLIC_ORIGIN/INSECURE_LOCAL_COOKIES environment values; TOML settings retained |
-| Refresh | Single-use, concurrent winner, expiry, replacement rollback |
-| Revocation | Family isolation, account-wide revocation, access-JWT persistence |
-| In-flight policy | Verified login can issue after concurrent password update |
-| Admins | Permissions, missing records, validation, duplicate usernames, pagination |
-| Transactions | Failed revocation rolls back account update |
-| Backoffice units | Stale response ownership; configured API URL and cookie mode; reject requests before settings; nested-route/base-path/invalid URL asset resolution |
-| Coordination smoke | Temporary bundle without navigator.locks shows coordination error and Retry; status branch uses 503 |
-| Domain contract | Stable roles; public admin serialization excludes credentials |
-
-## Limits
-
-```mermaid
-flowchart TB
-    VERIFIED["Verified"] --> USECASES["Bearer/cookie API use cases and persistence"]
-    VERIFIED --> COMPILE["Native/WASM compilation and bundle"]
-    VERIFIED --> COOKIES["Cookie/origin/CORS TCP contracts"]
-    GAP["Not established by these checks"] --> HTTPS["HTTPS browser cookie acceptance"]
-    GAP --> BROWSER["Rendered UI and browser synchronization"]
-    GAP --> CAPACITY["Production capacity and deployment"]
-```
-
-| Gap | Meaning / existing follow-up location |
-| --- | --- |
-| Startup smoke | Safari: nested `/admins?page=2` loads config then login; temporary missing/malformed TOML shows error/Retry with no API fetch. Restoring valid TOML resumes API fetch; temporary port 8094 is outside configured CORS origin |
-| Browser limits | Manual startup smoke does not establish full UI, session coordination or HTTPS cookie acceptance |
-| Planned environments | Local/prod frontend files and deployment selection are not implemented |
-| HTTPS browser acceptance | Cookie attributes are checked natively; local TCP tests cover cookie/origin/CORS contracts, but do not establish HTTPS browser acceptance |
-| Browser behavior | Web Locks, BroadcastChannel, cookie acceptance and rendered pagination are not verified by compilation |
-| Backoffice/browser E2E | Excluded by request |
-| Removed tests | Two tests specific to the deleted optional bootstrap script removed; BFF/custom-pagination counts no longer apply |
-| Coverage percentages | Not rerun for current architecture; earlier percentages omitted |
-| Capacity | Passing tests do not establish production throughput |
-| Independent review | Cleanup `cafe9ab..924aef2`: no validated functional blockers; two stale architecture rows corrected. Earlier branch changes inspected as context, not exhaustively re-audited |
-| Vercel/deployment | No runtime adapter, production deployment, push or merge |
-
-
-## API error logging — 2026-10-13
-
-| Check | Result |
-| --- | --- |
-| `just --justfile services/api/justfile check` | Formatting and strict lint passed |
-| `just --justfile services/api/justfile test` | Native: 38 passed, 2 Docker-dependent tests deferred; Docker phase: all 40 library tests and 36 real HTTP E2E tests passed; Compose teardown completed |
-| Logging regressions | All 9 passed, including PostgreSQL username-conflict source preservation on a connection-owned temporary table |
-| Parallel capture stability | 15 consecutive parallel native runs passed after replacing short-lived subscribers with one stable subscriber and thread-local real filters/output |
-| Regression evidence | Missing HTTP/password origin, nested/background diagnostics, JWT validation diagnostic, and PostgreSQL conflict diagnostic reproduced before their fixes |
-| Built API startup | Invalid signing-key configuration: one ERROR summary with configuration origin; diagnostic details present only with `RUST_LOG=info,api=debug` |
-| Independent review | Direct pool/transaction origin gaps and conflict source loss corrected; no remaining blockers |
-| Limits | DEBUG detail tests cover password parsing, pool closure, JWT validation, PostgreSQL conflicts and nested anyhow/background errors; they do not establish all driver errors, browser behavior or production log collection |
+| Independent implementation review | Read-only final review found no actionable defects after the source-chain repair; earlier configuration-overlay and typed-GraphQL-error regressions remain covered |
+| Additional fix-pass check | Oversized Retry-After reproduced a duration overflow; regression passes after budget validation precedes arithmetic |
+| Deferred test minor | Generic HTTP fixture checks headers/body but does not explicitly assert the HTTP method |
+| Shopify compatibility | Official docs and local fixtures checked; no live schema/request execution; nested 250-by-250 query cost unverified against the single-query maximum |
+| Platform pagination | Client automatically follows each operation's outer/line cursors; product variants intentionally stop at first250 with nodes only; nested pageInfo is not requested or required |
+| Concurrent changes | No snapshot isolation; missing/mismatched order and child-page failures return errors rather than partial success. Product variants remain intentionally bounded |
+| Browser behavior | No new browser verification, rendered E2E, or HTTPS cookie acceptance evidence |
+| Coverage percentage | Not measured; no percentage claim |
+| Performance/deployment | No load test, production capacity result, deployment, or merge |
+| Postman preservation | Product request omits unused nested variants.pageInfo; outer pageInfo is retained. No live Postman execution |

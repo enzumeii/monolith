@@ -1,0 +1,25 @@
+query SoldVariantsInRange(
+  $search: String!
+  $ordersAfter: String
+) {
+  orders(
+    first: 250
+    after: $ordersAfter
+    query: $search
+    sortKey: CREATED_AT
+  ) {
+    nodes {
+      id
+      name
+      createdAt
+      cancelledAt
+      test
+      displayFulfillmentStatus
+      displayFinancialStatus
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}

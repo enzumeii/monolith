@@ -13,11 +13,13 @@ setup:
       printf '%s\n' \
         'RUN_ENV=local' \
         'DATABASE_URL=postgres://user:pass@127.0.0.1:5432/core' \
+        'SHOPIFY_ACCESS_TOKEN=' \
         "JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" > .env
       echo '  Generated a random signing key in .env; keep it private.'
     else
       echo '→ .env already exists, leaving it untouched.'
     fi
+    printf '%s\n' 'Optional Shopify client: set SHOPIFY_ACCESS_TOKEN in .env and client.shopify.admin_api_url in application.toml.'
 
 # Start Postgres, run migrations, and start the API service
 run:

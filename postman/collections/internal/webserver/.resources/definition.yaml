@@ -1,0 +1,6 @@
+$kind: collection
+auth:
+  type: bearer
+  credentials:
+    token: "{{access_token}}"
+order: 3000
