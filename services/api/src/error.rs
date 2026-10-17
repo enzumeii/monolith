@@ -59,7 +59,7 @@ pub enum AppError {
     TokenCreation(#[from] jsonwebtoken::errors::Error),
 
     #[error("Shopify report unavailable")]
-    ReportUnavailable(#[source] Option<crate::client::ClientError>),
+    ReportUnavailable(#[source] Option<std::sync::Arc<crate::client::ClientError>>),
     #[error("Shopify upstream failure")]
     ReportUpstream(#[source] crate::client::ClientError),
 
@@ -269,9 +269,10 @@ impl std::fmt::Debug for Diagnostic<'_> {
                 std::fmt::Debug::fmt(error, f)
             }
             AppError::Internal(error) => std::fmt::Debug::fmt(error, f),
-            AppError::ReportUpstream(error) | AppError::ReportUnavailable(Some(error)) => {
+            AppError::ReportUnavailable(Some(error)) => {
                 std::fmt::Debug::fmt(&ClientDiagnostic(error), f)
             }
+            AppError::ReportUpstream(error) => std::fmt::Debug::fmt(&ClientDiagnostic(error), f),
             error => std::fmt::Display::fmt(error, f),
         }
     }

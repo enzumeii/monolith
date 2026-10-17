@@ -512,16 +512,42 @@ mod logging_tests {
                 for filter in ["info", "info,api=debug"] {
                     let source = runtime.block_on(async {
                         if kind == "constructor" {
-                            return ShopifyClient::new(&ShopifyConfig { admin_api_url: "invalid URL".into(), access_token: None }).err().unwrap();
+                            return ShopifyClient::new(&ShopifyConfig {
+                                admin_api_url: "invalid URL".into(),
+                                access_token: None,
+                            })
+                            .err()
+                            .unwrap();
                         }
                         let reply = match kind {
                             "http" => Reply::status(503),
-                            "decode" => Reply { status:200, body:"{".into(), headers:vec![] },
-                            _ => Reply::json(serde_json::json!({"data":{"orders":{"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":null}}}})),
+                            "decode" => Reply {
+                                status: 200,
+                                body: "{".into(),
+                                headers: vec![],
+                            },
+                            _ => Reply::json(serde_json::json!({"data":null})),
                         };
-                        let fixture=Fixture::new(vec![reply]).await;
-                        let client=ShopifyClient::new(&ShopifyConfig {admin_api_url:fixture.url.to_string(),access_token:Some("private-upstream-value".into())}).unwrap();
-                        client.orders_by_tag(&OrdersByTagRequest {tag:"private-upstream-value".into()}).await.err().unwrap()
+                        let fixture = Fixture::new(vec![reply]).await;
+                        let client = ShopifyClient::new(&ShopifyConfig {
+                            admin_api_url: fixture.url.to_string(),
+                            access_token: Some("private-upstream-value".into()),
+                        })
+                        .unwrap();
+                        client
+                            .orders_by_tag(
+                                &OrdersByTagRequest {
+                                    tag: "private-upstream-value".into(),
+                                    lines_first: 10,
+                                },
+                                &crate::shopify_models::PageRequest {
+                                    first: 10,
+                                    after: None,
+                                },
+                            )
+                            .await
+                            .err()
+                            .unwrap()
                     });
                     let log = capture(filter, || {
                         let error: AppError = source.into();

@@ -1,4 +1,5 @@
 $kind: http-request
-url: "{{server}}/v1/products?type=INVENTORY&id={{location_id}}"
+# Next page: append &cursor=<URL-encoded page_info.end_cursor> while keeping type/id unchanged.
+url: "{{server}}/v1/products?type=INVENTORY&id={{location_id}}&page_size=10"
 method: GET
 order: 1000

@@ -1,4 +1,3 @@
-use super::pagination::{collect_connection, collect_pages};
 use crate::{
     client::{ClientError, GraphqlClient, GraphqlRequest, HttpClient},
     config::ShopifyConfig,
@@ -6,9 +5,9 @@ use crate::{
         ActivateInventoryRequest, ActivationData, Connection, InventoryActivationCandidate,
         InventoryData, InventoryDiscoveryRequest, ListProductsRequest, Order, OrderLinesData,
         OrderLinesRequest, OrderUpdateData, OrdersByPaymentRequest, OrdersByTagData,
-        OrdersByTagRequest, OrdersData, Product, ProductsData, ReplaceOrderTagsRequest, SalesData,
-        SalesLine, SalesOrderHeader, SalesRangeRequest, ShopifyId, TaggedOrderHeader,
-        TaggedOrderLineItem,
+        OrdersByTagRequest, OrdersData, PageRequest, Product, ProductVariantsRequest, ProductsData,
+        ReplaceOrderTagsRequest, SalesData, SalesLine, SalesOrderHeader, SalesRangeRequest,
+        ShopifyId, TaggedOrder, TaggedOrderLineItem, VariantPageData,
     },
 };
 use reqwest::{
@@ -18,9 +17,7 @@ use reqwest::{
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::time::Duration;
-
 const ORIGIN: &str = "api::client::shopify";
-
 pub struct ShopifyClient {
     graphql: GraphqlClient,
     headers: HeaderMap,
@@ -50,39 +47,150 @@ impl ShopifyClient {
     pub async fn products_with_variants(
         &self,
         input: &ListProductsRequest,
-    ) -> Result<Vec<Product>, ClientError> {
-        let products = collect_pages(async |after| {
+        page: &PageRequest,
+    ) -> Result<Connection<Product>, ClientError> {
+        async {
             let data: ProductsData = self
                 .execute(
                     "ProductsWithVariants",
                     include_str!("shopify/products_with_variants.graphql"),
-                    input.variables(after.as_deref())?,
+                    input.variables(page)?,
                 )
                 .await?;
             Ok(data.products)
-        })
-        .await
-        .map_err(|error| error.at(ORIGIN))?;
-        let mut result = Vec::new();
-        for mut product in products {
-            let id = product.id.clone();
-            let mut initial = Some(product.variants);
-            product.variants = collect_connection(|after| {
-                let first = initial.take();
-                let id = &id;
-                async move {
-                    if let Some(first) = first { return Ok(first); }
-                    let data: crate::models::shopify::VariantPageData = self.execute("ProductVariants", include_str!("shopify/product_variants.graphql"), serde_json::json!({"id":id,"locationId":input.location_id,"after":after})).await?;
-                    let parent = data.product.ok_or(ClientError::Protocol("product disappeared during variant pagination"))?;
-                    if &parent.id != id { return Err(ClientError::Protocol("variants belong to another product")); }
-                    Ok(parent.variants)
-                }
-            }).await.map_err(|error| error.at(ORIGIN))?;
-            result.push(product);
         }
-        Ok(result)
+        .await
+        .map_err(|error: ClientError| error.at(ORIGIN))
     }
-
+    pub async fn orders_by_payment(
+        &self,
+        input: &OrdersByPaymentRequest,
+        page: &PageRequest,
+    ) -> Result<Connection<Order>, ClientError> {
+        async {
+            let data: OrdersData = self
+                .execute(
+                    "OrdersByPayment",
+                    include_str!("shopify/orders_by_payment.graphql"),
+                    input.variables(page)?,
+                )
+                .await?;
+            Ok(data.orders)
+        }
+        .await
+        .map_err(|error: ClientError| error.at(ORIGIN))
+    }
+    pub async fn orders_by_tag(
+        &self,
+        input: &OrdersByTagRequest,
+        page: &PageRequest,
+    ) -> Result<Connection<TaggedOrder>, ClientError> {
+        async {
+            let data: OrdersByTagData = self
+                .execute(
+                    "OrdersByTag",
+                    include_str!("shopify/orders_by_tag.graphql"),
+                    input.variables(page)?,
+                )
+                .await?;
+            Ok(data.orders)
+        }
+        .await
+        .map_err(|error: ClientError| error.at(ORIGIN))
+    }
+    pub async fn sold_variants_in_range(
+        &self,
+        input: &SalesRangeRequest,
+        page: &PageRequest,
+    ) -> Result<Connection<SalesOrderHeader>, ClientError> {
+        async {
+            let data: SalesData = self
+                .execute(
+                    "SoldVariantsInRange",
+                    include_str!("shopify/sold_variants_in_range.graphql"),
+                    input.variables(page)?,
+                )
+                .await?;
+            Ok(data.orders)
+        }
+        .await
+        .map_err(|error: ClientError| error.at(ORIGIN))
+    }
+    pub async fn sales_order_lines(
+        &self,
+        input: &OrderLinesRequest,
+        page: &PageRequest,
+    ) -> Result<OrderLinesData<SalesLine>, ClientError> {
+        async {
+            let data: OrderLinesData<SalesLine> = self
+                .execute(
+                    "SalesOrderLines",
+                    include_str!("shopify/sales_order_lines.graphql"),
+                    input.variables(page)?,
+                )
+                .await?;
+            Ok(data)
+        }
+        .await
+        .map_err(|error: ClientError| error.at(ORIGIN))
+    }
+    pub async fn tagged_order_lines(
+        &self,
+        input: &OrderLinesRequest,
+        page: &PageRequest,
+    ) -> Result<OrderLinesData<TaggedOrderLineItem>, ClientError> {
+        async {
+            let data: OrderLinesData<TaggedOrderLineItem> = self
+                .execute(
+                    "TaggedOrderLines",
+                    include_str!("shopify/tagged_order_lines.graphql"),
+                    input.variables(page)?,
+                )
+                .await?;
+            Ok(data)
+        }
+        .await
+        .map_err(|error: ClientError| error.at(ORIGIN))
+    }
+    pub async fn product_variants(
+        &self,
+        input: &ProductVariantsRequest,
+        page: &PageRequest,
+    ) -> Result<VariantPageData, ClientError> {
+        async {
+            let data: VariantPageData = self
+                .execute(
+                    "ProductVariants",
+                    include_str!("shopify/product_variants.graphql"),
+                    input.variables(page)?,
+                )
+                .await?;
+            Ok(data)
+        }
+        .await
+        .map_err(|error: ClientError| error.at(ORIGIN))
+    }
+    pub async fn find_inventory_to_activate(
+        &self,
+        input: &InventoryDiscoveryRequest,
+        page: &PageRequest,
+    ) -> Result<Connection<InventoryActivationCandidate>, ClientError> {
+        async {
+            let data: InventoryData = self
+                .execute(
+                    "FindInventoryToActivate",
+                    include_str!("shopify/find_inventory_to_activate.graphql"),
+                    input.variables(page)?,
+                )
+                .await?;
+            Ok(data
+                .location
+                .ok_or(ClientError::InvalidInput("location was not found"))?
+                .inventory_levels)
+        }
+        .await
+        .map_err(|error: ClientError| error.at(ORIGIN))
+    }
     pub async fn location_exists(&self, id: &ShopifyId) -> Result<bool, ClientError> {
         id.require_kind("Location")
             .map_err(|error| error.at(ORIGIN))?;
@@ -95,111 +203,6 @@ impl ShopifyClient {
             .await
             .map_err(|error| error.at(ORIGIN))?;
         Ok(data.location.is_some())
-    }
-    pub async fn orders_by_payment(
-        &self,
-        input: &OrdersByPaymentRequest,
-    ) -> Result<Vec<Order>, ClientError> {
-        collect_pages(async |after| {
-            let data: OrdersData = self
-                .execute(
-                    "OrdersByPayment",
-                    include_str!("shopify/orders_by_payment.graphql"),
-                    input.variables(after.as_deref())?,
-                )
-                .await?;
-            Ok(data.orders)
-        })
-        .await
-        .map_err(|error| error.at(ORIGIN))
-    }
-    pub async fn orders_by_tag(
-        &self,
-        input: &OrdersByTagRequest,
-    ) -> Result<Vec<TaggedOrderHeader>, ClientError> {
-        collect_pages(async |after| {
-            let data: OrdersByTagData = self
-                .execute(
-                    "OrdersByTag",
-                    include_str!("shopify/orders_by_tag.graphql"),
-                    input.variables(after.as_deref())?,
-                )
-                .await?;
-            Ok(data.orders)
-        })
-        .await
-        .map_err(|error| error.at(ORIGIN))
-    }
-    pub async fn sold_variants_in_range(
-        &self,
-        input: &SalesRangeRequest,
-    ) -> Result<Vec<SalesOrderHeader>, ClientError> {
-        collect_pages(async |after| {
-            let data: SalesData = self
-                .execute(
-                    "SoldVariantsInRange",
-                    include_str!("shopify/sold_variants_in_range.graphql"),
-                    input.variables(after.as_deref())?,
-                )
-                .await?;
-            Ok(data.orders)
-        })
-        .await
-        .map_err(|error| error.at(ORIGIN))
-    }
-    pub async fn sales_order_lines(
-        &self,
-        input: &OrderLinesRequest,
-    ) -> Result<Vec<SalesLine>, ClientError> {
-        collect_pages(async |after| {
-            let data: OrderLinesData<SalesLine> = self
-                .execute(
-                    "SalesOrderLines",
-                    include_str!("shopify/sales_order_lines.graphql"),
-                    input.variables(after.as_deref())?,
-                )
-                .await?;
-            require_lines(data, &input.order_id)
-        })
-        .await
-        .map_err(|error| error.at(ORIGIN))
-    }
-    pub async fn tagged_order_lines(
-        &self,
-        input: &OrderLinesRequest,
-    ) -> Result<Vec<TaggedOrderLineItem>, ClientError> {
-        collect_pages(async |after| {
-            let data: OrderLinesData<TaggedOrderLineItem> = self
-                .execute(
-                    "TaggedOrderLines",
-                    include_str!("shopify/tagged_order_lines.graphql"),
-                    input.variables(after.as_deref())?,
-                )
-                .await?;
-            require_lines(data, &input.order_id)
-        })
-        .await
-        .map_err(|error| error.at(ORIGIN))
-    }
-    pub async fn find_inventory_to_activate(
-        &self,
-        input: &InventoryDiscoveryRequest,
-    ) -> Result<Vec<InventoryActivationCandidate>, ClientError> {
-        collect_pages(async |after| {
-            let data: InventoryData = self
-                .execute(
-                    "FindInventoryToActivate",
-                    include_str!("shopify/find_inventory_to_activate.graphql"),
-                    input.variables(after.as_deref())?,
-                )
-                .await?;
-            Ok(data
-                .location
-                .ok_or(ClientError::InvalidInput("location was not found"))?
-                .inventory_levels)
-        })
-        .await
-        .map_err(|error| error.at(ORIGIN))
     }
     pub async fn replace_order_tags(
         &self,
@@ -248,17 +251,6 @@ impl ShopifyClient {
             )
             .await
     }
-}
-fn require_lines<T>(data: OrderLinesData<T>, id: &ShopifyId) -> Result<Connection<T>, ClientError> {
-    let order = data.order.ok_or(ClientError::Protocol(
-        "order is missing during line-item pagination",
-    ))?;
-    if &order.id != id {
-        return Err(ClientError::Protocol(
-            "line items belong to a different order",
-        ));
-    }
-    Ok(order.line_items)
 }
 #[cfg(test)]
 #[path = "../tests/client/shopify.rs"]

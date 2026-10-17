@@ -1,198 +1,141 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
-use serde_json::json;
-
-fn row(quantity: i64, price: &str) -> ProductReportRow {
-    use crate::models::shopify::{Measurement, Weight};
-    report_row(
-        "Item".into(),
-        None,
-        Some("GENSTSWOW01".into()),
-        Some("KEYCHAIN".into()),
-        Money {
-            amount: price.into(),
-            currency_code: "USD".into(),
-        },
-        quantity,
-        Some(InventoryMetadata {
-            unit_cost: None,
-            measurement: Measurement {
-                weight: Some(Weight {
-                    value: "2.5".parse().unwrap(),
-                    unit: "GRAMS".into(),
-                }),
-            },
-        }),
-    )
+use crate::{
+    client::tests::{Fixture, Reply},
+    config::ShopifyConfig,
+};
+use serde_json::{Value, json};
+fn id(kind: &str, n: u64) -> ShopifyId {
+    ShopifyId::new(format!("gid://shopify/{kind}/{n}")).unwrap()
+}
+fn page(nodes: Vec<Value>, next: Option<&str>) -> Value {
+    let mut value = json!({"pageInfo":{"hasNextPage":next.is_some(),"endCursor":next}});
+    value["nodes"] = Value::Array(nodes);
+    value
+}
+fn line(qty: i64) -> Value {
+    json!({"title":"Item","variantTitle":null,"sku":"GENSTSWOW01","quantity":qty,"originalUnitPriceSet":{"shopMoney":{"amount":"0.1","currencyCode":"USD"}},"product":null,"variant":null})
+}
+fn order(lines: Value) -> Value {
+    let mut value = json!({"id":id("Order",1),"number":1,"tags":[],"email":null,"phone":null,"currentTotalPriceSet":{"shopMoney":{"amount":"1","currencyCode":"USD"}}});
+    value["lineItems"] = lines;
+    value
+}
+fn client(f: &Fixture) -> ShopifyClient {
+    ShopifyClient::new(&ShopifyConfig {
+        admin_api_url: f.url.to_string(),
+        access_token: Some("fixture".into()),
+    })
     .unwrap()
 }
-
-#[test]
-fn totals_use_exact_decimal_and_preserve_negative_inventory() {
-    let mut value = row(3, "0.1");
-    totals(&mut value).unwrap();
-    assert_eq!(value.total_selling_price.to_string(), "0.3");
-    assert_eq!(value.total_weight.as_ref().unwrap().to_string(), "7.5");
-    value.quantity = -2;
-    totals(&mut value).unwrap();
-    assert_eq!(value.total_selling_price.to_string(), "-0.2");
-    value.weight = None;
-    totals(&mut value).unwrap();
-    assert!(value.total_weight.is_none());
-}
-
-#[test]
-fn merge_groups_sku_price_currency_metadata_and_recalculates_totals() {
-    let mut rows = vec![];
-    let mut by_sku = HashMap::new();
-    for value in [row(2, "1.00"), row(3, "1"), row(1, "2")] {
-        merge(&mut rows, &mut by_sku, value).unwrap();
+fn input() -> ValidatedReport {
+    ValidatedReport {
+        source: ReportSource::OrderTag("a:b".into()),
+        page: PageRequest {
+            first: 1,
+            after: Some("incoming".into()),
+        },
     }
-    assert_eq!(rows.len(), 2);
-    assert_eq!(rows[0].quantity, 5);
-    assert_eq!(rows[0].total_selling_price.to_string(), "5");
-    let mut other = row(1, "1");
-    other.selling_price_currency = "THB".into();
-    merge(&mut rows, &mut by_sku, other).unwrap();
-    let mut other = row(1, "1");
-    other.unit = Some("POUNDS".into());
-    merge(&mut rows, &mut by_sku, other).unwrap();
-    for _ in 0..2 {
-        let mut other = row(1, "1");
-        other.sku = None;
-        other.collection = None;
-        merge(&mut rows, &mut by_sku, other).unwrap();
-    }
-    assert_eq!(rows.len(), 6);
 }
-
-#[test]
-fn overflow_and_invalid_upstream_numbers_are_rejected() {
-    let mut value = row(1, "79228162514264337593543950335");
-    value.quantity = i64::MAX;
-    assert!(totals(&mut value).is_err());
-    assert!(number("NaN").is_err());
-    let mut value = row(3, "1234567890123456789012345678.1");
-    assert!(totals(&mut value).is_ok());
-    let mut value = row(30, "1234567890123456789012345678.1");
-    totals(&mut value).unwrap();
+#[tokio::test]
+async fn tagged_report_completes_children_but_returns_only_selected_parent_page() {
+    let f=Fixture::new(vec![Reply::json(json!({"data":{"orders":page(vec![order(page(vec![line(2)],Some("child")))],Some("parent"))}})),Reply::json(json!({"data":{"order":{"id":id("Order",1),"lineItems":page(vec![line(3)],None)}}}))]).await;
+    let result = product_report(&client(&f), input()).await.unwrap();
+    assert_eq!(result.products.len(), 1);
+    assert_eq!(result.products[0].quantity, 5);
+    assert_eq!(result.products[0].total_selling_price.to_string(), "0.5");
+    assert_eq!(result.page_info.end_cursor.as_deref(), Some("parent"));
+    let requests = f.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].2["variables"]["first"], 1);
+    assert_eq!(requests[0].2["variables"]["after"], "incoming");
+    assert_eq!(requests[0].2["variables"]["search"], r#"tag:"a\:b""#);
+    assert_eq!(requests[1].2["variables"]["after"], "child");
+    assert_eq!(requests[1].2["variables"]["first"], 100);
+}
+#[tokio::test]
+async fn completed_nested_lines_do_not_require_another_query_and_missing_skus_stay_separate() {
+    let mut missing = line(1);
+    missing["sku"] = Value::Null;
+    let f=Fixture::new(vec![Reply::json(json!({"data":{"orders":page(vec![order(page(vec![line(1),missing.clone(),line(2),missing],None))],None)}}))]).await;
+    let result = product_report(&client(&f), input()).await.unwrap();
     assert_eq!(
-        value.total_selling_price.to_string(),
-        "37037036703703703670370370343"
+        result
+            .products
+            .iter()
+            .map(|r| (r.sku.as_deref(), r.quantity))
+            .collect::<Vec<_>>(),
+        vec![(Some("GENSTSWOW01"), 3), (None, 1), (None, 1)]
     );
-    assert!(number("0.00000000000000000000000000001").is_err());
-    let mut rows = vec![];
-    let mut by_sku = HashMap::new();
-    merge(&mut rows, &mut by_sku, row(i64::MAX, "1")).unwrap();
-    assert!(merge(&mut rows, &mut by_sku, row(1, "1")).is_err());
+    assert_eq!(f.requests().len(), 1);
 }
-
-#[test]
-fn collection_uses_fourth_through_ninth_unicode_characters() {
-    assert_eq!(collection(Some("GENSTSWOW01")), Some("STSWOW".into()));
-    assert_eq!(collection(Some("กขคSTSWOW01")), Some("STSWOW".into()));
-    assert_eq!(collection(Some("SHORT")), None);
-    assert_eq!(collection(None), None);
-    assert_eq!(
-        serde_json::to_value(row(1, "0.1")).unwrap()["selling_price"],
-        json!(0.1)
-    );
-}
-
-#[test]
-fn scientific_weights_and_exact_scaled_totals_are_preserved() {
-    for (raw, expected) in [
-        ("1e-7", "0.0000001"),
-        ("1e7", "10000000"),
-        ("1.25E+2", "125"),
+#[tokio::test]
+async fn child_protocol_or_upstream_failures_do_not_return_partial_reports() {
+    for child in [
+        json!({"data":{"order":null}}),
+        json!({"data":{"order":{"id":id("Order",99),"lineItems":page(vec![],None)}}}),
+        json!({"data":{"order":{"id":id("Order",1),"lineItems":page(vec![],Some("child"))}}}),
+        json!({"data":null,"errors":[{"message":"private"}]}),
     ] {
-        let metadata: InventoryMetadata = serde_json::from_str(&format!(
-            r#"{{"unitCost":null,"measurement":{{"weight":{{"value":{raw},"unit":"GRAMS"}}}}}}"#
-        ))
-        .unwrap();
-        let mut value = report_row(
-            "Item".into(),
-            None,
-            Some("GENSTSWOW01".into()),
-            Some("KEYCHAIN".into()),
-            Money {
-                amount: "1".into(),
-                currency_code: "USD".into(),
-            },
-            3,
-            Some(metadata),
-        )
-        .unwrap();
-        assert_eq!(value.weight.as_ref().unwrap().to_string(), expected);
-        totals(&mut value).unwrap();
+        let f=Fixture::new(vec![Reply::json(json!({"data":{"orders":page(vec![order(page(vec![line(2)],Some("child")))],None)}})),Reply::json(child)]).await;
+        let error = product_report(&client(&f), input()).await.unwrap_err();
+        assert_eq!(
+            axum::response::IntoResponse::into_response(error).status(),
+            502
+        );
+        assert_eq!(f.requests().len(), 2);
     }
-    let mut value = row(10, "7922816251426433759354395033.5");
-    value.weight = None;
-    totals(&mut value).unwrap();
-    assert_eq!(
-        value.total_selling_price.to_string(),
-        "79228162514264337593543950335"
-    );
-    assert!(number("1e-29").is_err());
-    let mut value = row(4_611_686_018_427_387_904, "1");
-    value.weight = None;
-    assert!(number("0.00000000116415321826934814453125").is_err());
-    value.selling_price = number("0.0000000037252902984619140625").unwrap();
-    totals(&mut value).unwrap();
-    assert_eq!(value.total_selling_price.to_string(), "17179869184");
+}
+#[tokio::test]
+async fn root_cursor_must_progress_even_for_empty_filtered_results() {
+    for end in [Value::Null, json!(""), json!("incoming")] {
+        let f = Fixture::new(vec![Reply::json(
+            json!({"data":{"orders":{"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":end}}}}),
+        )])
+        .await;
+        assert!(product_report(&client(&f), input()).await.is_err());
+    }
+    let f = Fixture::new(vec![Reply::json(
+        json!({"data":{"orders":page(vec![],Some("next"))}}),
+    )])
+    .await;
+    let result = product_report(&client(&f), input()).await.unwrap();
+    assert_eq!(result.products.len(), 0);
+    assert!(result.page_info.has_next_page);
 }
 
 #[tokio::test]
-async fn unavailable_shopify_retains_constructor_cause() {
-    use std::error::Error;
-    let settings: Settings = serde_json::from_value(json!({
-        "client":{"shopify":{"admin_api_url":"invalid-url","access_token":"fixture-token"}},
-        "browser":{"public_origin":"http://localhost:8084","insecure_local":true},
-        "server":{"host":"localhost","port":3000},
-        "database":{"url":"unused","max_connections":1,"min_connections":1},
-        "jwt":{"secret":"unused"}
-    }))
-    .unwrap();
-    let error = product_report(&settings, ReportSource::OrderTag("test".into()))
+async fn inventory_child_failures_never_return_partial_rows_or_fetch_again() {
+    for child in [
+        json!(null),
+        json!({"id":id("Product",99),"variants":page(vec![],None)}),
+        json!({"id":id("Product",1),"variants":page(vec![],Some("child"))}),
+    ] {
+        let variant = json!({"id":id("ProductVariant",1),"title":"Large","sku":"GENSTSWOW01","image":null,"contextualPricing":{"price":{"amount":"0.1","currencyCode":"USD"}},"inventoryItem":{"id":id("InventoryItem",1),"tracked":true,"unitCost":null,"measurement":{"weight":null},"inventoryLevel":{"id":"level","isActive":true,"quantities":[{"name":"on_hand","quantity":3}]}}});
+        let f=Fixture::new(vec![
+            Reply::json(json!({"data":{"location":{"id":id("Location",1)}}})),
+            Reply::json(json!({"data":{"products":page(vec![json!({"id":id("Product",1),"title":"Parent","description":"","status":"ACTIVE","tags":[],"featuredImage":null,"productType":"KEYCHAIN","variants":page(vec![variant],Some("child"))})],None)}})),
+            Reply::json(json!({"data":{"product":child}})),
+        ]).await;
+        let error = product_report(
+            &client(&f),
+            ValidatedReport {
+                source: ReportSource::Inventory(id("Location", 1)),
+                page: PageRequest {
+                    first: 1,
+                    after: None,
+                },
+            },
+        )
         .await
         .unwrap_err();
-    let mut cause = error.source();
-    let mut found = false;
-    while let Some(value) = cause {
-        found |= value.to_string().contains("invalid Shopify URL");
-        cause = value.source();
+        let response = axum::response::IntoResponse::into_response(error);
+        assert_eq!(response.status(), 502);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert!(body.get("products").is_none());
+        assert_eq!(f.requests().len(), 3);
     }
-    assert!(found);
-    let response = axum::response::IntoResponse::into_response(error);
-    assert_eq!(response.status(), 503);
-}
-
-#[test]
-fn local_report_failures_keep_the_service_origin() {
-    let error = number("invalid-price").unwrap_err();
-    assert!(matches!(
-        error,
-        AppError::Origin {
-            function: "api::services::products",
-            ..
-        }
-    ));
-}
-
-#[test]
-fn sku_index_preserves_first_seen_order_and_separate_missing_skus() {
-    let mut rows = vec![];
-    let mut by_sku = HashMap::new();
-    for sku in [None, Some("A"), Some("B"), None, Some("A")] {
-        let mut value = row(1, "1");
-        value.sku = sku.map(str::to_owned);
-        value.collection = collection(value.sku.as_deref());
-        merge(&mut rows, &mut by_sku, value).unwrap();
-    }
-    assert_eq!(
-        rows.iter()
-            .map(|row| (row.sku.as_deref(), row.quantity))
-            .collect::<Vec<_>>(),
-        vec![(None, 1), (Some("A"), 2), (Some("B"), 1), (None, 1)]
-    );
 }

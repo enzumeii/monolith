@@ -1,228 +1,173 @@
+use super::pagination::collect_connection;
 use crate::{
     client::{ClientError, shopify::ShopifyClient},
-    config::Settings,
     error::AppError,
-    models::shopify::{
-        InventoryMetadata, ListProductsRequest, Money, OrderLinesRequest, OrdersByTagRequest,
-        ProductStatus,
+    models::{
+        products::ReportRow,
+        shopify::{
+            ListProductsRequest, OrderLinesRequest, OrdersByTagRequest, PageInfo, PageRequest,
+            ProductStatus, ProductVariantsRequest, ShopifyId,
+        },
     },
-    validations::products::ReportSource,
+    validations::products::{ReportSource, ValidatedReport},
 };
-use domain::dto::{ProductReportRow, ProductsResponse};
-use rust_decimal::Decimal;
-use serde_json::Number;
-use std::{collections::HashMap, str::FromStr};
+use domain::dto::{ProductsResponse, products::ProductReportPageInfo};
+use std::collections::HashMap;
 
 pub async fn product_report(
-    settings: &Settings,
-    source: ReportSource,
+    client: &ShopifyClient,
+    input: ValidatedReport,
 ) -> Result<ProductsResponse, AppError> {
-    let client = shopify_client(settings)?;
-    let mut products = Vec::new();
-    match source {
-        ReportSource::Inventory(location_id) => {
-            if !client
-                .location_exists(&location_id)
-                .await
+    let (rows, page_info) = match input.source {
+        ReportSource::Inventory(location) => inventory_page(client, location, &input.page).await?,
+        ReportSource::OrderTag(tag) => tagged_page(client, tag, &input.page).await?,
+    };
+    Ok(ProductsResponse {
+        products: rows.into_iter().map(ReportRow::into_dto).collect(),
+        page_info: ProductReportPageInfo {
+            has_next_page: page_info.has_next_page,
+            end_cursor: page_info.end_cursor,
+        },
+    })
+}
+async fn inventory_page(
+    client: &ShopifyClient,
+    location_id: ShopifyId,
+    page: &PageRequest,
+) -> Result<(Vec<ReportRow>, PageInfo), AppError> {
+    validate_location(client, &location_id).await?;
+    let catalog = client
+        .products_with_variants(
+            &ListProductsRequest {
+                location_id: location_id.clone(),
+                statuses: vec![ProductStatus::Active],
+                variants_first: 10,
+            },
+            page,
+        )
+        .await
+        .map_err(upstream)?;
+    catalog
+        .page_info
+        .validate_after(page.after.as_deref())
+        .map_err(upstream)?;
+    let mut rows = Vec::new();
+    for product in catalog.nodes {
+        let id = product.id;
+        let mut initial = Some(product.variants);
+        let variants = collect_connection(|after| {
+            let first = initial.take();
+            let location_id = &location_id;
+            let id = &id;
+            async move {
+                if let Some(first) = first {
+                    return Ok(first);
+                }
+                client
+                    .product_variants(
+                        &ProductVariantsRequest {
+                            product_id: id.clone(),
+                            location_id: location_id.clone(),
+                        },
+                        &PageRequest { first: 100, after },
+                    )
+                    .await?
+                    .into_connection(id)
+            }
+        })
+        .await
+        .map_err(upstream)?;
+        for variant in variants.nodes {
+            if let Some(row) = variant
+                .into_report_row(&product.title, &product.product_type)
                 .map_err(upstream)?
             {
-                return Err(AppError::NotFound.at(module_path!()));
-            }
-            let catalog = client
-                .products_with_variants(&ListProductsRequest {
-                    location_id,
-                    statuses: vec![ProductStatus::Active],
-                })
-                .await
-                .map_err(upstream)?;
-            for product in catalog {
-                for variant in product.variants.nodes {
-                    let item = variant.inventory_item;
-                    let Some(level) = item.inventory_level else {
-                        continue;
-                    };
-                    let quantity = level
-                        .quantities
-                        .iter()
-                        .find(|q| q.name == "on_hand")
-                        .ok_or_else(|| protocol("on_hand quantity is missing"))?
-                        .quantity;
-                    products.push(report_row(
-                        product.title.clone(),
-                        Some(variant.title),
-                        variant.sku,
-                        Some(product.product_type.clone()),
-                        variant.contextual_pricing.price,
-                        quantity,
-                        Some(item.metadata),
-                    )?);
-                }
-            }
-        }
-        ReportSource::OrderTag(tag) => {
-            let mut by_sku = HashMap::new();
-            let orders = client
-                .orders_by_tag(&OrdersByTagRequest { tag })
-                .await
-                .map_err(upstream)?;
-            for order in orders {
-                let lines = client
-                    .tagged_order_lines(&OrderLinesRequest { order_id: order.id })
-                    .await
-                    .map_err(upstream)?;
-                for line in lines {
-                    let row = report_row(
-                        line.title,
-                        line.variant_title,
-                        line.sku,
-                        line.product.map(|p| p.product_type),
-                        line.original_unit_price_set.shop_money,
-                        line.quantity,
-                        line.variant.map(|v| v.inventory_item),
-                    )?;
-                    merge(&mut products, &mut by_sku, row)?;
-                }
+                rows.push(row);
             }
         }
     }
-    Ok(ProductsResponse { products })
+    Ok((rows, catalog.page_info))
 }
-
-fn report_row(
-    title: String,
-    variant: Option<String>,
-    sku: Option<String>,
-    category: Option<String>,
-    price: Money,
-    quantity: i64,
-    metadata: Option<InventoryMetadata>,
-) -> Result<ProductReportRow, AppError> {
-    let (cost, weight) = metadata
-        .map(|item| (item.unit_cost, item.measurement.weight))
-        .unwrap_or_default();
-    let mut row = ProductReportRow {
-        collection: collection(sku.as_deref()),
-        sku,
-        title,
-        variant,
-        category: category.filter(|value| !value.is_empty()),
-        cost: cost
-            .as_ref()
-            .map(|value| number(&value.amount))
-            .transpose()?,
-        cost_currency: cost.map(|value| value.currency_code),
-        weight: weight
-            .as_ref()
-            .map(|value| number(&value.value.to_string()))
-            .transpose()?,
-        unit: weight.map(|value| value.unit),
-        selling_price: number(&price.amount)?,
-        selling_price_currency: price.currency_code,
-        quantity,
-        total_selling_price: Number::from(0),
-        total_weight: None,
-    };
-    totals(&mut row)?;
-    Ok(row)
-}
-
-fn shopify_client(settings: &Settings) -> Result<ShopifyClient, AppError> {
-    let config = settings
-        .client
-        .as_ref()
-        .and_then(|c| c.shopify.as_ref())
-        .ok_or(AppError::ReportUnavailable(None).at(module_path!()))?;
-    ShopifyClient::new(config)
-        .map_err(|error| AppError::ReportUnavailable(Some(error)).at("api::client::shopify"))
-}
-
-fn upstream(error: ClientError) -> AppError {
-    AppError::ReportUpstream(error).at("api::client::shopify")
-}
-fn protocol(message: &'static str) -> AppError {
-    AppError::ReportUpstream(ClientError::Protocol(message)).at(module_path!())
-}
-fn number(raw: &str) -> Result<Number, AppError> {
-    let value = if let Some((base, _)) = raw.split_once(['e', 'E']) {
-        Decimal::from_str_exact(base).map_err(|_| protocol("invalid report decimal"))?;
-        Decimal::from_scientific(raw)
-    } else {
-        Decimal::from_str_exact(raw)
+async fn tagged_page(
+    client: &ShopifyClient,
+    tag: String,
+    page: &PageRequest,
+) -> Result<(Vec<ReportRow>, PageInfo), AppError> {
+    let orders = client
+        .orders_by_tag(
+            &OrdersByTagRequest {
+                tag,
+                lines_first: 10,
+            },
+            page,
+        )
+        .await
+        .map_err(upstream)?;
+    orders
+        .page_info
+        .validate_after(page.after.as_deref())
+        .map_err(upstream)?;
+    let mut rows = Vec::new();
+    let mut by_sku = HashMap::new();
+    for order in orders.nodes {
+        let id = order.id;
+        let mut initial = Some(order.line_items);
+        let lines = collect_connection(|after| {
+            let first = initial.take();
+            let id = &id;
+            async move {
+                if let Some(first) = first {
+                    return Ok(first);
+                }
+                client
+                    .tagged_order_lines(
+                        &OrderLinesRequest {
+                            order_id: id.clone(),
+                        },
+                        &PageRequest { first: 100, after },
+                    )
+                    .await?
+                    .into_connection(id)
+            }
+        })
+        .await
+        .map_err(upstream)?;
+        for line in lines.nodes {
+            merge(
+                &mut rows,
+                &mut by_sku,
+                line.into_report_row().map_err(upstream)?,
+            )?;
+        }
     }
-    .map_err(|_| protocol("invalid report decimal"))?;
-    Number::from_str(&value.normalize().to_string()).map_err(|_| protocol("invalid JSON decimal"))
+    Ok((rows, orders.page_info))
 }
-fn total(value: &Number, quantity: i64) -> Result<Number, AppError> {
-    let value = Decimal::from_str_exact(&value.to_string())
-        .map_err(|_| protocol("invalid report decimal"))?
-        .normalize();
-    let mut mantissa = value.mantissa();
-    let mut multiplier = i128::from(quantity);
-    let mut scale = value.scale();
-    if mantissa == 0 || multiplier == 0 {
-        return Ok(Number::from(0));
+async fn validate_location(client: &ShopifyClient, id: &ShopifyId) -> Result<(), AppError> {
+    if !client.location_exists(id).await.map_err(upstream)? {
+        return Err(AppError::NotFound.at(module_path!()));
     }
-    // Cancel decimal places before multiplying so a temporary coefficient cannot overflow an exact result.
-    while scale > 0 {
-        let factors = [(10, 1), (1, 10), (2, 5), (5, 2)]
-            .into_iter()
-            .find(|(a, b)| mantissa % a == 0 && multiplier % b == 0);
-        let Some((a, b)) = factors else {
-            break;
-        };
-        mantissa /= a;
-        multiplier /= b;
-        scale -= 1;
-    }
-    let mantissa = mantissa
-        .checked_mul(multiplier)
-        .ok_or_else(|| protocol("report total overflow"))?;
-    let result = Decimal::try_from_i128_with_scale(mantissa, scale)
-        .map_err(|_| protocol("report total overflow"))?;
-    number(&result.to_string())
-}
-fn totals(row: &mut ProductReportRow) -> Result<(), AppError> {
-    row.total_selling_price = total(&row.selling_price, row.quantity)?;
-    row.total_weight = row
-        .weight
-        .as_ref()
-        .map(|w| total(w, row.quantity))
-        .transpose()?;
     Ok(())
 }
-fn collection(sku: Option<&str>) -> Option<String> {
-    let chars = sku?.chars().skip(3).take(6).collect::<String>();
-    (chars.chars().count() == 6).then_some(chars)
+fn upstream(error: ClientError) -> AppError {
+    let origin = match &error {
+        ClientError::Origin { origin, .. } => *origin,
+        _ => "api::services::products",
+    };
+    AppError::ReportUpstream(error).at(origin)
 }
 fn merge(
-    rows: &mut Vec<ProductReportRow>,
+    rows: &mut Vec<ReportRow>,
     by_sku: &mut HashMap<String, Vec<usize>>,
-    row: ProductReportRow,
+    row: ReportRow,
 ) -> Result<(), AppError> {
     let candidates = row
-        .sku
+        .sku()
+        .map(|sku| by_sku.entry(sku.to_owned()).or_default());
+    let existing = candidates
         .as_ref()
-        .filter(|sku| !sku.is_empty())
-        .map(|sku| by_sku.entry(sku.clone()).or_default());
-    let existing = candidates.as_ref().and_then(|indices| {
-        indices.iter().copied().find(|&index| {
-            let old = &rows[index];
-            old.selling_price == row.selling_price
-                && old.selling_price_currency == row.selling_price_currency
-                && old.category == row.category
-                && old.cost == row.cost
-                && old.cost_currency == row.cost_currency
-                && old.weight == row.weight
-                && old.unit == row.unit
-        })
-    });
+        .and_then(|indices| indices.iter().copied().find(|&i| rows[i].can_merge(&row)));
     if let Some(index) = existing {
-        let old = &mut rows[index];
-        old.quantity = old
-            .quantity
-            .checked_add(row.quantity)
-            .ok_or_else(|| protocol("report quantity overflow"))?;
-        totals(old)
+        rows[index].add_quantity(row.quantity()).map_err(upstream)
     } else {
         if let Some(indices) = candidates {
             indices.push(rows.len());
@@ -231,7 +176,6 @@ fn merge(
         Ok(())
     }
 }
-
 #[cfg(test)]
 #[path = "../tests/services/products.rs"]
 mod tests;

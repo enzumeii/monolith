@@ -1,0 +1,13 @@
+---
+name: monolith-dependency-injection
+description: Use when adding or changing reusable runtime dependencies, outbound clients, or AppState initialization in this repository.
+---
+
+# Reusable runtime dependencies
+
+Read root [AGENTS.md](../../../AGENTS.md), `services/api/src/state.rs` and the dependency's actual callers.
+
+- Construct reusable runtime clients once in AppState startup and inject shared instances into handlers/services. Reuse existing HTTP pools; do not construct clients per request. Share ownership with Arc only where needed; do not add a generic DI container.
+- Make initialization failure behavior intentional. Required dependencies may fail startup; optional dependencies must retain their unavailable/initialization-error state and fail only affected operations. Keep public errors and ordinary logs sanitized; original causes belong in DEBUG diagnostics.
+- Keep dependency calls and multi-request orchestration in services. Client methods proxy one operation; paginated methods accept explicit size/cursor and return page metadata. Models own transformations of their own values; shared domain DTOs remain wire-only.
+- Verify shared state reuses the same instance and initialization failures preserve the agreed HTTP behavior. For HTTP/GraphQL dependencies, use [monolith-api-postman](../monolith-api-postman/SKILL.md).

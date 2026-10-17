@@ -1,3 +1,5 @@
 query Location($id: ID!) {
-  location(id: $id) { id }
+  location(id: $id) {
+    id
+  }
 }

@@ -72,6 +72,7 @@ impl ProductStatus {
     }
 }
 pub struct ListProductsRequest {
+    pub variants_first: u16,
     pub location_id: ShopifyId,
     pub statuses: Vec<ProductStatus>,
 }
@@ -79,15 +80,17 @@ pub struct OrdersByPaymentRequest {
     pub payment_id: String,
 }
 pub struct OrdersByTagRequest {
+    pub lines_first: u16,
     pub tag: String,
 }
 pub struct OrderLinesRequest {
     pub order_id: ShopifyId,
 }
 impl OrderLinesRequest {
-    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
+        page.validate()?;
         self.order_id.require_kind("Order")?;
-        Ok(json!({"id": self.order_id, "after": after}))
+        Ok(json!({"id": self.order_id, "after": page.after, "first": page.first}))
     }
 }
 
@@ -109,7 +112,9 @@ pub struct ActivateInventoryRequest {
 }
 
 impl ListProductsRequest {
-    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
+        page.validate()?;
+        validate_size(self.variants_first)?;
         self.location_id.require_kind("Location")?;
         let search = if self.statuses.is_empty() {
             None
@@ -123,34 +128,42 @@ impl ListProductsRequest {
                     .join(",")
             ))
         };
-        Ok(json!({"locationId": self.location_id, "search": search, "after": after}))
+        Ok(
+            json!({"locationId": self.location_id, "search": search, "variantsFirst": self.variants_first, "after": page.after, "first": page.first}),
+        )
     }
 }
 impl OrdersByPaymentRequest {
-    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
+        page.validate()?;
         if self.payment_id.trim().is_empty() {
             return Err(ClientError::InvalidInput("payment ID is empty"));
         }
         Ok(
-            json!({"search": format!("payment_id:\"{}\"", escape_search(&self.payment_id)), "after": after}),
+            json!({"search": format!("payment_id:\"{}\"", escape_search(&self.payment_id)), "after": page.after, "first": page.first}),
         )
     }
 }
 impl OrdersByTagRequest {
-    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
+        page.validate()?;
+        validate_size(self.lines_first)?;
         if self.tag.trim().is_empty() {
             return Err(ClientError::InvalidInput("order tag is empty"));
         }
-        Ok(json!({"search": format!("tag:\"{}\"", escape_search(&self.tag)), "after": after}))
+        Ok(
+            json!({"search": format!("tag:\"{}\"", escape_search(&self.tag)), "linesFirst": self.lines_first, "after": page.after, "first": page.first}),
+        )
     }
 }
 impl SalesRangeRequest {
-    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
+        page.validate()?;
         if self.start >= self.end {
             return Err(ClientError::InvalidInput("sales start must precede end"));
         }
         Ok(
-            json!({"search": format!("created_at:>='{}' created_at:<'{}'", self.start.to_rfc3339(), self.end.to_rfc3339()), "ordersAfter": after}),
+            json!({"search": format!("created_at:>='{}' created_at:<'{}'", self.start.to_rfc3339(), self.end.to_rfc3339()), "ordersAfter": page.after, "first": page.first}),
         )
     }
 }
@@ -161,9 +174,10 @@ impl ReplaceOrderTagsRequest {
     }
 }
 impl InventoryDiscoveryRequest {
-    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
+        page.validate()?;
         self.location_id.require_kind("Location")?;
-        Ok(json!({"locationId": self.location_id, "after": after}))
+        Ok(json!({"locationId": self.location_id, "after": page.after, "first": page.first}))
     }
 }
 impl ActivateInventoryRequest {
@@ -221,7 +235,7 @@ pub struct Pricing {
 pub struct Variant {
     pub id: ShopifyId,
     pub title: String,
-    pub sku: Option<String>,
+    pub sku: Option<Sku>,
     pub contextual_pricing: Pricing,
     pub image: Option<Image>,
     pub inventory_item: VariantInventory,
@@ -281,15 +295,11 @@ pub struct Order {
 pub struct TaggedOrderLineItem {
     pub title: String,
     pub variant_title: Option<String>,
-    pub sku: Option<String>,
+    pub sku: Option<Sku>,
     pub quantity: i64,
     pub original_unit_price_set: MoneyBag,
     pub product: Option<LineProduct>,
     pub variant: Option<LineVariant>,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TaggedOrderLineItems {
-    pub nodes: Vec<TaggedOrderLineItem>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -300,7 +310,7 @@ pub struct TaggedOrder {
     pub email: Option<String>,
     pub phone: Option<String>,
     pub current_total_price_set: MoneyBag,
-    pub line_items: TaggedOrderLineItems,
+    pub line_items: Connection<TaggedOrderLineItem>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResourceReference {
@@ -312,7 +322,7 @@ pub struct SalesLine {
     pub id: String,
     pub title: String,
     pub variant_title: Option<String>,
-    pub sku: Option<String>,
+    pub sku: Option<Sku>,
     pub quantity: i64,
     pub current_quantity: i64,
     pub product: Option<ResourceReference>,
@@ -351,7 +361,7 @@ pub struct VariantSummary {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InventoryItemSummary {
     pub id: ShopifyId,
-    pub sku: Option<String>,
+    pub sku: Option<Sku>,
     pub tracked: bool,
     pub variant: VariantSummary,
 }
@@ -363,17 +373,6 @@ pub struct InventoryActivationCandidate {
     pub quantities: Vec<InventoryQuantity>,
     pub item: InventoryItemSummary,
 }
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaggedOrderHeader {
-    pub tags: Vec<String>,
-    pub id: ShopifyId,
-    pub number: i64,
-    pub email: Option<String>,
-    pub phone: Option<String>,
-    pub current_total_price_set: MoneyBag,
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SalesOrderHeader {
@@ -396,7 +395,7 @@ pub struct OrdersData {
 }
 #[derive(Deserialize)]
 pub struct OrdersByTagData {
-    pub orders: Connection<TaggedOrderHeader>,
+    pub orders: Connection<TaggedOrder>,
 }
 #[derive(Deserialize)]
 pub struct SalesData {
@@ -496,4 +495,101 @@ pub struct VariantPage {
 #[derive(Deserialize)]
 pub struct LocationData {
     pub location: Option<ResourceReference>,
+}
+
+pub struct PageRequest {
+    pub first: u16,
+    pub after: Option<String>,
+}
+impl PageRequest {
+    pub fn validate(&self) -> Result<(), ClientError> {
+        validate_size(self.first)?;
+        if self
+            .after
+            .as_ref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(ClientError::InvalidInput("cursor is empty"));
+        }
+        Ok(())
+    }
+}
+pub struct ProductVariantsRequest {
+    pub product_id: ShopifyId,
+    pub location_id: ShopifyId,
+}
+impl ProductVariantsRequest {
+    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
+        page.validate()?;
+        self.product_id.require_kind("Product")?;
+        self.location_id.require_kind("Location")?;
+        Ok(
+            json!({"id": self.product_id,"locationId":self.location_id,"first":page.first,"after":page.after}),
+        )
+    }
+}
+impl PageInfo {
+    pub fn validate_after(&self, after: Option<&str>) -> Result<(), ClientError> {
+        if self.has_next_page
+            && self
+                .end_cursor
+                .as_deref()
+                .is_none_or(|next| next.trim().is_empty() || Some(next) == after)
+        {
+            return Err(
+                ClientError::Protocol("next cursor is missing or did not progress")
+                    .at("api::models::shopify"),
+            );
+        }
+        Ok(())
+    }
+}
+impl<T> OrderLinesData<T> {
+    pub(crate) fn into_connection(self, id: &ShopifyId) -> Result<Connection<T>, ClientError> {
+        let parent = self.order.ok_or(ClientError::Protocol(
+            "order disappeared during line pagination",
+        ))?;
+        if &parent.id != id {
+            return Err(ClientError::Protocol("line items belong to another order"));
+        }
+        Ok(parent.line_items)
+    }
+}
+impl VariantPageData {
+    pub(crate) fn into_connection(
+        self,
+        id: &ShopifyId,
+    ) -> Result<Connection<Variant>, ClientError> {
+        let parent = self.product.ok_or(ClientError::Protocol(
+            "product disappeared during variant pagination",
+        ))?;
+        if &parent.id != id {
+            return Err(ClientError::Protocol("variants belong to another product"));
+        }
+        Ok(parent.variants)
+    }
+}
+fn validate_size(first: u16) -> Result<(), ClientError> {
+    if !(1..=250).contains(&first) {
+        return Err(ClientError::InvalidInput(
+            "page size must be between 1 and 250",
+        ));
+    }
+    Ok(())
+}
+mod products;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Sku(String);
+impl Sku {
+    #[must_use]
+    pub fn collection(&self) -> Option<String> {
+        let value = self.0.chars().skip(3).take(6).collect::<String>();
+        (value.chars().count() == 6).then_some(value)
+    }
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
+    }
 }

@@ -1,5 +1,5 @@
-query OrdersByPayment($search: String!, $after: String) {
-  orders(first: 250, after: $after, query: $search) {
+query OrdersByPayment($first: Int!, $search: String!, $after: String) {
+  orders(first: $first, after: $after, query: $search) {
     nodes {
       id
       name

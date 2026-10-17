@@ -25,7 +25,7 @@ flowchart LR
     TOML["API TOML + optional overlay"] --> SETTINGS["config.rs typed settings"]
     SECRETS["Ignored .env / environment"] --> SETTINGS
     SETTINGS --> API["Axum listener and database pool"]
-    SETTINGS --> CLIENT["Explicit ShopifyClient construction"]
+    SETTINGS --> CLIENT["AppState ShopifyClient initialization"]
     ASSET["Public frontend TOML asset"] --> LOADER["Fetch and parse once"]
     LOADER --> UI["Pages and session restoration"]
     UI -->|"Credentials and Origin"| API
@@ -64,24 +64,23 @@ Do not substitute loopback client fixtures or in-process handler tests for deplo
 
 ## Using the Shopify client
 
-Read state.settings.client.shopify and construct api::client::shopify::ShopifyClient::new from ShopifyConfig. Request/result DTOs are exported through api::shopify_models; construct IDs with ShopifyId::new. Seven query methods collect all continuation pages automatically and return Vec nodes; callers pass no cursor.
-
+Use the shared state.shopify client initialized once by app_state. Request/result models are exported through api::shopify_models; construct IDs with ShopifyId::new. Paginated proxy methods accept a PageRequest with first (1–250) and nullable after, return one page, and never fetch another page automatically.
 | Operation | Caller responsibility |
 | --- | --- |
-| Product listing | products_with_variants(request): location ID and statuses; all product and variant pages, category, cost, weight and contextual money/currency |
-| Payment lookup | orders_by_payment(request): Shopify payment ID; external references may require separate mapping |
-| Tag lookup | orders_by_tag(request): one literal tag; all header pages, tags and shop-money currency |
-| Date-range headers | sold_variants_in_range(request): timestamps with offsets and exclusive end; statuses/test/cancellation remain available |
-| Order lines | sales_order_lines or tagged_order_lines with OrderLinesRequest.order_id: all line pages; independent from header lookup |
+| Product listing | products_with_variants(request, page): location/statuses plus variants_first; returns one product page with initial variant connections |
+| Payment lookup | orders_by_payment(request, page): Shopify payment ID; external references may require separate mapping |
+| Tag lookup | orders_by_tag(request, page): literal tag and lines_first; initial lines and parent/child page metadata |
+| Date-range headers | sold_variants_in_range(request, page): timestamps with offsets and exclusive end; statuses/test/cancellation remain available |
+| Order lines | sales_order_lines or tagged_order_lines with OrderLinesRequest.order_id plus PageRequest: one optional parent envelope; service validates identity and traverses children |
 | Tag replacement | replace_order_tags(request): complete replacement list; empty list clears; inspect userErrors and optional order |
-| Inventory discovery | find_inventory_to_activate(request): all raw levels; caller decides eligibility from tracked/isActive/on_hand |
+| Inventory discovery | find_inventory_to_activate(request, page): one raw level page; caller decides eligibility from tracked/isActive/on_hand |
 | Inventory activation | activate_existing_inventory(request): item/location IDs and stable UUID; no quantity arguments; inspect userErrors/optional level |
-| Nested pagination | Product and variant connections are fully collected. Tagged lines use100 per page; sales lines use250 per page |
+| Nested pagination | Report service completes children only for selected parents: initial10, continuation100; other callers choose their own page sizes |
 | Credentials/scopes | Appropriate product/inventory/location/order permissions and approved older-order/protected-customer access where applicable |
 | Failure handling | Shopify ClientError failures identify api::client::shopify and retain their typed cause. Convert to AppError at the response boundary or use log_background_error for one ERROR; returning/propagating a Result does not log |
 | Privacy | Do not log token values, request/response bodies, raw upstream fields, payment references or customer information |
 
-The product report service chains tag header searches into report line requests and selects stocked inventory rows. General client methods remain independent and do not interpret mutation userErrors.
+The report service uses initial order lines from the tag search, requests only child continuations, and selects active inventory levels. Source models transform their own values; the service owns paging and grouping order. Client methods do not interpret mutation userErrors.
 
 | Outbound request behavior | Policy |
 | --- | --- |
@@ -123,10 +122,14 @@ The product report service chains tag header searches into report line requests 
 
 | Request | Input / result |
 | --- | --- |
-| `GET /v1/products?type=INVENTORY&id=1234` | Numeric Shopify location ID; active stocked variants with on_hand quantities |
-| `GET /v1/products?type=ORDER_TAG&id=TAG` | URL-encoded literal tag; merge matching SKU + original unit price + currency and compatible metadata |
+| `GET /v1/products?type=INVENTORY&id=1234` | Numeric location ID; ACTIVE products and active levels at that location; zero/negative on_hand retained |
+| `GET /v1/products?type=ORDER_TAG&id=TAG` | Literal tag; merge matching SKU + original unit price + currency and compatible metadata within each order page |
 | Credentials | Existing ADMIN/SUPER_ADMIN bearer or cookie credentials; Shopify URL in TOML and SHOPIFY_ACCESS_TOKEN environment secret |
 | Postman | Internal webserver products requests use `location_id` and `order_tag` variables |
 | Verification | Existing API `just test` includes real TCP product routes with Docker PostgreSQL and mocked Shopify, explicitly requested for this feature; live store verification remains manual |
+
+| Pagination | Add page_size (default10, range1–50) and optional opaque cursor. Response page_info contains has_next_page/end_cursor; follow it even when products is empty |
+| Complete report | Each page counts parent products/orders and includes all their variants/lines; output row count can exceed page_size. Merge compatible ORDER_TAG rows across pages for complete totals |
+| Formatting | API just setup installs pinned Prettier with npm ci; just check checks Rust/GraphQL, just fix formats both. CI uses Node.js24 and the lockfile. Update Postman query text after formatting GraphQL |
 
 Report queries require product, inventory, location and order access; reading unitCost may also require View product costs permission. Historical order access remains subject to Shopify permissions. Missing product/variant metadata produces null values; quantities use original order lines, not refund-adjusted accounting.

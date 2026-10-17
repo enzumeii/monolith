@@ -33,10 +33,37 @@ fn products_contract_preserves_numeric_values_nulls_and_query_enum() {
         serde_json::from_value::<ProductReportQuery>(serde_json::json!({"type":"OTHER","id":"1"}))
             .is_err()
     );
-    let value = serde_json::json!({"products":[{"category":"KEYCHAIN","collection":"STSWOW","sku":"GENSTSWOW01","title":"Item","variant":null,"cost":null,"cost_currency":null,"weight":2.5,"unit":"GRAMS","selling_price":0.1,"selling_price_currency":"USD","quantity":3,"total_selling_price":0.3,"total_weight":7.5}]});
+    let value = serde_json::json!({
+        "products": [{
+            "category":"KEYCHAIN",
+            "collection":"STSWOW",
+            "sku":"GENSTSWOW01",
+            "title":"Item",
+            "variant":null,
+            "cost":null,
+            "cost_currency":null,
+            "weight":2.5,
+            "unit":"GRAMS",
+            "selling_price":0.1,
+            "selling_price_currency":"USD",
+            "quantity":3,
+            "total_selling_price":0.3,
+            "total_weight":7.5
+        }],
+        "page_info":{"has_next_page":false,"end_cursor":null}
+    });
     let report: ProductsResponse = serde_json::from_value(value.clone()).expect("decode report");
     assert_eq!(
         serde_json::to_value(report).expect("serialize report"),
         value
     );
+}
+
+#[test]
+fn products_contract_keeps_continuation_metadata() {
+    let value =
+        serde_json::json!({"products":[],"page_info":{"has_next_page":true,"end_cursor":"next"}});
+    let report: domain::dto::ProductsResponse =
+        serde_json::from_value(value.clone()).expect("report");
+    assert_eq!(serde_json::to_value(report).expect("wire report"), value);
 }

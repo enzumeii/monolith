@@ -59,4 +59,5 @@ These rules apply to the entire repository.
 - For API endpoint testing, use `.agents/skills/monolith-api-e2e/SKILL.md`.
 - For architecture reviews, use `.agents/skills/monolith-architecture-review/SKILL.md`.
 
-- For Shopify GraphQL changes, use `.agents/skills/monolith-shopify-graphql/SKILL.md`; keep corresponding Postman requests synchronized in the same change.
+- For internal API endpoints and external HTTP/GraphQL dependencies, use `.agents/skills/monolith-api-postman/SKILL.md`; keep matching Postman requests synchronized in the same change.
+- For reusable runtime dependencies, use `.agents/skills/monolith-dependency-injection/SKILL.md`; construct clients once in AppState and inject shared instances.

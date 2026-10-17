@@ -21,7 +21,7 @@ fn tagged_order_decodes_only_requested_fields_and_keeps_shop_currency() {
     let value = serde_json::json!({
         "id": "gid://shopify/Order/123", "number": 1001, "tags": ["shipping"], "email": null, "phone": null,
         "currentTotalPriceSet": {"shopMoney": {"amount": "1234567890.0123456789", "currencyCode": "THB"}},
-        "lineItems": {"nodes": [{
+        "lineItems": {"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes": [{
             "title": "Shirt", "variantTitle": null, "sku": null, "quantity": 2, "product": null, "variant": null,
             "originalUnitPriceSet": {"shopMoney": {"amount": "45.6700", "currencyCode": "THB"}}
         }]}
@@ -64,23 +64,36 @@ fn requests_own_validation_and_preserve_literal_values() {
     let request = ListProductsRequest {
         location_id: location.clone(),
         statuses: vec![ProductStatus::Active, ProductStatus::Draft],
+        variants_first: 10,
     };
-    let variables = request.variables(Some("next")).unwrap();
+    let variables = request
+        .variables(&PageRequest {
+            first: 7,
+            after: Some("next".into()),
+        })
+        .unwrap();
     assert_eq!(variables["search"], "status:active,draft");
     assert_eq!(variables["after"], "next");
     assert!(
         ListProductsRequest {
             location_id: order.clone(),
-            statuses: vec![]
+            statuses: vec![],
+            variants_first: 10
         }
-        .variables(None)
+        .variables(&PageRequest {
+            first: 10,
+            after: None
+        })
         .is_err()
     );
     assert!(
         InventoryDiscoveryRequest {
             location_id: order.clone()
         }
-        .variables(None)
+        .variables(&PageRequest {
+            first: 10,
+            after: None
+        })
         .is_err()
     );
     assert!(
@@ -100,11 +113,19 @@ fn requests_own_validation_and_preserve_literal_values() {
         .unwrap()["input"]["tags"],
         json!([" shipping "])
     );
+}
+
+#[test]
+fn search_requests_preserve_literals_and_validate_ranges() {
     assert_eq!(
         OrdersByTagRequest {
+            lines_first: 10,
             tag: " shipping ".into()
         }
-        .variables(None)
+        .variables(&PageRequest {
+            first: 10,
+            after: None
+        })
         .unwrap()["search"],
         "tag:\" shipping \""
     );
@@ -112,21 +133,33 @@ fn requests_own_validation_and_preserve_literal_values() {
         OrdersByPaymentRequest {
             payment_id: " a:b ".into()
         }
-        .variables(None)
+        .variables(&PageRequest {
+            first: 10,
+            after: None
+        })
         .unwrap()["search"],
         "payment_id:\" a\\:b \""
     );
     for blank in ["", " \t "] {
         assert!(
-            OrdersByTagRequest { tag: blank.into() }
-                .variables(None)
-                .is_err()
+            OrdersByTagRequest {
+                lines_first: 10,
+                tag: blank.into()
+            }
+            .variables(&PageRequest {
+                first: 10,
+                after: None
+            })
+            .is_err()
         );
         assert!(
             OrdersByPaymentRequest {
                 payment_id: blank.into()
             }
-            .variables(None)
+            .variables(&PageRequest {
+                first: 10,
+                after: None
+            })
             .is_err()
         );
     }
@@ -136,7 +169,10 @@ fn requests_own_validation_and_preserve_literal_values() {
             start: time,
             end: time
         }
-        .variables(None)
+        .variables(&PageRequest {
+            first: 10,
+            after: None
+        })
         .is_err()
     );
 }
@@ -175,4 +211,38 @@ fn activation_request_validates_resource_kinds_and_never_sets_quantities() {
     assert_eq!(variables["idempotencyKey"], key.to_string());
     assert!(variables.get("available").is_none());
     assert!(variables.get("onHand").is_none());
+}
+
+#[test]
+fn page_sizes_and_continuation_metadata_are_validated() {
+    for first in [0, 251] {
+        assert!(PageRequest { first, after: None }.validate().is_err());
+    }
+    for first in [1, 250] {
+        assert!(
+            PageRequest {
+                first,
+                after: Some("next".into())
+            }
+            .validate()
+            .is_ok()
+        );
+    }
+    for (has_next_page, end_cursor, after, valid) in [
+        (true, None, None, false),
+        (true, Some(""), None, false),
+        (true, Some("a"), Some("a"), false),
+        (true, Some("b"), Some("a"), true),
+        (false, None, None, true),
+    ] {
+        assert_eq!(
+            PageInfo {
+                has_next_page,
+                end_cursor: end_cursor.map(str::to_owned)
+            }
+            .validate_after(after)
+            .is_ok(),
+            valid
+        );
+    }
 }

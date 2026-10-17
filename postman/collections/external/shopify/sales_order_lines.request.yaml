@@ -1,0 +1,44 @@
+$kind: graphql-request
+url: "{{shopify}}/graphql.json"
+query: |
+  query SalesOrderLines($first: Int!, $id: ID!, $after: String) {
+    order(id: $id) {
+      id
+      lineItems(first: $first, after: $after) {
+        nodes {
+          id
+          title
+          variantTitle
+          sku
+          quantity
+          currentQuantity
+          product {
+            id
+          }
+          variant {
+            id
+          }
+          originalUnitPriceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+variables: |
+  {
+    "id": "gid://shopify/Order/123",
+    "after": null,
+    "first": 10
+  }
+settings: {}
+schema:
+  source: auto
+order: 3100

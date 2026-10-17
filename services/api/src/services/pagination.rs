@@ -12,7 +12,8 @@ where
     let mut after = None;
     let mut seen = HashSet::new();
     loop {
-        let page = fetch(after).await?;
+        let page = fetch(after.clone()).await?;
+        page.page_info.validate_after(after.as_deref())?;
         nodes.extend(page.nodes);
         if !page.page_info.has_next_page {
             return Ok(Connection {
@@ -32,10 +33,6 @@ where
     }
 }
 
-pub(crate) async fn collect_pages<T: Send, F, Fut>(fetch: F) -> Result<Vec<T>, ClientError>
-where
-    F: FnMut(Option<String>) -> Fut + Send,
-    Fut: std::future::Future<Output = Result<Connection<T>, ClientError>> + Send,
-{
-    Ok(collect_connection(fetch).await?.nodes)
-}
+#[cfg(test)]
+#[path = "../tests/services/pagination.rs"]
+mod tests;

@@ -1,58 +1,47 @@
 # Verification
 
-Results describe the tested revision and scope; they do not establish live Shopify behavior or production capacity. [Architecture](architecture.md) and [operations](development.md) describe the current system separately from these results.
+Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
 
-## Verified revision and checks
+## Checks
 
 | Evidence | Result |
 | --- | --- |
-| Implementation | ENZ-11 product reports; published head and CI recorded in this change's PR checks |
-| Native API tests | 97 passed, 2 Docker-dependent tests ignored in native phase |
-| API with Docker PostgreSQL | 99 library tests and 38 real TCP E2E tests passed; Compose teardown completed |
-| Formatting/lint | Workspace formatting and strict API, domain, backoffice and client-ui checks passed |
-| Shared contracts / WASM | 2 domain contracts passed; domain WASM and backoffice native/WASM lint passed |
-| Downstream tests | Backoffice 6 tests passed; client-ui build/test passed with no tests |
-| Live Shopify | Not executed, explicitly left to user; no Shopify mutations |
+| Native API tests | 101 passed; 2 Docker-dependent tests ignored in the native phase |
+| Docker PostgreSQL | 103 library tests and 38 real TCP E2E tests passed; Compose teardown completed |
+| Formatting/lint | Workspace Rust formatting, strict API/domain/downstream checks and pinned GraphQL formatting passed |
+| Shared contracts / WASM | 3 domain contracts passed; domain WASM and backoffice native/WASM checks passed |
+| Downstream tests | Backoffice 6 tests passed; client-ui check/test passed with no tests |
+| Postman | All 11 external GraphQL documents match their requests and variable sets; external11/internal-products2 lint passed with zero errors/warnings |
+| Formatter behavior | Misformatted GraphQL rejected, write-format corrected it, second write identical |
+| Independent review | Inventory child-failure coverage restored; removing the product-parent guard reproduced partial success, restored guard passed the regression |
+| Published-head CI | Confirm separately against the pushed SHA in PR checks |
 
-Product E2E uses real API TCP endpoints and Docker PostgreSQL with a mocked Shopify HTTP upstream, explicitly requested for ENZ-11. It verifies the API integration against deterministic upstream data, not the live Shopify schema, scopes or store contents. Published-head CI must be checked separately from these local results.
+Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitly approved synthetic Shopify HTTP upstream. No live Shopify requests or mutations ran.
 
 ## Exercised contracts
 
 | Area | Evidence |
 | --- | --- |
-| JSON transport | Typed decoding, generic headers/body, malformed JSON, HTTP failures, timeout, redirect rejection |
-| GraphQL errors | Errors classified before typed data decoding; null mutation results retain upstream errors/metadata; partial-data errors rejected |
-| Backoff | HTTP 4xx and GraphQL throttling use one HttpClient loop/budget; unchanged replay payload; mixed-rejection four-attempt exhaustion; Retry-After minimum and budget; oversized-delay overflow regression |
-| No replay | HTTP 500/502/503/504, unrelated GraphQL errors, mutation user errors, and ambiguous timeout |
-| Configuration | Literal ConfigBuilder token override and standard file/env precedence; no construction helper or skipped token field; URL retained through overlays; optional absent section and ordinary missing-URL errors; redacted Debug |
-| Money and IDs | Decimal strings paired with currency; malformed/wrong-resource IDs rejected |
-| Client boundary | Aligned operation/document names; queries automatically collect every page without caller cursors; root and child methods remain independent; raw inventory and mutation userErrors/optional results retained |
-| Catalog pagination | Existing-method regression failed with one variant instead of two before consolidation; shared product/variant continuation now passes alongside root-page, empty-child and failure/cursor cases |
-| Order pagination | Header queries traverse all outer pages independently; line methods return501 ordered lines over250/250/1 pages; no root/line chaining; date offsets/status/test/cancellation retained |
-| Tagged orders | Multiple order pages preserve response order; empty results, literal tag escaping, blank-input rejection, cursor failures, HTTP/GraphQL failure propagation, returned tags, precise shop money and currency; independent line lookup collects501 nodes; each query call starts without a cursor |
-| Error source chain | Origin exposes the original ClientError through standard Error::source, retaining deeper reqwest/serde causes and the first client identity; focused regression reproduced the derive-generated box downcast defect and passes with explicit chaining |
-| Error integration | Each original ClientError family retains its type/source when wrapped with the Shopify origin; real constructor/HTTP/decode/protocol failures log one ERROR under INFO/DEBUG at response/background boundaries; conversion/attachment silent, payloads private |
-| Cursor safety | Missing, repeated, and cyclic continuations rejected |
-| Payment/tag behavior | Search-literal escaping for payment ID and single-tag lookup, multiple matches, empty tag replacement, mutation errors |
-| Inventory discovery | All location pages returned unfiltered, including active/untracked/zero/positive stock; missing location errors |
-| Activation | Quantity arguments absent; available/on-hand retained in fixtures; stable idempotency key across throttling |
-| Existing API | CI exercises authentication, authorization, cookie/origin handling, database operations, and registered endpoint tests |
+| Client transport | Typed JSON/GraphQL decoding, error/partial-data handling, timeout, redirect rejection and original failure causes |
+| Retry policy | HTTP/GraphQL rejection shares a four-attempt budget; unchanged replay payloads, Retry-After bounds and no ambiguous timeout/5xx replay |
+| Shopify proxy boundary | Explicit size/cursor forwarded; one operation per method; returned root/child metadata without automatic traversal; raw inventory/mutation outputs retained |
+| Source models | Inventory and tagged-line conversion, SKU Unicode characters4–9, short/missing SKU, active levels, zero/negative stock and nullable metadata |
+| Exact report values | Normalized prices, scientific weights, exact scaled/maximum totals, compatible metadata comparison and checked quantity/total overflow |
+| Service pagination | Selected root page only; complete child variants/lines; missing/mismatched parents and missing/repeated/cyclic cursors fail without partial output |
+| API pagination | page_size bounds/default, cursor validation, first/second product/order pages, root continuation metadata, empty page with continuation and page-local aggregation |
+| Tagged orders | Literal search escaping, nested initial lines, no unnecessary child request, compatible rows merged in first-seen order and missing SKUs kept separate |
+| Dependency lifecycle | Shared AppState client Arc, optional/invalid initialization retained; affected requests map to sanitized503 |
+| Report failures | Real TCP400/401/404/502/503 scenarios; transport504/non-timeout502 regression; ordinary logs/public bodies sanitized, original causes available through DEBUG diagnostics |
+| Existing API | Authentication, authorization, cookies/origins/CORS, refresh-family transactions, database operations and registered routes remain covered by the complete suite |
 
-| Product report output | Exact decimal numeric totals, SKU characters4–9, active catalog filter, on_hand quantities including negative inventory, missing metadata and separate missing SKUs |
-| Product report HTTP | ADMIN/SUPER_ADMIN access, missing/invalid tokens, invalid query enum/ID, unavailable configuration, inventory/tag success, all parent/child pagination, empty matches, location404, upstream HTTP/GraphQL/malformed JSON502, nested transport timeout504 and non-timeout502, sanitized bodies |
-| Product report grouping | Matching SKU + price + currency merges quantities; differing price/currency/metadata remains separate; overflow rejects the report |
+## Limits
 
-## Review and limits
-
-| Area | Result / limit |
+| Area | Limit |
 | --- | --- |
-| Independent implementation review | Independent review found scientific-number parsing, exact scaled-total overflow and private diagnostic defects; regression tests cover corrections, constructor source retention and local service-origin attribution |
-| Additional fix-pass checks | Scientific weights, Decimal maximum exact totals, constructor causes and private DEBUG diagnostics reproduced failures and pass after correction; missing location is checked before catalog/pricing |
-| Grouping | SKU index restricts comparisons to matching SKU groups and preserves first-seen order; no load test or capacity guarantee |
-| Shopify compatibility | Official docs and local fixtures checked; no live schema/request execution; actual Shopify query cost unverified against the single-query maximum |
-| Platform pagination | Shared catalog traverses product and variant pages; shared tag and line methods traverse independent order/line pages |
-| Concurrent changes | No snapshot isolation; missing/mismatched order and child-page failures return errors rather than partial success. The shared catalog follows variant continuations |
-| Browser behavior | No new browser verification, rendered E2E, or HTTPS cookie acceptance evidence |
-| Coverage percentage | Not measured; no percentage claim |
-| Performance/deployment | No load test, production capacity result, deployment, or merge |
-| Postman | Application/Postman queries and variables match, including nested variant pageInfo. Static validation only; no live Postman execution |
+| Pagination unit | page_size counts products/orders, not output rows; selected parents can have many child pages |
+| Aggregation | ORDER_TAG totals are page-local; complete reports require combining compatible rows across pages |
+| Live Shopify | Schema compatibility, store permissions and actual requested query cost were not executed against Shopify |
+| Concurrent changes | No snapshot isolation; parent/child failures are rejected, but complete multi-page reports can reflect changing store data |
+| Performance | SKU indexing narrows comparisons; many incompatible groups for one SKU still scan that SKU's candidates; no load/capacity benchmark |
+| Browser/deployment | No new rendered browser E2E, production deployment or merge |
+| Coverage percentage | Not measured |

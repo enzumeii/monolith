@@ -1,6 +1,6 @@
 use crate::{
     error::AppError, services::products::product_report, state::AppState,
-    validations::products::validate_report_query,
+    validations::products::extract_report_query,
 };
 use axum::{
     Json,
@@ -8,14 +8,18 @@ use axum::{
 };
 use domain::dto::{ProductReportQuery, ProductsResponse};
 
-pub async fn get(
+pub async fn list(
     State(state): State<AppState>,
     query: Result<Query<ProductReportQuery>, QueryRejection>,
 ) -> Result<Json<ProductsResponse>, AppError> {
-    let Query(query) = query.map_err(|_| {
-        AppError::BadRequest("Expected type INVENTORY or ORDER_TAG and an id".into())
-            .at(module_path!())
-    })?;
-    let source = validate_report_query(query)?;
-    Ok(Json(product_report(&state.settings, source).await?))
+    let input = extract_report_query(query)?;
+    let client = state
+        .shopify
+        .as_ref()
+        .map_err(|error| {
+            AppError::ReportUnavailable(Some(error.clone())).at("api::client::shopify")
+        })?
+        .as_ref()
+        .ok_or_else(|| AppError::ReportUnavailable(None).at(module_path!()))?;
+    Ok(Json(product_report(client, input).await?))
 }

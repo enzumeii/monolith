@@ -31,6 +31,11 @@ async fn product_route_auth_validation_and_unconfigured_shopify() {
             "type=OTHER&id=1",
             "type=INVENTORY&id=bad",
             "type=ORDER_TAG&id=",
+            "type=INVENTORY&id=1&page_size=0",
+            "type=INVENTORY&id=1&page_size=51",
+            "type=INVENTORY&id=1&page_size=-1",
+            "type=INVENTORY&id=1&page_size=abc",
+            "type=INVENTORY&id=1&cursor=%20",
         ] {
             let response = client
                 .send(authed(
@@ -46,7 +51,7 @@ async fn product_route_auth_validation_and_unconfigured_shopify() {
         let response = client
             .send(authed(
                 "GET",
-                "/v1/products?type=INVENTORY&id=1",
+                "/v1/products?type=INVENTORY&id=1&page_size=1",
                 fixture.root_id(),
                 role,
             ))
@@ -71,6 +76,11 @@ fn report_variant(quantity: Option<i64>) -> Value {
         "id":"gid://shopify/InventoryItem/1","tracked":true,"unitCost":{"amount":"0.03","currencyCode":"USD"},"measurement":{"weight":{"value":2.5,"unit":"GRAMS"}},
         "inventoryLevel":quantity.map(|q|json!({"id":"level","isActive":true,"quantities":[{"name":"on_hand","quantity":q}]}))}})
 }
+
+fn report_line(qty: i64, price: &str, currency: &str) -> Value {
+    json!({"title":"Item","variantTitle":"Large","sku":"GENSTSWOW01","quantity":qty,
+        "originalUnitPriceSet":{"shopMoney":{"amount":price,"currencyCode":currency}},"product":{"productType":"KEYCHAIN"},"variant":{"inventoryItem":{"unitCost":null,"measurement":{"weight":null}}}})
+}
 async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
     let v = &request["variables"];
     let response = match request["operationName"].as_str().unwrap() {
@@ -83,61 +93,88 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
         }
         "ProductsWithVariants" => {
             assert_eq!(v["search"], "status:active");
-            if v["locationId"] == "gid://shopify/Location/998" {
-                return (
-                    StatusCode::OK,
-                    Json(json!({"errors":[{"message":"secret upstream payload"}]})),
-                )
-                    .into_response();
-            } else if v["locationId"] == "gid://shopify/Location/997" {
-                return (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    Json(json!({"secret":"upstream"})),
-                )
-                    .into_response();
-            } else if v["locationId"] == "gid://shopify/Location/996" {
-                return (StatusCode::OK, "{").into_response();
-            } else if v["locationId"] == "gid://shopify/Location/995" {
-                json!({"products":page(vec![],None)})
-            } else if v["after"].is_null() {
-                json!({"products":page(vec![json!({"id":"gid://shopify/Product/1","title":"Item","description":"","status":"ACTIVE","tags":[],"featuredImage":null,"productType":"KEYCHAIN","variants":page(vec![report_variant(Some(3)),report_variant(None)],Some("variants-2"))})],Some("products-2"))})
-            } else {
-                json!({"products":page(vec![],None)})
+            assert_eq!(v["first"], 1);
+            assert_eq!(v["variantsFirst"], 10);
+            match v["locationId"].as_str().unwrap() {
+                "gid://shopify/Location/998" => {
+                    return (
+                        StatusCode::OK,
+                        Json(json!({"errors":[{"message":"secret upstream payload"}]})),
+                    )
+                        .into_response();
+                }
+                "gid://shopify/Location/997" => {
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        Json(json!({"secret":"upstream"})),
+                    )
+                        .into_response();
+                }
+                "gid://shopify/Location/996" => return (StatusCode::OK, "{").into_response(),
+                "gid://shopify/Location/995" => json!({"products":page(vec![],None)}),
+                "gid://shopify/Location/994" => {
+                    json!({"products":page(vec![],if v["after"].is_null(){Some("empty-next")}else{None})})
+                }
+                _ => {
+                    let first = v["after"].is_null();
+                    if !first {
+                        assert_eq!(v["after"], "products-2")
+                    }
+                    let mut inactive = report_variant(Some(99));
+                    inactive["inventoryItem"]["inventoryLevel"]["isActive"] = json!(false);
+                    let variants = if first {
+                        page(
+                            vec![report_variant(Some(3)), report_variant(None), inactive],
+                            Some("variants-2"),
+                        )
+                    } else {
+                        page(vec![report_variant(Some(0))], None)
+                    };
+                    json!({"products":page(vec![json!({"id":"gid://shopify/Product/1","title":"Item","description":"","status":"ACTIVE","tags":[],"featuredImage":null,"productType":"KEYCHAIN","variants":variants})],if first {Some("products-2")}else{None})})
+                }
             }
         }
         "ProductVariants" => {
+            assert_eq!(v["first"], 100);
             assert_eq!(v["after"], "variants-2");
             json!({"product":{"id":"gid://shopify/Product/1","variants":page(vec![report_variant(Some(-2))],None)}})
         }
         "OrdersByTag" => {
+            assert_eq!(v["first"], 1);
+            assert_eq!(v["linesFirst"], 10);
             assert!(v["search"] == "tag:\"empty\"" || v["search"] == "tag:\"report\"");
             if v["search"] == "tag:\"empty\"" {
                 json!({"orders":page(vec![],None)})
             } else {
-                let (id, next) = if v["after"].is_null() {
-                    (1, Some("orders-2"))
+                let first = v["after"].is_null();
+                if !first {
+                    assert_eq!(v["after"], "orders-2")
+                }
+                let lines = if first {
+                    page(vec![report_line(2, "0.10", "USD")], Some("lines-2"))
                 } else {
-                    (2, None)
+                    let mut deleted = report_line(1, "1", "USD");
+                    deleted["sku"] = Value::Null;
+                    deleted["product"] = Value::Null;
+                    deleted["variant"] = Value::Null;
+                    page(
+                        vec![
+                            report_line(1, "0.1", "USD"),
+                            report_line(1, "0.1", "THB"),
+                            deleted.clone(),
+                            deleted,
+                        ],
+                        None,
+                    )
                 };
-                json!({"orders":page(vec![json!({"id":format!("gid://shopify/Order/{id}"),"number":id,"tags":[],"email":null,"phone":null,"currentTotalPriceSet":{"shopMoney":{"amount":"1","currencyCode":"USD"}}})],next)})
+                json!({"orders":page(vec![json!({"id":if first {"gid://shopify/Order/1"}else{"gid://shopify/Order/2"},"number":1,"tags":[],"email":null,"phone":null,"currentTotalPriceSet":{"shopMoney":{"amount":"1","currencyCode":"USD"}},"lineItems":lines})],if first {Some("orders-2")}else{None})})
             }
         }
         "TaggedOrderLines" => {
-            let line = |qty, price, currency| {
-                json!({"title":"Item","variantTitle":"Large","sku":"GENSTSWOW01","quantity":qty,
-                "originalUnitPriceSet":{"shopMoney":{"amount":price,"currencyCode":currency}},"product":{"productType":"KEYCHAIN"},"variant":{"inventoryItem":{"unitCost":null,"measurement":{"weight":null}}}})
-            };
-            if v["id"] == "gid://shopify/Order/1" && v["after"].is_null() {
-                json!({"order":{"id":v["id"],"lineItems":page(vec![line(2,"0.10","USD")],Some("lines-2"))}})
-            } else if v["id"] == "gid://shopify/Order/1" {
-                json!({"order":{"id":v["id"],"lineItems":page(vec![line(3,"0.1","USD"),line(1,"0.2","USD")],None)}})
-            } else {
-                let mut deleted = line(1, "1", "USD");
-                deleted["sku"] = Value::Null;
-                deleted["product"] = Value::Null;
-                deleted["variant"] = Value::Null;
-                json!({"order":{"id":v["id"],"lineItems":page(vec![line(1,"0.1","THB"),deleted.clone(),deleted],None)}})
-            }
+            assert_eq!(v["id"], "gid://shopify/Order/1");
+            assert_eq!(v["first"], 100);
+            assert_eq!(v["after"], "lines-2");
+            json!({"order":{"id":v["id"],"lineItems":page(vec![report_line(3,"0.1","USD"),report_line(1,"0.2","USD")],None)}})
         }
         other => panic!("unexpected operation {other}"),
     };
@@ -170,7 +207,7 @@ async fn product_reports_use_real_api_tcp_and_mocked_shopify() {
         let response = client
             .send(authed(
                 "GET",
-                "/v1/products?type=INVENTORY&id=1",
+                "/v1/products?type=INVENTORY&id=1&page_size=1",
                 fixture.root_id(),
                 role,
             ))
@@ -179,6 +216,10 @@ async fn product_reports_use_real_api_tcp_and_mocked_shopify() {
         assert_eq!(response.status(), 200);
         let body = body_json(response).await;
         let rows = body["products"].as_array().unwrap();
+        assert_eq!(
+            body["page_info"],
+            json!({"has_next_page":true,"end_cursor":"products-2"})
+        );
         assert_eq!(rows.len(), 2);
         assert_eq!(
             rows[0],
@@ -190,7 +231,7 @@ async fn product_reports_use_real_api_tcp_and_mocked_shopify() {
     let response = client
         .send(authed(
             "GET",
-            "/v1/products?type=ORDER_TAG&id=report",
+            "/v1/products?type=ORDER_TAG&id=report&page_size=1",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -199,32 +240,79 @@ async fn product_reports_use_real_api_tcp_and_mocked_shopify() {
     assert_eq!(response.status(), 200);
     let body = body_json(response).await;
     let rows = body["products"].as_array().unwrap();
-    assert_eq!(rows.len(), 5);
+    assert_eq!(
+        body["page_info"],
+        json!({"has_next_page":true,"end_cursor":"orders-2"})
+    );
+    assert_eq!(rows.len(), 2);
     assert_eq!(rows[0]["quantity"], 5);
     assert_eq!(rows[0]["total_selling_price"], 0.5);
     assert!(rows[0]["cost"].is_null());
     assert!(rows[0]["total_weight"].is_null());
     assert_eq!(rows[1]["selling_price"], 0.2);
-    assert_eq!(rows[2]["selling_price_currency"], "THB");
-    assert!(rows[3]["category"].is_null());
-    for query in ["type=ORDER_TAG&id=empty", "type=INVENTORY&id=995"] {
+
+    for (query, quantity, count) in [
+        ("type=INVENTORY&id=1&cursor=products-2", 0, 1),
+        ("type=ORDER_TAG&id=report&cursor=orders-2", 1, 4),
+    ] {
         let response = client
             .send(authed(
                 "GET",
-                &format!("/v1/products?{query}"),
+                &format!("/v1/products?{query}&page_size=1"),
                 fixture.root_id(),
                 AdminRole::Admin,
             ))
             .await
             .unwrap();
         assert_eq!(response.status(), 200);
-        assert_eq!(body_json(response).await, json!({"products":[]}));
+        let body = body_json(response).await;
+        assert_eq!(
+            body["page_info"],
+            json!({"has_next_page":false,"end_cursor":null})
+        );
+        let rows = body["products"].as_array().unwrap();
+        assert_eq!(rows.len(), count);
+        assert_eq!(rows[0]["quantity"], quantity);
+        if count == 4 {
+            assert_eq!(rows[1]["selling_price_currency"], "THB");
+            assert!(rows[2]["category"].is_null());
+        }
+    }
+    let response = client
+        .send(authed(
+            "GET",
+            "/v1/products?type=INVENTORY&id=994&page_size=1",
+            fixture.root_id(),
+            AdminRole::Admin,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        body_json(response).await,
+        json!({"products":[],"page_info":{"has_next_page":true,"end_cursor":"empty-next"}})
+    );
+    for query in ["type=ORDER_TAG&id=empty", "type=INVENTORY&id=995"] {
+        let response = client
+            .send(authed(
+                "GET",
+                &format!("/v1/products?{query}&page_size=1"),
+                fixture.root_id(),
+                AdminRole::Admin,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(
+            body_json(response).await,
+            json!({"products":[],"page_info":{"has_next_page":false,"end_cursor":null}})
+        );
     }
     for (id, status) in [(999, 404), (998, 502), (997, 502), (996, 502)] {
         let response = client
             .send(authed(
                 "GET",
-                &format!("/v1/products?type=INVENTORY&id={id}"),
+                &format!("/v1/products?type=INVENTORY&id={id}&page_size=1"),
                 fixture.root_id(),
                 AdminRole::Admin,
             ))

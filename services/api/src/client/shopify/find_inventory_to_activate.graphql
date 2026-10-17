@@ -1,15 +1,8 @@
-query FindInventoryToActivate(
-  $locationId: ID!
-  $after: String
-) {
+query FindInventoryToActivate($first: Int!, $locationId: ID!, $after: String) {
   location(id: $locationId) {
     id
     name
-    inventoryLevels(
-      first: 250
-      after: $after
-      includeInactive: true
-    ) {
+    inventoryLevels(first: $first, after: $after, includeInactive: true) {
       nodes {
         id
         isActive

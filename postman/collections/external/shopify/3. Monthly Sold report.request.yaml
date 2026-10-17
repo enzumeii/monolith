@@ -1,12 +1,13 @@
 $kind: graphql-request
 url: "{{shopify}}/graphql.json"
-query: |-
+query: |
   query SoldVariantsInRange(
+    $first: Int!
     $search: String!
     $ordersAfter: String
   ) {
     orders(
-      first: 250
+      first: $first
       after: $ordersAfter
       query: $search
       sortKey: CREATED_AT
@@ -16,29 +17,9 @@ query: |-
         name
         createdAt
         cancelledAt
+        test
+        displayFulfillmentStatus
         displayFinancialStatus
-        lineItems(first: 250) {
-          nodes {
-            id
-            title
-            variantTitle
-            sku
-            quantity
-            currentQuantity
-            product {
-              id
-            }
-            variant {
-              id
-            }
-            originalUnitPriceSet {
-              shopMoney {
-                amount
-                currencyCode
-              }
-            }
-          }
-        }
       }
       pageInfo {
         hasNextPage
@@ -46,10 +27,11 @@ query: |-
       }
     }
   }
-variables: |-
+variables: |
   {
     "search": "created_at:>='2026-09-01T00:00:00+07:00' created_at:<'2026-09-30T00:00:00+07:00' test:false",
-    "ordersAfter": null
+    "ordersAfter": null,
+    "first": 10
   }
 settings: {}
 schema:

@@ -8,3 +8,5 @@ target/
 # Local implementation plans and execution artifacts.
 /docs/superpowers/
 /.superpowers/
+
+node_modules/

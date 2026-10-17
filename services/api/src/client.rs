@@ -5,7 +5,6 @@ use reqwest::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{collections::BTreeMap, fmt, time::Duration};
 
-pub(crate) mod pagination;
 pub mod shopify;
 
 pub enum ClientError {
