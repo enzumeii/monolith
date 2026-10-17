@@ -40,10 +40,6 @@ query ProductsWithVariants(
             }
           }
         }
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
       }
     }
     pageInfo {
