@@ -225,6 +225,10 @@ pub struct Variant {
     pub inventory_item: VariantInventory,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProductVariants {
+    pub nodes: Vec<Variant>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Product {
     pub id: ShopifyId,
@@ -233,7 +237,7 @@ pub struct Product {
     pub status: ProductStatus,
     pub tags: Vec<String>,
     pub featured_image: Option<Image>,
-    pub variants: Connection<Variant>,
+    pub variants: ProductVariants,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

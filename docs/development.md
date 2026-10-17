@@ -76,7 +76,7 @@ Read state.settings.client.shopify and construct api::client::shopify::ShopifyCl
 | Tag replacement | replace_order_tags(request): complete replacement list; empty list clears; inspect userErrors and optional order |
 | Inventory discovery | find_inventory_to_activate(request): all raw levels; caller decides eligibility from tracked/isActive/on_hand |
 | Inventory activation | activate_existing_inventory(request): item/location IDs and stable UUID; no quantity arguments; inspect userErrors/optional level |
-| Nested product bound | Variants retain first250 and nested pageInfo, with no cursor or overflow error. All order-line pages are collected at250 per page |
+| Nested product bound | Variants retain first250 as nodes only, without nested pageInfo, a child cursor or an overflow error. All order-line pages are collected at250 per page |
 | Credentials/scopes | Appropriate product/inventory/location/order permissions and approved older-order/protected-customer access where applicable |
 | Failure handling | Shopify ClientError failures identify api::client::shopify and retain their typed cause. Convert to AppError at the response boundary or use log_background_error for one ERROR; returning/propagating a Result does not log |
 | Privacy | Do not log token values, request/response bodies, raw upstream fields, payment references or customer information |

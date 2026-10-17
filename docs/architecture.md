@@ -131,7 +131,7 @@ flowchart LR
 | `ShopifyClient` | Nine typed methods with aligned operation/document names; seven queries collect every page internally; constructor supplies the token header and trusted configured Admin API URL, version 2026-10 |
 | Request types | Own operation validation, resource-kind checks and search/variable construction; the client supplies internal continuation cursors |
 | Shopify models | Connection and PageInfo live beside Shopify contracts; the shared collector imports them |
-| DTOs | Public through `api::shopify_models`; shop-only money sets retain decimal amounts and currency; nullable references remain nullable; queries return complete Vec node collections, nested product variants retain pageInfo, mutations retain raw userErrors and optional results |
+| DTOs | Public through `api::shopify_models`; shop-only money sets retain decimal amounts and currency; nullable references remain nullable; queries return complete Vec node collections, nested product variants contain nodes only, mutations retain raw userErrors and optional results |
 | Configuration | `config.rs` uses one ConfigBuilder build/deserialization; dotenv/environment DATABASE_URL, JWT_SECRET and SHOPIFY_ACCESS_TOKEN override matching file values before deserialization; `[client.shopify]` in TOML contains only `admin_api_url` |
 | Initialization | Absent Shopify configuration remains optional without a token override; a token override requires its file-configured admin URL; client construction requires a nonblank token |
 
@@ -151,7 +151,7 @@ Queries accept requests without cursor arguments and preserve response order acr
 
 | Request policy | Guarantee / limit |
 | --- | --- |
-| Pagination | Client uses the shared collector for each query at 250 nodes per request. Every method call starts without a cursor; line methods use the supplied order ID and reject missing/mismatched parents. Missing/repeated/cyclic cursors fail. Products retain first:250 variants without a variant cursor; pageInfo exposes possible truncation |
+| Pagination | Client uses the shared collector for each query at 250 nodes per request. Every method call starts without a cursor; line methods use the supplied order ID and reject missing/mismatched parents. Missing/repeated/cyclic cursors fail. Products retain first:250 variants as nodes only, without nested pageInfo or a variant cursor; truncation is not reported |
 | Throttling | HttpClient owns one retry loop for HTTP 4xx and data-less all-THROTTLED GraphQL responses; GraphqlClient supplies the envelope classifier |
 | Budget | Four total attempts; 1/2/4-second backoff plus 0–250 ms jitter; total retry sleep at most 30 seconds |
 | Retry-After | Honor seconds/HTTP-date minimums; stop rather than exceed the sleep budget or overflow duration arithmetic |

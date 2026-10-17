@@ -27,8 +27,8 @@ fn variant(n: u64) -> Value {
         "contextualPricing":{"price":money()},"image":null,
         "inventoryItem":{"id":"gid://shopify/InventoryItem/1","tracked":true,"inventoryLevel":null}})
 }
-fn product(n: u64, variants: Value) -> Value {
-    json!({"id":format!("gid://shopify/Product/{n}"),"title":"Shirt","description":"Cotton","status":"ACTIVE","tags":[],"featuredImage":null,"variants":variants})
+fn product(n: u64, variants: Vec<Value>) -> Value {
+    json!({"id":format!("gid://shopify/Product/{n}"),"title":"Shirt","description":"Cotton","status":"ACTIVE","tags":[],"featuredImage":null,"variants":{"nodes":variants}})
 }
 fn order(n: u64) -> Value {
     json!({"id":format!("gid://shopify/Order/{n}"),"name":"#1","number":1,"createdAt":"2026-10-01T00:00:00+07:00",
@@ -113,9 +113,9 @@ fn constructor_trusts_configuration_but_rejects_invalid_url_or_token() {
 async fn catalog_collects_all_parents_and_outer_pages_with_bounded_variants() {
     let f = Fixture::new(vec![
         Reply::json(json!({"data":{"products":page(vec![
-            product(1,page(vec![variant(1);250],None)),
-            product(2,page(vec![variant(2)],None))],Some("p1"))}})),
-        Reply::json(json!({"data":{"products":page(vec![product(3,page(vec![],None))],None)}})),
+            product(1,vec![variant(1);250]),
+            product(2,vec![variant(2)])],Some("p1"))}})),
+        Reply::json(json!({"data":{"products":page(vec![product(3,vec![])],None)}})),
     ])
     .await;
     let result = client(&f)
@@ -130,6 +130,7 @@ async fn catalog_collects_all_parents_and_outer_pages_with_bounded_variants() {
         vec![id("Product", 1), id("Product", 2), id("Product", 3)]
     );
     assert_eq!(result[0].variants.nodes.len(), 250);
+    assert!(result[2].variants.nodes.is_empty());
     assert_eq!(
         result[0].variants.nodes[0]
             .contextual_pricing
@@ -151,7 +152,10 @@ async fn catalog_collects_all_parents_and_outer_pages_with_bounded_variants() {
 
 #[tokio::test]
 async fn catalog_keeps_first_250_variants_without_child_cursor_or_overflow_error() {
-    let f=Fixture::new(vec![Reply::json(json!({"data":{"products":page(vec![product(1,page(vec![variant(1);250],Some("unused")))],None)}}))]).await;
+    let f = Fixture::new(vec![Reply::json(
+        json!({"data":{"products":page(vec![product(1,vec![variant(1);250])],None)}}),
+    )])
+    .await;
     let products = client(&f)
         .products_with_variants(&ListProductsRequest {
             location_id: id("Location", 1),
@@ -160,7 +164,6 @@ async fn catalog_keeps_first_250_variants_without_child_cursor_or_overflow_error
         .await
         .unwrap();
     assert_eq!(products[0].variants.nodes.len(), 250);
-    assert!(products[0].variants.page_info.has_next_page);
     assert_eq!(f.requests().len(), 1);
     assert!(
         f.requests()[0].2["variables"]
