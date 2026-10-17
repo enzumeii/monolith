@@ -21,9 +21,9 @@ pub async fn product_report(
         .client
         .as_ref()
         .and_then(|c| c.shopify.as_ref())
-        .ok_or(AppError::ReportUnavailable.at(module_path!()))?;
-    let client =
-        ShopifyClient::new(config).map_err(|_| AppError::ReportUnavailable.at(module_path!()))?;
+        .ok_or(AppError::ReportUnavailable(None).at(module_path!()))?;
+    let client = ShopifyClient::new(config)
+        .map_err(|error| AppError::ReportUnavailable(Some(error)).at("api::client::shopify"))?;
     let mut products = Vec::new();
     match source {
         ReportSource::Inventory(location_id) => {
@@ -120,19 +120,42 @@ fn protocol(message: &'static str) -> AppError {
     upstream(ClientError::Protocol(message))
 }
 fn number(raw: &str) -> Result<Number, AppError> {
-    let value = Decimal::from_str_exact(raw).map_err(|_| protocol("invalid report decimal"))?;
+    let value = if let Some((base, _)) = raw.split_once(['e', 'E']) {
+        Decimal::from_str_exact(base).map_err(|_| protocol("invalid report decimal"))?;
+        Decimal::from_scientific(raw)
+    } else {
+        Decimal::from_str_exact(raw)
+    }
+    .map_err(|_| protocol("invalid report decimal"))?;
     Number::from_str(&value.normalize().to_string()).map_err(|_| protocol("invalid JSON decimal"))
 }
 fn decimal(value: &Number) -> Result<Decimal, AppError> {
     Decimal::from_str_exact(&value.to_string()).map_err(|_| protocol("invalid report decimal"))
 }
 fn total(value: &Number, quantity: i64) -> Result<Number, AppError> {
-    let value = decimal(value)?;
-    let mantissa = value
-        .mantissa()
-        .checked_mul(i128::from(quantity))
+    let value = decimal(value)?.normalize();
+    let mut mantissa = value.mantissa();
+    let mut multiplier = i128::from(quantity);
+    let mut scale = value.scale();
+    if mantissa == 0 || multiplier == 0 {
+        return Ok(Number::from(0));
+    }
+    // Cancel decimal places before multiplying so a temporary coefficient cannot overflow an exact result.
+    while scale > 0 {
+        let factors = [(10, 1), (1, 10), (2, 5), (5, 2)]
+            .into_iter()
+            .find(|(a, b)| mantissa % a == 0 && multiplier % b == 0);
+        let Some((a, b)) = factors else {
+            break;
+        };
+        mantissa /= a;
+        multiplier /= b;
+        scale -= 1;
+    }
+    let mantissa = mantissa
+        .checked_mul(multiplier)
         .ok_or_else(|| protocol("report total overflow"))?;
-    let result = Decimal::try_from_i128_with_scale(mantissa, value.scale())
+    let result = Decimal::try_from_i128_with_scale(mantissa, scale)
         .map_err(|_| protocol("report total overflow"))?;
     number(&result.to_string())
 }

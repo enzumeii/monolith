@@ -74,6 +74,13 @@ fn report_variant(quantity: Option<i64>) -> Value {
 async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
     let v = &request["variables"];
     let response = match request["operationName"].as_str().unwrap() {
+        "ReportLocation" => {
+            if v["id"] == "gid://shopify/Location/999" {
+                json!({"location":null})
+            } else {
+                json!({"location":{"id":v["id"]}})
+            }
+        }
         "ReportProductsWithVariants" => {
             assert_eq!(v["search"], "status:active");
             if v["locationId"] == "gid://shopify/Location/999" {

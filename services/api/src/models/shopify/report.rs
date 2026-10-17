@@ -74,3 +74,8 @@ pub struct VariantPage {
     pub id: ShopifyId,
     pub variants: Connection<ReportVariant>,
 }
+
+#[derive(Deserialize)]
+pub struct LocationData {
+    pub location: Option<super::ResourceReference>,
+}

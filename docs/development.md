@@ -54,7 +54,7 @@ Run recipes from the package directory.
 | `cargo test --locked -p api --lib` | Native library tests and loopback transport fixtures; no Docker or Shopify credentials |
 | `just test` | Native Cargo tests, Compose PostgreSQL, `cargo api-e2e`, and Compose down with volumes removed even on failure |
 | `just check` | Formatting and strict Clippy on all API targets |
-| API E2E | Existing `e2e-test/healthz.rs` and `e2e-test/v1/{auth,admins}.rs`; real TCP endpoints |
+| API E2E | Existing `e2e-test/healthz.rs` and `e2e-test/v1/{auth,admins,products}.rs`; real TCP endpoints |
 | Shared harness | `e2e-test/common.rs` owns temporary TOML, local API child, readiness, and teardown |
 | Fixtures | Unique owned records; shared Compose database during a run; cleanup only test-owned data |
 | Unit layout | `src/tests/` mirrors implementation paths; test-gated child modules preserve private access |
@@ -81,7 +81,7 @@ Read state.settings.client.shopify and construct api::client::shopify::ShopifyCl
 | Failure handling | Shopify ClientError failures identify api::client::shopify and retain their typed cause. Convert to AppError at the response boundary or use log_background_error for one ERROR; returning/propagating a Result does not log |
 | Privacy | Do not log token values, request/response bodies, raw upstream fields, payment references or customer information |
 
-There is no Shopify service module. The client paginates each named query independently and does not chain header searches into line requests, select inventory candidates or interpret raw mutation userErrors.
+The product report service chains tag header searches into report line requests and selects stocked inventory rows. General client methods remain independent and do not interpret mutation userErrors.
 
 | Outbound request behavior | Policy |
 | --- | --- |

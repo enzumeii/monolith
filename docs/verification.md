@@ -6,16 +6,15 @@ Results describe the tested revision and scope; they do not establish live Shopi
 
 | Evidence | Result |
 | --- | --- |
-| Implementation revision | Nodes-only variant correction following `2ac1422`; exact published head is recorded in PR checks |
-| Local native API tests | `just test` native phase: 84 passed, 0 failed, 2 Docker-dependent tests ignored |
-| Local API format/lint | `just check`: passed, including strict Clippy for all API targets |
-| Local formatting scope | API formatting passed through `just check`; workspace-wide formatting not rerun for this correction |
-| Current published CI | Exact published-head results are recorded in [PR #6 checks](https://github.com/enzumeii/monolith/pull/6/checks); local checks do not establish a CI pass |
-| Local PostgreSQL / real TCP endpoints | `just test`: 86 library tests passed with Docker PostgreSQL; 36 real TCP endpoint tests passed; Compose teardown completed |
-| Backoffice/client UI checks | Not run locally for this change; CI skipped their unchanged-package steps |
-| Live Shopify execution | Not run; no store mutations performed |
+| Implementation | ENZ-11 product reports; published head and CI recorded in this change's PR checks |
+| Native API tests | 95 passed, 2 Docker-dependent tests ignored in native phase |
+| API with Docker PostgreSQL | 97 library tests and 38 real TCP E2E tests passed; Compose teardown completed |
+| Formatting/lint | Workspace formatting and strict API, domain, backoffice and client-ui checks passed |
+| Shared contracts / WASM | 2 domain contracts passed; domain WASM and backoffice native/WASM lint passed |
+| Downstream tests | Backoffice 6 tests passed; client-ui build/test passed with no tests |
+| Live Shopify | Not executed, explicitly left to user; no Shopify mutations |
 
-The existing API test recipe and CI workflow run the database and real TCP endpoint suites; no new endpoint tests were needed for this client DTO correction. Local Shopify fixtures exercise HTTP over loopback and are not described as real Shopify E2E.
+Product E2E uses real API TCP endpoints and Docker PostgreSQL with a mocked Shopify HTTP upstream, explicitly requested for ENZ-11. It verifies the API integration against deterministic upstream data, not the live Shopify schema, scopes or store contents. Published-head CI must be checked separately from these local results.
 
 ## Exercised contracts
 
@@ -39,16 +38,20 @@ The existing API test recipe and CI workflow run the database and real TCP endpo
 | Activation | Quantity arguments absent; available/on-hand retained in fixtures; stable idempotency key across throttling |
 | Existing API | CI exercises authentication, authorization, cookie/origin handling, database operations, and registered endpoint tests |
 
+| Product report output | Exact decimal numeric totals, SKU characters4–9, active catalog filter, on_hand quantities including negative inventory, missing metadata and separate missing SKUs |
+| Product report HTTP | ADMIN/SUPER_ADMIN access, missing/invalid tokens, invalid query enum/ID, unavailable configuration, inventory/tag success, all parent/child pagination, empty matches, location404, upstream HTTP/GraphQL/malformed JSON502, sanitized bodies |
+| Product report grouping | Matching SKU + price + currency merges quantities; differing price/currency/metadata remains separate; overflow rejects the report |
+
 ## Review and limits
 
 | Area | Result / limit |
 | --- | --- |
-| Independent implementation review | Read-only final review found no actionable defects after the source-chain repair; earlier configuration-overlay and typed-GraphQL-error regressions remain covered |
-| Additional fix-pass check | Oversized Retry-After reproduced a duration overflow; regression passes after budget validation precedes arithmetic |
-| Deferred test minor | Generic HTTP fixture checks headers/body but does not explicitly assert the HTTP method |
+| Independent implementation review | Independent review found scientific-number parsing, exact scaled-total overflow and private diagnostic defects; regression tests cover corrections, including constructor source retention |
+| Additional fix-pass checks | Scientific weights, Decimal maximum exact totals, constructor causes and private DEBUG diagnostics reproduced failures and pass after correction; missing location is checked before catalog/pricing |
+| Deferred minor | Tagged-line grouping scans accumulated rows linearly per input row; very large distinct-row reports may need an index. No load test or capacity guarantee |
 | Shopify compatibility | Official docs and local fixtures checked; no live schema/request execution; nested 250-by-250 query cost unverified against the single-query maximum |
-| Platform pagination | Client automatically follows each operation's outer/line cursors; product variants intentionally stop at first250 with nodes only; nested pageInfo is not requested or required |
-| Concurrent changes | No snapshot isolation; missing/mismatched order and child-page failures return errors rather than partial success. Product variants remain intentionally bounded |
+| Platform pagination | General catalog retains first250 variants; report catalog traverses product and variant pages; report order lines traverse independent order/line pages |
+| Concurrent changes | No snapshot isolation; missing/mismatched order and child-page failures return errors rather than partial success. The general catalog retains its variant bound; the report catalog follows variant continuations |
 | Browser behavior | No new browser verification, rendered E2E, or HTTPS cookie acceptance evidence |
 | Coverage percentage | Not measured; no percentage claim |
 | Performance/deployment | No load test, production capacity result, deployment, or merge |

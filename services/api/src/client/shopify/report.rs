@@ -16,6 +16,17 @@ impl ShopifyClient {
         &self,
         input: &ListProductsRequest,
     ) -> Result<Option<Vec<ReportProduct>>, ClientError> {
+        let location: crate::models::shopify::report::LocationData = self
+            .execute(
+                "ReportLocation",
+                include_str!("report/location.graphql"),
+                json!({"id":input.location_id}),
+            )
+            .await
+            .map_err(|error| error.at(ORIGIN))?;
+        if location.location.is_none() {
+            return Ok(None);
+        }
         let first: InventoryReportData = self
             .execute(
                 "ReportProductsWithVariants",

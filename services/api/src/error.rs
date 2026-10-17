@@ -59,7 +59,7 @@ pub enum AppError {
     TokenCreation(#[from] jsonwebtoken::errors::Error),
 
     #[error("Shopify report unavailable")]
-    ReportUnavailable,
+    ReportUnavailable(#[source] Option<crate::client::ClientError>),
     #[error("Shopify upstream failure")]
     ReportUpstream(#[source] crate::client::ClientError),
 
@@ -152,7 +152,7 @@ impl AppError {
             Self::PasswordHash(_) => "password_hash",
             Self::TokenCreation(_) => "token_creation",
             Self::Internal(_) => "internal",
-            Self::ReportUnavailable => "report_unavailable",
+            Self::ReportUnavailable(_) => "report_unavailable",
             Self::ReportUpstream(_) => "report_upstream",
             Self::Configuration(_) => "configuration",
             Self::Migration(_) => "migration",
@@ -191,7 +191,7 @@ impl AppError {
                 Json(json!({"error": self.to_string()})),
             )
                 .into_response(),
-            AppError::ReportUnavailable => (
+            AppError::ReportUnavailable(_) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(json!({"error":"Shopify report unavailable"})),
             )
@@ -269,6 +269,9 @@ impl std::fmt::Debug for Diagnostic<'_> {
                 std::fmt::Debug::fmt(error, f)
             }
             AppError::Internal(error) => std::fmt::Debug::fmt(error, f),
+            AppError::ReportUpstream(error) | AppError::ReportUnavailable(Some(error)) => {
+                std::fmt::Debug::fmt(&ClientDiagnostic(error), f)
+            }
             error => std::fmt::Display::fmt(error, f),
         }
     }
@@ -307,5 +310,26 @@ fn client_timeout(error: &crate::client::ClientError) -> bool {
         crate::client::ClientError::Origin { source, .. } => client_timeout(source),
         crate::client::ClientError::Transport { source, .. } => source.is_timeout(),
         _ => false,
+    }
+}
+
+struct ClientDiagnostic<'a>(&'a crate::client::ClientError);
+impl std::fmt::Debug for ClientDiagnostic<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use crate::client::ClientError;
+        match self.0 {
+            ClientError::Origin { source, .. } => Self(source).fmt(f),
+            ClientError::Transport { source, .. } => std::fmt::Debug::fmt(source, f),
+            ClientError::Decode { source, .. } => std::fmt::Debug::fmt(source, f),
+            ClientError::Graphql { errors, .. } => f
+                .debug_list()
+                .entries(errors.iter().map(|error| &error.message))
+                .finish(),
+            ClientError::Mutation { errors } => f
+                .debug_list()
+                .entries(errors.iter().map(|error| &error.message))
+                .finish(),
+            error => std::fmt::Debug::fmt(error, f),
+        }
     }
 }

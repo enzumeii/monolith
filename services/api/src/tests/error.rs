@@ -141,6 +141,26 @@ mod logging_tests {
     }
 
     #[test]
+    fn report_failures_keep_private_diagnostics() {
+        for filter in ["info", "info,api=debug"] {
+            let log = capture(filter, || {
+                let error = AppError::ReportUpstream(crate::client::ClientError::Protocol(
+                    "private-report-cause",
+                ))
+                .at("api::client::shopify");
+                let response = error.into_response();
+                assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+            });
+            assert_eq!(
+                log.contains("private-report-cause"),
+                filter.ends_with("debug"),
+                "{log}"
+            );
+            assert!(log.contains("api::client::shopify"));
+        }
+    }
+
+    #[test]
     fn info_logs_one_summary_without_diagnostics() {
         let log = capture("info", || {
             let error = AppError::from(anyhow::anyhow!("private-password-value"));

@@ -660,6 +660,7 @@ fn report_variant() -> Value {
 async fn report_catalog_collects_root_and_variant_pages_and_checks_location() {
     let p = |n, cursor| json!({"id":id("Product",n),"title":"Item","productType":"KEYCHAIN","variants":page(vec![report_variant()],cursor)});
     let f=Fixture::new(vec![
+        Reply::json(json!({"data":{"location":{"id":id("Location",1)}}})),
         Reply::json(json!({"data":{"location":{"id":id("Location",1)},"products":page(vec![p(1,Some("v1"))],Some("p1"))}})),
         Reply::json(json!({"data":{"location":{"id":id("Location",1)},"products":page(vec![p(2,None)],None)}})),
         Reply::json(json!({"data":{"product":{"id":id("Product",1),"variants":page(vec![report_variant()],None)}}})),
@@ -675,9 +676,9 @@ async fn report_catalog_collects_root_and_variant_pages_and_checks_location() {
     assert_eq!(products.len(), 2);
     assert_eq!(products[0].variants.nodes.len(), 2);
     let requests = f.requests();
-    assert_eq!(requests[1].2["variables"]["after"], "p1");
-    assert_eq!(requests[2].2["variables"]["after"], "v1");
-    assert_eq!(requests[0].2["variables"]["search"], "status:active");
+    assert_eq!(requests[2].2["variables"]["after"], "p1");
+    assert_eq!(requests[3].2["variables"]["after"], "v1");
+    assert_eq!(requests[1].2["variables"]["search"], "status:active");
     let f = Fixture::new(vec![Reply::json(
         json!({"data":{"location":null,"products":page(vec![],None)}}),
     )])
@@ -702,6 +703,7 @@ async fn report_variant_failure_never_returns_partial_catalog() {
         json!({"id":id("Product",1),"variants":page(vec![],Some("again"))}),
     ] {
         let f=Fixture::new(vec![
+        Reply::json(json!({"data":{"location":{"id":id("Location",1)}}})),
             Reply::json(json!({"data":{"location":{"id":id("Location",1)},"products":page(vec![json!({"id":id("Product",1),"title":"Item","productType":"","variants":page(vec![report_variant()],Some("again"))})],None)}})),
             Reply::json(json!({"data":{"product":parent}})),
         ]).await;
@@ -715,4 +717,26 @@ async fn report_variant_failure_never_returns_partial_catalog() {
                 .is_err()
         );
     }
+}
+
+#[tokio::test]
+async fn report_missing_location_is_checked_before_catalog_pricing() {
+    let f = Fixture::new(vec![Reply::json(json!({"data":{"location":null}}))]).await;
+    assert!(
+        client(&f)
+            .inventory_report_products(&ListProductsRequest {
+                location_id: id("Location", 1),
+                statuses: vec![ProductStatus::Active]
+            })
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(f.requests().len(), 1);
+    assert!(
+        !f.requests()[0].2["query"]
+            .as_str()
+            .unwrap()
+            .contains("contextualPricing")
+    );
 }

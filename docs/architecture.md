@@ -27,7 +27,7 @@ flowchart LR
 | `apps/backoffice` | Browser pages, forms, direct API requests, session coordination | Public configuration only; Axum owns cookies, CORS, and origin checks |
 | `apps/client-ui` | Placeholder client application | No implemented service integration |
 
-Callers explicitly construct ShopifyClient from state.settings.client.shopify. Routes, startup, scheduled jobs and persistence do not invoke Shopify.
+The product report service explicitly constructs ShopifyClient from state.settings.client.shopify. Routes delegate report work to the service; startup, scheduled jobs and persistence do not invoke Shopify.
 
 ## Module responsibilities
 
@@ -45,6 +45,7 @@ Callers explicitly construct ShopifyClient from state.settings.client.shopify. R
 | `src/error.rs` | Public error mapping and centralized boundary logging |
 | `src/client.rs` | Generic HTTP/GraphQL request envelopes, decoding, failures, throttling backoff |
 | `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication, seven automatically paginated queries and two raw mutations / matching query documents |
+| `src/client/shopify/report.rs` / `report/*.graphql` | Complete report catalog/variant pagination and tagged-order metadata lines |
 | `src/tests/` | Tests mirroring implementation paths through test-gated child modules |
 | `e2e-test/` | Real TCP endpoint tests and shared application/database fixtures |
 | `migrations/` / `.sqlx/` | Database migrations / offline SQLx metadata |
@@ -128,7 +129,7 @@ flowchart LR
 | --- | --- |
 | `HttpClient` | Reusable reqwest pool; per-request generic headers; 30-second per-attempt timeout; redirects disabled |
 | `GraphqlClient` | Typed variables; raw envelope error classification before successful data decoding; reject partial-data errors |
-| `ShopifyClient` | Nine typed methods with aligned operation/document names; seven queries collect every page internally; constructor supplies the token header and trusted configured Admin API URL, version 2026-10 |
+| `ShopifyClient` | General workflow methods and report-specific queries use aligned operation/document names and collect continuation pages internally; constructor supplies the token header and trusted configured Admin API URL, version 2026-10 |
 | Request types | Own operation validation, resource-kind checks and search/variable construction; the client supplies internal continuation cursors |
 | Shopify models | Connection and PageInfo live beside Shopify contracts; the shared collector imports them |
 | DTOs | Public through `api::shopify_models`; shop-only money sets retain decimal amounts and currency; nullable references remain nullable; queries return complete Vec node collections, nested product variants contain nodes only, mutations retain raw userErrors and optional results |
@@ -147,11 +148,11 @@ flowchart LR
 | find_inventory_to_activate | FindInventoryToActivate | Vec<InventoryActivationCandidate>; all raw location levels, including active/untracked/zero stock |
 | activate_existing_inventory | ActivateExistingInventory | Raw userErrors/optional inventory level; supplied UUID; quantity arguments absent |
 
-Queries accept requests without cursor arguments and preserve response order across pages. Header and line-item methods are independent; there is no automatic order/line assembly or inventory selection layer. Callers inspect raw inventory and mutation results.
+Queries accept requests without cursor arguments and preserve response order across pages. General header and line-item methods remain independent; the product report service assembles tagged orders and selects inventory report rows. Callers inspect raw inventory and mutation results.
 
 | Request policy | Guarantee / limit |
 | --- | --- |
-| Pagination | Client uses the shared collector for each query at 250 nodes per request. Every method call starts without a cursor; line methods use the supplied order ID and reject missing/mismatched parents. Missing/repeated/cyclic cursors fail. Products retain first:250 variants as nodes only, without nested pageInfo or a variant cursor; truncation is not reported |
+| Pagination | General workflow queries use 250 nodes per request; report queries use smaller pages and collect nested variant continuations. Every method call starts without a cursor; line methods use the supplied order ID and reject missing/mismatched parents. Missing/repeated/cyclic cursors fail. Products retain first:250 variants as nodes only, without nested pageInfo or a variant cursor; truncation is not reported |
 | Throttling | HttpClient owns one retry loop for HTTP 4xx and data-less all-THROTTLED GraphQL responses; GraphqlClient supplies the envelope classifier |
 | Budget | Four total attempts; 1/2/4-second backoff plus 0–250 ms jitter; total retry sleep at most 30 seconds |
 | Retry-After | Honor seconds/HTTP-date minimums; stop rather than exceed the sleep budget or overflow duration arithmetic |
