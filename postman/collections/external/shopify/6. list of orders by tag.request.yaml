@@ -1,12 +1,9 @@
 $kind: graphql-request
 url: "{{shopify}}/graphql.json"
-query: |-
-  query OrdersByTag(
-    $search: String!
-    $after: String
-  ) {
+query: |
+  query OrdersByTag($first: Int!, $search: String!, $after: String) {
     orders(
-      first: 250
+      first: $first
       after: $after
       query: $search
       sortKey: CREATED_AT
@@ -18,12 +15,6 @@ query: |-
         tags
         email
         phone
-        currentTotalPriceSet {
-          shopMoney {
-            amount
-            currencyCode
-          }
-        }
         lineItems(first: 250) {
           nodes {
             title
@@ -36,6 +27,33 @@ query: |-
                 currencyCode
               }
             }
+            product {
+              productType
+            }
+            variant {
+              inventoryItem {
+                unitCost {
+                  amount
+                  currencyCode
+                }
+                measurement {
+                  weight {
+                    value
+                    unit
+                  }
+                }
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+        currentTotalPriceSet {
+          shopMoney {
+            amount
+            currencyCode
           }
         }
       }
@@ -45,10 +63,11 @@ query: |-
       }
     }
   }
-variables: |-
+variables: |
   {
     "search": "tag:\"shipping\"",
-    "after": null
+    "after": null,
+    "first": 1
   }
 settings: {}
 schema:

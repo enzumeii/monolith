@@ -85,9 +85,9 @@ pub struct OrderLinesRequest {
     pub order_id: ShopifyId,
 }
 impl OrderLinesRequest {
-    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+    pub(crate) fn variables(&self) -> Result<Value, ClientError> {
         self.order_id.require_kind("Order")?;
-        Ok(json!({"id": self.order_id, "after": after}))
+        Ok(json!({"id":self.order_id}))
     }
 }
 
@@ -109,7 +109,8 @@ pub struct ActivateInventoryRequest {
 }
 
 impl ListProductsRequest {
-    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
+        page.validate()?;
         self.location_id.require_kind("Location")?;
         let search = if self.statuses.is_empty() {
             None
@@ -123,34 +124,41 @@ impl ListProductsRequest {
                     .join(",")
             ))
         };
-        Ok(json!({"locationId": self.location_id, "search": search, "after": after}))
+        Ok(
+            json!({"locationId": self.location_id, "search": search, "after": page.after, "first": page.first}),
+        )
     }
 }
 impl OrdersByPaymentRequest {
-    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
+        page.validate()?;
         if self.payment_id.trim().is_empty() {
             return Err(ClientError::InvalidInput("payment ID is empty"));
         }
         Ok(
-            json!({"search": format!("payment_id:\"{}\"", escape_search(&self.payment_id)), "after": after}),
+            json!({"search": format!("payment_id:\"{}\"", escape_search(&self.payment_id)), "after": page.after, "first": page.first}),
         )
     }
 }
 impl OrdersByTagRequest {
-    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
+        page.validate()?;
         if self.tag.trim().is_empty() {
             return Err(ClientError::InvalidInput("order tag is empty"));
         }
-        Ok(json!({"search": format!("tag:\"{}\"", escape_search(&self.tag)), "after": after}))
+        Ok(
+            json!({"search": format!("tag:\"{}\"", escape_search(&self.tag)), "after": page.after, "first": page.first}),
+        )
     }
 }
 impl SalesRangeRequest {
-    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
+        page.validate()?;
         if self.start >= self.end {
             return Err(ClientError::InvalidInput("sales start must precede end"));
         }
         Ok(
-            json!({"search": format!("created_at:>='{}' created_at:<'{}'", self.start.to_rfc3339(), self.end.to_rfc3339()), "ordersAfter": after}),
+            json!({"search": format!("created_at:>='{}' created_at:<'{}'", self.start.to_rfc3339(), self.end.to_rfc3339()), "ordersAfter": page.after, "first": page.first}),
         )
     }
 }
@@ -161,9 +169,10 @@ impl ReplaceOrderTagsRequest {
     }
 }
 impl InventoryDiscoveryRequest {
-    pub(crate) fn variables(&self, after: Option<&str>) -> Result<Value, ClientError> {
+    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
+        page.validate()?;
         self.location_id.require_kind("Location")?;
-        Ok(json!({"locationId": self.location_id, "after": after}))
+        Ok(json!({"locationId": self.location_id, "after": page.after, "first": page.first}))
     }
 }
 impl ActivateInventoryRequest {
@@ -209,6 +218,8 @@ pub struct VariantInventory {
     pub id: ShopifyId,
     pub tracked: bool,
     pub inventory_level: Option<InventoryLevel>,
+    #[serde(flatten)]
+    pub metadata: InventoryMetadata,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Pricing {
@@ -219,14 +230,10 @@ pub struct Pricing {
 pub struct Variant {
     pub id: ShopifyId,
     pub title: String,
-    pub sku: Option<String>,
+    pub sku: Option<Sku>,
     pub contextual_pricing: Pricing,
     pub image: Option<Image>,
     pub inventory_item: VariantInventory,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ProductVariants {
-    pub nodes: Vec<Variant>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -237,7 +244,8 @@ pub struct Product {
     pub status: ProductStatus,
     pub tags: Vec<String>,
     pub featured_image: Option<Image>,
-    pub variants: ProductVariants,
+    pub variants: Connection<Variant>,
+    pub product_type: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -282,13 +290,11 @@ pub struct Order {
 pub struct TaggedOrderLineItem {
     pub title: String,
     pub variant_title: Option<String>,
-    pub sku: Option<String>,
+    pub sku: Option<Sku>,
     pub quantity: i64,
     pub original_unit_price_set: MoneyBag,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TaggedOrderLineItems {
-    pub nodes: Vec<TaggedOrderLineItem>,
+    pub product: Option<LineProduct>,
+    pub variant: Option<LineVariant>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -299,7 +305,7 @@ pub struct TaggedOrder {
     pub email: Option<String>,
     pub phone: Option<String>,
     pub current_total_price_set: MoneyBag,
-    pub line_items: TaggedOrderLineItems,
+    pub line_items: Connection<TaggedOrderLineItem>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResourceReference {
@@ -311,7 +317,7 @@ pub struct SalesLine {
     pub id: String,
     pub title: String,
     pub variant_title: Option<String>,
-    pub sku: Option<String>,
+    pub sku: Option<Sku>,
     pub quantity: i64,
     pub current_quantity: i64,
     pub product: Option<ResourceReference>,
@@ -350,7 +356,7 @@ pub struct VariantSummary {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InventoryItemSummary {
     pub id: ShopifyId,
-    pub sku: Option<String>,
+    pub sku: Option<Sku>,
     pub tracked: bool,
     pub variant: VariantSummary,
 }
@@ -362,17 +368,6 @@ pub struct InventoryActivationCandidate {
     pub quantities: Vec<InventoryQuantity>,
     pub item: InventoryItemSummary,
 }
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaggedOrderHeader {
-    pub tags: Vec<String>,
-    pub id: ShopifyId,
-    pub number: i64,
-    pub email: Option<String>,
-    pub phone: Option<String>,
-    pub current_total_price_set: MoneyBag,
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SalesOrderHeader {
@@ -395,7 +390,7 @@ pub struct OrdersData {
 }
 #[derive(Deserialize)]
 pub struct OrdersByTagData {
-    pub orders: Connection<TaggedOrderHeader>,
+    pub orders: Connection<TaggedOrder>,
 }
 #[derive(Deserialize)]
 pub struct SalesData {
@@ -455,4 +450,104 @@ fn escape_search(value: &str) -> String {
         escaped.push(character);
     }
     escaped
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Measurement {
+    pub weight: Option<Weight>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Weight {
+    pub value: serde_json::Number,
+    pub unit: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineVariant {
+    pub inventory_item: InventoryMetadata,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InventoryMetadata {
+    pub unit_cost: Option<Money>,
+    pub measurement: Measurement,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineProduct {
+    pub product_type: String,
+}
+#[derive(Deserialize)]
+pub struct LocationData {
+    pub location: Option<ResourceReference>,
+}
+
+pub struct PageRequest {
+    pub first: u16,
+    pub after: Option<String>,
+}
+impl PageRequest {
+    pub fn validate(&self) -> Result<(), ClientError> {
+        validate_size(self.first)?;
+        if self
+            .after
+            .as_ref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(ClientError::InvalidInput("cursor is empty"));
+        }
+        Ok(())
+    }
+}
+impl PageInfo {
+    pub fn validate_after(&self, after: Option<&str>) -> Result<(), ClientError> {
+        if self.has_next_page
+            && self
+                .end_cursor
+                .as_deref()
+                .is_none_or(|next| next.trim().is_empty() || Some(next) == after)
+        {
+            return Err(
+                ClientError::Protocol("next cursor is missing or did not progress")
+                    .at("api::models::shopify"),
+            );
+        }
+        Ok(())
+    }
+}
+fn validate_size(first: u16) -> Result<(), ClientError> {
+    if !(1..=250).contains(&first) {
+        return Err(ClientError::InvalidInput(
+            "page size must be between 1 and 250",
+        ));
+    }
+    Ok(())
+}
+mod products;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Sku(String);
+impl Sku {
+    #[must_use]
+    pub fn collection(&self) -> Option<String> {
+        let value = self.0.chars().skip(3).take(6).collect::<String>();
+        (value.chars().count() == 6).then_some(value)
+    }
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl<T> Connection<T> {
+    pub(crate) fn into_complete_nodes(self) -> Result<Vec<T>, ClientError> {
+        if self.page_info.has_next_page {
+            return Err(
+                ClientError::Protocol("nested connection exceeds report limit")
+                    .at("api::models::shopify"),
+            );
+        }
+        Ok(self.nodes)
+    }
 }

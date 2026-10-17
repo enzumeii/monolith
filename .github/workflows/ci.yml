@@ -63,6 +63,19 @@ jobs:
               - '.cargo/**'
               - '.github/workflows/ci.yml'
 
+      - name: Install Node.js for GraphQL formatting
+        if: steps.changes.outputs.api == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+
+      - name: Install API formatting tools
+        if: steps.changes.outputs.api == 'true'
+        working-directory: services/api
+        run: npm ci
+
       - name: api check + test
         if: steps.changes.outputs.api == 'true'
         working-directory: services/api

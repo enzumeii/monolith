@@ -1,12 +1,14 @@
 query ProductsWithVariants(
+  $first: Int!
   $locationId: ID!
   $search: String
   $after: String
 ) {
-  products(first: 250, after: $after, query: $search, sortKey: CREATED_AT) {
+  products(first: $first, after: $after, query: $search, sortKey: CREATED_AT) {
     nodes {
       id
       title
+      productType
       description
       status
       tags
@@ -30,6 +32,16 @@ query ProductsWithVariants(
           inventoryItem {
             id
             tracked
+            unitCost {
+              amount
+              currencyCode
+            }
+            measurement {
+              weight {
+                value
+                unit
+              }
+            }
             inventoryLevel(locationId: $locationId) {
               id
               isActive
@@ -39,6 +51,10 @@ query ProductsWithVariants(
               }
             }
           }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
         }
       }
     }

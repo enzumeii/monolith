@@ -3,10 +3,8 @@ mutation ActivateExistingInventory(
   $locationId: ID!
   $idempotencyKey: String!
 ) {
-  inventoryActivate(
-    inventoryItemId: $inventoryItemId
-    locationId: $locationId
-  ) @idempotent(key: $idempotencyKey) {
+  inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId)
+    @idempotent(key: $idempotencyKey) {
     inventoryLevel {
       id
       isActive

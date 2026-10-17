@@ -1,9 +1,6 @@
-query OrdersByTag(
-  $search: String!
-  $after: String
-) {
+query OrdersByTag($first: Int!, $search: String!, $after: String) {
   orders(
-    first: 250
+    first: $first
     after: $after
     query: $search
     sortKey: CREATED_AT
@@ -15,8 +12,46 @@ query OrdersByTag(
       tags
       email
       phone
+      lineItems(first: 250) {
+        nodes {
+          title
+          variantTitle
+          sku
+          quantity
+          originalUnitPriceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+          product {
+            productType
+          }
+          variant {
+            inventoryItem {
+              unitCost {
+                amount
+                currencyCode
+              }
+              measurement {
+                weight {
+                  value
+                  unit
+                }
+              }
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
       currentTotalPriceSet {
-        shopMoney { amount currencyCode }
+        shopMoney {
+          amount
+          currencyCode
+        }
       }
     }
     pageInfo {

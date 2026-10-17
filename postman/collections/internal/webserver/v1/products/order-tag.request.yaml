@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{server}}/v1/products?type=ORDER_TAG&id={{order_tag}}"
+method: GET
+order: 2000

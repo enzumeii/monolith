@@ -5,9 +5,10 @@ set export := true
 default:
     @just --list
 
-# Create .env if missing
+# Install pinned GraphQL formatting tools and create .env if missing
 setup:
     #!/usr/bin/env bash
+    npm ci
     if [ ! -f .env ]; then
       echo '→ Scaffolding .env from template...'
       printf '%s\n' \
@@ -52,11 +53,13 @@ test:
 
 # Check: format + lint check (no changes)
 check:
+    npm run format:graphql:check
     cargo fmt --check -p api
     cargo clippy --locked -p api --all-targets -- -D warnings
 
 # Format: apply format + lint fix
 fix:
+    npm run format:graphql
     cargo fmt -p api
     cargo clippy --locked -p api --fix --allow-dirty --allow-staged -- -D warnings
     cargo sqlx prepare

@@ -1,8 +1,8 @@
 $kind: graphql-request
 url: "{{shopify}}/graphql.json"
 query: |
-  query OrdersByPayment($search: String!, $after: String) {
-    orders(first: 250, after: $after, query: $search) {
+  query OrdersByPayment($first: Int!, $search: String!, $after: String) {
+    orders(first: $first, after: $after, query: $search) {
       nodes {
         id
         name
@@ -19,7 +19,7 @@ query: |
           address2
           city
           zip
-          countryCode
+          countryCodeV2
           phone
         }
         currentTotalPriceSet {
@@ -49,10 +49,11 @@ query: |
       }
     }
   }
-variables: |-
+variables: |
   {
     "search": "payment_id:\"rHcValeeIeFNcVxAMawcQeFqt\"",
-    "after": null
+    "after": null,
+    "first": 10
   }
 settings: {}
 schema:

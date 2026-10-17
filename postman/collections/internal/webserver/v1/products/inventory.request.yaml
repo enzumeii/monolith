@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{server}}/v1/products?type=INVENTORY&id={{location_id}}"
+method: GET
+order: 1000

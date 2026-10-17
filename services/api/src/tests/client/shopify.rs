@@ -1,9 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::needless_pass_by_value)]
 use super::*;
-use crate::{
-    client::tests::{Fixture, Reply},
-    shopify_models::*,
-};
+use crate::client::tests::{Fixture, Reply};
+use crate::shopify_models::{PageInfo, ProductStatus};
 use serde_json::{Value, json};
 use uuid::Uuid;
 fn id(kind: &str, n: u64) -> ShopifyId {
@@ -25,10 +23,10 @@ fn money() -> Value {
 fn variant(n: u64) -> Value {
     json!({"id":format!("gid://shopify/ProductVariant/{n}"),"title":"M","sku":null,
         "contextualPricing":{"price":money()},"image":null,
-        "inventoryItem":{"id":"gid://shopify/InventoryItem/1","tracked":true,"inventoryLevel":null}})
+        "inventoryItem":{"id":"gid://shopify/InventoryItem/1","tracked":true,"unitCost":null,"measurement":{"weight":null},"inventoryLevel":null}})
 }
 fn product(n: u64, variants: Vec<Value>) -> Value {
-    json!({"id":format!("gid://shopify/Product/{n}"),"title":"Shirt","description":"Cotton","status":"ACTIVE","tags":[],"featuredImage":null,"variants":{"nodes":variants}})
+    json!({"id":format!("gid://shopify/Product/{n}"),"title":"Shirt","description":"Cotton","productType":"KEYCHAIN","status":"ACTIVE","tags":[],"featuredImage":null,"variants":page(variants,None)})
 }
 fn order(n: u64) -> Value {
     json!({"id":format!("gid://shopify/Order/{n}"),"name":"#1","number":1,"createdAt":"2026-10-01T00:00:00+07:00",
@@ -56,22 +54,12 @@ fn child_order(n: u64, lines: Value) -> Value {
 }
 fn tagged_order(n: u64, lines: Vec<Value>) -> Value {
     json!({"id":format!("gid://shopify/Order/{n}"),"number":n,"tags":["shipping"],"email":null,"phone":null,
-        "currentTotalPriceSet":{"shopMoney":money()},"lineItems":{"nodes":lines}})
+        "currentTotalPriceSet":{"shopMoney":money()},"lineItems":page(lines,None)})
 }
 fn tagged_line() -> Value {
     json!({"title":"Shirt","variantTitle":"Blue","sku":"SHIRT-BLUE","quantity":3,
-        "originalUnitPriceSet":{"shopMoney":money()}})
+        "originalUnitPriceSet":{"shopMoney":money()},"product":null,"variant":null})
 }
-fn tagged_lines(first: u64, count: u64) -> Vec<Value> {
-    (first..first + count)
-        .map(|n| {
-            let mut line = tagged_line();
-            line["title"] = json!(format!("line-{n}"));
-            line
-        })
-        .collect()
-}
-
 #[test]
 fn constructor_trusts_configuration_but_rejects_invalid_url_or_token() {
     let config = ShopifyConfig {
@@ -109,284 +97,6 @@ fn constructor_trusts_configuration_but_rejects_invalid_url_or_token() {
     );
 }
 
-#[tokio::test]
-async fn catalog_collects_all_parents_and_outer_pages_with_bounded_variants() {
-    let f = Fixture::new(vec![
-        Reply::json(json!({"data":{"products":page(vec![
-            product(1,vec![variant(1);250]),
-            product(2,vec![variant(2)])],Some("p1"))}})),
-        Reply::json(json!({"data":{"products":page(vec![product(3,vec![])],None)}})),
-    ])
-    .await;
-    let result = client(&f)
-        .products_with_variants(&ListProductsRequest {
-            location_id: id("Location", 1),
-            statuses: vec![ProductStatus::Active, ProductStatus::Draft],
-        })
-        .await
-        .unwrap();
-    assert_eq!(
-        result.iter().map(|p| p.id.clone()).collect::<Vec<_>>(),
-        vec![id("Product", 1), id("Product", 2), id("Product", 3)]
-    );
-    assert_eq!(result[0].variants.nodes.len(), 250);
-    assert!(result[2].variants.nodes.is_empty());
-    assert_eq!(
-        result[0].variants.nodes[0]
-            .contextual_pricing
-            .price
-            .currency_code,
-        "THB"
-    );
-    let requests = f.requests();
-    assert_eq!(requests.len(), 2);
-    assert_eq!(
-        requests[0].2["variables"],
-        json!({"locationId":id("Location",1),"search":"status:active,draft","after":null})
-    );
-    assert_eq!(requests[1].2["variables"]["after"], "p1");
-    let query = requests[0].2["query"].as_str().unwrap();
-    assert!(query.contains("products(first: 250"));
-    assert!(query.contains("variants(first: 250)"));
-}
-
-#[tokio::test]
-async fn catalog_keeps_first_250_variants_without_child_cursor_or_overflow_error() {
-    let f = Fixture::new(vec![Reply::json(
-        json!({"data":{"products":page(vec![product(1,vec![variant(1);250])],None)}}),
-    )])
-    .await;
-    let products = client(&f)
-        .products_with_variants(&ListProductsRequest {
-            location_id: id("Location", 1),
-            statuses: vec![],
-        })
-        .await
-        .unwrap();
-    assert_eq!(products[0].variants.nodes.len(), 250);
-    assert_eq!(f.requests().len(), 1);
-    assert!(
-        f.requests()[0].2["variables"]
-            .get("variantsAfter")
-            .is_none()
-    );
-}
-
-#[tokio::test]
-async fn payment_lookup_escapes_literal_and_collects_all_matches() {
-    let f = Fixture::new(vec![
-        Reply::json(json!({"data":{"orders":page(vec![order(1)],Some("a"))}})),
-        Reply::json(json!({"data":{"orders":page(vec![order(2)],None)}})),
-    ])
-    .await;
-    let orders = client(&f)
-        .orders_by_payment(&OrdersByPaymentRequest {
-            payment_id: "a\"b\\c:(d)".into(),
-        })
-        .await
-        .unwrap();
-    assert_eq!(orders.len(), 2);
-    assert_eq!(
-        f.requests()[0].2["variables"]["search"],
-        "payment_id:\"a\\\"b\\\\c\\:\\(d\\)\""
-    );
-}
-
-#[tokio::test]
-async fn empty_results_are_not_errors_and_invalid_inputs_never_call_shopify() {
-    let f = Fixture::new(vec![Reply::json(
-        json!({"data":{"orders":page(vec![],None)}}),
-    )])
-    .await;
-    assert_eq!(
-        client(&f)
-            .orders_by_payment(&OrdersByPaymentRequest {
-                payment_id: "ref".into()
-            })
-            .await
-            .unwrap()
-            .len(),
-        0
-    );
-    let f = Fixture::new(vec![]).await;
-    assert!(
-        client(&f)
-            .products_with_variants(&ListProductsRequest {
-                location_id: id("Order", 1),
-                statuses: vec![]
-            })
-            .await
-            .is_err()
-    );
-    assert!(
-        client(&f)
-            .orders_by_payment(&OrdersByPaymentRequest {
-                payment_id: String::new()
-            })
-            .await
-            .is_err()
-    );
-    assert!(
-        client(&f)
-            .sold_variants_in_range(&SalesRangeRequest {
-                start: "2026-10-01T00:00:00Z".parse().unwrap(),
-                end: "2026-10-01T00:00:00Z".parse().unwrap()
-            })
-            .await
-            .is_err()
-    );
-    assert_eq!(f.requests().len(), 0);
-}
-
-fn cause(error: &ClientError) -> &ClientError {
-    match error {
-        ClientError::Origin { origin, source } => {
-            assert_eq!(*origin, "api::client::shopify");
-            source
-        }
-        _ => panic!("missing Shopify origin: {error:?}"),
-    }
-}
-#[tokio::test]
-async fn order_header_queries_paginate_independently_without_loading_lines() {
-    for tagged in [false, true] {
-        let headers = |n| {
-            if tagged {
-                tagged_order(n, vec![])
-            } else {
-                sales(n, page(vec![], None))
-            }
-        };
-        let f = Fixture::new(vec![
-            Reply::json(json!({"data":{"orders":page(vec![headers(1),headers(2)],Some("next"))}})),
-            Reply::json(json!({"data":{"orders":page(vec![headers(3)],None)}})),
-        ])
-        .await;
-        let ids = if tagged {
-            let result = client(&f)
-                .orders_by_tag(&OrdersByTagRequest {
-                    tag: "shipping".into(),
-                })
-                .await
-                .unwrap();
-            assert_eq!(
-                result[0].current_total_price_set.shop_money.currency_code,
-                "THB"
-            );
-            result.into_iter().map(|o| o.id).collect::<Vec<_>>()
-        } else {
-            let result = client(&f)
-                .sold_variants_in_range(&SalesRangeRequest {
-                    start: "2026-01-01T00:00:00+07:00".parse().unwrap(),
-                    end: "2026-02-01T00:00:00+07:00".parse().unwrap(),
-                })
-                .await
-                .unwrap();
-            assert!(result[0].test);
-            assert!(result[0].cancelled_at.is_some());
-            result.into_iter().map(|o| o.id).collect::<Vec<_>>()
-        };
-        assert_eq!(ids, vec![id("Order", 1), id("Order", 2), id("Order", 3)]);
-        let requests = f.requests();
-        assert_eq!(requests.len(), 2);
-        let (operation, cursor) = if tagged {
-            ("OrdersByTag", "after")
-        } else {
-            ("SoldVariantsInRange", "ordersAfter")
-        };
-        assert_eq!(requests[0].2["operationName"], operation);
-        assert_eq!(requests[0].2["variables"][cursor], Value::Null);
-        assert_eq!(requests[1].2["variables"][cursor], "next");
-        assert!(
-            !requests[0].2["query"]
-                .as_str()
-                .unwrap()
-                .contains("lineItems")
-        );
-    }
-}
-#[tokio::test]
-async fn line_queries_collect_501_distinct_nodes_without_root_order_searches() {
-    for tagged in [false, true] {
-        let lines = |first, count| {
-            if tagged {
-                tagged_lines(first, count)
-            } else {
-                (first..first + count).map(line).collect()
-            }
-        };
-        let f = Fixture::new(vec![
-            Reply::json(child_order(1, page(lines(1, 250), Some("a")))),
-            Reply::json(child_order(1, page(lines(251, 250), Some("b")))),
-            Reply::json(child_order(1, page(lines(501, 1), None))),
-        ])
-        .await;
-        let input = OrderLinesRequest {
-            order_id: id("Order", 1),
-        };
-        let labels = if tagged {
-            let result = client(&f).tagged_order_lines(&input).await.unwrap();
-            assert_eq!(
-                result[500].original_unit_price_set.shop_money.currency_code,
-                "THB"
-            );
-            result.into_iter().map(|l| l.title).collect::<Vec<_>>()
-        } else {
-            let result = client(&f).sales_order_lines(&input).await.unwrap();
-            assert_eq!(
-                result[500].original_unit_price_set.shop_money.currency_code,
-                "THB"
-            );
-            assert_eq!(result[500].current_quantity, 1);
-            result.into_iter().map(|l| l.id).collect::<Vec<_>>()
-        };
-        assert_eq!(labels.len(), 501);
-        assert_eq!(labels[250], "line-251");
-        assert_eq!(labels[500], "line-501");
-        let requests = f.requests();
-        assert_eq!(requests.len(), 3);
-        for (index, after) in [Value::Null, json!("a"), json!("b")]
-            .into_iter()
-            .enumerate()
-        {
-            assert_eq!(
-                requests[index].2["variables"],
-                json!({"id":id("Order",1),"after":after})
-            );
-            assert!(
-                requests[index].2["query"]
-                    .as_str()
-                    .unwrap()
-                    .contains("lineItems(first: 250, after: $after)")
-            );
-            assert!(
-                !requests[index].2["query"]
-                    .as_str()
-                    .unwrap()
-                    .contains("orders(")
-            );
-        }
-    }
-}
-#[tokio::test]
-async fn inventory_collects_all_raw_levels_without_business_filtering() {
-    let f=Fixture::new(vec![
-        Reply::json(json!({"data":{"location":{"inventoryLevels":page(vec![inventory(1,true,3,true),inventory(2,false,0,true)],Some("next"))}}})),
-        Reply::json(json!({"data":{"location":{"inventoryLevels":page(vec![inventory(3,false,4,false),inventory(4,false,5,true)],None)}}})),
-    ]).await;
-    let levels = client(&f)
-        .find_inventory_to_activate(&InventoryDiscoveryRequest {
-            location_id: id("Location", 1),
-        })
-        .await
-        .unwrap();
-    assert_eq!(
-        levels.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(),
-        vec!["level-1", "level-2", "level-3", "level-4"]
-    );
-    assert_eq!(f.requests().len(), 2);
-    assert_eq!(f.requests()[1].2["variables"]["after"], "next");
-}
 #[tokio::test]
 async fn mutations_return_raw_user_errors_and_optional_outputs_without_replay() {
     let f=Fixture::new(vec![
@@ -426,176 +136,6 @@ async fn mutations_return_raw_user_errors_and_optional_outputs_without_replay() 
     assert!(requests[1].2["variables"].get("available").is_none());
     assert!(requests[1].2["variables"].get("onHand").is_none());
 }
-#[tokio::test]
-async fn invalid_ids_and_blank_literals_have_shopify_origin_before_network() {
-    let f = Fixture::new(vec![]).await;
-    let c = client(&f);
-    let input = OrderLinesRequest {
-        order_id: id("Location", 1),
-    };
-    for error in [
-        c.sales_order_lines(&input).await.err().unwrap(),
-        c.tagged_order_lines(&input).await.err().unwrap(),
-        c.orders_by_tag(&OrdersByTagRequest { tag: " \t".into() })
-            .await
-            .err()
-            .unwrap(),
-        c.replace_order_tags(&ReplaceOrderTagsRequest {
-            order_id: id("Location", 1),
-            tags: vec![],
-        })
-        .await
-        .err()
-        .unwrap(),
-        c.activate_existing_inventory(&ActivateInventoryRequest {
-            inventory_item_id: id("Order", 1),
-            location_id: id("Location", 1),
-            idempotency_key: Uuid::new_v4(),
-        })
-        .await
-        .err()
-        .unwrap(),
-    ] {
-        assert!(matches!(cause(&error), ClientError::InvalidInput(_)));
-    }
-    assert_eq!(f.requests().len(), 0);
-}
-#[tokio::test]
-async fn root_and_child_cursors_reject_missing_empty_repeated_and_cyclic_values() {
-    for child in [false, true] {
-        for cursors in [
-            vec![None],
-            vec![Some("")],
-            vec![Some("a"), Some("a")],
-            vec![Some("a"), Some("b"), Some("a")],
-        ] {
-            let replies = cursors
-                .iter()
-                .map(|cursor| {
-                    let mut connection = page(vec![], *cursor);
-                    connection["pageInfo"]["hasNextPage"] = json!(true);
-                    Reply::json(if child {
-                        child_order(1, connection)
-                    } else {
-                        json!({"data":{"orders":connection}})
-                    })
-                })
-                .collect();
-            let f = Fixture::new(replies).await;
-            let c = client(&f);
-            let error = if child {
-                c.sales_order_lines(&OrderLinesRequest {
-                    order_id: id("Order", 1),
-                })
-                .await
-                .err()
-                .unwrap()
-            } else {
-                c.orders_by_tag(&OrdersByTagRequest {
-                    tag: "shipping".into(),
-                })
-                .await
-                .err()
-                .unwrap()
-            };
-            assert!(matches!(cause(&error), ClientError::Protocol(_)));
-            assert_eq!(f.requests().len(), cursors.len());
-        }
-    }
-}
-#[tokio::test]
-async fn missing_or_wrong_parents_and_empty_children_keep_protocol_contract() {
-    for tagged in [false, true] {
-        for parent in [
-            json!({"data":{"order":null}}),
-            child_order(99, page(vec![], None)),
-        ] {
-            let f = Fixture::new(vec![Reply::json(parent)]).await;
-            let c = client(&f);
-            let input = OrderLinesRequest {
-                order_id: id("Order", 1),
-            };
-            let error = if tagged {
-                c.tagged_order_lines(&input).await.err().unwrap()
-            } else {
-                c.sales_order_lines(&input).await.err().unwrap()
-            };
-            assert!(matches!(cause(&error), ClientError::Protocol(_)));
-        }
-        let f = Fixture::new(vec![Reply::json(child_order(1, page(vec![], None)))]).await;
-        let c = client(&f);
-        let input = OrderLinesRequest {
-            order_id: id("Order", 1),
-        };
-        assert_eq!(
-            if tagged {
-                c.tagged_order_lines(&input).await.unwrap().len()
-            } else {
-                c.sales_order_lines(&input).await.unwrap().len()
-            },
-            0
-        );
-    }
-    let f = Fixture::new(vec![Reply::json(json!({"data":{"location":null}}))]).await;
-    let error = client(&f)
-        .find_inventory_to_activate(&InventoryDiscoveryRequest {
-            location_id: id("Location", 1),
-        })
-        .await
-        .err()
-        .unwrap();
-    assert!(matches!(
-        cause(&error),
-        ClientError::InvalidInput("location was not found")
-    ));
-}
-#[tokio::test]
-async fn later_http_graphql_or_decode_failures_never_return_partial_results() {
-    for child in [false, true] {
-        for kind in ["http", "graphql", "decode"] {
-            let first = if child {
-                child_order(1, page(vec![line(1)], Some("next")))
-            } else {
-                json!({"data":{"orders":page(vec![tagged_order(1,vec![])],Some("next"))}})
-            };
-            let failure = match kind {
-                "http" => Reply::status(503),
-                "graphql" => {
-                    Reply::json(json!({"data":null,"errors":[{"message":"private-payload"}]}))
-                }
-                _ => Reply {
-                    status: 200,
-                    body: "{".into(),
-                    headers: vec![],
-                },
-            };
-            let f = Fixture::new(vec![Reply::json(first), failure]).await;
-            let c = client(&f);
-            let error = if child {
-                c.sales_order_lines(&OrderLinesRequest {
-                    order_id: id("Order", 1),
-                })
-                .await
-                .err()
-                .unwrap()
-            } else {
-                c.orders_by_tag(&OrdersByTagRequest {
-                    tag: "shipping".into(),
-                })
-                .await
-                .err()
-                .unwrap()
-            };
-            match (kind, cause(&error)) {
-                ("http", ClientError::Http { status: 503, .. })
-                | ("graphql", ClientError::Graphql { .. })
-                | ("decode", ClientError::Decode { .. }) => {}
-                _ => panic!("typed source lost: {error:?}"),
-            }
-            assert_eq!(f.requests().len(), 2);
-        }
-    }
-}
 
 #[tokio::test]
 async fn activation_preserves_quantities_and_idempotency_key_on_throttling() {
@@ -632,6 +172,61 @@ async fn activation_preserves_quantities_and_idempotency_key_on_throttling() {
 }
 
 #[tokio::test]
+async fn location_lookup_has_no_catalog_pricing_dependency() {
+    for exists in [false, true] {
+        let location = if exists {
+            json!({"id":id("Location",1)})
+        } else {
+            Value::Null
+        };
+        let f = Fixture::new(vec![Reply::json(json!({"data":{"location":location}}))]).await;
+        assert_eq!(
+            client(&f)
+                .location_exists(&id("Location", 1))
+                .await
+                .unwrap(),
+            exists
+        );
+        assert_eq!(f.requests().len(), 1);
+        assert!(
+            !f.requests()[0].2["query"]
+                .as_str()
+                .unwrap()
+                .contains("contextualPricing")
+        );
+    }
+}
+
+#[tokio::test]
+async fn proxy_returns_one_parent_page_without_following_root_or_child_cursors() {
+    let mut first = product(1, vec![variant(1)]);
+    first["variants"] = page(vec![variant(1)], Some("child-next"));
+    let f = Fixture::new(vec![Reply::json(
+        json!({"data":{"products":page(vec![first],Some("parent-next"))}}),
+    )])
+    .await;
+    let result = client(&f)
+        .products_with_variants(
+            &ListProductsRequest {
+                location_id: id("Location", 1),
+                statuses: vec![ProductStatus::Active],
+            },
+            &request_page(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.nodes.len(), 1);
+    assert_eq!(result.page_info.end_cursor.as_deref(), Some("parent-next"));
+    assert!(result.nodes[0].variants.page_info.has_next_page);
+    let requests = f.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0].2["variables"],
+        json!({"locationId":id("Location",1),"search":"status:active","first":7,"after":"incoming"})
+    );
+}
+
+#[tokio::test]
 async fn tag_lookup_escapes_one_literal_instead_of_accepting_search_syntax() {
     for (tag, search) in [
         ("shipping", r#"tag:"shipping""#),
@@ -641,14 +236,251 @@ async fn tag_lookup_escapes_one_literal_instead_of_accepting_search_syntax() {
             json!({"data":{"orders":page(vec![],None)}}),
         )])
         .await;
-        assert_eq!(
+        assert!(
             client(&f)
-                .orders_by_tag(&OrdersByTagRequest { tag: tag.into() })
+                .orders_by_tag(&OrdersByTagRequest { tag: tag.into() }, &request_page())
                 .await
                 .unwrap()
-                .len(),
-            0
+                .nodes
+                .is_empty()
         );
         assert_eq!(f.requests()[0].2["variables"]["search"], search);
+    }
+}
+
+#[tokio::test]
+async fn proxy_preserves_typed_upstream_failures() {
+    for (kind, reply) in [
+        ("http", Reply::status(503)),
+        (
+            "graphql",
+            Reply::json(json!({"data":null,"errors":[{"message":"private"}]})),
+        ),
+        (
+            "decode",
+            Reply {
+                status: 200,
+                body: "{".into(),
+                headers: vec![],
+            },
+        ),
+    ] {
+        let f = Fixture::new(vec![reply]).await;
+        let error = client(&f)
+            .orders_by_tag(&OrdersByTagRequest { tag: "tag".into() }, &request_page())
+            .await
+            .err()
+            .unwrap();
+        let ClientError::Origin { origin, source } = error else {
+            panic!("origin missing")
+        };
+        assert_eq!(origin, "api::client::shopify");
+        assert!(matches!(
+            (kind, *source),
+            ("http", ClientError::Http { status: 503, .. })
+                | ("graphql", ClientError::Graphql { .. })
+                | ("decode", ClientError::Decode { .. })
+        ));
+    }
+}
+#[tokio::test]
+async fn bounded_product_query_uses_fixed_250_variants() {
+    let f = Fixture::new(vec![Reply::json(
+        json!({"data":{"products":page(vec![],None)}}),
+    )])
+    .await;
+    client(&f)
+        .products_with_variants(
+            &ListProductsRequest {
+                location_id: id("Location", 1),
+                statuses: vec![ProductStatus::Active],
+            },
+            &request_page(),
+        )
+        .await
+        .unwrap();
+    let requests = f.requests();
+    let query = requests[0].2["query"].as_str().unwrap();
+    assert!(query.contains("variants(first: 250)"));
+    assert!(requests[0].2["variables"].get("variantsFirst").is_none());
+}
+
+fn request_page() -> PageRequest {
+    PageRequest {
+        first: 7,
+        after: Some("incoming".into()),
+    }
+}
+#[tokio::test]
+async fn root_proxies_forward_pages_without_collecting_them() {
+    for operation in [
+        "OrdersByPayment",
+        "OrdersByTag",
+        "SoldVariantsInRange",
+        "FindInventoryToActivate",
+    ] {
+        let nodes = match operation {
+            "OrdersByPayment" => vec![order(1)],
+            "OrdersByTag" => vec![tagged_order(1, vec![tagged_line()])],
+            "SoldVariantsInRange" => vec![sales(1, page(vec![], None))],
+            _ => vec![inventory(1, false, 0, true)],
+        };
+        let connection = page(nodes, Some("next"));
+        let response = if operation == "FindInventoryToActivate" {
+            json!({"data":{"location":{"inventoryLevels":connection}}})
+        } else {
+            json!({"data":{"orders":connection}})
+        };
+        let f = Fixture::new(vec![Reply::json(response)]).await;
+        let c = client(&f);
+        let p = request_page();
+        let (count, info) = call_root_proxy(&c, operation, &p).await;
+        assert_eq!(count, 1);
+        assert_eq!(info.end_cursor.as_deref(), Some("next"));
+        assert!(info.has_next_page);
+        let requests = f.requests();
+        assert_eq!(requests.len(), 1);
+        let request = &requests[0].2;
+        let variables = &request["variables"];
+        assert_eq!(request["operationName"], operation);
+        assert_eq!(variables["first"], 7);
+        assert_eq!(
+            variables[if operation == "SoldVariantsInRange" {
+                "ordersAfter"
+            } else {
+                "after"
+            }],
+            "incoming"
+        );
+        assert!(variables.get("linesFirst").is_none());
+        if operation == "OrdersByTag" {
+            assert!(
+                request["query"]
+                    .as_str()
+                    .unwrap()
+                    .contains("lineItems(first: 250)")
+            );
+        }
+    }
+}
+#[tokio::test]
+async fn bounded_sales_lines_accept_only_order_id() {
+    let f = Fixture::new(vec![Reply::json(child_order(1, page(vec![line(1)], None)))]).await;
+    let result = client(&f)
+        .sales_order_lines(&OrderLinesRequest {
+            order_id: id("Order", 1),
+        })
+        .await
+        .unwrap()
+        .order
+        .unwrap();
+    assert_eq!(result.id, id("Order", 1));
+    assert_eq!(result.line_items.nodes[0].quantity, 3);
+    let requests = f.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].2["variables"], json!({"id":id("Order",1)}));
+    assert!(
+        requests[0].2["query"]
+            .as_str()
+            .unwrap()
+            .contains("lineItems(first: 250)")
+    );
+}
+#[tokio::test]
+async fn invalid_client_inputs_are_rejected_before_network() {
+    let f = Fixture::new(vec![]).await;
+    let c = client(&f);
+    let p = request_page();
+    for error in [
+        c.orders_by_tag(&OrdersByTagRequest { tag: " ".into() }, &p)
+            .await
+            .err()
+            .unwrap(),
+        c.sales_order_lines(&OrderLinesRequest {
+            order_id: id("Location", 1),
+        })
+        .await
+        .err()
+        .unwrap(),
+        c.orders_by_payment(
+            &OrdersByPaymentRequest {
+                payment_id: "pay".into(),
+            },
+            &PageRequest {
+                first: 0,
+                after: None,
+            },
+        )
+        .await
+        .err()
+        .unwrap(),
+    ] {
+        assert!(matches!(
+            error,
+            ClientError::Origin {
+                origin: "api::client::shopify",
+                ..
+            }
+        ));
+    }
+    assert_eq!(f.requests().len(), 0);
+}
+async fn call_root_proxy(
+    c: &ShopifyClient,
+    operation: &str,
+    page: &PageRequest,
+) -> (usize, PageInfo) {
+    match operation {
+        "OrdersByPayment" => {
+            let p = c
+                .orders_by_payment(
+                    &OrdersByPaymentRequest {
+                        payment_id: "pay".into(),
+                    },
+                    page,
+                )
+                .await
+                .unwrap();
+            (p.nodes.len(), p.page_info)
+        }
+        "OrdersByTag" => {
+            let p = c
+                .orders_by_tag(
+                    &OrdersByTagRequest {
+                        tag: "shipping".into(),
+                    },
+                    page,
+                )
+                .await
+                .unwrap();
+            assert_eq!(p.nodes[0].line_items.nodes.len(), 1);
+            (p.nodes.len(), p.page_info)
+        }
+        "SoldVariantsInRange" => {
+            let p = c
+                .sold_variants_in_range(
+                    &SalesRangeRequest {
+                        start: "2026-01-01T00:00:00Z".parse().unwrap(),
+                        end: "2026-02-01T00:00:00Z".parse().unwrap(),
+                    },
+                    page,
+                )
+                .await
+                .unwrap();
+            (p.nodes.len(), p.page_info)
+        }
+        _ => {
+            let p = c
+                .find_inventory_to_activate(
+                    &InventoryDiscoveryRequest {
+                        location_id: id("Location", 1),
+                    },
+                    page,
+                )
+                .await
+                .unwrap();
+            assert!(!p.nodes[0].is_active);
+            (p.nodes.len(), p.page_info)
+        }
     }
 }

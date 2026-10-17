@@ -25,7 +25,7 @@ flowchart LR
     TOML["API TOML + optional overlay"] --> SETTINGS["config.rs typed settings"]
     SECRETS["Ignored .env / environment"] --> SETTINGS
     SETTINGS --> API["Axum listener and database pool"]
-    SETTINGS --> CLIENT["Explicit ShopifyClient construction"]
+    SETTINGS --> CLIENT["AppState ShopifyClient initialization"]
     ASSET["Public frontend TOML asset"] --> LOADER["Fetch and parse once"]
     LOADER --> UI["Pages and session restoration"]
     UI -->|"Credentials and Origin"| API
@@ -54,7 +54,7 @@ Run recipes from the package directory.
 | `cargo test --locked -p api --lib` | Native library tests and loopback transport fixtures; no Docker or Shopify credentials |
 | `just test` | Native Cargo tests, Compose PostgreSQL, `cargo api-e2e`, and Compose down with volumes removed even on failure |
 | `just check` | Formatting and strict Clippy on all API targets |
-| API E2E | Existing `e2e-test/healthz.rs` and `e2e-test/v1/{auth,admins}.rs`; real TCP endpoints |
+| API E2E | Existing `e2e-test/healthz.rs` and `e2e-test/v1/{auth,admins,products}.rs`; real TCP endpoints |
 | Shared harness | `e2e-test/common.rs` owns temporary TOML, local API child, readiness, and teardown |
 | Fixtures | Unique owned records; shared Compose database during a run; cleanup only test-owned data |
 | Unit layout | `src/tests/` mirrors implementation paths; test-gated child modules preserve private access |
@@ -64,24 +64,24 @@ Do not substitute loopback client fixtures or in-process handler tests for deplo
 
 ## Using the Shopify client
 
-Read state.settings.client.shopify and construct api::client::shopify::ShopifyClient::new from ShopifyConfig. Request/result DTOs are exported through api::shopify_models; construct IDs with ShopifyId::new. Seven query methods collect all continuation pages automatically and return Vec nodes; callers pass no cursor.
+Handlers pass AppState to report services; services resolve the shared state.shopify client initialized once by app_state. Request/result models are exported through api::shopify_models; construct IDs with ShopifyId::new. Paginated proxy methods accept a PageRequest with first (1–250) and nullable after, return one page, and never fetch another page automatically.
 
 | Operation | Caller responsibility |
 | --- | --- |
-| Product listing | products_with_variants(request): location ID and statuses; all products, first250 variants each; contextual money includes currency |
-| Payment lookup | orders_by_payment(request): Shopify payment ID; external references may require separate mapping |
-| Tag lookup | orders_by_tag(request): one literal tag; all header pages, tags and shop-money currency |
-| Date-range headers | sold_variants_in_range(request): timestamps with offsets and exclusive end; statuses/test/cancellation remain available |
-| Order lines | sales_order_lines or tagged_order_lines with OrderLinesRequest.order_id: all line pages; independent from header lookup |
+| Product listing | products_with_variants(request, page): location/statuses; one product page with fixed250 variants and completeness metadata |
+| Payment lookup | orders_by_payment(request, page): Shopify payment ID; external references may require separate mapping |
+| Tag lookup | orders_by_tag(request, page): literal tag; one order page including fixed250 report lines |
+| Date-range headers | sold_variants_in_range(request, page): timestamps with offsets and exclusive end; statuses/test/cancellation remain available |
+| Order lines | sales_order_lines(request): order ID only; bounded250 lines and hasNextPage metadata |
 | Tag replacement | replace_order_tags(request): complete replacement list; empty list clears; inspect userErrors and optional order |
-| Inventory discovery | find_inventory_to_activate(request): all raw levels; caller decides eligibility from tracked/isActive/on_hand |
+| Inventory discovery | find_inventory_to_activate(request, page): one raw level page; caller decides eligibility from tracked/isActive/on_hand |
 | Inventory activation | activate_existing_inventory(request): item/location IDs and stable UUID; no quantity arguments; inspect userErrors/optional level |
-| Nested product bound | Variants retain first250 as nodes only, without nested pageInfo, a child cursor or an overflow error. All order-line pages are collected at250 per page |
+| Nested bounds | Fixed250 variants/order lines is the agreed store workload; report services reject unexpected hasNextPage instead of silently truncating |
 | Credentials/scopes | Appropriate product/inventory/location/order permissions and approved older-order/protected-customer access where applicable |
 | Failure handling | Shopify ClientError failures identify api::client::shopify and retain their typed cause. Convert to AppError at the response boundary or use log_background_error for one ERROR; returning/propagating a Result does not log |
 | Privacy | Do not log token values, request/response bodies, raw upstream fields, payment references or customer information |
 
-There is no Shopify service module. The client paginates each named query independently and does not chain header searches into line requests, select inventory candidates or interpret raw mutation userErrors.
+The report service exhausts outer product/order pages, consumes nested data from those responses and selects active inventory levels. Source models transform their own values; the service owns paging and grouping order. Client methods do not interpret mutation userErrors.
 
 | Outbound request behavior | Policy |
 | --- | --- |
@@ -118,3 +118,18 @@ There is no Shopify service module. The client paginates each named query indepe
 | `docs/superpowers/` | Ignored local plans; excluded from the published tree |
 | `.superpowers/` | Ignored local execution scratch/ledgers; excluded from the published tree |
 | Postman workspace | Existing local edits are preserved; carrying files to a worktree does not authorize publishing secrets |
+
+## Product report requests
+
+| Request | Input / result |
+| --- | --- |
+| `GET /v1/products?type=INVENTORY&id=1234` | Numeric location ID; ACTIVE products and active levels at that location; zero/negative on_hand retained |
+| `GET /v1/products?type=ORDER_TAG&id=TAG` | Literal tag; merge matching SKU + original unit price + currency and compatible metadata across every matching order page |
+| Credentials | Existing ADMIN/SUPER_ADMIN bearer or cookie credentials; Shopify URL in TOML and SHOPIFY_ACCESS_TOKEN environment secret |
+| Postman | Internal webserver products requests use `location_id` and `order_tag` variables |
+| Verification | Existing API `just test` includes real TCP product routes with Docker PostgreSQL and mocked Shopify, explicitly requested for this feature; live store verification remains manual |
+| Report contract | type/id only; one products-only response. Removed page_size/cursor parameters return400 |
+| Complete report | Services request first1 root product/order per call and follow cursors until exhausted. ORDER_TAG aggregation spans every matching order; no client-side continuation |
+| Formatting | API just setup installs pinned Prettier with npm ci; just check checks Rust/GraphQL, just fix formats both. CI uses Node.js24 and the lockfile. Update Postman query text after formatting GraphQL |
+
+Report queries require product, inventory, location and order access; reading unitCost may also require View product costs permission. Historical order access remains subject to Shopify permissions. Missing product/variant metadata produces null values; quantities use original order lines, not refund-adjusted accounting.

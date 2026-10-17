@@ -141,6 +141,26 @@ mod logging_tests {
     }
 
     #[test]
+    fn report_failures_keep_private_diagnostics() {
+        for filter in ["info", "info,api=debug"] {
+            let log = capture(filter, || {
+                let error = AppError::ReportUpstream(crate::client::ClientError::Protocol(
+                    "private-report-cause",
+                ))
+                .at("api::client::shopify");
+                let response = error.into_response();
+                assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+            });
+            assert_eq!(
+                log.contains("private-report-cause"),
+                filter.ends_with("debug"),
+                "{log}"
+            );
+            assert!(log.contains("api::client::shopify"));
+        }
+    }
+
+    #[test]
     fn info_logs_one_summary_without_diagnostics() {
         let log = capture("info", || {
             let error = AppError::from(anyhow::anyhow!("private-password-value"));
@@ -492,16 +512,41 @@ mod logging_tests {
                 for filter in ["info", "info,api=debug"] {
                     let source = runtime.block_on(async {
                         if kind == "constructor" {
-                            return ShopifyClient::new(&ShopifyConfig { admin_api_url: "invalid URL".into(), access_token: None }).err().unwrap();
+                            return ShopifyClient::new(&ShopifyConfig {
+                                admin_api_url: "invalid URL".into(),
+                                access_token: None,
+                            })
+                            .err()
+                            .unwrap();
                         }
                         let reply = match kind {
                             "http" => Reply::status(503),
-                            "decode" => Reply { status:200, body:"{".into(), headers:vec![] },
-                            _ => Reply::json(serde_json::json!({"data":{"orders":{"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":null}}}})),
+                            "decode" => Reply {
+                                status: 200,
+                                body: "{".into(),
+                                headers: vec![],
+                            },
+                            _ => Reply::json(serde_json::json!({"data":null})),
                         };
-                        let fixture=Fixture::new(vec![reply]).await;
-                        let client=ShopifyClient::new(&ShopifyConfig {admin_api_url:fixture.url.to_string(),access_token:Some("private-upstream-value".into())}).unwrap();
-                        client.orders_by_tag(&OrdersByTagRequest {tag:"private-upstream-value".into()}).await.err().unwrap()
+                        let fixture = Fixture::new(vec![reply]).await;
+                        let client = ShopifyClient::new(&ShopifyConfig {
+                            admin_api_url: fixture.url.to_string(),
+                            access_token: Some("private-upstream-value".into()),
+                        })
+                        .unwrap();
+                        client
+                            .orders_by_tag(
+                                &OrdersByTagRequest {
+                                    tag: "private-upstream-value".into(),
+                                },
+                                &crate::shopify_models::PageRequest {
+                                    first: 10,
+                                    after: None,
+                                },
+                            )
+                            .await
+                            .err()
+                            .unwrap()
                     });
                     let log = capture(filter, || {
                         let error: AppError = source.into();
@@ -590,4 +635,35 @@ async fn upstream_error_converts_with_source_and_safe_public_response() {
         body_json(response).await,
         serde_json::json!({"error":"Internal server error"})
     );
+}
+
+#[tokio::test]
+async fn report_transport_timeout_maps_to_504_and_other_transport_errors_to_502() {
+    use crate::client::{ClientError, HttpClient};
+    use reqwest::{Method, Url, header::HeaderMap};
+    use std::time::Duration;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let stalled = format!("http://{}/private", listener.local_addr().unwrap());
+    for (url, status) in [(stalled.as_str(), 504), ("file:///private", 502)] {
+        let error = HttpClient::new(Duration::from_millis(50))
+            .unwrap()
+            .request_json::<(), serde_json::Value>(
+                Method::GET,
+                Url::parse(url).unwrap(),
+                HeaderMap::new(),
+                None,
+            )
+            .await
+            .unwrap_err();
+        let response = AppError::ReportUpstream(ClientError::Origin {
+            origin: "api::client::shopify",
+            source: Box::new(error),
+        })
+        .into_response();
+        assert_eq!(response.status(), status);
+        assert_eq!(
+            body_json(response).await,
+            serde_json::json!({"error":"Shopify upstream failure"})
+        );
+    }
 }

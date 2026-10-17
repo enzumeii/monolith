@@ -1,18 +1,11 @@
 $kind: graphql-request
 url: "{{shopify}}/graphql.json"
-query: |-
-  query FindInventoryToActivate(
-    $locationId: ID!
-    $after: String
-  ) {
+query: |
+  query FindInventoryToActivate($first: Int!, $locationId: ID!, $after: String) {
     location(id: $locationId) {
       id
       name
-      inventoryLevels(
-        first: 250
-        after: $after
-        includeInactive: true
-      ) {
+      inventoryLevels(first: $first, after: $after, includeInactive: true) {
         nodes {
           id
           isActive
@@ -41,10 +34,11 @@ query: |-
       }
     }
   }
-variables: |-
+variables: |
   {
     "locationId": "gid://shopify/Location/90340917419",
-    "after": null
+    "after": null,
+    "first": 10
   }
 settings: {}
 schema:

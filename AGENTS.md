@@ -58,3 +58,6 @@ These rules apply to the entire repository.
 - Keep `docs/` focused on tables and Mermaid diagrams with brief supporting prose. Record verification results separately from architecture and state coverage limits explicitly.
 - For API endpoint testing, use `.agents/skills/monolith-api-e2e/SKILL.md`.
 - For architecture reviews, use `.agents/skills/monolith-architecture-review/SKILL.md`.
+
+- For internal API endpoints and external HTTP/GraphQL dependencies, use `.agents/skills/monolith-api-postman/SKILL.md`; keep matching Postman requests synchronized in the same change.
+- For reusable runtime dependencies, use `.agents/skills/monolith-dependency-injection/SKILL.md`; construct clients once in AppState and inject shared instances.
