@@ -739,11 +739,16 @@ async fn location_lookup_has_no_catalog_pricing_dependency() {
 
 #[tokio::test]
 async fn existing_catalog_method_collects_child_variant_pages() {
-    let mut first = product(1, vec![variant(1)]);
+    let stocked = |n| {
+        let mut value = variant(n);
+        value["inventoryItem"]["inventoryLevel"] = json!({"id":"level","isActive":true,"quantities":[{"name":"on_hand","quantity":3},{"name":"available","quantity":2}]});
+        value
+    };
+    let mut first = product(1, vec![stocked(1)]);
     first["variants"]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"child"});
     let f=Fixture::new(vec![
         Reply::json(json!({"data":{"products":page(vec![first],None)}})),
-        Reply::json(json!({"data":{"product":{"id":id("Product",1),"variants":page(vec![variant(2)],None)}}})),
+        Reply::json(json!({"data":{"product":{"id":id("Product",1),"variants":page(vec![stocked(2)],None)}}})),
     ]).await;
     let products = client(&f)
         .products_with_variants(&ListProductsRequest {
@@ -755,4 +760,27 @@ async fn existing_catalog_method_collects_child_variant_pages() {
     assert_eq!(products[0].variants.nodes.len(), 2);
     assert_eq!(products[0].variants.nodes[1].id, id("ProductVariant", 2));
     assert_eq!(f.requests()[1].2["variables"]["after"], "child");
+    for variant in &products[0].variants.nodes {
+        let quantities = &variant
+            .inventory_item
+            .inventory_level
+            .as_ref()
+            .unwrap()
+            .quantities;
+        assert_eq!(
+            quantities
+                .iter()
+                .map(|value| (value.name.as_str(), value.quantity))
+                .collect::<Vec<_>>(),
+            vec![("on_hand", 3), ("available", 2)]
+        );
+    }
+    for (_, _, request) in f.requests() {
+        assert!(
+            request["query"]
+                .as_str()
+                .unwrap()
+                .contains("quantities(names: [\"on_hand\", \"available\"])")
+        );
+    }
 }
