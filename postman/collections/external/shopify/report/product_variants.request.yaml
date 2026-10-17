@@ -1,0 +1,30 @@
+$kind: graphql-request
+url: "{{shopify}}/graphql.json"
+query: |
+  query ReportProductVariants($id: ID!, $locationId: ID!, $after: String) {
+    product(id: $id) {
+      id
+      variants(first: 100, after: $after) {
+        nodes {
+          title sku
+          contextualPricing(context: { locationId: $locationId }) { price { amount currencyCode } }
+          inventoryItem {
+            unitCost { amount currencyCode }
+            measurement { weight { value unit } }
+            inventoryLevel(locationId: $locationId) { id isActive quantities(names: ["on_hand"]) { name quantity } }
+          }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+variables: |-
+  {
+    "id": "gid://shopify/Product/123",
+    "locationId": "gid://shopify/Location/123",
+    "after": null
+  }
+settings: {}
+schema:
+  source: auto
+order: 3000

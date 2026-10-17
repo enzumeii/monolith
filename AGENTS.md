@@ -58,3 +58,5 @@ These rules apply to the entire repository.
 - Keep `docs/` focused on tables and Mermaid diagrams with brief supporting prose. Record verification results separately from architecture and state coverage limits explicitly.
 - For API endpoint testing, use `.agents/skills/monolith-api-e2e/SKILL.md`.
 - For architecture reviews, use `.agents/skills/monolith-architecture-review/SKILL.md`.
+
+- For Shopify GraphQL changes, use `.agents/skills/monolith-shopify-graphql/SKILL.md`; keep corresponding Postman requests synchronized in the same change.
