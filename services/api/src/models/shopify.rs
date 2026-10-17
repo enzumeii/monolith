@@ -456,3 +456,5 @@ fn escape_search(value: &str) -> String {
     }
     escaped
 }
+
+pub mod report;

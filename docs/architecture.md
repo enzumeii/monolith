@@ -172,3 +172,28 @@ Queries accept requests without cursor arguments and preserve response order acr
 | Persistence | Transactions remain service-owned, SQL remains repository-owned; intentional admin/seed migrations are preserved |
 | Runtime | Standalone Axum listener and Tokio maintenance; no serverless adapter or production deployment mechanism |
 | Capacity | Default database pool has one connection; throughput and deployment guarantees require separate evidence |
+
+## Product reports
+
+| Concern | Behavior |
+| --- | --- |
+| Route | `GET /v1/products?type=INVENTORY\|ORDER_TAG&id=...`, existing ADMIN/SUPER_ADMIN bearer or cookie protection |
+| Contract | Domain product report DTOs only; API owns Shopify models, validation and report orchestration |
+| Inventory | Numeric location ID; active products and stocked variants; on_hand includes zero/negative quantities; missing location is 404 |
+| Metadata | Category = productType; collection = SKU characters 4–9 inclusive, null for short/missing SKU; cost and weight are current inventory metadata |
+| Orders | Literal tag; original quantities and original unit shop-money prices; merge SKU + price + currency with compatible cost/weight/category; missing SKUs stay separate |
+| Completeness | Report-specific product and variant queries paginate independently; order headers and report lines paginate independently; existing general catalog method retains its first250 variant contract |
+| Precision | API checked decimal arithmetic; domain JSON numbers preserve decimal precision; overflow/invalid upstream numbers fail the whole report |
+| Failures | 400 invalid input, 401 authentication, 404 location absent, 503 missing configuration, 502 upstream failure, 504 upstream timeout; sanitized responses |
+
+```mermaid
+flowchart LR
+    HTTP[GET /v1/products] --> AUTH[Existing authentication]
+    AUTH --> VALIDATE[Report query validation]
+    VALIDATE --> REPORT[Product report service]
+    REPORT --> INVENTORY[Paginated products and variants]
+    REPORT --> TAG[Paginated tagged orders and lines]
+    INVENTORY --> ROWS[Metadata and exact totals]
+    TAG --> ROWS
+    ROWS --> JSON[Products response]
+```

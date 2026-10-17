@@ -231,3 +231,5 @@ fn require_lines<T>(data: OrderLinesData<T>, id: &ShopifyId) -> Result<Connectio
 #[cfg(test)]
 #[path = "../tests/client/shopify.rs"]
 mod tests;
+
+mod report;

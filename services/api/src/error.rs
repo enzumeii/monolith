@@ -58,6 +58,11 @@ pub enum AppError {
     #[error("Token generation failed")]
     TokenCreation(#[from] jsonwebtoken::errors::Error),
 
+    #[error("Shopify report unavailable")]
+    ReportUnavailable,
+    #[error("Shopify upstream failure")]
+    ReportUpstream(#[source] crate::client::ClientError),
+
     #[error("Internal server error")]
     Internal(#[from] anyhow::Error),
 }
@@ -147,6 +152,8 @@ impl AppError {
             Self::PasswordHash(_) => "password_hash",
             Self::TokenCreation(_) => "token_creation",
             Self::Internal(_) => "internal",
+            Self::ReportUnavailable => "report_unavailable",
+            Self::ReportUpstream(_) => "report_upstream",
             Self::Configuration(_) => "configuration",
             Self::Migration(_) => "migration",
             Self::Io(_) => "io",
@@ -184,6 +191,19 @@ impl AppError {
                 Json(json!({"error": self.to_string()})),
             )
                 .into_response(),
+            AppError::ReportUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"error":"Shopify report unavailable"})),
+            )
+                .into_response(),
+            AppError::ReportUpstream(ref error) => {
+                let status = if client_timeout(error) {
+                    StatusCode::GATEWAY_TIMEOUT
+                } else {
+                    StatusCode::BAD_GATEWAY
+                };
+                (status, Json(json!({"error":"Shopify upstream failure"}))).into_response()
+            }
             AppError::Database(_)
             | AppError::PasswordHash(_)
             | AppError::TokenCreation(_)
@@ -281,3 +301,11 @@ impl From<sqlx::Error> for AppError {
 #[cfg(test)]
 #[path = "tests/error.rs"]
 mod tests;
+
+fn client_timeout(error: &crate::client::ClientError) -> bool {
+    match error {
+        crate::client::ClientError::Origin { source, .. } => client_timeout(source),
+        crate::client::ClientError::Transport { source, .. } => source.is_timeout(),
+        _ => false,
+    }
+}

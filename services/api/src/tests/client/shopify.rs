@@ -652,3 +652,67 @@ async fn tag_lookup_escapes_one_literal_instead_of_accepting_search_syntax() {
         assert_eq!(f.requests()[0].2["variables"]["search"], search);
     }
 }
+
+fn report_variant() -> Value {
+    json!({"title":"M","sku":"GENSTSWOW01","contextualPricing":{"price":money()},"inventoryItem":{"unitCost":null,"measurement":{"weight":null},"inventoryLevel":null}})
+}
+#[tokio::test]
+async fn report_catalog_collects_root_and_variant_pages_and_checks_location() {
+    let p = |n, cursor| json!({"id":id("Product",n),"title":"Item","productType":"KEYCHAIN","variants":page(vec![report_variant()],cursor)});
+    let f=Fixture::new(vec![
+        Reply::json(json!({"data":{"location":{"id":id("Location",1)},"products":page(vec![p(1,Some("v1"))],Some("p1"))}})),
+        Reply::json(json!({"data":{"location":{"id":id("Location",1)},"products":page(vec![p(2,None)],None)}})),
+        Reply::json(json!({"data":{"product":{"id":id("Product",1),"variants":page(vec![report_variant()],None)}}})),
+    ]).await;
+    let products = client(&f)
+        .inventory_report_products(&ListProductsRequest {
+            location_id: id("Location", 1),
+            statuses: vec![ProductStatus::Active],
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(products.len(), 2);
+    assert_eq!(products[0].variants.nodes.len(), 2);
+    let requests = f.requests();
+    assert_eq!(requests[1].2["variables"]["after"], "p1");
+    assert_eq!(requests[2].2["variables"]["after"], "v1");
+    assert_eq!(requests[0].2["variables"]["search"], "status:active");
+    let f = Fixture::new(vec![Reply::json(
+        json!({"data":{"location":null,"products":page(vec![],None)}}),
+    )])
+    .await;
+    assert!(
+        client(&f)
+            .inventory_report_products(&ListProductsRequest {
+                location_id: id("Location", 1),
+                statuses: vec![ProductStatus::Active]
+            })
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn report_variant_failure_never_returns_partial_catalog() {
+    for parent in [
+        json!(null),
+        json!({"id":id("Product",99),"variants":page(vec![],None)}),
+        json!({"id":id("Product",1),"variants":page(vec![],Some("again"))}),
+    ] {
+        let f=Fixture::new(vec![
+            Reply::json(json!({"data":{"location":{"id":id("Location",1)},"products":page(vec![json!({"id":id("Product",1),"title":"Item","productType":"","variants":page(vec![report_variant()],Some("again"))})],None)}})),
+            Reply::json(json!({"data":{"product":parent}})),
+        ]).await;
+        assert!(
+            client(&f)
+                .inventory_report_products(&ListProductsRequest {
+                    location_id: id("Location", 1),
+                    statuses: vec![ProductStatus::Active]
+                })
+                .await
+                .is_err()
+        );
+    }
+}

@@ -1,9 +1,12 @@
 use crate::{client::ClientError, models::shopify::Connection};
 use std::collections::HashSet;
 
-pub(crate) async fn collect_connection<T, F>(mut fetch: F) -> Result<Connection<T>, ClientError>
+pub(crate) async fn collect_connection<T: Send, F, Fut>(
+    mut fetch: F,
+) -> Result<Connection<T>, ClientError>
 where
-    F: AsyncFnMut(Option<String>) -> Result<Connection<T>, ClientError>,
+    F: FnMut(Option<String>) -> Fut + Send,
+    Fut: std::future::Future<Output = Result<Connection<T>, ClientError>> + Send,
 {
     let mut nodes = Vec::new();
     let mut after = None;
@@ -29,9 +32,10 @@ where
     }
 }
 
-pub(crate) async fn collect_pages<T, F>(fetch: F) -> Result<Vec<T>, ClientError>
+pub(crate) async fn collect_pages<T: Send, F, Fut>(fetch: F) -> Result<Vec<T>, ClientError>
 where
-    F: AsyncFnMut(Option<String>) -> Result<Connection<T>, ClientError>,
+    F: FnMut(Option<String>) -> Fut + Send,
+    Fut: std::future::Future<Output = Result<Connection<T>, ClientError>> + Send,
 {
     Ok(collect_connection(fetch).await?.nodes)
 }

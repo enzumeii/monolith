@@ -118,3 +118,15 @@ There is no Shopify service module. The client paginates each named query indepe
 | `docs/superpowers/` | Ignored local plans; excluded from the published tree |
 | `.superpowers/` | Ignored local execution scratch/ledgers; excluded from the published tree |
 | Postman workspace | Existing local edits are preserved; carrying files to a worktree does not authorize publishing secrets |
+
+## Product report requests
+
+| Request | Input / result |
+| --- | --- |
+| `GET /v1/products?type=INVENTORY&id=1234` | Numeric Shopify location ID; active stocked variants with on_hand quantities |
+| `GET /v1/products?type=ORDER_TAG&id=TAG` | URL-encoded literal tag; merge matching SKU + original unit price + currency and compatible metadata |
+| Credentials | Existing ADMIN/SUPER_ADMIN bearer or cookie credentials; Shopify URL in TOML and SHOPIFY_ACCESS_TOKEN environment secret |
+| Postman | Internal webserver products requests use `location_id` and `order_tag` variables |
+| Verification | Existing API `just test` includes real TCP product routes with Docker PostgreSQL and mocked Shopify, explicitly requested for this feature; live store verification remains manual |
+
+Report queries require product, inventory, location and order access; reading unitCost may also require View product costs permission. Historical order access remains subject to Shopify permissions. Missing product/variant metadata produces null values; quantities use original order lines, not refund-adjusted accounting.

@@ -3,7 +3,10 @@ use serde_json::Number;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ProductReportType { Inventory, OrderTag }
+pub enum ProductReportType {
+    Inventory,
+    OrderTag,
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ProductReportQuery {
@@ -13,7 +16,9 @@ pub struct ProductReportQuery {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct ProductsResponse { pub products: Vec<ProductReportRow> }
+pub struct ProductsResponse {
+    pub products: Vec<ProductReportRow>,
+}
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct ProductReportRow {

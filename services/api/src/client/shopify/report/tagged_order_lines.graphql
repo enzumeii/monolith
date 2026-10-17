@@ -1,0 +1,14 @@
+query ReportTaggedOrderLines($id: ID!, $after: String) {
+  order(id: $id) {
+    id
+    lineItems(first: 100, after: $after) {
+      nodes {
+        title variantTitle sku quantity
+        originalUnitPriceSet { shopMoney { amount currencyCode } }
+        product { productType }
+        variant { inventoryItem { unitCost { amount currencyCode } measurement { weight { value unit } } } }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}

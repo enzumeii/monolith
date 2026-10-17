@@ -244,7 +244,32 @@ async fn test_api() -> Arc<TestApi> {
     if let Some(api) = shared.upgrade() {
         return api;
     }
-    let port = std::env::var("E2E_API_PORT").unwrap_or_else(|_| "3100".into());
+    let api = start_api(None).await;
+    *shared = Arc::downgrade(&api);
+    api
+}
+
+pub async fn client_with_shopify(url: &str) -> TestClient {
+    TestClient {
+        http: reqwest::Client::new(),
+        api: start_api(Some(url)).await,
+    }
+}
+
+async fn start_api(shopify_url: Option<&str>) -> Arc<TestApi> {
+    let port = if shopify_url.is_some() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("allocate API port");
+        listener
+            .local_addr()
+            .expect("API address")
+            .port()
+            .to_string()
+    } else {
+        std::env::var("E2E_API_PORT").unwrap_or_else(|_| "3100".into())
+    };
+    let shopify = shopify_url
+        .map(|url| format!("\n[client.shopify]\nadmin_api_url = {url:?}\n"))
+        .unwrap_or_default();
     let directory = std::env::temp_dir().join(format!("monolith-api-e2e-{}", Uuid::new_v4()));
     std::fs::create_dir(&directory).expect("create owned E2E configuration directory");
     let mut api = TestApi {
@@ -265,6 +290,7 @@ min_connections = 1
 [browser]
 public_origin = "http://127.0.0.1:8084"
 insecure_local = true
+{shopify}
 "#
         ),
     )
@@ -274,6 +300,8 @@ insecure_local = true
             .current_dir(&api.directory)
             .env("DATABASE_URL", database_url())
             .env("JWT_SECRET", JWT_SECRET)
+            .env_remove("SHOPIFY_ACCESS_TOKEN")
+            .envs(shopify_url.map(|_| ("SHOPIFY_ACCESS_TOKEN", "e2e-fixture-token")))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .spawn()
@@ -295,7 +323,6 @@ insecure_local = true
             .is_ok_and(|response| response.status().is_success())
         {
             let api = Arc::new(api);
-            *shared = Arc::downgrade(&api);
             return api;
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
