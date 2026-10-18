@@ -6,8 +6,8 @@ Results describe this revision's exercised scope, separately from [architecture]
 
 | Evidence | Result |
 | --- | --- |
-| Native API tests | 112 passed; 2 Docker-dependent tests ignored in the native phase |
-| Docker PostgreSQL | 114 library tests and 39 real TCP E2E tests passed; Compose teardown completed |
+| Native API tests | 114 passed; 2 Docker-dependent tests ignored in the native phase |
+| Docker PostgreSQL | 116 library tests and 42 real TCP E2E tests passed; Compose teardown completed |
 | Formatting/lint | Workspace Rust formatting, strict API/domain/downstream checks and pinned GraphQL formatting passed |
 | Shared contracts / WASM | 5 domain contracts passed; domain WASM and backoffice native/WASM checks passed |
 | Downstream tests | Backoffice 6 tests passed; client-ui check/test passed with no tests |

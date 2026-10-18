@@ -218,6 +218,59 @@ pub async fn body_json(response: axum::response::Response) -> serde_json::Value 
     serde_json::from_slice(&bytes).unwrap()
 }
 
+pub fn shopify_page(nodes: Vec<serde_json::Value>, next: Option<&str>) -> serde_json::Value {
+    serde_json::json!({"nodes":nodes,"pageInfo":{"hasNextPage":next.is_some(),"endCursor":next}})
+}
+
+pub async fn assert_report_auth(client: &TestClient, uri: &str) {
+    for token in [None, Some("Bearer invalid")] {
+        let mut request = Request::builder().uri(uri);
+        if let Some(token) = token {
+            request = request.header("authorization", token);
+        }
+        let response = client
+            .send(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 401);
+    }
+}
+
+pub async fn assert_report_unavailable(
+    client: &TestClient,
+    uri: &str,
+    admin_id: i64,
+    role: AdminRole,
+) {
+    let response = client
+        .send(authed("GET", uri, admin_id, role))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 503);
+    let body = body_json(response).await;
+    assert_eq!(body["error"], "Shopify report unavailable");
+    assert!(body.get("products").is_none());
+    assert!(!body.to_string().contains("invalid-url"));
+}
+
+pub async fn client_with_upstream(router: axum::Router) -> (TestClient, TestUpstream) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let upstream = TestUpstream(server);
+    let client = client_with_shopify(&format!("http://{address}/graphql.json")).await;
+    (client, upstream)
+}
+
+pub struct TestUpstream(tokio::task::JoinHandle<()>);
+impl Drop for TestUpstream {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 struct TestApi {
     process: Option<Child>,
     directory: std::path::PathBuf,

@@ -54,7 +54,7 @@ Run recipes from the package directory.
 | `cargo test --locked -p api --lib` | Native library tests and loopback transport fixtures; no Docker or Shopify credentials |
 | `just test` | Native Cargo tests, Compose PostgreSQL, `cargo api-e2e`, and Compose down with volumes removed even on failure |
 | `just check` | Formatting and strict Clippy on all API targets |
-| API E2E | Existing `e2e-test/healthz.rs` and `e2e-test/v1/{auth,admins,products}.rs`; real TCP endpoints |
+| API E2E | Existing `e2e-test/healthz.rs` and `e2e-test/v1/{auth,admins,inventories,orders}.rs`; real TCP endpoints |
 | Shared harness | `e2e-test/common.rs` owns temporary TOML, local API child, readiness, and teardown |
 | Fixtures | Unique owned records; shared Compose database during a run; cleanup only test-owned data |
 | Unit layout | `src/tests/` mirrors implementation paths; test-gated child modules preserve private access |

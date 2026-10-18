@@ -15,6 +15,6 @@ pub async fn get(
 ) -> Result<Json<InventoryResponse>, AppError> {
     let (location, page) = validations::inventories::extract_inventory_request(path, query)?;
     Ok(Json(
-        services::products::inventory_report(&state, location, page).await?,
+        services::inventories::inventory_report(&state, location, page).await?,
     ))
 }

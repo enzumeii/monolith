@@ -173,6 +173,7 @@ flowchart LR
 | --- | --- |
 | Routes | GET /v1/inventories/{inventory_id} and GET /v1/orders/report?tags=TAG; existing ADMIN/SUPER_ADMIN bearer or cookie protection |
 | Contract | Domain product report DTOs only; API owns Shopify models, validation and report orchestration |
+| Service ownership | inventories.rs retrieves one inventory page; orders.rs aggregates orders; common.rs shares client lookup and upstream-error mapping |
 | Inventory | Numeric location ID; active products and active inventory levels at the location; on_hand includes zero/negative quantities; missing location is 404 |
 | Metadata | Category = productType; collection = SKU characters 4–9 inclusive, null for short/missing SKU; cost and weight are current inventory metadata |
 | Orders | Literal tag; original quantities and original unit shop-money prices; merge SKU + price + currency with compatible cost/weight/category; missing SKUs stay separate |

@@ -10,5 +10,5 @@ pub async fn report(
     query: Result<Query<OrderReportQuery>, QueryRejection>,
 ) -> Result<Json<OrderReportResponse>, AppError> {
     let tag = validations::orders::extract_order_query(query)?;
-    Ok(Json(services::products::order_report(&state, tag).await?))
+    Ok(Json(services::orders::order_report(&state, tag).await?))
 }

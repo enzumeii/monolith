@@ -1,4 +1,5 @@
 mod admins;
 mod auth;
 
-mod reports;
+mod inventories;
+mod orders;
