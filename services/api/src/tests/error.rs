@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+use crate::client::ClientErrorKind;
 use http_body_util::BodyExt;
 
 fn assert_location(error: &AppError, line: u32) {
@@ -33,7 +34,9 @@ fn constructors_and_typed_conversions_capture_the_caller() {
     let error = AppError::from(argon2::password_hash::Error::Password);
     assert_location(&error, line);
     let line = line!() + 1;
-    let error = AppError::from(crate::client::ClientError::Protocol("private-client"));
+    let error = AppError::from(crate::client::ClientError::new(ClientErrorKind::Protocol(
+        "private-client",
+    )));
     assert_location(&error, line);
     let line = line!() + 1;
     let error = AppError::from(anyhow::anyhow!("private-anyhow"));
@@ -305,10 +308,9 @@ mod logging_tests {
         for filter in ["info", "info,api=debug"] {
             let log = capture(filter, || {
                 let error = AppError::new(StatusCode::BAD_GATEWAY, "Shopify upstream failure")
-                    .with_source(
-                        crate::client::ClientError::Protocol("private-report-cause")
-                            .at("api::client::shopify"),
-                    );
+                    .with_source(crate::client::ClientError::new(ClientErrorKind::Protocol(
+                        "private-report-cause",
+                    )));
                 let response = error.into_response();
                 assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
             });
@@ -317,7 +319,7 @@ mod logging_tests {
                 filter.ends_with("debug"),
                 "{log}"
             );
-            assert!(log.contains("api::client::shopify"));
+            assert!(log.contains("client_origin=\"services/api/src/tests/error.rs:"));
         }
     }
 
@@ -329,8 +331,9 @@ mod logging_tests {
         for filter in ["info", "info,api=debug"] {
             for shared in [false, true] {
                 for wrapped in [false, true] {
+                    let mut expected_client_origin = String::new();
                     let log = capture(filter, || {
-                        let source = ClientError::Graphql {
+                        let source = ClientError::new(ClientErrorKind::Graphql {
                             errors: vec![crate::client::GraphqlError {
                                 message: "upstream-diagnostic".into(),
                                 path: vec![],
@@ -340,8 +343,9 @@ mod logging_tests {
                                 )]),
                             }],
                             extensions: serde_json::json!({"private":"private-extension"}),
-                        };
-                        let source = source.at("api::client::shopify");
+                        });
+                        let origin = source.location();
+                        expected_client_origin = origin.to_string();
                         let cause = if shared {
                             anyhow::Error::new(Arc::new(source))
                         } else {
@@ -358,7 +362,7 @@ mod logging_tests {
                         )
                         .with_source(cause)
                         .context("report request");
-                        assert_eq!(client_origin(&error), Some("api::client::shopify"));
+                        assert_eq!(client_origin(&error), Some(origin));
                         assert_eq!(error.location.file(), file!());
                         assert_eq!(
                             error.into_response().status(),
@@ -379,7 +383,7 @@ mod logging_tests {
                     assert!(!log.contains("private-extension"), "{log}");
                     assert!(log.contains("[503]"), "{log}");
                     assert!(
-                        log.contains("client_origin=\"api::client::shopify\""),
+                        log.contains(&format!("client_origin=\"{expected_client_origin}\"")),
                         "{log}"
                     );
                 }
@@ -654,112 +658,100 @@ mod logging_tests {
         })
         .err()
         .unwrap();
+        let location = source.location();
+        assert_eq!(location.file(), "services/api/src/client/shopify.rs");
         let error: AppError = source.into();
-        assert_eq!(client_origin(&error), Some("api::client::shopify"));
+        assert_eq!(client_origin(&error), Some(location));
     }
     fn client_error_cases() -> Vec<crate::client::ClientError> {
         use crate::client::{ClientError, GraphqlError, MutationUserError};
         vec![
-            ClientError::Transport {
-                origin: "api::client::send",
+            ClientErrorKind::Transport {
                 source: reqwest::Client::new()
                     .get("invalid URL")
                     .build()
                     .unwrap_err(),
             },
-            ClientError::Http {
+            ClientErrorKind::Http {
                 status: 503,
                 request_id: Some("private-upstream-value".into()),
             },
-            ClientError::Decode {
-                origin: "api::client::decode",
+            ClientErrorKind::Decode {
                 source: serde_json::from_str::<serde_json::Value>("{").unwrap_err(),
             },
-            ClientError::Graphql {
+            ClientErrorKind::Graphql {
                 errors: vec![GraphqlError {
                     message: "private-upstream-value".into(),
                     path: vec![],
                     extensions: std::collections::BTreeMap::new(),
                 }],
-                extensions: serde_json::json!({"secret": "private-upstream-value"}),
+                extensions: serde_json::json!({"secret":"private-upstream-value"}),
             },
-            ClientError::Mutation {
+            ClientErrorKind::Mutation {
                 errors: vec![MutationUserError {
                     field: Some(vec!["private-upstream-value".into()]),
                     message: "private-upstream-value".into(),
                 }],
             },
-            ClientError::Protocol("invalid page"),
-            ClientError::InvalidInput("invalid argument"),
-            ClientError::RetryExhausted,
+            ClientErrorKind::Protocol("invalid page"),
+            ClientErrorKind::InvalidInput("invalid argument"),
+            ClientErrorKind::RetryExhausted,
         ]
+        .into_iter()
+        .map(|kind| ClientError::new(kind))
+        .collect()
     }
 
     #[test]
     fn every_client_error_logs_once_at_either_handling_boundary() {
-        use crate::client::ClientError;
         for background in [false, true] {
-            for (filter, wrapped) in [
-                ("info", false),
-                ("info,api=debug", false),
-                ("info", true),
-                ("info,api=debug", true),
-            ] {
-                for source in client_error_cases() {
-                    let kind = std::mem::discriminant(&source);
-                    let origin = if wrapped {
-                        "api::client::shopify"
-                    } else {
-                        match &source {
-                            ClientError::Transport { origin, .. }
-                            | ClientError::Decode { origin, .. } => *origin,
-                            _ => "api::client",
-                        }
-                    };
-                    let mut converted = None;
-                    let log = capture(filter, || {
-                        let source = if wrapped {
-                            source.at("api::client::shopify")
-                        } else {
-                            source
-                        };
-                        converted = Some(AppError::from(source).context("upstream operation"));
-                    });
-                    assert!(log.is_empty(), "{log}");
-                    let error = converted.unwrap();
-                    assert_eq!(client_origin(&error), Some(origin));
-                    let typed = error
-                        .cause
-                        .as_ref()
-                        .unwrap()
-                        .downcast_ref::<ClientError>()
-                        .unwrap();
-                    let original = if let ClientError::Origin { source, .. } = typed {
-                        source.as_ref()
-                    } else {
-                        typed
-                    };
-                    assert_eq!(std::mem::discriminant(original), kind);
-                    let log = capture(filter, || {
-                        if background {
-                            log_background_error("upstream job", &error);
-                        } else {
-                            assert_eq!(
-                                error.into_response().status(),
-                                StatusCode::INTERNAL_SERVER_ERROR
-                            );
-                        }
-                    });
-                    assert_eq!(
-                        log.lines().filter(|line| line.contains("ERROR")).count(),
-                        1,
-                        "{log}"
-                    );
-                    assert!(
-                        log.contains(&format!("client_origin=\"{origin}\"")),
-                        "{log}"
-                    );
-                    assert!(!log.contains("private-upstream-value"), "{log}");
+            for filter in ["info", "info,api=debug"] {
+                for wrapped in [false, true] {
+                    for source in client_error_cases() {
+                        let kind = std::mem::discriminant(source.kind());
+                        let origin = source.location();
+                        let mut converted = None;
+                        let log = capture(filter, || {
+                            let cause = anyhow::Error::new(source);
+                            let cause = if wrapped {
+                                cause.context("client cause context")
+                            } else {
+                                cause
+                            };
+                            converted = Some(AppError::from(cause).context("upstream operation"));
+                        });
+                        assert!(log.is_empty(), "{log}");
+                        let error = converted.unwrap();
+                        assert_eq!(client_origin(&error), Some(origin));
+                        let typed = error
+                            .cause
+                            .as_ref()
+                            .unwrap()
+                            .chain()
+                            .find_map(client_cause)
+                            .unwrap();
+                        assert_eq!(std::mem::discriminant(typed.kind()), kind);
+                        let log = capture(filter, || {
+                            if background {
+                                log_background_error("upstream job", &error);
+                            } else {
+                                assert_eq!(
+                                    error.into_response().status(),
+                                    StatusCode::INTERNAL_SERVER_ERROR
+                                );
+                            }
+                        });
+                        assert_eq!(
+                            log.lines().filter(|line| line.contains("ERROR")).count(),
+                            1,
+                            "{log}"
+                        );
+                        assert!(
+                            log.contains(&format!("client_origin=\"{origin}\"")),
+                            "{log}"
+                        );
+                        assert!(!log.contains("private-upstream-value"), "{log}");
+                    }
                 }
             }
         }
@@ -820,9 +812,18 @@ mod logging_tests {
                             .err()
                             .unwrap()
                     });
+                    let location = source.location();
+                    assert_eq!(
+                        location.file(),
+                        if kind == "constructor" {
+                            "services/api/src/client/shopify.rs"
+                        } else {
+                            "services/api/src/client.rs"
+                        }
+                    );
                     let log = capture(filter, || {
                         let error: AppError = source.into();
-                        assert_eq!(client_origin(&error), Some("api::client::shopify"));
+                        assert_eq!(client_origin(&error), Some(location));
                         if background {
                             log_background_error("Shopify job", &error);
                         } else {
@@ -840,7 +841,7 @@ mod logging_tests {
                         "{log}"
                     );
                     assert!(
-                        log.contains("client_origin=\"api::client::shopify\""),
+                        log.contains(&format!("client_origin=\"{location}\"")),
                         "{log}"
                     );
                     assert!(!log.contains("private-upstream-value"), "{log}");
@@ -853,21 +854,24 @@ mod logging_tests {
     fn upstream_errors_keep_origin_without_logging_customer_payloads() {
         for filter in ["info", "info,api=debug"] {
             let log = capture(filter, || {
-                let error: AppError = crate::client::ClientError::Graphql {
+                let error: AppError = crate::client::ClientError::new(ClientErrorKind::Graphql {
                     errors: vec![crate::client::GraphqlError {
                         message: "private-customer-token".into(),
                         path: vec![],
                         extensions: std::collections::BTreeMap::new(),
                     }],
                     extensions: serde_json::json!({"payload":"private-customer-token"}),
-                }
+                })
                 .into();
                 assert_eq!(
                     error.into_response().status(),
                     StatusCode::INTERNAL_SERVER_ERROR
                 );
             });
-            assert!(log.contains("client_origin=\"api::client\""), "{log}");
+            assert!(
+                log.contains("client_origin=\"services/api/src/tests/error.rs:"),
+                "{log}"
+            );
             assert!(!log.contains("private-customer-token"), "{log}");
             assert_eq!(
                 log.lines()
@@ -876,12 +880,12 @@ mod logging_tests {
                 1
             );
         }
-        let error: AppError = crate::client::ClientError::Decode {
-            origin: "api::client::decode",
-            source: serde_json::from_str::<serde_json::Value>("{").unwrap_err(),
-        }
-        .into();
-        assert_eq!(client_origin(&error), Some("api::client::decode"));
+        let source = crate::client::ClientError::from(
+            serde_json::from_str::<serde_json::Value>("{").unwrap_err(),
+        );
+        let location = source.location();
+        let error: AppError = source.into();
+        assert_eq!(client_origin(&error), Some(location));
     }
 }
 
@@ -889,14 +893,14 @@ mod logging_tests {
 async fn upstream_error_converts_with_source_and_safe_public_response() {
     use crate::client::ClientError;
     fn failing_operation() -> Result<(), AppError> {
-        Err(ClientError::Graphql {
+        Err(ClientError::new(ClientErrorKind::Graphql {
             errors: vec![],
             extensions: serde_json::json!({"private":"customer-token"}),
-        })?;
+        }))?;
         Ok(())
     }
     let error = failing_operation().unwrap_err();
-    assert_eq!(client_origin(&error), Some("api::client"));
+    assert_eq!(client_origin(&error).unwrap().file(), file!());
     assert!(
         error
             .cause

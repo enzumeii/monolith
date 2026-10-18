@@ -1,5 +1,8 @@
 use super::{InventoryLevel, TaggedOrderLineItem, Variant};
-use crate::{client::ClientError, models::products::ReportRow};
+use crate::{
+    client::{ClientError, ClientErrorKind},
+    models::products::ReportRow,
+};
 impl Variant {
     pub(crate) fn into_report_row(
         self,
@@ -44,8 +47,7 @@ impl InventoryLevel {
             .find(|q| q.name == "on_hand")
             .map(|q| q.quantity)
             .ok_or_else(|| {
-                ClientError::Protocol("on_hand quantity is missing")
-                    .at("api::models::shopify::products")
+                ClientError::new(ClientErrorKind::Protocol("on_hand quantity is missing"))
             })
     }
 }

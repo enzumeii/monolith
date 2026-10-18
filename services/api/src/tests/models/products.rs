@@ -124,11 +124,11 @@ fn compatible_rows_compare_normalized_numbers_and_metadata() {
 }
 #[test]
 fn invalid_report_values_keep_the_model_origin() {
-    assert!(matches!(
-        number("invalid-price").unwrap_err(),
-        ClientError::Origin {
-            origin: "api::models::products",
-            ..
-        }
-    ));
+    let error = number("invalid-price").unwrap_err();
+    assert!(matches!(error.kind(), ClientErrorKind::Protocol(_)));
+    assert_eq!(
+        error.location().file(),
+        "services/api/src/models/products.rs"
+    );
+    assert!(error.location().line() > 0);
 }

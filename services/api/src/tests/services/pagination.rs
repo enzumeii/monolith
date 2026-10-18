@@ -74,7 +74,11 @@ async fn consumer_failure_stops_before_the_next_fetch() {
                 })
             }
         },
-        |_| Err(ClientError::Protocol("invalid nested data")),
+        |_| {
+            Err(ClientError::new(ClientErrorKind::Protocol(
+                "invalid nested data",
+            )))
+        },
     )
     .await;
     assert!(result.is_err());

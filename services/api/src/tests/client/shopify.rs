@@ -291,15 +291,12 @@ async fn proxy_preserves_typed_upstream_failures() {
             .await
             .err()
             .unwrap();
-        let ClientError::Origin { origin, source } = error else {
-            panic!("origin missing")
-        };
-        assert_eq!(origin, "api::client::shopify");
+        assert_eq!(error.location().file(), "services/api/src/client.rs");
         assert!(matches!(
-            (kind, *source),
-            ("http", ClientError::Http { status: 503, .. })
-                | ("graphql", ClientError::Graphql { .. })
-                | ("decode", ClientError::Decode { .. })
+            (kind, error.kind()),
+            ("http", ClientErrorKind::Http { status: 503, .. })
+                | ("graphql", ClientErrorKind::Graphql { .. })
+                | ("decode", ClientErrorKind::Decode { .. })
         ));
     }
 }
@@ -440,13 +437,7 @@ async fn invalid_client_inputs_are_rejected_before_network() {
         .err()
         .unwrap(),
     ] {
-        assert!(matches!(
-            error,
-            ClientError::Origin {
-                origin: "api::client::shopify",
-                ..
-            }
-        ));
+        assert!(matches!(error.kind(), ClientErrorKind::InvalidInput(_)));
     }
     assert_eq!(f.requests().len(), 0);
 }

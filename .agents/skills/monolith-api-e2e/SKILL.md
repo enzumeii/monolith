@@ -18,6 +18,7 @@ For every new endpoint, also use [monolith-endpoint-test-coverage](../monolith-e
 | Shared fixtures/HTTP utilities | `services/api/e2e-test/common.rs` |
 
 The API Cargo manifest registers `e2e-test/main.rs` as the `e2e` test target; preserve that registration.
+Declare E2E module trees through named files such as `v1.rs` and `v1/admin.rs`, matching application modules; do not introduce `mod.rs` files.
 
 1. Name the endpoint behavior and expected status/body/database effect. Inspect related scenarios and reuse fixtures; keep endpoint-specific helpers in the owning route module.
 2. Reuse the local TCP API runner, Compose PostgreSQL and existing test command. Point real outbound clients at isolated API test servers as described by the coverage skill. The root command is `just --justfile services/api/justfile test`; keep its sequence to Compose up, native `cargo test`, `cargo api-e2e`, and Compose down with volumes removed. Run library tests once with PostgreSQL ready; do not ignore database-dependent tests. Preserve the configured Docker context, database URL and port.

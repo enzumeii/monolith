@@ -156,9 +156,8 @@ impl From<sqlx::Error> for AppError {
 }
 
 pub(crate) fn client_timeout(error: &crate::client::ClientError) -> bool {
-    match error {
-        crate::client::ClientError::Origin { source, .. } => client_timeout(source),
-        crate::client::ClientError::Transport { source, .. } => source.is_timeout(),
+    match error.kind() {
+        crate::client::ClientErrorKind::Transport { source } => source.is_timeout(),
         _ => false,
     }
 }
@@ -166,7 +165,7 @@ pub(crate) fn client_timeout(error: &crate::client::ClientError) -> bool {
 fn emit(operation: &'static str, error: &AppError) {
     let operation = error.operation(operation);
     let origin = error.location();
-    let client_origin = client_origin(error);
+    let client_origin = client_origin(error).map(ToString::to_string);
     let status = error.status.as_u16();
     if error.status.is_client_error() {
         tracing::warn!(operation, %origin, client_origin, status, "API request rejected");
@@ -176,14 +175,9 @@ fn emit(operation: &'static str, error: &AppError) {
     tracing::debug!(operation, %origin, client_origin, status, error = ?Diagnostic(error), "API failure diagnostics");
 }
 
-fn client_origin(error: &AppError) -> Option<&'static str> {
+fn client_origin(error: &AppError) -> Option<&'static Location<'static>> {
     let source = error.cause.as_ref()?.chain().find_map(client_cause)?;
-    Some(match source {
-        crate::client::ClientError::Origin { origin, .. }
-        | crate::client::ClientError::Transport { origin, .. }
-        | crate::client::ClientError::Decode { origin, .. } => origin,
-        _ => "api::client",
-    })
+    Some(source.location())
 }
 
 struct Diagnostic<'a>(&'a AppError);
@@ -240,20 +234,19 @@ mod tests;
 struct ClientDiagnostic<'a>(&'a crate::client::ClientError);
 impl std::fmt::Debug for ClientDiagnostic<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use crate::client::ClientError;
-        match self.0 {
-            ClientError::Origin { source, .. } => Self(source).fmt(f),
-            ClientError::Transport { source, .. } => std::fmt::Debug::fmt(source, f),
-            ClientError::Decode { source, .. } => std::fmt::Debug::fmt(source, f),
-            ClientError::Graphql { errors, .. } => f
+        use crate::client::ClientErrorKind;
+        match self.0.kind() {
+            ClientErrorKind::Transport { source } => std::fmt::Debug::fmt(source, f),
+            ClientErrorKind::Decode { source } => std::fmt::Debug::fmt(source, f),
+            ClientErrorKind::Graphql { errors, .. } => f
                 .debug_list()
                 .entries(errors.iter().map(|error| &error.message))
                 .finish(),
-            ClientError::Mutation { errors } => f
+            ClientErrorKind::Mutation { errors } => f
                 .debug_list()
                 .entries(errors.iter().map(|error| &error.message))
                 .finish(),
-            error => std::fmt::Debug::fmt(error, f),
+            _ => std::fmt::Debug::fmt(self.0, f),
         }
     }
 }

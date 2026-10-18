@@ -172,7 +172,11 @@ fn builder_token_precedence_and_missing_url_follow_normal_configuration() {
         (true, None),
         (true, Some("env-token")),
     ] {
-        let source = include_str!("../../application.local.toml");
+        let source = r#"
+            server = { host = "localhost", port = 3000 }
+            database = { max_connections = 1, min_connections = 1 }
+            browser = { public_origin = "http://localhost:8084", insecure_local = true }
+        "#;
         let builder = config::Config::builder()
             .add_source(config::File::from_str(source, config::FileFormat::Toml))
             .set_override("database.url", "postgres://unused")

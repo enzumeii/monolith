@@ -1,5 +1,5 @@
-use crate::client::ClientError;
 pub use crate::client::MutationUserError;
+use crate::client::{ClientError, ClientErrorKind};
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -37,14 +37,18 @@ impl ShopifyId {
         {
             Ok(id)
         } else {
-            Err(ClientError::InvalidInput("invalid Shopify resource ID"))
+            Err(ClientError::new(ClientErrorKind::InvalidInput(
+                "invalid Shopify resource ID",
+            )))
         }
     }
     pub(crate) fn require_kind(&self, kind: &str) -> Result<(), ClientError> {
         if self.is_kind(kind) {
             Ok(())
         } else {
-            Err(ClientError::InvalidInput("wrong Shopify resource ID kind"))
+            Err(ClientError::new(ClientErrorKind::InvalidInput(
+                "wrong Shopify resource ID kind",
+            )))
         }
     }
     fn is_kind(&self, kind: &str) -> bool {
@@ -133,7 +137,9 @@ impl OrdersByPaymentRequest {
     pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
         page.validate()?;
         if self.payment_id.trim().is_empty() {
-            return Err(ClientError::InvalidInput("payment ID is empty"));
+            return Err(ClientError::new(ClientErrorKind::InvalidInput(
+                "payment ID is empty",
+            )));
         }
         Ok(
             json!({"search": format!("payment_id:\"{}\"", escape_search(&self.payment_id)), "after": page.after, "first": page.first}),
@@ -144,7 +150,9 @@ impl OrdersByTagRequest {
     pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
         page.validate()?;
         if self.tags.is_empty() || self.tags.iter().any(|tag| tag.trim().is_empty()) {
-            return Err(ClientError::InvalidInput("order tag is empty"));
+            return Err(ClientError::new(ClientErrorKind::InvalidInput(
+                "order tag is empty",
+            )));
         }
         let search = self
             .tags
@@ -159,7 +167,9 @@ impl SalesRangeRequest {
     pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
         page.validate()?;
         if self.start >= self.end {
-            return Err(ClientError::InvalidInput("sales start must precede end"));
+            return Err(ClientError::new(ClientErrorKind::InvalidInput(
+                "sales start must precede end",
+            )));
         }
         Ok(
             json!({"search": format!("created_at:>='{}' created_at:<'{}'", self.start.to_rfc3339(), self.end.to_rfc3339()), "ordersAfter": page.after, "first": page.first}),
@@ -486,7 +496,9 @@ impl PageRequest {
             .as_ref()
             .is_some_and(|value| value.trim().is_empty())
         {
-            return Err(ClientError::InvalidInput("cursor is empty"));
+            return Err(ClientError::new(ClientErrorKind::InvalidInput(
+                "cursor is empty",
+            )));
         }
         Ok(())
     }
@@ -499,19 +511,18 @@ impl PageInfo {
                 .as_deref()
                 .is_none_or(|next| next.trim().is_empty() || Some(next) == after)
         {
-            return Err(
-                ClientError::Protocol("next cursor is missing or did not progress")
-                    .at("api::models::shopify"),
-            );
+            return Err(ClientError::new(ClientErrorKind::Protocol(
+                "next cursor is missing or did not progress",
+            )));
         }
         Ok(())
     }
 }
 fn validate_size(first: u16) -> Result<(), ClientError> {
     if !(1..=250).contains(&first) {
-        return Err(ClientError::InvalidInput(
+        return Err(ClientError::new(ClientErrorKind::InvalidInput(
             "page size must be between 1 and 250",
-        ));
+        )));
     }
     Ok(())
 }
@@ -535,10 +546,9 @@ impl Sku {
 impl<T> Connection<T> {
     pub(crate) fn into_complete_nodes(self) -> Result<Vec<T>, ClientError> {
         if self.page_info.has_next_page {
-            return Err(
-                ClientError::Protocol("nested connection exceeds report limit")
-                    .at("api::models::shopify"),
-            );
+            return Err(ClientError::new(ClientErrorKind::Protocol(
+                "nested connection exceeds report limit",
+            )));
         }
         Ok(self.nodes)
     }

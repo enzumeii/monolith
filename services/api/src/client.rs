@@ -3,17 +3,17 @@ use reqwest::{
     header::{HeaderMap, RETRY_AFTER},
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::{collections::BTreeMap, fmt, time::Duration};
+use std::{collections::BTreeMap, fmt, panic::Location, time::Duration};
 
 pub mod shopify;
 
-pub enum ClientError {
-    Origin {
-        origin: &'static str,
-        source: Box<Self>,
-    },
+pub struct ClientError {
+    kind: ClientErrorKind,
+    location: &'static Location<'static>,
+}
+
+pub enum ClientErrorKind {
     Transport {
-        origin: &'static str,
         source: reqwest::Error,
     },
     Http {
@@ -21,7 +21,6 @@ pub enum ClientError {
         request_id: Option<String>,
     },
     Decode {
-        origin: &'static str,
         source: serde_json::Error,
     },
     Graphql {
@@ -35,40 +34,61 @@ pub enum ClientError {
     InvalidInput(&'static str),
     RetryExhausted,
 }
+impl ClientError {
+    #[must_use]
+    #[track_caller]
+    pub fn new(kind: ClientErrorKind) -> Self {
+        Self {
+            kind,
+            location: Location::caller(),
+        }
+    }
+
+    #[must_use]
+    pub fn kind(&self) -> &ClientErrorKind {
+        &self.kind
+    }
+
+    #[must_use]
+    pub fn location(&self) -> &'static Location<'static> {
+        self.location
+    }
+}
+
+impl From<reqwest::Error> for ClientError {
+    #[track_caller]
+    fn from(source: reqwest::Error) -> Self {
+        Self::new(ClientErrorKind::Transport { source })
+    }
+}
+
+impl From<serde_json::Error> for ClientError {
+    #[track_caller]
+    fn from(source: serde_json::Error) -> Self {
+        Self::new(ClientErrorKind::Decode { source })
+    }
+}
+
 impl fmt::Display for ClientError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Origin { origin, .. } => write!(f, "Client operation failed in {origin}"),
-            Self::Transport { origin, .. } => write!(f, "HTTP transport failed in {origin}"),
-            Self::Http { status, .. } => write!(f, "HTTP request failed ({status})"),
-            Self::Decode { origin, .. } => write!(f, "Response decoding failed in {origin}"),
-            Self::Graphql { .. } => f.write_str("GraphQL operation failed"),
-            Self::Mutation { .. } => f.write_str("GraphQL mutation rejected"),
-            Self::Protocol(message) => write!(f, "Invalid upstream response: {message}"),
-            Self::InvalidInput(message) => write!(f, "Invalid client input: {message}"),
-            Self::RetryExhausted => f.write_str("Retry budget exhausted"),
+        match self.kind() {
+            ClientErrorKind::Transport { .. } => f.write_str("HTTP transport failed"),
+            ClientErrorKind::Http { status, .. } => write!(f, "HTTP request failed ({status})"),
+            ClientErrorKind::Decode { .. } => f.write_str("Response decoding failed"),
+            ClientErrorKind::Graphql { .. } => f.write_str("GraphQL operation failed"),
+            ClientErrorKind::Mutation { .. } => f.write_str("GraphQL mutation rejected"),
+            ClientErrorKind::Protocol(message) => write!(f, "Invalid upstream response: {message}"),
+            ClientErrorKind::InvalidInput(message) => write!(f, "Invalid client input: {message}"),
+            ClientErrorKind::RetryExhausted => f.write_str("Retry budget exhausted"),
         }
     }
 }
 impl std::error::Error for ClientError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Origin { source, .. } => Some(source.as_ref()),
-            Self::Transport { source, .. } => Some(source),
-            Self::Decode { source, .. } => Some(source),
+        match self.kind() {
+            ClientErrorKind::Transport { source } => Some(source),
+            ClientErrorKind::Decode { source } => Some(source),
             _ => None,
-        }
-    }
-}
-impl ClientError {
-    pub(crate) fn at(self, origin: &'static str) -> Self {
-        if matches!(self, Self::Origin { .. }) {
-            self
-        } else {
-            Self::Origin {
-                origin,
-                source: Box::new(self),
-            }
         }
     }
 }
@@ -84,13 +104,14 @@ pub struct HttpClient {
 impl HttpClient {
     pub fn new(timeout: Duration) -> Result<Self, ClientError> {
         if timeout.is_zero() {
-            return Err(ClientError::InvalidInput("timeout must be positive"));
+            return Err(ClientError::new(ClientErrorKind::InvalidInput(
+                "timeout must be positive",
+            )));
         }
         let inner = reqwest::Client::builder()
             .timeout(timeout)
             .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(transport_error)?;
+            .build()?;
         Ok(Self { inner })
     }
     pub async fn request_json<B: Serialize, R: DeserializeOwned>(
@@ -146,7 +167,7 @@ impl HttpClient {
         if let Some(body) = body {
             request = request.json(body);
         }
-        request.send().await.map_err(transport_error)
+        Ok(request.send().await?)
     }
 }
 #[derive(Clone)]
@@ -185,18 +206,15 @@ impl GraphqlClient {
             )
             .await?;
         if !envelope.errors.is_empty() {
-            return Err(ClientError::Graphql {
+            return Err(ClientError::new(ClientErrorKind::Graphql {
                 errors: envelope.errors,
                 extensions: envelope.extensions,
-            });
+            }));
         }
-        let data = envelope
-            .data
-            .ok_or(ClientError::Protocol("GraphQL data is missing"))?;
-        serde_json::from_value(data).map_err(|source| ClientError::Decode {
-            origin: "api::client::GraphqlClient::execute",
-            source,
-        })
+        let data = envelope.data.ok_or_else(|| {
+            ClientError::new(ClientErrorKind::Protocol("GraphQL data is missing"))
+        })?;
+        Ok(serde_json::from_value(data)?)
     }
 }
 #[derive(Serialize)]
@@ -235,17 +253,17 @@ struct RetryState {
 impl RetryState {
     async fn wait(&mut self, headers: &HeaderMap) -> Result<(), ClientError> {
         if self.retries >= 3 {
-            return Err(ClientError::RetryExhausted);
+            return Err(ClientError::new(ClientErrorKind::RetryExhausted));
         }
         let base = Duration::from_secs(1 << self.retries);
         let minimum = retry_after(headers).unwrap_or_default();
         let remaining = Duration::from_secs(30).saturating_sub(self.slept);
         if minimum > remaining {
-            return Err(ClientError::RetryExhausted);
+            return Err(ClientError::new(ClientErrorKind::RetryExhausted));
         }
         let delay = base.max(minimum) + Duration::from_millis(rand::random_range(0..=250));
         if delay > remaining {
-            return Err(ClientError::RetryExhausted);
+            return Err(ClientError::new(ClientErrorKind::RetryExhausted));
         }
         self.retries += 1;
         self.slept += delay;
@@ -269,27 +287,18 @@ fn check_status(response: &Response) -> Result<(), ClientError> {
     if response.status().is_success() {
         return Ok(());
     }
-    Err(ClientError::Http {
+    Err(ClientError::new(ClientErrorKind::Http {
         status: response.status().as_u16(),
         request_id: response
             .headers()
             .get("x-request-id")
             .and_then(|v| v.to_str().ok())
             .map(str::to_owned),
-    })
+    }))
 }
 async fn decode<D: DeserializeOwned>(response: Response) -> Result<D, ClientError> {
-    let bytes = response.bytes().await.map_err(transport_error)?;
-    serde_json::from_slice(&bytes).map_err(|source| ClientError::Decode {
-        origin: "api::client::decode",
-        source,
-    })
-}
-fn transport_error(source: reqwest::Error) -> ClientError {
-    ClientError::Transport {
-        origin: "api::client::HttpClient",
-        source,
-    }
+    let bytes = response.bytes().await?;
+    Ok(serde_json::from_slice(&bytes)?)
 }
 #[cfg(test)]
 #[path = "tests/client.rs"]

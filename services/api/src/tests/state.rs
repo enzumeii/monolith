@@ -30,11 +30,13 @@ async fn state_reuses_shopify_client_and_preserves_optional_initialization_failu
     )
     .unwrap();
     let cause = invalid.shopify.err().unwrap();
-    assert!(
-        std::error::Error::source(cause.as_ref())
-            .expect("constructor source")
-            .to_string()
-            .contains("invalid Shopify URL")
+    assert!(matches!(
+        cause.kind(),
+        crate::client::ClientErrorKind::InvalidInput("invalid Shopify URL")
+    ));
+    assert_eq!(
+        cause.location().file(),
+        "services/api/src/client/shopify.rs"
     );
     let error = crate::error::AppError::new(
         StatusCode::SERVICE_UNAVAILABLE,

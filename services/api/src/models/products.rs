@@ -1,5 +1,5 @@
 use crate::{
-    client::ClientError,
+    client::{ClientError, ClientErrorKind},
     models::shopify::{InventoryMetadata, Money, Sku},
 };
 use domain::dto::ProductReportRow;
@@ -126,8 +126,9 @@ fn totals(row: &mut ProductReportRow) -> Result<(), ClientError> {
     Ok(())
 }
 
+#[track_caller]
 fn protocol(message: &'static str) -> ClientError {
-    ClientError::Protocol(message).at("api::models::products")
+    ClientError::new(ClientErrorKind::Protocol(message))
 }
 #[cfg(test)]
 #[path = "../tests/models/products.rs"]

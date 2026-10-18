@@ -6,8 +6,8 @@ Results describe this revision's exercised scope, separately from [architecture]
 
 | Evidence | Result |
 | --- | --- |
-| Native API tests | 125 passed with Docker PostgreSQL ready; zero ignored; each library test runs once |
-| Docker PostgreSQL | 125 library tests and 46 real TCP E2E tests passed; Compose teardown completed |
+| Native API tests | 127 passed with Docker PostgreSQL ready; zero ignored; each library test runs once |
+| Docker PostgreSQL | 127 library tests and 45 real TCP E2E tests passed; Compose teardown completed |
 | Formatting/lint | Workspace Rust formatting, strict API/domain/downstream checks and Cargo-installed GraphQL/JSON formatting passed |
 | Shared contracts / WASM | 5 domain contracts passed; domain WASM and backoffice native/WASM checks passed |
 | Downstream tests | Backoffice 6 tests passed; client-ui check/test passed with no tests |
@@ -17,6 +17,7 @@ Results describe this revision's exercised scope, separately from [architecture]
 | Model cleanup | Removed unreferenced `SalesOrder`; API error encoding and backoffice decoding use shared `ErrorResponse`. Existing error/status/header regressions and the complete API suite passed; frontend native/WASM checks passed |
 | Error simplification | Shared status/message error preserves typed causes, first origin, ordered contexts and sanitized diagnostics, including wrapped/shared client causes. Exact missing-location404 and missing-admin GET/PATCH/DELETE401 bodies and Bearer headers passed; timeout504/non-timeout502 exercises the production mapper. API check, workspace formatting and internal Postman lint passed |
 | Automatic error locations | Constructors and all typed conversions capture caller file/line/column; async question-mark conversion, callback mapping, builder/propagation preservation, password blocking work, repository failures and terminal background logging passed. Production upstream mapper retains its caller, order failures retain the service mapping site, and direct/shared/wrapped client origins remain separate. HTTP bodies/headers and ordinary/DEBUG redaction regressions passed |
+| Automatic client locations | ClientError constructors, tracked helpers, reqwest/serde conversions and async question-mark conversion retain caller positions and original source types. Protocol/model failures retain their construction file; propagation preserves that first location. All eight failure kinds and direct/shared/context-wrapped causes retain safe boundary logs, client_origin=file:line:column and unchanged public responses; no manual origin wrappers |
 | Error log formatting | Production text formatter renders captured file/line/column and bracketed HTTP status in the prefix; 400/401/404/500 and default event/span formatting regressions passed. Structured origin/status and private DEBUG diagnostics remain available; no duplicate origin/status text fields |
 | Published-head CI | Confirm separately against the pushed SHA in PR checks |
 
@@ -34,7 +35,7 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitl
 | Exact report values | Normalized prices, scientific weights, exact scaled/maximum totals, compatible metadata comparison and checked quantity/total overflow |
 | Service pagination | Inventory forwards size/cursor and preserves one page; orders consume each root page before fetching the next. Missing/repeated/cyclic cursors and later failures reject the order report |
 | API pagination | Inventory first and continuation HTTP calls return page_info, including empty pages; order report rejects pagination and keeps products-only global totals |
-| Audience routing | Reports run under /v1/admin with admin authentication. Legacy and /v1/customer report paths return404 for anonymous callers and both admin roles, without upstream calls; existing auth/admin-account routes remain covered |
+| Audience routing | Reports run under /v1/admin with admin authentication; existing auth/admin-account routes remain covered. Dedicated legacy/customer report-path rejection tests are not part of the current suite |
 | Tagged orders | Comma-separated tags trimmed and combined with AND; blank entries rejected400 without upstream calls. Real TCP traversal preserves both tag filters and batch250 across pages and aggregates exact totals. Literal escaping, bounded nested lines, no child request, compatible rows merged in first-seen order and missing SKUs kept separate |
 | Dependency lifecycle | Shared AppState client Arc, optional/invalid initialization retained; services resolve availability and map affected requests to sanitized503 |
 | Report failures | Real TCP400/401/404/502/503/504 scenarios; configured upstream receives no invalid/unauthenticated requests. Initial/later operations cover HTTP/GraphQL rejection, partial/missing/malformed data, exhausted throttling, connection refusal and actual response timeouts; exact safe bodies/headers, paging variables and request counts asserted. Ordinary logs/public bodies sanitized, original causes available through DEBUG diagnostics |

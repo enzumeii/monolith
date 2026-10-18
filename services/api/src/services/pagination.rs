@@ -1,4 +1,7 @@
-use crate::{client::ClientError, models::shopify::Connection};
+use crate::{
+    client::{ClientError, ClientErrorKind},
+    models::shopify::Connection,
+};
 use std::collections::HashSet;
 
 pub(crate) async fn for_each_page<T: Send, F, Fut, C>(
@@ -22,9 +25,11 @@ where
         let next = page
             .page_info
             .end_cursor
-            .ok_or(ClientError::Protocol("next cursor is missing"))?;
+            .ok_or_else(|| ClientError::new(ClientErrorKind::Protocol("next cursor is missing")))?;
         if !seen.insert(next.clone()) {
-            return Err(ClientError::Protocol("pagination cursor did not progress"));
+            return Err(ClientError::new(ClientErrorKind::Protocol(
+                "pagination cursor did not progress",
+            )));
         }
         after = Some(next);
     }

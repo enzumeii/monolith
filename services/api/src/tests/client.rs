@@ -150,7 +150,7 @@ async fn never_retries_server_errors_even_with_throttled_body_and_retry_after() 
         reply.headers.push(("retry-after".into(), "1".into()));
         let fixture = Fixture::new(vec![reply, Reply::json(json!({"data":{"ok":true}}))]).await;
         assert!(
-            matches!(execute(&fixture).await,Err(ClientError::Http { status: actual,.. }) if actual==status)
+            matches!(execute(&fixture).await.unwrap_err().kind(),ClientErrorKind::Http { status: actual,.. } if *actual==status)
         );
         assert_eq!(fixture.requests().len(), 1);
     }
@@ -178,8 +178,8 @@ async fn rejects_invalid_json_and_redirects_without_following_them() {
     }])
     .await;
     assert!(matches!(
-        execute(&fixture).await,
-        Err(ClientError::Http { status: 302, .. })
+        execute(&fixture).await.unwrap_err().kind(),
+        ClientErrorKind::Http { status: 302, .. }
     ));
     assert_eq!(destination.requests().len(), 0);
     let fixture = Fixture::new(vec![Reply {
@@ -211,8 +211,8 @@ async fn excessive_retry_after_does_not_replay() {
     }])
     .await;
     assert!(matches!(
-        execute(&fixture).await,
-        Err(ClientError::RetryExhausted)
+        execute(&fixture).await.unwrap_err().kind(),
+        ClientErrorKind::RetryExhausted
     ));
     assert_eq!(fixture.requests().len(), 1);
 }
@@ -221,8 +221,8 @@ async fn excessive_retry_after_does_not_replay() {
 async fn throttling_stops_after_four_attempts() {
     let fixture = Fixture::new(vec![Reply::status(429); 4]).await;
     assert!(matches!(
-        execute(&fixture).await,
-        Err(ClientError::RetryExhausted)
+        execute(&fixture).await.unwrap_err().kind(),
+        ClientErrorKind::RetryExhausted
     ));
     assert_eq!(fixture.requests().len(), 4);
 }
@@ -269,7 +269,10 @@ async fn stalled_response_times_out_without_replay() {
             },
         )
         .await;
-    assert!(matches!(result, Err(ClientError::Transport { .. })));
+    assert!(matches!(
+        result.unwrap_err().kind(),
+        ClientErrorKind::Transport { .. }
+    ));
     assert!(start.elapsed() < Duration::from_secs(1));
 }
 
@@ -296,8 +299,8 @@ async fn typed_mutation_null_preserves_graphql_errors_before_decoding_data() {
             },
         )
         .await;
-    match result {
-        Err(ClientError::Graphql { errors, extensions }) => {
+    match result.err().unwrap().kind() {
+        ClientErrorKind::Graphql { errors, extensions } => {
             assert_eq!(errors[0].message, "Access denied");
             assert_eq!(extensions["cost"]["requestedQueryCost"], 10);
         }
@@ -317,8 +320,8 @@ async fn oversized_retry_after_after_an_earlier_retry_does_not_panic() {
     ])
     .await;
     assert!(matches!(
-        execute(&fixture).await,
-        Err(ClientError::RetryExhausted)
+        execute(&fixture).await.unwrap_err().kind(),
+        ClientErrorKind::RetryExhausted
     ));
     assert_eq!(fixture.requests().len(), 2);
 }
@@ -362,8 +365,8 @@ async fn mixed_http_and_graphql_retries_have_one_four_attempt_budget() {
     ])
     .await;
     assert!(matches!(
-        execute(&fixture).await,
-        Err(ClientError::RetryExhausted)
+        execute(&fixture).await.unwrap_err().kind(),
+        ClientErrorKind::RetryExhausted
     ));
     assert_eq!(fixture.requests().len(), 4);
 }
@@ -374,47 +377,92 @@ async fn generic_http_4xx_exhausts_four_attempts() {
         .unwrap()
         .request_json::<(), Value>(Method::GET, fixture.url.clone(), HeaderMap::new(), None)
         .await;
-    assert!(matches!(result, Err(ClientError::RetryExhausted)));
+    assert!(matches!(
+        result.unwrap_err().kind(),
+        ClientErrorKind::RetryExhausted
+    ));
     assert_eq!(fixture.requests().len(), 4);
 }
 
 #[test]
-fn client_origin_wraps_once_and_preserves_the_typed_source_chain() {
+fn client_creation_and_propagation_preserve_the_first_location() {
+    fn propagate(error: ClientError) -> Result<(), ClientError> {
+        Err(error)
+    }
+    #[track_caller]
+    fn protocol_failure() -> ClientError {
+        ClientError::new(ClientErrorKind::Protocol("missing quantity"))
+    }
+    let line = line!() + 1;
+    let error = ClientError::new(ClientErrorKind::Protocol("missing quantity"));
+    assert_eq!(error.location().file(), file!());
+    assert_eq!(error.location().line(), line);
+    assert_eq!(error.location().column(), 17);
+    let location = error.location();
+    let error = propagate(error).unwrap_err();
+    assert_eq!(error.location(), location);
+    assert!(matches!(
+        error.kind(),
+        ClientErrorKind::Protocol("missing quantity")
+    ));
+    let line = line!() + 1;
+    let error = protocol_failure();
+    assert_eq!(error.location().file(), file!());
+    assert_eq!(error.location().line(), line);
+    assert_eq!(error.location().column(), 17);
+}
+
+#[tokio::test]
+async fn asynchronous_client_conversion_keeps_the_conversion_site() {
+    let mut line = 0;
+    let result: Result<(), ClientError> = async {
+        line = line!() + 1;
+        serde_json::from_str::<Value>("{")?;
+        Ok(())
+    }
+    .await;
+    let error = result.unwrap_err();
+    assert_eq!(error.location().file(), file!());
+    assert_eq!(error.location().line(), line);
+    assert!(error.location().column() > 0);
+    assert!(matches!(error.kind(), ClientErrorKind::Decode { .. }));
+}
+
+#[test]
+fn tracked_client_conversions_keep_the_source_and_calling_location() {
     use std::error::Error;
-    let error = ClientError::Decode {
-        origin: "api::client::decode",
-        source: serde_json::from_str::<Value>("{").unwrap_err(),
+    #[track_caller]
+    fn decode_failure(source: serde_json::Error) -> ClientError {
+        ClientError::from(source)
     }
-    .at("api::client::shopify")
-    .at("api::caller");
-    assert!(error.to_string().contains("api::client::shopify"));
-    match &error {
-        ClientError::Origin { origin, source } => {
-            assert_eq!(*origin, "api::client::shopify");
-            assert!(matches!(
-                source.as_ref(),
-                ClientError::Decode {
-                    origin: "api::client::decode",
-                    ..
-                }
-            ));
-        }
-        _ => panic!("client identity missing"),
-    }
+    let source = serde_json::from_str::<Value>("{").unwrap_err();
+    let line = line!() + 1;
+    let error = decode_failure(source);
+    assert_eq!(error.location().file(), file!());
+    assert_eq!(error.location().line(), line);
+    assert_eq!(error.location().column(), 17);
+    assert!(matches!(error.kind(), ClientErrorKind::Decode { .. }));
     assert!(
         error
-            .source()
-            .unwrap()
-            .downcast_ref::<ClientError>()
-            .is_some()
-    );
-    assert!(
-        error
-            .source()
-            .unwrap()
             .source()
             .unwrap()
             .downcast_ref::<serde_json::Error>()
+            .is_some()
+    );
+    let source = reqwest::Client::new()
+        .get("invalid URL")
+        .build()
+        .unwrap_err();
+    let line = line!() + 1;
+    let error = ClientError::from(source);
+    assert_eq!(error.location().file(), file!());
+    assert_eq!(error.location().line(), line);
+    assert_eq!(error.location().column(), 17);
+    assert!(
+        error
+            .source()
+            .unwrap()
+            .downcast_ref::<reqwest::Error>()
             .is_some()
     );
 }

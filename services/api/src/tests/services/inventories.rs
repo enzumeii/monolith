@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 #[tokio::test]
 async fn report_transport_timeout_maps_to_504_and_other_transport_errors_to_502() {
-    use crate::client::{ClientError, HttpClient};
+    use crate::client::HttpClient;
     use axum::response::IntoResponse;
     use reqwest::{Method, Url, header::HeaderMap};
     use std::time::Duration;
@@ -25,12 +25,10 @@ async fn report_transport_timeout_maps_to_504_and_other_transport_errors_to_502(
             )
             .await
             .unwrap_err();
-        let error = ClientError::Origin {
-            origin: "api::client::shopify",
-            source: Box::new(error),
-        };
+        let client_location = error.location();
         let line = line!() + 1;
         let error = upstream(error);
+        assert_eq!(client_location.file(), "services/api/src/client.rs");
         assert_eq!(error.location().file(), file!());
         assert_eq!(error.location().line(), line);
         let response = error.into_response();
