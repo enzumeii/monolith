@@ -23,7 +23,7 @@ flowchart LR
 | Package | Responsibility | Boundary |
 | --- | --- | --- |
 | `services/api` | HTTP endpoints, authentication, authorization, persistence, outbound clients | Database objects, principals, JWT claims, and Shopify wire DTOs remain API-owned |
-| `crates/domain` | Shared request/response DTOs and wire enums | No database models, SQLx, JWT claims, or transactions |
+| `crates/domain` | Shared request/response DTOs and wire enums, including `ErrorResponse` used by the API and backoffice | No database models, SQLx, JWT claims, or transactions |
 | `apps/backoffice` | Browser pages, forms, direct API requests, session coordination | Public configuration only; Axum owns cookies, CORS, and origin checks |
 | `apps/client-ui` | Placeholder client application | No implemented service integration |
 

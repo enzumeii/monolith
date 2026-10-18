@@ -325,18 +325,6 @@ pub struct SalesLine {
     pub original_unit_price_set: MoneyBag,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SalesOrder {
-    pub id: ShopifyId,
-    pub name: String,
-    pub created_at: DateTime<FixedOffset>,
-    pub cancelled_at: Option<DateTime<FixedOffset>>,
-    pub test: bool,
-    pub display_financial_status: Option<String>,
-    pub display_fulfillment_status: String,
-    pub line_items: Connection<SalesLine>,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OrderTags {
     pub id: ShopifyId,
     pub name: String,

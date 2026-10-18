@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use serde_json::json;
+use domain::dto::ErrorResponse;
 use thiserror::Error;
 
 #[derive(Error)]
@@ -164,36 +164,50 @@ impl AppError {
         match self {
             AppError::InvalidCredentials => (
                 StatusCode::UNAUTHORIZED,
-                Json(json!({ "error": self.to_string() })),
+                Json(ErrorResponse {
+                    error: self.to_string(),
+                }),
             )
                 .into_response(),
             AppError::InvalidToken | AppError::TokenValidation(_) => (
                 StatusCode::UNAUTHORIZED,
                 [(axum::http::header::WWW_AUTHENTICATE, "Bearer")],
-                Json(json!({ "error": self.to_string() })),
+                Json(ErrorResponse {
+                    error: self.to_string(),
+                }),
             )
                 .into_response(),
             AppError::NotFound => (
                 StatusCode::NOT_FOUND,
-                Json(json!({ "error": self.to_string() })),
+                Json(ErrorResponse {
+                    error: self.to_string(),
+                }),
             )
                 .into_response(),
-            AppError::BadRequest(message) => {
-                (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))).into_response()
-            }
+            AppError::BadRequest(message) => (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse { error: message }),
+            )
+                .into_response(),
             AppError::Forbidden => (
                 StatusCode::FORBIDDEN,
-                Json(json!({ "error": self.to_string() })),
+                Json(ErrorResponse {
+                    error: self.to_string(),
+                }),
             )
                 .into_response(),
             AppError::Conflict(_) => (
                 StatusCode::CONFLICT,
-                Json(json!({"error": self.to_string()})),
+                Json(ErrorResponse {
+                    error: self.to_string(),
+                }),
             )
                 .into_response(),
             AppError::ReportUnavailable(_) => (
                 StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({"error":"Shopify report unavailable"})),
+                Json(ErrorResponse {
+                    error: "Shopify report unavailable".into(),
+                }),
             )
                 .into_response(),
             AppError::ReportUpstream(ref error) => {
@@ -202,7 +216,13 @@ impl AppError {
                 } else {
                     StatusCode::BAD_GATEWAY
                 };
-                (status, Json(json!({"error":"Shopify upstream failure"}))).into_response()
+                (
+                    status,
+                    Json(ErrorResponse {
+                        error: "Shopify upstream failure".into(),
+                    }),
+                )
+                    .into_response()
             }
             AppError::Database(_)
             | AppError::PasswordHash(_)
@@ -212,7 +232,9 @@ impl AppError {
             | AppError::Migration(_)
             | AppError::Io(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error":"Internal server error"})),
+                Json(ErrorResponse {
+                    error: "Internal server error".into(),
+                }),
             )
                 .into_response(),
             AppError::Context { .. } | AppError::Origin { .. } => {

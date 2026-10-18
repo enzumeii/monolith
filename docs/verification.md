@@ -14,6 +14,7 @@ Results describe this revision's exercised scope, separately from [architecture]
 | Postman | All 9 external GraphQL documents match their requests and variable sets; external9/internal-v1(11) lint passed with zero errors/warnings |
 | Formatter behavior | Misformatted GraphQL rejected, write-format corrected it, second write identical |
 | Split-contract regressions | Reproduced inventory overfetch and dropped page_info; inventory returns one page and orders retain full totals. Later-page order overflow/invalid amounts reject the summary |
+| Model cleanup | Removed unreferenced `SalesOrder`; API error encoding and backoffice decoding use shared `ErrorResponse`. Existing error/status/header regressions and the complete API suite passed; frontend native/WASM checks passed |
 | Published-head CI | Confirm separately against the pushed SHA in PR checks |
 
 Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitly approved synthetic Shopify HTTP upstream. No live Shopify requests or mutations ran.
