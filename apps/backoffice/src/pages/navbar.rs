@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 use domain::AdminRole;
 
+use crate::components::SITE_LOGO;
 use crate::route::Route;
 use crate::session::{self, SESSION};
 
@@ -17,7 +18,10 @@ pub fn Navbar() -> Element {
     rsx! {
         nav { class: "topbar",
             div { class: "brand",
-                Link { to: Route::Home {}, "Backoffice" }
+                Link { class: "brand-link", to: Route::Home {}, aria_label: "Enzumeii home",
+                    img { class: "brand-logo", src: SITE_LOGO, alt: "Enzumeii", width: "48", height: "48" }
+                    span { "Backoffice" }
+                }
             }
             div { class: "tabs",
                 if is_super {

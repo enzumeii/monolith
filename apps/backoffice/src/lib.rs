@@ -6,3 +6,5 @@ pub mod config;
 pub mod pages;
 pub mod route;
 pub mod session;
+
+pub use components::SITE_LOGO;
