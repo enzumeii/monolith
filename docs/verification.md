@@ -7,7 +7,7 @@ Results describe this revision's exercised scope, separately from [architecture]
 | Evidence | Result |
 | --- | --- |
 | Native API tests | 121 passed; 2 Docker-dependent tests ignored in the native phase |
-| Docker PostgreSQL | 123 library tests and 42 real TCP E2E tests passed; Compose teardown completed |
+| Docker PostgreSQL | 123 library tests and 44 real TCP E2E tests passed; Compose teardown completed |
 | Formatting/lint | Workspace Rust formatting, strict API/domain/downstream checks and Cargo-installed GraphQL/JSON formatting passed |
 | Shared contracts / WASM | 5 domain contracts passed; domain WASM and backoffice native/WASM checks passed |
 | Downstream tests | Backoffice 6 tests passed; client-ui check/test passed with no tests |
@@ -34,7 +34,7 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitl
 | API pagination | Inventory first and continuation HTTP calls return page_info, including empty pages; order report rejects pagination, keeps products-only global totals; old products endpoint404 |
 | Tagged orders | Literal search escaping, bounded nested lines, no child request, compatible rows merged in first-seen order and missing SKUs kept separate |
 | Dependency lifecycle | Shared AppState client Arc, optional/invalid initialization retained; services resolve availability and map affected requests to sanitized503 |
-| Report failures | Real TCP400/401/404/502/503 scenarios; transport504/non-timeout502 regression; ordinary logs/public bodies sanitized, original causes available through DEBUG diagnostics |
+| Report failures | Real TCP400/401/404/502/503/504 scenarios; configured upstream receives no invalid/unauthenticated requests. Initial/later operations cover HTTP/GraphQL rejection, partial/missing/malformed data, exhausted throttling, connection refusal and actual response timeouts; exact safe bodies/headers, paging variables and request counts asserted. Ordinary logs/public bodies sanitized, original causes available through DEBUG diagnostics |
 | Existing API | Authentication, authorization, cookies/origins/CORS, refresh-family transactions, database operations and registered routes remain covered by the complete suite |
 
 ## Limits

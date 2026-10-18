@@ -232,8 +232,25 @@ pub async fn assert_report_auth(client: &TestClient, uri: &str) {
             .send(request.body(Body::empty()).unwrap())
             .await
             .unwrap();
-        assert_eq!(response.status(), 401);
+        assert_report_error(response, 401, "Invalid or expired token").await;
     }
+}
+
+pub async fn assert_report_error(response: axum::response::Response, status: u16, message: &str) {
+    assert_eq!(response.status(), status);
+    assert_eq!(response.headers()["content-type"], "application/json");
+    assert_eq!(
+        response
+            .headers()
+            .get("www-authenticate")
+            .map(|value| value.to_str().unwrap()),
+        (status == 401).then_some("Bearer")
+    );
+    assert!(response.headers().get("set-cookie").is_none());
+    assert_eq!(
+        body_json(response).await,
+        serde_json::json!({"error":message})
+    );
 }
 
 pub async fn assert_report_unavailable(
@@ -262,6 +279,78 @@ pub async fn client_with_upstream(router: axum::Router) -> (TestClient, TestUpst
     let upstream = TestUpstream(server);
     let client = client_with_shopify(&format!("http://{address}/graphql.json")).await;
     (client, upstream)
+}
+
+pub struct ScriptedUpstream {
+    requests: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    _server: TestUpstream,
+}
+impl ScriptedUpstream {
+    pub fn requests(&self) -> Vec<serde_json::Value> {
+        self.requests.lock().unwrap().clone()
+    }
+}
+
+pub async fn client_with_upstream_script(
+    prefix: Vec<serde_json::Value>,
+    failure: &'static str,
+) -> (TestClient, ScriptedUpstream) {
+    use axum::{Json, response::IntoResponse};
+    use serde_json::{Value, json};
+
+    let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = requests.clone();
+    let replies = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from(
+        prefix,
+    )));
+    let router = axum::Router::new().route(
+        "/graphql.json",
+        axum::routing::post(move |headers: axum::http::HeaderMap, Json(request): Json<Value>| {
+            let recorded = recorded.clone();
+            let replies = replies.clone();
+            async move {
+                assert_eq!(headers["x-shopify-access-token"], "e2e-fixture-token");
+                recorded.lock().unwrap().push(request);
+                let reply = replies.lock().unwrap().pop_front();
+                if let Some(reply) = reply {
+                    return Json(json!({"data":reply})).into_response();
+                }
+                match failure {
+                    "http" => (axum::http::StatusCode::SERVICE_UNAVAILABLE, "private upstream body").into_response(),
+                    "graphql" => Json(json!({"errors":[{"message":"private upstream error"}]})).into_response(),
+                    "partial" => Json(json!({"data":{},"errors":[{"message":"private partial result"}]})).into_response(),
+                    "malformed" => "{".into_response(),
+                    "missing" => Json(json!({"data":null})).into_response(),
+                    "shape" => Json(json!({"data":{"orders":false,"location":false,"products":false}})).into_response(),
+                    "throttled" => Json(json!({"errors":[{"message":"private throttle","extensions":{"code":"THROTTLED"}}]})).into_response(),
+                    "timeout" => {
+                        tokio::time::sleep(Duration::from_secs(31)).await;
+                        Json(json!({"data":null})).into_response()
+                    }
+                    _ => panic!("unexpected upstream failure {failure}"),
+                }
+            }
+        }),
+    );
+    let (client, server) = client_with_upstream(router).await;
+    (
+        client,
+        ScriptedUpstream {
+            requests,
+            _server: server,
+        },
+    )
+}
+
+pub async fn client_with_unreachable_shopify() -> TestClient {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let client = client_with_shopify(&format!(
+        "http://{}/graphql.json",
+        listener.local_addr().unwrap()
+    ))
+    .await;
+    drop(listener);
+    client
 }
 
 pub struct TestUpstream(tokio::task::JoinHandle<()>);

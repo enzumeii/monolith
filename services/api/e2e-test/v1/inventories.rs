@@ -1,6 +1,7 @@
 use crate::common::{
-    assert_report_auth, assert_report_unavailable, authed, body_json, client, client_with_upstream,
-    fixture, shopify_page as page,
+    assert_report_auth, assert_report_error, assert_report_unavailable, authed, body_json, client,
+    client_with_unreachable_shopify, client_with_upstream, client_with_upstream_script, fixture,
+    shopify_page as page,
 };
 use axum::{Json, Router, http::StatusCode, response::IntoResponse};
 use domain::dto::AdminRole;
@@ -10,39 +11,124 @@ use serde_json::{Value, json};
 async fn inventories_auth_validation_and_unconfigured_shopify() {
     let fixture = fixture().await;
     let client = client().await;
-    assert_report_auth(&client, "/v1/inventories/1").await;
+    let (configured, upstream) = client_with_upstream_script(vec![], "http").await;
+    assert_report_auth(&configured, "/v1/inventories/1").await;
     for role in [AdminRole::Admin, AdminRole::SuperAdmin] {
         for uri in [
             "/v1/inventories/bad",
             "/v1/inventories/0",
+            "/v1/inventories/000",
+            "/v1/inventories/-1",
+            "/v1/inventories/1.5",
             "/v1/inventories/1?page_size=0",
             "/v1/inventories/1?page_size=251",
             "/v1/inventories/1?page_size=-1",
             "/v1/inventories/1?page_size=abc",
+            "/v1/inventories/1?page_size=65536",
+            "/v1/inventories/1?page_size=1&page_size=2",
             "/v1/inventories/1?cursor=",
             "/v1/inventories/1?cursor=%20",
+            "/v1/inventories/1?cursor=a&cursor=b",
             "/v1/inventories/1?unexpected=x",
         ] {
-            let response = client
+            let response = configured
                 .send(authed("GET", uri, fixture.root_id(), role))
                 .await
                 .unwrap();
-            assert_eq!(response.status(), 400, "{uri}");
-            let body = body_json(response).await;
-            assert!(body.get("products").is_none());
-            assert!(!body.to_string().contains("unexpected"));
+            assert_report_error(
+                response,
+                400,
+                "Expected a location id, page_size between 1 and 250, and a nonblank cursor",
+            )
+            .await;
         }
         assert_report_unavailable(&client, "/v1/inventories/1", fixture.root_id(), role).await;
-        let response = client
-            .send(authed(
-                "GET",
-                "/v1/products?type=INVENTORY&id=1",
-                fixture.root_id(),
-                role,
-            ))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), 404);
+    }
+    assert!(upstream.requests().is_empty());
+}
+
+#[tokio::test]
+async fn inventory_dependency_failures_return_safe_errors_over_tcp() {
+    let fixture = fixture().await;
+    let mut timeouts = tokio::task::JoinSet::new();
+    for products in [false, true] {
+        timeouts.spawn(assert_inventory_failure(
+            fixture.root_id(),
+            products,
+            "timeout",
+        ));
+    }
+    for products in [false, true] {
+        for failure in [
+            "http",
+            "graphql",
+            "partial",
+            "malformed",
+            "missing",
+            "shape",
+            "throttled",
+        ] {
+            assert_inventory_failure(fixture.root_id(), products, failure).await;
+        }
+    }
+    let client = client_with_unreachable_shopify().await;
+    let response = client
+        .send(authed(
+            "GET",
+            "/v1/inventories/1",
+            fixture.root_id(),
+            AdminRole::Admin,
+        ))
+        .await
+        .unwrap();
+    assert_report_error(response, 502, "Shopify upstream failure").await;
+    while let Some(result) = timeouts.join_next().await {
+        result.unwrap();
+    }
+}
+
+async fn assert_inventory_failure(admin_id: i64, products: bool, failure: &'static str) {
+    let prefix = if products {
+        vec![json!({"location":{"id":"gid://shopify/Location/1"}})]
+    } else {
+        vec![]
+    };
+    let (client, upstream) = client_with_upstream_script(prefix, failure).await;
+    let response = client
+        .send(authed(
+            "GET",
+            "/v1/inventories/1",
+            admin_id,
+            AdminRole::Admin,
+        ))
+        .await
+        .unwrap();
+    assert_report_error(
+        response,
+        if failure == "timeout" { 504 } else { 502 },
+        "Shopify upstream failure",
+    )
+    .await;
+    let requests = upstream.requests();
+    assert_eq!(
+        requests.len(),
+        usize::from(products) + if failure == "throttled" { 4 } else { 1 },
+        "{failure}, products={products}"
+    );
+    for (index, request) in requests.iter().enumerate() {
+        if products && index > 0 {
+            assert_eq!(request["operationName"], "ProductsWithVariants");
+            assert_eq!(
+                request["variables"],
+                json!({"first":50,"after":null,"locationId":"gid://shopify/Location/1","search":"status:active"})
+            );
+        } else {
+            assert_eq!(request["operationName"], "Location");
+            assert_eq!(
+                request["variables"],
+                json!({"id":"gid://shopify/Location/1"})
+            );
+        }
     }
 }
 

@@ -181,7 +181,7 @@ flowchart LR
 | Precision | API checked decimal arithmetic; domain JSON numbers preserve decimal precision; overflow/invalid upstream numbers fail the whole report |
 | Failures | 400 invalid input, 401 authentication, 404 location absent, 503 missing configuration, 502 upstream failure, 504 upstream timeout; sanitized responses |
 | Inventory input/output | Location ID path; page_size defaults50 (1–250), cursor forwards unchanged; products plus page_info; filtered empty pages retain continuation |
-| Order input/output | Required literal tags value; products only; page_size/cursor rejected400. Former /v1/products endpoint removed |
+| Order input/output | Required literal tags value; products only; page_size/cursor rejected400. |
 | Aggregation | Order report merges compatible rows across all matching order pages, in first-seen order; no snapshot isolation |
 
 The nested250 bound is the agreed store workload, not a Shopify platform maximum. Exact live requested query cost remains unverified.

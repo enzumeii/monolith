@@ -1,6 +1,7 @@
 use crate::common::{
-    assert_report_auth, assert_report_unavailable, authed, body_json, client, client_with_upstream,
-    fixture, shopify_page as page,
+    assert_report_auth, assert_report_error, assert_report_unavailable, authed, body_json, client,
+    client_with_unreachable_shopify, client_with_upstream, client_with_upstream_script, fixture,
+    shopify_page as page,
 };
 use axum::{Json, Router, response::IntoResponse};
 use domain::dto::AdminRole;
@@ -10,7 +11,8 @@ use serde_json::{Value, json};
 async fn orders_auth_validation_and_unconfigured_shopify() {
     let fixture = fixture().await;
     let client = client().await;
-    assert_report_auth(&client, "/v1/orders/report?tags=report").await;
+    let (configured, upstream) = client_with_upstream_script(vec![], "http").await;
+    assert_report_auth(&configured, "/v1/orders/report?tags=report").await;
     for role in [AdminRole::Admin, AdminRole::SuperAdmin] {
         for uri in [
             "/v1/orders/report",
@@ -19,15 +21,18 @@ async fn orders_auth_validation_and_unconfigured_shopify() {
             "/v1/orders/report?tags=report&page_size=1",
             "/v1/orders/report?tags=report&cursor=next",
             "/v1/orders/report?tags=report&unknown=x",
+            "/v1/orders/report?tags=report&tags=other",
         ] {
-            let response = client
+            let response = configured
                 .send(authed("GET", uri, fixture.root_id(), role))
                 .await
                 .unwrap();
-            assert_eq!(response.status(), 400, "{uri}");
-            let body = body_json(response).await;
-            assert!(body.get("products").is_none());
-            assert!(!body.to_string().contains("unexpected"));
+            assert_report_error(
+                response,
+                400,
+                "Expected a nonblank tags value without pagination",
+            )
+            .await;
         }
         assert_report_unavailable(
             &client,
@@ -36,6 +41,84 @@ async fn orders_auth_validation_and_unconfigured_shopify() {
             role,
         )
         .await;
+    }
+    assert!(upstream.requests().is_empty());
+}
+
+#[tokio::test]
+async fn order_dependency_failures_return_safe_errors_over_tcp() {
+    let fixture = fixture().await;
+    let mut timeouts = tokio::task::JoinSet::new();
+    for later in [false, true] {
+        timeouts.spawn(assert_order_failure(fixture.root_id(), later, "timeout"));
+    }
+    for later in [false, true] {
+        for failure in [
+            "http",
+            "graphql",
+            "partial",
+            "malformed",
+            "missing",
+            "shape",
+            "throttled",
+        ] {
+            assert_order_failure(fixture.root_id(), later, failure).await;
+        }
+    }
+    let client = client_with_unreachable_shopify().await;
+    let response = client
+        .send(authed(
+            "GET",
+            "/v1/orders/report?tags=report",
+            fixture.root_id(),
+            AdminRole::Admin,
+        ))
+        .await
+        .unwrap();
+    assert_report_error(response, 502, "Shopify upstream failure").await;
+    while let Some(result) = timeouts.join_next().await {
+        result.unwrap();
+    }
+}
+
+async fn assert_order_failure(admin_id: i64, later: bool, failure: &'static str) {
+    let prefix = if later {
+        vec![json!({"orders":page(vec![json!({
+            "id":"gid://shopify/Order/1","number":1,"tags":[],"email":null,"phone":null,
+            "currentTotalPriceSet":{"shopMoney":{"amount":"1","currencyCode":"USD"}},
+            "lineItems":page(vec![report_line(2,"0.1","USD")],None)
+        })],Some("next"))})]
+    } else {
+        vec![]
+    };
+    let (client, upstream) = client_with_upstream_script(prefix, failure).await;
+    let response = client
+        .send(authed(
+            "GET",
+            "/v1/orders/report?tags=report",
+            admin_id,
+            AdminRole::Admin,
+        ))
+        .await
+        .unwrap();
+    assert_report_error(
+        response,
+        if failure == "timeout" { 504 } else { 502 },
+        "Shopify upstream failure",
+    )
+    .await;
+    let requests = upstream.requests();
+    assert_eq!(
+        requests.len(),
+        usize::from(later) + if failure == "throttled" { 4 } else { 1 },
+        "{failure}, later={later}"
+    );
+    for (index, request) in requests.iter().enumerate() {
+        assert_eq!(request["operationName"], "OrdersByTag");
+        assert_eq!(
+            request["variables"],
+            json!({"first":250,"after":if later && index > 0 { Some("next") } else { None },"search":"tag:\"report\""})
+        );
     }
 }
 
