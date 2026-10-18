@@ -2,9 +2,9 @@
 
 ## Prerequisites
 
-Run `../../init.sh` to install the CLI packages after installing Rust, Docker and curl (macOS/Linux, ARM64/x64).
+Run `../../init.sh` to install the CLI packages after installing Rust and Docker.
 
-`just setup` installs pinned standalone Biome for GraphQL/JSON formatting and creates `.env` when missing.
+`just setup` installs pinned dprint with Cargo under `.tools/`, caches its GraphQL/JSON plugins, and creates `.env` when missing.
 
 ## Run locally
 

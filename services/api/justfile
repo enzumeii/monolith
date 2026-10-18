@@ -1,34 +1,19 @@
 set dotenv-load := true
 set export := true
 
-biome_version := "2.5.15"
-biome := "../../.tools/biome-" + biome_version
+dprint_version := "0.63.0"
+export DPRINT_CACHE_DIR := justfile_directory() / ".tools/cache"
 
 # Default target
 default:
     @just --list
 
-# Install pinned Biome for GraphQL/JSON formatting and create .env if missing.
+# Install pinned dprint locally with Cargo, cache its plugins and create .env if missing.
 setup:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ ! -x "{{biome}}" ]; then
-      case "$(uname -s)-$(uname -m)" in
-        Darwin-arm64) platform=darwin-arm64 ;;
-        Darwin-x86_64) platform=darwin-x64 ;;
-        Linux-aarch64) platform=linux-arm64 ;;
-        Linux-x86_64) platform=linux-x64 ;;
-        *) echo 'Unsupported Biome platform: use macOS or Linux on ARM64/x64.' >&2; exit 1 ;;
-      esac
-      mkdir -p ../../.tools
-      download=$(mktemp "{{biome}}.XXXXXX")
-      trap 'rm -f "$download"' EXIT
-      curl --fail --location --retry 3 --output "$download" \
-        "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%40{{biome_version}}/biome-$platform"
-      chmod +x "$download"
-      "$download" --version
-      mv "$download" "{{biome}}"
-    fi
+    cargo install --locked dprint --version {{dprint_version}} --root .tools
+    .tools/bin/dprint config install
     if [ ! -f .env ]; then
       echo '→ Scaffolding .env from template...'
       printf '%s\n' \
@@ -73,7 +58,7 @@ test:
 
 # Check Rust/GraphQL/JSON formatting and strict API lint.
 check:
-    cd ../.. && ".tools/biome-{{biome_version}}" format .
+    .tools/bin/dprint check
     cargo fmt --check -p api
     cargo clippy --locked -p api --all-targets -- -D warnings
 
@@ -81,7 +66,7 @@ check:
 fix:
     cargo clippy --locked -p api --fix --allow-dirty --allow-staged -- -D warnings
     cargo sqlx prepare
-    cd ../.. && ".tools/biome-{{biome_version}}" format --write .
+    .tools/bin/dprint fmt
     cargo fmt -p api
 
 # Recreate the dev Postgres database (drop + create)

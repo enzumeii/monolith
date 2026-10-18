@@ -34,6 +34,9 @@ jobs:
 
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          key: api-tools-${{ hashFiles('services/api/justfile', 'services/api/dprint.json') }}
+          cache-directories: services/api/.tools
 
       # Detect which service changed so we only run its check/test.
       - name: Detect changed services
@@ -42,9 +45,6 @@ jobs:
         with:
           filters: |
             api:
-              - '**/*.json'
-              - '**/*.jsonc'
-              - '**/*.graphql'
               - 'services/api/**'
               - 'crates/domain/**'
               - 'Cargo.toml'

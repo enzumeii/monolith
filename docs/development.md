@@ -131,6 +131,6 @@ Inventory returns one caller-selected product page with active inventory levels;
 | Postman | Internal inventories first/continuation and orders report requests use location_id and order_tag variables; replace the synthetic abc cursor with the returned end_cursor |
 | Verification | API just test includes real TCP report routes with Docker PostgreSQL and the approved synthetic Shopify upstream; live store verification remains manual |
 | Replaced endpoint | /v1/products removed; type/id report dispatch no longer exists |
-| Formatting | API just setup installs standalone Biome 2.5.15; just check checks repository GraphQL/JSON, API Rust formatting and strict lint; just fix prepares SQLx metadata before formatting. CI uses the same setup recipe without Node/npm. Update Postman query text after formatting GraphQL |
+| Formatting | API just setup installs dprint 0.63.0 with Cargo under services/api/.tools and caches the pinned Rust-based GraphQL/JSON Wasm plugins there. just check checks API GraphQL/JSON, Rust formatting and strict lint; just fix prepares SQLx metadata before formatting. CI uses the same setup recipe. Update Postman query text after formatting GraphQL |
 
 Report queries require product, inventory, location and order access; reading unitCost may also require View product costs permission. Historical order access remains subject to Shopify permissions. Missing product/variant metadata produces null values; quantities use original order lines, not refund-adjusted accounting.
