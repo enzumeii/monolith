@@ -45,6 +45,7 @@ impl std::fmt::Debug for ShopifyConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
+    pub shipping_sender: Option<ShippingSender>,
     pub client: Option<ClientConfig>,
     pub browser: BrowserConfig,
     pub server: ServerConfig,
@@ -136,3 +137,16 @@ impl std::fmt::Debug for JwtSettings {
 #[cfg(test)]
 #[path = "tests/config.rs"]
 mod tests;
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ShippingSender {
+    pub name: String,
+    pub phone: String,
+    pub email: String,
+    pub address: String,
+    pub sub_district: String,
+    pub district: String,
+    pub province: String,
+    pub postcode: String,
+    pub country_code: String,
+}

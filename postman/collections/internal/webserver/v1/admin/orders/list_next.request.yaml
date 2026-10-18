@@ -1,0 +1,10 @@
+$kind: http-request
+description: 'Set order_cursor to the previous end_cursor. List the next order page; tag is comma-separated AND tags. page_size: 1..250 (default 50); cursor is opaque. Returns orders [{id,number}] and page_info {has_next_page,end_cursor}. Invalid input 400; auth 401; unavailable 503; upstream 502/timeout 504. Inherits bearer access_token.'
+url: "{{server}}/v1/admin/orders?tag=SHIPPING,FASTSHIP&fulfillment=UNFULFILLED&page_size=50&cursor={{order_cursor}}"
+method: GET
+queryParams:
+  tag: SHIPPING,FASTSHIP
+  fulfillment: UNFULFILLED
+  page_size: '50'
+  cursor: '{{order_cursor}}'
+order: 2100

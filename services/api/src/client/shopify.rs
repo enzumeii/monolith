@@ -190,3 +190,5 @@ impl ShopifyClient {
 #[cfg(test)]
 #[path = "../tests/client/shopify.rs"]
 mod tests;
+
+mod fulfillment;

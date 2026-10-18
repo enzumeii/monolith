@@ -1,0 +1,73 @@
+$kind: graphql-request
+description: "Requires Shopify token in local vault. Synthetic IDs must be replaced with test-store IDs. Returns selected data and pageInfo where applicable. Mutation userErrors, GraphQL errors and missing payloads are failures. Do not run mutations against production during verification."
+url: "{{shopify}}/graphql.json"
+query: |
+  query ShippingOrders($first: Int!, $after: String, $search: String!) {
+    orders(
+      first: $first
+      after: $after
+      query: $search
+      sortKey: CREATED_AT
+      reverse: true
+    ) {
+      nodes {
+        id
+        email
+        currencyCode
+        totalWeight
+        shippingAddress {
+          firstName
+          lastName
+          name
+          address1
+          address2
+          city
+          provinceCode
+          zip
+          country
+          countryCodeV2
+          phone
+        }
+        shippingLines(first: 250) {
+          nodes {
+            code
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+        lineItems(first: 250) {
+          nodes {
+            title
+            sku
+            quantity
+            originalUnitPriceSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+variables: |
+  {
+    "first": 250,
+    "after": null,
+    "search": "status:open AND financial_status:paid AND fulfillment_status:unfulfilled AND tag:\"PACKING\""
+  }
+settings: {}
+schema:
+  source: auto
+order: 3100

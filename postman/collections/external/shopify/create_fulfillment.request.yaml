@@ -1,0 +1,41 @@
+$kind: graphql-request
+description: "Requires Shopify token in local vault. Synthetic IDs must be replaced with test-store IDs. Returns selected data and pageInfo where applicable. Mutation userErrors, GraphQL errors and missing payloads are failures. Do not run mutations against production during verification."
+url: "{{shopify}}/graphql.json"
+query: |
+  mutation CreateFulfillment($fulfillment: FulfillmentInput!) {
+    fulfillmentCreate(fulfillment: $fulfillment) {
+      fulfillment {
+        id
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+variables: |
+  {
+    "fulfillment": {
+      "notifyCustomer": true,
+      "trackingInfo": {
+        "company": "Other",
+        "number": "LR123456789",
+        "url": "https://track.fastship.co/LR123456789"
+      },
+      "lineItemsByFulfillmentOrder": [
+        {
+          "fulfillmentOrderId": "gid://shopify/FulfillmentOrder/123",
+          "fulfillmentOrderLineItems": [
+            {
+              "id": "gid://shopify/FulfillmentOrderLineItem/123",
+              "quantity": 1
+            }
+          ]
+        }
+      ]
+    }
+  }
+settings: {}
+schema:
+  source: auto
+order: 3500

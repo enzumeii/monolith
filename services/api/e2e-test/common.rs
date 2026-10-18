@@ -433,6 +433,16 @@ min_connections = 1
 public_origin = "http://127.0.0.1:8084"
 insecure_local = true
 {shopify}
+[shipping_sender]
+name = "Nanmanas Tandavanitj"
+phone = "0989473856"
+email = "automated.enzumeii@gmail.com"
+address = "41/229 Diamond City Nuanchan 23"
+sub_district = "Nuanchan"
+district = "Buengkhum"
+province = "Bangkok"
+postcode = "10230"
+country_code = "TH"
 "#
         ),
     )

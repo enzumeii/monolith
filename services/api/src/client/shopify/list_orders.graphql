@@ -1,0 +1,18 @@
+query ListOrders($first: Int!, $after: String, $search: String!) {
+  orders(
+    first: $first
+    after: $after
+    query: $search
+    sortKey: CREATED_AT
+    reverse: true
+  ) {
+    nodes {
+      id
+      number
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}

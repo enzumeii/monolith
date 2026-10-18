@@ -1,0 +1,5 @@
+$kind: http-request
+description: 'Generate all PACKING labels for open paid unfulfilled orders. Returns fastship/thaipost/best/teleport arrays. Adds SHIPPING and courier tag, then removes PACKING per order. No date tag. Later failure may leave earlier tag changes applied; inspect orders before repeating. No body/query. Inherits bearer access_token. Invalid input 400; missing method 409; upstream 502/504; unavailable 503.'
+url: "{{server}}/v1/admin/orders/shipping_label"
+method: POST
+order: 3000

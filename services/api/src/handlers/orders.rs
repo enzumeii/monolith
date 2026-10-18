@@ -12,3 +12,42 @@ pub async fn report(
     let tags = validations::orders::extract_order_query(query)?;
     Ok(Json(services::orders::order_report(&state, tags).await?))
 }
+
+pub async fn list(
+    State(state): State<AppState>,
+    query: Result<Query<domain::dto::orders::ListOrdersQuery>, QueryRejection>,
+) -> Result<Json<domain::dto::orders::ListOrdersResponse>, AppError> {
+    let (search, page) = validations::orders::extract_list_query(query)?;
+    Ok(Json(
+        services::orders::workflow::list(&state, search, page).await?,
+    ))
+}
+pub async fn shipping_labels(
+    State(state): State<AppState>,
+    uri: axum::http::Uri,
+) -> Result<
+    (
+        [(axum::http::header::HeaderName, &'static str); 1],
+        Json<domain::dto::orders::ShippingLabels>,
+    ),
+    AppError,
+> {
+    validations::orders::require_no_query(uri.query())?;
+    Ok((
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        Json(services::orders::workflow::labels(&state).await?),
+    ))
+}
+pub async fn fulfill(
+    State(state): State<AppState>,
+    path: Result<axum::extract::Path<String>, axum::extract::rejection::PathRejection>,
+    body: Result<
+        Json<domain::dto::orders::FulfillOrderRequest>,
+        axum::extract::rejection::JsonRejection,
+    >,
+) -> Result<Json<domain::dto::orders::FulfillOrderResponse>, AppError> {
+    let (id, body) = validations::orders::extract_fulfill_request(path, body)?;
+    Ok(Json(
+        services::orders::fulfillment::fulfill(&state, id, body).await?,
+    ))
+}

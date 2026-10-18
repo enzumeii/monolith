@@ -240,3 +240,30 @@ fn builder_override_populates_shopify_token_without_a_construction_helper() {
         .unwrap();
     assert_eq!(config.access_token.as_deref(), Some("env-token"));
 }
+
+#[test]
+fn shipping_sender_is_typed_from_toml_and_rejects_incomplete_values() {
+    let sender: ShippingSender = config::Config::builder()
+        .add_source(config::File::from_str(
+            r#"
+name="Sender"
+phone="123"
+email="sender@example.test"
+address="1 Test"
+sub_district="Sub"
+district="District"
+province="Province"
+postcode="00123"
+country_code="TH"
+"#,
+            config::FileFormat::Toml,
+        ))
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert_eq!(sender.postcode, "00123");
+    assert!(
+        serde_json::from_value::<ShippingSender>(serde_json::json!({"postcode":"00123"})).is_err()
+    );
+}
