@@ -12,7 +12,7 @@ pub(super) fn shopify_client(state: &AppState) -> Result<&ShopifyClient, AppErro
         .map_err(|error| {
             AppError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
-                "Shopify report unavailable",
+                "Shopify client unavailable",
             )
             .with_source(error.clone())
         })?
@@ -20,7 +20,7 @@ pub(super) fn shopify_client(state: &AppState) -> Result<&ShopifyClient, AppErro
         .ok_or_else(|| {
             AppError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
-                "Shopify report unavailable",
+                "Shopify client unavailable",
             )
         })
 }

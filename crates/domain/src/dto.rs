@@ -12,5 +12,8 @@ pub mod products;
 pub use products::ProductReportRow;
 pub mod inventories;
 pub mod orders;
-pub use inventories::{InventoryPageInfo, InventoryQuery, InventoryResponse};
+pub use inventories::{
+    InventoryEnableError, InventoryEnableResponse, InventoryPageInfo, InventoryQuery,
+    InventoryResponse,
+};
 pub use orders::{OrderReportQuery, OrderReportResponse};

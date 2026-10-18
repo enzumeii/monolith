@@ -1,0 +1,7 @@
+interface:
+  display_name: "Reuse Existing Code"
+  short_description: "Reuse and enhance existing code before adding more"
+  default_prompt: "Use $reuse-existing-code to inspect existing implementations and choose reuse, enhancement, or justified new code."
+
+policy:
+  allow_implicit_invocation: true

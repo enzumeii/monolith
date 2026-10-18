@@ -97,3 +97,36 @@ fn inventory_contract_retains_pagination_metadata() {
         value
     );
 }
+
+#[test]
+fn inventory_enable_contract_counts_items_and_omits_empty_errors() {
+    use domain::dto::{InventoryEnableError, InventoryEnableResponse};
+    let response = InventoryEnableResponse {
+        total: 2,
+        success: 1,
+        failed: 1,
+        errors: vec![InventoryEnableError {
+            product_id: 42,
+            reason: "Inventory activation rejected".into(),
+        }],
+    };
+    assert_eq!(
+        serde_json::to_value(response).expect("serialize enablement response"),
+        serde_json::json!({
+            "total":2,"success":1,"failed":1,
+            "errors":[{"product_id":42,"reason":"Inventory activation rejected"}]
+        })
+    );
+    for count in [0, 3] {
+        let response = InventoryEnableResponse {
+            total: count,
+            success: count,
+            failed: 0,
+            errors: vec![],
+        };
+        assert_eq!(
+            serde_json::to_value(response).expect("serialize enablement response"),
+            serde_json::json!({"total":count,"success":count,"failed":0})
+        );
+    }
+}

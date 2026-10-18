@@ -11,6 +11,8 @@ These rules apply to the entire repository.
 
 ## Code clarity
 
+- Before adding or replacing implementation code, use `.agents/skills/reuse-existing-code/SKILL.md`: inspect existing helpers and consumers, reuse them directly or minimally enhance them before creating a separate implementation. Record the concrete incompatibility when new code is necessary.
+
 - Make code self-documenting through clear names, small functions, explicit types, and cohesive modules.
 - Add code comments only when complex logic needs an explanation that the code cannot reasonably convey. Explain the reason or invariant, rather than restating the code.
 - Simplify complex code and split it into understandable, focused components before adding explanatory comments. Avoid unnecessary abstraction.
