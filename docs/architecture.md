@@ -129,7 +129,7 @@ flowchart LR
 | HttpClient / GraphqlClient | Shared HTTP pool; typed transport and GraphQL envelopes; partial-data errors rejected |
 | ShopifyClient | One operation per call; root-paged methods accept explicit first/after; no automatic follow-up |
 | Initialization | AppState owns one optional client; service resolves availability and retained initialization causes |
-| Root report traversal | Services request one product/order per page and process each response before fetching the next; cursor progress/cycle checks remain |
+| Root report traversal | Inventory forwards caller size/cursor and returns one product page; orders process batches250 until exhausted with cursor progress/cycle checks |
 | Nested report data | Product variants and tagged-order lines use fixed first250 without child queries; unexpected hasNextPage fails rather than truncates |
 | Models | API-owned source conversions, SKU/stock derivation, exact report arithmetic and merge compatibility; domain DTOs remain wire-only |
 
@@ -145,7 +145,7 @@ flowchart LR
 
 | Request policy | Guarantee / limit |
 | --- | --- |
-| Pagination | Services exhaust root product/order connections; missing/empty/repeated/cyclic cursors fail |
+| Pagination | Inventory preserves upstream page_info without following it; orders exhaust all root pages. Invalid cursor metadata fails |
 | Throttling | HttpClient owns one retry loop for HTTP 4xx and data-less all-THROTTLED GraphQL responses; GraphqlClient supplies the envelope classifier |
 | Budget | Four total attempts; 1/2/4-second backoff plus 0–250 ms jitter; total retry sleep at most 30 seconds |
 | Retry-After | Honor seconds/HTTP-date minimums; stop rather than exceed the sleep budget or overflow duration arithmetic |
@@ -167,19 +167,20 @@ flowchart LR
 | Runtime | Standalone Axum listener and Tokio maintenance; no serverless adapter or production deployment mechanism |
 | Capacity | Default database pool has one connection; throughput and deployment guarantees require separate evidence |
 
-## Product reports
+## Inventory and order reports
 
 | Concern | Behavior |
 | --- | --- |
-| Route | `GET /v1/products?type=INVENTORY\|ORDER_TAG&id=...`, existing ADMIN/SUPER_ADMIN bearer or cookie protection |
+| Routes | GET /v1/inventories/{inventory_id} and GET /v1/orders/report?tags=TAG; existing ADMIN/SUPER_ADMIN bearer or cookie protection |
 | Contract | Domain product report DTOs only; API owns Shopify models, validation and report orchestration |
 | Inventory | Numeric location ID; active products and active inventory levels at the location; on_hand includes zero/negative quantities; missing location is 404 |
 | Metadata | Category = productType; collection = SKU characters 4–9 inclusive, null for short/missing SKU; cost and weight are current inventory metadata |
 | Orders | Literal tag; original quantities and original unit shop-money prices; merge SKU + price + currency with compatible cost/weight/category; missing SKUs stay separate |
-| Completeness | One HTTP response after every root product/order page is processed; bounded nested connections must be complete |
+| Completeness | Inventory returns one root product page; orders return one response after every matching order page is processed. Bounded nested connections must be complete |
 | Precision | API checked decimal arithmetic; domain JSON numbers preserve decimal precision; overflow/invalid upstream numbers fail the whole report |
 | Failures | 400 invalid input, 401 authentication, 404 location absent, 503 missing configuration, 502 upstream failure, 504 upstream timeout; sanitized responses |
-| Report input/output | type/id only; response contains products only; removed page_size/cursor parameters return400 |
-| Aggregation | ORDER_TAG merges compatible rows across all matching order pages, in first-seen order; no snapshot isolation |
+| Inventory input/output | Location ID path; page_size defaults50 (1–250), cursor forwards unchanged; products plus page_info; filtered empty pages retain continuation |
+| Order input/output | Required literal tags value; products only; page_size/cursor rejected400. Former /v1/products endpoint removed |
+| Aggregation | Order report merges compatible rows across all matching order pages, in first-seen order; no snapshot isolation |
 
 The nested250 bound is the agreed store workload, not a Shopify platform maximum. Exact live requested query cost remains unverified.

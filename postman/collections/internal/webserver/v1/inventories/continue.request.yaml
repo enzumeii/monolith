@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{server}}/v1/inventories/{{location_id}}?page_size=50&cursor=abc"
+method: GET
+order: 2000

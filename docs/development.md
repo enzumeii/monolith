@@ -81,7 +81,7 @@ Handlers pass AppState to report services; services resolve the shared state.sho
 | Failure handling | Shopify ClientError failures identify api::client::shopify and retain their typed cause. Convert to AppError at the response boundary or use log_background_error for one ERROR; returning/propagating a Result does not log |
 | Privacy | Do not log token values, request/response bodies, raw upstream fields, payment references or customer information |
 
-The report service exhausts outer product/order pages, consumes nested data from those responses and selects active inventory levels. Source models transform their own values; the service owns paging and grouping order. Client methods do not interpret mutation userErrors.
+Inventory returns one caller-selected product page with active inventory levels; order reports exhaust matching order pages before returning grouped totals. Source models transform their own values; services own pagination and grouping order. Client methods do not interpret mutation userErrors.
 
 | Outbound request behavior | Policy |
 | --- | --- |
@@ -119,17 +119,18 @@ The report service exhausts outer product/order pages, consumes nested data from
 | `.superpowers/` | Ignored local execution scratch/ledgers; excluded from the published tree |
 | Postman workspace | Existing local edits are preserved; carrying files to a worktree does not authorize publishing secrets |
 
-## Product report requests
+## Inventory and order report requests
 
 | Request | Input / result |
 | --- | --- |
-| `GET /v1/products?type=INVENTORY&id=1234` | Numeric location ID; ACTIVE products and active levels at that location; zero/negative on_hand retained |
-| `GET /v1/products?type=ORDER_TAG&id=TAG` | Literal tag; merge matching SKU + original unit price + currency and compatible metadata across every matching order page |
+| `GET /v1/inventories/{inventory_id}?page_size=50&cursor=abc` | Numeric Shopify location ID; page_size defaults50, range1–250, counts root products; cursor forwards unchanged to Shopify. Returns products and page_info (has_next_page/end_cursor) |
+| Inventory rows | ACTIVE products and active inventory levels at the location; zero/negative on_hand retained. A product can produce multiple variant rows; no local row slicing |
+| Inventory continuation | One upstream product page per API call, even if every row filters out. Follow returned cursor when has_next_page is true, including empty pages |
+| `GET /v1/orders/report?tags=TAG` | One literal tag; root batches250; merge compatible SKU/price/currency rows across every matching order page. Returns products only; page_size/cursor rejected400 |
 | Credentials | Existing ADMIN/SUPER_ADMIN bearer or cookie credentials; Shopify URL in TOML and SHOPIFY_ACCESS_TOKEN environment secret |
-| Postman | Internal webserver products requests use `location_id` and `order_tag` variables |
-| Verification | Existing API `just test` includes real TCP product routes with Docker PostgreSQL and mocked Shopify, explicitly requested for this feature; live store verification remains manual |
-| Report contract | type/id only; one products-only response. Removed page_size/cursor parameters return400 |
-| Complete report | Services request first250 root products/orders per call and follow cursors until exhausted. ORDER_TAG aggregation spans every matching order; no client-side continuation |
+| Postman | Internal inventories first/continuation and orders report requests use location_id and order_tag variables; replace the synthetic abc cursor with the returned end_cursor |
+| Verification | API just test includes real TCP report routes with Docker PostgreSQL and the approved synthetic Shopify upstream; live store verification remains manual |
+| Replaced endpoint | /v1/products removed; type/id report dispatch no longer exists |
 | Formatting | API just setup installs pinned Prettier with npm ci; just check checks Rust/GraphQL, just fix formats both. CI uses Node.js24 and the lockfile. Update Postman query text after formatting GraphQL |
 
 Report queries require product, inventory, location and order access; reading unitCost may also require View product costs permission. Historical order access remains subject to Shopify permissions. Missing product/variant metadata produces null values; quantities use original order lines, not refund-adjusted accounting.

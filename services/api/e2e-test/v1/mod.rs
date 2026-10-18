@@ -1,4 +1,4 @@
 mod admins;
 mod auth;
 
-mod products;
+mod reports;

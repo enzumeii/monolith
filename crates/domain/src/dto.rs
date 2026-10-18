@@ -7,4 +7,8 @@ pub use admin::{
 pub use auth::{LoginRequest, RefreshRequest, SessionResponse, TokenResponse};
 
 pub mod products;
-pub use products::{ProductReportQuery, ProductReportRow, ProductReportType, ProductsResponse};
+pub use products::ProductReportRow;
+pub mod inventories;
+pub mod orders;
+pub use inventories::{InventoryPageInfo, InventoryQuery, InventoryResponse};
+pub use orders::{OrderReportQuery, OrderReportResponse};

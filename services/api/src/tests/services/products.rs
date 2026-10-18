@@ -57,11 +57,7 @@ fn state(f: &Fixture) -> AppState {
         .unwrap();
     app_state(pool, settings).unwrap()
 }
-fn tag() -> ReportSource {
-    ReportSource::OrderTag("a:b".into())
-}
-async fn assert_failure(f: &Fixture, source: ReportSource, count: usize) {
-    let error = product_report(&state(f), source).await.unwrap_err();
+async fn assert_failure(f: &Fixture, error: AppError, count: usize) {
     let response = axum::response::IntoResponse::into_response(error);
     assert_eq!(response.status(), 502);
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -81,7 +77,7 @@ async fn full_report_merges_matching_skus_across_all_order_pages() {
         Reply::json(json!({"data":{"orders":page(vec![order(2,page(vec![line(3)],None))],None)}})),
     ])
     .await;
-    let result = product_report(&state(&f), tag()).await.unwrap();
+    let result = order_report(&state(&f), "a:b".into()).await.unwrap();
     assert_eq!(result.products.len(), 1);
     assert_eq!(result.products[0].quantity, 5);
     assert_eq!(result.products[0].total_selling_price.to_string(), "0.5");
@@ -103,29 +99,40 @@ async fn full_report_merges_matching_skus_across_all_order_pages() {
     assert!(requests.iter().all(|r| r.2["variables"]["first"] == 250));
 }
 #[tokio::test]
-async fn inventory_exhausts_root_pages_and_preserves_zero_negative_stock() {
+async fn inventory_forwards_page_values_and_returns_one_root_page() {
     let f=Fixture::new(vec![
         Reply::json(json!({"data":{"location":{"id":id("Location",1)}}})),
         Reply::json(json!({"data":{"products":page(vec![product(1,page(vec![variant(3),variant(0)],None))],Some("next"))}})),
         Reply::json(json!({"data":{"products":page(vec![product(2,page(vec![variant(-2)],None))],None)}}))
     ]).await;
-    let result = product_report(&state(&f), ReportSource::Inventory(id("Location", 1)))
-        .await
-        .unwrap();
+    let result = inventory_report(
+        &state(&f),
+        id("Location", 1),
+        PageRequest {
+            first: 50,
+            after: Some("abc".into()),
+        },
+    )
+    .await
+    .unwrap();
     assert_eq!(
         result
             .products
             .iter()
             .map(|r| r.quantity)
             .collect::<Vec<_>>(),
-        vec![3, 0, -2]
+        vec![3, 0]
     );
     let requests = f.requests();
-    assert_eq!(requests.len(), 3);
-    assert_eq!(requests[2].2["variables"]["after"], "next");
-    assert!(requests[1..].iter().all(
-        |r| r.2["operationName"] == "ProductsWithVariants" && r.2["variables"]["first"] == 250
-    ));
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        requests[1].2["variables"],
+        json!({"first":50,"after":"abc","locationId":"gid://shopify/Location/1","search":"status:active"})
+    );
+    assert_eq!(
+        serde_json::to_value(&result).unwrap()["page_info"],
+        json!({"has_next_page":true,"end_cursor":"next"})
+    );
 }
 #[tokio::test]
 async fn missing_skus_stay_separate_in_first_seen_order_across_pages() {
@@ -135,7 +142,7 @@ async fn missing_skus_stay_separate_in_first_seen_order_across_pages() {
         Reply::json(json!({"data":{"orders":page(vec![order(1,page(vec![missing.clone(),line(2)],None))],Some("next"))}})),
         Reply::json(json!({"data":{"orders":page(vec![order(2,page(vec![line(3),missing],None))],None)}}))
     ]).await;
-    let result = product_report(&state(&f), tag()).await.unwrap();
+    let result = order_report(&state(&f), "a:b".into()).await.unwrap();
     assert_eq!(
         result
             .products
@@ -157,15 +164,39 @@ async fn later_upstream_failures_never_return_partial_reports() {
         },
     ] {
         let f=Fixture::new(vec![Reply::json(json!({"data":{"orders":page(vec![order(1,page(vec![line(2)],None))],Some("next"))}})),failure]).await;
-        assert_failure(&f, tag(), 2).await;
+        assert_failure(
+            &f,
+            order_report(&state(&f), "a:b".into()).await.unwrap_err(),
+            2,
+        )
+        .await;
     }
 }
 #[tokio::test]
 async fn nested_continuation_fails_without_a_child_lookup() {
     let f=Fixture::new(vec![Reply::json(json!({"data":{"orders":page(vec![order(1,page(vec![line(2)],Some("child")))],Some("next"))}}))]).await;
-    assert_failure(&f, tag(), 1).await;
+    assert_failure(
+        &f,
+        order_report(&state(&f), "a:b".into()).await.unwrap_err(),
+        1,
+    )
+    .await;
     let f=Fixture::new(vec![Reply::json(json!({"data":{"location":{"id":id("Location",1)}}})),Reply::json(json!({"data":{"products":page(vec![product(1,page(vec![variant(3)],Some("child")))],Some("next"))}}))]).await;
-    assert_failure(&f, ReportSource::Inventory(id("Location", 1)), 2).await;
+    assert_failure(
+        &f,
+        inventory_report(
+            &state(&f),
+            id("Location", 1),
+            PageRequest {
+                first: 50,
+                after: None,
+            },
+        )
+        .await
+        .unwrap_err(),
+        2,
+    )
+    .await;
 }
 #[tokio::test]
 async fn exactly_250_nested_nodes_are_included() {
@@ -173,13 +204,20 @@ async fn exactly_250_nested_nodes_are_included() {
         json!({"data":{"orders":page(vec![order(1,page(vec![line(1);250],None))],None)}}),
     )])
     .await;
-    let result = product_report(&state(&f), tag()).await.unwrap();
+    let result = order_report(&state(&f), "a:b".into()).await.unwrap();
     assert_eq!(result.products[0].quantity, 250);
     assert_eq!(result.products[0].total_selling_price.to_string(), "25");
     let f=Fixture::new(vec![Reply::json(json!({"data":{"location":{"id":id("Location",1)}}})),Reply::json(json!({"data":{"products":page(vec![product(1,page(vec![variant(1);250],None))],None)}}))]).await;
-    let result = product_report(&state(&f), ReportSource::Inventory(id("Location", 1)))
-        .await
-        .unwrap();
+    let result = inventory_report(
+        &state(&f),
+        id("Location", 1),
+        PageRequest {
+            first: 1,
+            after: None,
+        },
+    )
+    .await
+    .unwrap();
     assert_eq!(result.products.len(), 250);
 }
 #[tokio::test]
@@ -190,7 +228,7 @@ async fn empty_root_pages_continue_and_missing_cursors_fail() {
     ])
     .await;
     assert_eq!(
-        serde_json::to_value(product_report(&state(&f), tag()).await.unwrap()).unwrap(),
+        serde_json::to_value(order_report(&state(&f), "a:b".into()).await.unwrap()).unwrap(),
         json!({"products":[]})
     );
     assert_eq!(f.requests().len(), 2);
@@ -199,7 +237,12 @@ async fn empty_root_pages_continue_and_missing_cursors_fail() {
             json!({"data":{"orders":{"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":end}}}}),
         )])
         .await;
-        assert_failure(&f, tag(), 1).await;
+        assert_failure(
+            &f,
+            order_report(&state(&f), "a:b".into()).await.unwrap_err(),
+            1,
+        )
+        .await;
     }
 }
 #[tokio::test]
@@ -207,7 +250,7 @@ async fn service_resolves_unavailable_shared_dependency_without_network() {
     let f = Fixture::new(vec![]).await;
     let mut state = state(&f);
     state.shopify = Ok(None);
-    let error = product_report(&state, tag()).await.unwrap_err();
+    let error = order_report(&state, "a:b".into()).await.unwrap_err();
     assert_eq!(
         axum::response::IntoResponse::into_response(error).status(),
         503
@@ -219,7 +262,7 @@ async fn service_resolves_unavailable_shared_dependency_without_network() {
     .err()
     .unwrap();
     state.shopify = Err(std::sync::Arc::new(source));
-    let error = product_report(&state, tag()).await.unwrap_err();
+    let error = order_report(&state, "a:b".into()).await.unwrap_err();
     assert!(std::error::Error::source(&error).is_some());
     assert_eq!(
         axum::response::IntoResponse::into_response(error).status(),
@@ -253,6 +296,59 @@ async fn later_numeric_failures_never_return_partial_reports() {
             ),
         ])
         .await;
-        assert_failure(&f, tag(), 2).await;
+        assert_failure(
+            &f,
+            order_report(&state(&f), "a:b".into()).await.unwrap_err(),
+            2,
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn empty_or_filtered_inventory_pages_keep_upstream_continuation() {
+    let mut inactive = variant(99);
+    inactive["inventoryItem"]["inventoryLevel"]["isActive"] = json!(false);
+    for nodes in [vec![], vec![product(1, page(vec![inactive], None))]] {
+        let f = Fixture::new(vec![
+            Reply::json(json!({"data":{"location":{"id":id("Location",1)}}})),
+            Reply::json(json!({"data":{"products":page(nodes,Some("next"))}})),
+        ])
+        .await;
+        let result = inventory_report(
+            &state(&f),
+            id("Location", 1),
+            PageRequest {
+                first: 50,
+                after: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(result).unwrap(),
+            json!({"products":[],"page_info":{"has_next_page":true,"end_cursor":"next"}})
+        );
+        assert_eq!(f.requests().len(), 2);
+    }
+}
+#[tokio::test]
+async fn inventory_rejects_nonprogressing_root_metadata() {
+    for end in [Value::Null, json!(""), json!("abc")] {
+        let f = Fixture::new(vec![
+            Reply::json(json!({"data":{"location":{"id":id("Location",1)}}})),
+            Reply::json(json!({"data":{"products":{"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":end}}}})),
+        ]).await;
+        let error = inventory_report(
+            &state(&f),
+            id("Location", 1),
+            PageRequest {
+                first: 50,
+                after: Some("abc".into()),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_failure(&f, error, 2).await;
     }
 }

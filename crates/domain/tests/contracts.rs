@@ -23,16 +23,8 @@ fn admin_contract_uses_stable_roles_and_excludes_credentials() {
 }
 
 #[test]
-fn products_contract_preserves_numeric_values_nulls_and_query_enum() {
-    use domain::dto::{ProductReportQuery, ProductsResponse};
-    let query: ProductReportQuery =
-        serde_json::from_value(serde_json::json!({"type":"INVENTORY","id":"1234"}))
-            .expect("decode report query");
-    assert_eq!(query.id, "1234");
-    assert!(
-        serde_json::from_value::<ProductReportQuery>(serde_json::json!({"type":"OTHER","id":"1"}))
-            .is_err()
-    );
+fn report_rows_preserve_numeric_values_and_nulls() {
+    use domain::dto::OrderReportResponse;
     let value = serde_json::json!({
         "products": [{
             "category":"KEYCHAIN",
@@ -51,7 +43,7 @@ fn products_contract_preserves_numeric_values_nulls_and_query_enum() {
             "total_weight":7.5
         }]
     });
-    let report: ProductsResponse = serde_json::from_value(value.clone()).expect("decode report");
+    let report: OrderReportResponse = serde_json::from_value(value.clone()).expect("decode report");
     assert_eq!(
         serde_json::to_value(report).expect("serialize report"),
         value
@@ -61,7 +53,7 @@ fn products_contract_preserves_numeric_values_nulls_and_query_enum() {
 #[test]
 fn complete_report_wire_has_only_products() {
     let value = serde_json::json!({"products":[]});
-    let report: domain::dto::ProductsResponse =
+    let report: domain::dto::OrderReportResponse =
         serde_json::from_value(value.clone()).expect("complete report");
     assert_eq!(
         serde_json::to_value(report).expect("serialize report"),
@@ -70,16 +62,38 @@ fn complete_report_wire_has_only_products() {
 }
 
 #[test]
-fn report_query_rejects_removed_pagination_fields() {
+fn report_query_contracts_are_independent() {
+    use domain::dto::{InventoryQuery, OrderReportQuery};
+    let inventory: InventoryQuery =
+        serde_json::from_value(serde_json::json!({"page_size":50,"cursor":"abc"}))
+            .expect("inventory query");
+    assert_eq!(inventory.page_size, Some(50));
+    assert_eq!(inventory.cursor.as_deref(), Some("abc"));
+    let order: OrderReportQuery =
+        serde_json::from_value(serde_json::json!({"tags":"TAG"})).expect("order query");
+    assert_eq!(order.tags, "TAG");
     for extra in [
         serde_json::json!({"page_size":1}),
         serde_json::json!({"cursor":"next"}),
     ] {
-        let mut query = serde_json::json!({"type":"ORDER_TAG","id":"report"});
+        let mut query = serde_json::json!({"tags":"TAG"});
         query
             .as_object_mut()
-            .expect("query object")
-            .extend(extra.as_object().expect("extra object").clone());
-        assert!(serde_json::from_value::<domain::dto::ProductReportQuery>(query).is_err());
+            .expect("query")
+            .extend(extra.as_object().expect("extra").clone());
+        assert!(serde_json::from_value::<OrderReportQuery>(query).is_err());
     }
+    assert!(serde_json::from_value::<InventoryQuery>(serde_json::json!({"tags":"TAG"})).is_err());
+}
+
+#[test]
+fn inventory_contract_retains_pagination_metadata() {
+    let value =
+        serde_json::json!({"products":[],"page_info":{"has_next_page":true,"end_cursor":"next"}});
+    let report: domain::dto::InventoryResponse =
+        serde_json::from_value(value.clone()).expect("decode inventory page");
+    assert_eq!(
+        serde_json::to_value(report).expect("encode inventory page"),
+        value
+    );
 }
