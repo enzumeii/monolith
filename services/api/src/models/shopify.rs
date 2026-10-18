@@ -18,7 +18,7 @@ pub struct Connection<T> {
     pub page_info: PageInfo,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(transparent)]
 pub struct ShopifyId(String);
 impl ShopifyId {
@@ -214,7 +214,7 @@ pub struct MoneyBag {
 pub struct Image {
     pub url: String,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct InventoryQuantity {
     pub name: String,
     pub quantity: i64,
@@ -344,25 +344,25 @@ pub struct OrderTags {
     pub name: String,
     pub tags: Vec<String>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProductSummary {
     pub id: ShopifyId,
     pub title: String,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VariantSummary {
     pub id: ShopifyId,
     pub title: String,
     pub product: ProductSummary,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct InventoryItemSummary {
     pub id: ShopifyId,
     pub sku: Option<Sku>,
     pub tracked: bool,
     pub variant: VariantSummary,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct InventoryActivationCandidate {
     pub id: String,
@@ -400,6 +400,7 @@ pub struct SalesData {
 }
 #[derive(Deserialize)]
 pub struct InventoryData {
+    #[serde(deserialize_with = "Option::deserialize")]
     pub location: Option<LocationInventory>,
 }
 #[derive(Deserialize)]
@@ -528,7 +529,7 @@ fn validate_size(first: u16) -> Result<(), ClientError> {
 }
 mod products;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct Sku(String);
 impl Sku {
@@ -553,3 +554,6 @@ impl<T> Connection<T> {
         Ok(self.nodes)
     }
 }
+
+mod inventory;
+pub(crate) use inventory::InventoryActivationItem;

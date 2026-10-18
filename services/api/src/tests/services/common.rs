@@ -43,3 +43,36 @@ pub(crate) async fn assert_failure(f: &Fixture, error: AppError, count: usize) {
     assert!(!body.to_string().contains("private"));
     assert_eq!(f.requests().len(), count);
 }
+
+#[tokio::test]
+async fn client_accessor_reuses_state_and_preserves_initialization_errors() {
+    use crate::client::{ClientError, ClientErrorKind};
+    use axum::response::IntoResponse;
+    use std::{error::Error, sync::Arc};
+    let f = Fixture::new(vec![]).await;
+    let mut state = state(&f);
+    let first = super::shopify_client(&state).unwrap();
+    let second = super::shopify_client(&state).unwrap();
+    assert!(std::ptr::eq(first, second));
+    for failed in [false, true] {
+        state.shopify = if failed {
+            Err(Arc::new(ClientError::new(ClientErrorKind::InvalidInput(
+                "private initialization",
+            ))))
+        } else {
+            Ok(None)
+        };
+        let error = super::shopify_client(&state).err().unwrap();
+        assert_eq!(error.source().is_some(), failed);
+        let response = error.into_response();
+        assert_eq!(response.status(), 503);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"error":"Shopify client unavailable"})
+        );
+    }
+    assert_eq!(f.requests().len(), 0);
+}
