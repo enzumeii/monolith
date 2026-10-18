@@ -43,16 +43,26 @@ impl ResendClient {
                 "Resend timeout must be positive and default sender must not be empty",
             )));
         }
-        let http = resend_http::Client::builder()
-            .timeout(Duration::from_secs(config.timeout_secs))
-            .redirect(resend_http::redirect::Policy::none())
-            .retry(resend_http::retry::never())
-            .build()
-            .map_err(resend_rs::Error::from)?;
-        let settings = ConfigBuilder::new(api_key)
-            .base_url(base_url)
-            .client(http)
-            .build();
+        // The SDK can panic on its ambient rate-limit setting; keep Resend optional.
+        let settings = std::panic::catch_unwind(|| {
+            let http = resend_http::Client::builder()
+                .timeout(Duration::from_secs(config.timeout_secs))
+                .redirect(resend_http::redirect::Policy::none())
+                .retry(resend_http::retry::never())
+                .build()
+                .map_err(resend_rs::Error::from)?;
+            Ok::<_, ClientError>(
+                ConfigBuilder::new(api_key)
+                    .base_url(base_url)
+                    .client(http)
+                    .build(),
+            )
+        })
+        .map_err(|_| {
+            ClientError::new(ClientErrorKind::InvalidInput(
+                "Resend initialization failed",
+            ))
+        })??;
         Ok(Self {
             inner: Resend::with_config(settings),
             default_sender: config.default_sender.clone(),

@@ -90,3 +90,43 @@ async fn resend_state_reuses_client_and_preserves_missing_key_and_initialization
             .is_none()
     );
 }
+
+#[tokio::test]
+async fn resend_sdk_initialization_panics_are_retained_as_optional_errors() {
+    const CHILD: &str = "MONOLITH_RESEND_INITIALIZATION_TEST";
+    if std::env::var_os(CHILD).is_none() {
+        for rate_limit in ["", "invalid", "0"] {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "state::tests::resend_sdk_initialization_panics_are_retained_as_optional_errors", "--nocapture"])
+                .env(CHILD, "1")
+                .env("RESEND_RATE_LIMIT", rate_limit)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "optional SDK initialization failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        return;
+    }
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://fixture:fixture@localhost/fixture")
+        .unwrap();
+    let mut settings = settings(&json!(null));
+    settings.client.as_mut().unwrap().resend = Some(crate::config::ResendConfig {
+        base_url: "https://api.resend.com".into(),
+        timeout_secs: 1,
+        default_sender: "shipping@enzumeii.com".into(),
+        api_key: Some("fixture-key".into()),
+    });
+    let state = app_state(pool, settings).unwrap();
+    let error = state
+        .resend
+        .err()
+        .expect("SDK initialization failure must remain available");
+    assert!(matches!(
+        error.kind(),
+        crate::client::ClientErrorKind::InvalidInput("Resend initialization failed")
+    ));
+}
