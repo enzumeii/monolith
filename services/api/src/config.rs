@@ -46,9 +46,6 @@ impl std::fmt::Debug for ShopifyConfig {
 
 #[derive(Deserialize, Clone)]
 pub struct ResendConfig {
-    pub base_url: String,
-    pub timeout_secs: u64,
-    pub default_sender: String,
     pub api_key: Option<String>,
 }
 

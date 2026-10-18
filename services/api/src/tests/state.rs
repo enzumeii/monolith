@@ -50,36 +50,24 @@ async fn state_reuses_shopify_client_and_preserves_optional_initialization_failu
 }
 
 #[tokio::test]
-async fn resend_state_reuses_client_and_preserves_missing_key_and_initialization_failures() {
+async fn resend_state_reuses_client_and_disables_missing_or_empty_keys() {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://fixture:fixture@localhost/fixture")
         .unwrap();
-    for (key, url, expected) in [
-        (None, "http://localhost:1234", "absent"),
-        (Some(""), "http://localhost:1234", "absent"),
-        (Some(" "), "http://localhost:1234", "absent"),
-        (Some("fixture-key"), "http://localhost:1234", "present"),
-        (Some("fixture-key"), "invalid-url", "error"),
-    ] {
+    for key in [None, Some(""), Some(" "), Some("fixture-key")] {
         let mut settings = settings(&json!(null));
         settings.client.as_mut().unwrap().resend = Some(crate::config::ResendConfig {
-            base_url: url.into(),
-            timeout_secs: 1,
-            default_sender: "shipping@enzumeii.com".into(),
             api_key: key.map(str::to_owned),
         });
         let state = app_state(pool.clone(), settings).unwrap();
         let cloned = state.clone();
-        match expected {
-            "absent" => assert!(state.resend.unwrap().is_none()),
-            "present" => assert!(Arc::ptr_eq(
+        if key.is_some_and(|key| !key.trim().is_empty()) {
+            assert!(Arc::ptr_eq(
                 state.resend.as_ref().unwrap().as_ref().unwrap(),
                 cloned.resend.as_ref().unwrap().as_ref().unwrap()
-            )),
-            _ => assert!(matches!(
-                state.resend.err().unwrap().kind(),
-                crate::client::ClientErrorKind::InvalidInput(_)
-            )),
+            ));
+        } else {
+            assert!(state.resend.unwrap().is_none());
         }
     }
     assert!(
@@ -95,11 +83,18 @@ async fn resend_state_reuses_client_and_preserves_missing_key_and_initialization
 async fn resend_sdk_initialization_panics_are_retained_as_optional_errors() {
     const CHILD: &str = "MONOLITH_RESEND_INITIALIZATION_TEST";
     if std::env::var_os(CHILD).is_none() {
-        for rate_limit in ["", "invalid", "0"] {
+        for (variable, value) in [
+            ("RESEND_RATE_LIMIT", ""),
+            ("RESEND_RATE_LIMIT", "invalid"),
+            ("RESEND_RATE_LIMIT", "0"),
+            ("RESEND_BASE_URL", "invalid-url"),
+        ] {
             let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["--exact", "state::tests::resend_sdk_initialization_panics_are_retained_as_optional_errors", "--nocapture"])
                 .env(CHILD, "1")
-                .env("RESEND_RATE_LIMIT", rate_limit)
+                .env_remove("RESEND_RATE_LIMIT")
+                .env_remove("RESEND_BASE_URL")
+                .env(variable, value)
                 .output()
                 .unwrap();
             assert!(
@@ -115,9 +110,6 @@ async fn resend_sdk_initialization_panics_are_retained_as_optional_errors() {
         .unwrap();
     let mut settings = settings(&json!(null));
     settings.client.as_mut().unwrap().resend = Some(crate::config::ResendConfig {
-        base_url: "https://api.resend.com".into(),
-        timeout_secs: 1,
-        default_sender: "shipping@enzumeii.com".into(),
         api_key: Some("fixture-key".into()),
     });
     let state = app_state(pool, settings).unwrap();

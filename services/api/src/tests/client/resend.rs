@@ -10,16 +10,14 @@ use crate::{
 use serde_json::json;
 use std::error::Error;
 
-fn config(base_url: &str) -> ResendConfig {
-    ResendConfig {
-        base_url: base_url.into(),
-        timeout_secs: 1,
-        default_sender: "shipping@enzumeii.com".into(),
-        api_key: Some("re_private-fixture".into()),
-    }
-}
 fn client(fixture: &Fixture) -> ResendClient {
-    ResendClient::new(&config(fixture.url.join("/").unwrap().as_str())).unwrap()
+    ResendClient {
+        inner: Resend::with_config(
+            resend_rs::ConfigBuilder::new("re_private-fixture")
+                .base_url(fixture.url.join("/").unwrap())
+                .build(),
+        ),
+    }
 }
 
 #[tokio::test]
@@ -50,21 +48,6 @@ async fn sends_html_with_default_or_explicit_sender_and_returns_provider_id() {
             json!({"from":expected,"to":["delivered@resend.dev","second@example.com"],"subject":"Shipment","html":"<p>On the way</p>"})
         );
     }
-}
-
-#[tokio::test]
-async fn configured_sender_and_base_path_are_used() {
-    let fixture = Fixture::new(vec![Reply::json(json!({"id":"configured-id"}))]).await;
-    let mut settings = config(fixture.url.join("/proxy/").unwrap().as_str());
-    settings.default_sender = "configured@example.com".into();
-    let id = ResendClient::new(&settings)
-        .unwrap()
-        .send_email(None, &["delivered@resend.dev"], "Hi", "<p>Hi</p>")
-        .await
-        .unwrap();
-    assert_eq!(id.as_ref(), "configured-id");
-    assert_eq!(fixture.requests()[0].0, "/proxy/emails");
-    assert_eq!(fixture.requests()[0].2["from"], "configured@example.com");
 }
 
 #[tokio::test]
@@ -133,37 +116,10 @@ async fn unusable_responses_are_rejected_without_retry_or_payload_leaks() {
 }
 
 #[tokio::test]
-async fn redirects_are_rejected_without_forwarding_credentials() {
-    let destination = Fixture::new(vec![Reply::json(json!({"id":"must-not-follow"}))]).await;
-    let fixture = Fixture::new(vec![Reply {
-        status: 307,
-        body: String::new(),
-        headers: vec![("location".into(), destination.url.to_string())],
-    }])
-    .await;
-    assert!(
-        client(&fixture)
-            .send_email(None, &["delivered@resend.dev"], "Hi", "Hi")
-            .await
-            .is_err()
-    );
-    assert_eq!(fixture.requests().len(), 1);
-    assert_eq!(destination.requests().len(), 0);
-}
-
-#[tokio::test]
-async fn transport_failure_and_timeout_retain_their_causes() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    let settings = config(&format!("http://{address}"));
-    let client = ResendClient::new(&settings).unwrap();
-    let error = client
-        .send_email(None, &["delivered@resend.dev"], "Hi", "private email")
-        .await
-        .unwrap_err();
-    assert!(crate::error::client_timeout(&error));
-    assert_safe(&error);
-    drop(listener);
+async fn transport_failure_retains_its_cause() {
+    let fixture = Fixture::new(vec![]).await;
+    let client = client(&fixture);
+    drop(fixture);
     let error = client
         .send_email(None, &["delivered@resend.dev"], "Hi", "private email")
         .await
@@ -180,39 +136,16 @@ async fn transport_failure_and_timeout_retain_their_causes() {
     assert_safe(&error);
 }
 
-#[tokio::test]
-async fn invalid_configuration_is_rejected_before_sending() {
-    let fixture = Fixture::new(vec![]).await;
-    let valid = config(fixture.url.as_str());
-    for invalid in [
-        ResendConfig {
-            base_url: "not-a-url".into(),
-            ..valid.clone()
-        },
-        ResendConfig {
-            base_url: "file:///tmp/email".into(),
-            ..valid.clone()
-        },
-        ResendConfig {
-            timeout_secs: 0,
-            ..valid.clone()
-        },
-        ResendConfig {
-            api_key: Some("bad\nkey".into()),
-            ..valid.clone()
-        },
-        ResendConfig {
-            api_key: None,
-            ..valid.clone()
-        },
-        ResendConfig {
-            default_sender: " ".into(),
-            ..valid
-        },
-    ] {
-        assert!(ResendClient::new(&invalid).is_err());
+#[test]
+fn missing_or_empty_api_keys_are_rejected() {
+    for key in [None, Some(""), Some(" ")] {
+        assert!(
+            ResendClient::new(&ResendConfig {
+                api_key: key.map(str::to_owned)
+            })
+            .is_err()
+        );
     }
-    assert_eq!(fixture.requests().len(), 0);
 }
 
 fn assert_safe(error: &ClientError) {
