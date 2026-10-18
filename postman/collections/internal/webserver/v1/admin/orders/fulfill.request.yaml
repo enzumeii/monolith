@@ -1,9 +1,9 @@
 $kind: http-request
 description: 'Set order_id to the numeric Shopify order ID. courier accepts FASTSHIP, THAI_POST, BEST or TELEPORT. tracking_number: 1..256 characters without whitespace/control characters. Fulfills all eligible remaining lines, notifies customer, then removes SHIPPING. Returns {success:true,tracking_url}. Invalid input 400; missing order 404; no eligible lines 409; upstream 502/504; unavailable 503. Inspect Shopify before retrying a failed mutation; fulfillment may already have succeeded. Inherits bearer access_token.'
-url: "{{server}}/v1/admin/orders/{{order_id}}/fulfill"
+url: '{{server}}/v1/admin/orders/{{order_id}}/fulfill'
 method: POST
 body:
   type: json
-  content: |-
-    {"courier":"FASTSHIP","tracking_number":"LR123456789"}
+  content: '{"courier":"FASTSHIP","tracking_number":"LR123456789"}'
 order: 4000
+examples: ./.resources/fulfill.resources/examples

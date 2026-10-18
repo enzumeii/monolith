@@ -1,0 +1,18 @@
+$kind: http-example
+id: 5710262bdd92f6fa77b71b1f
+name: Empty labels
+response:
+  statusCode: 200
+  statusText: OK
+  body:
+    type: json
+    content: |-
+      {"fastship":[],"thaipost":[],"best":[],"teleport":[]}
+  headers:
+    - key: content-type
+      value: application/json
+    - key: cache-control
+      value: no-store
+request:
+  url: '{{server}}/v1/admin/orders/shipping_label'
+  method: POST

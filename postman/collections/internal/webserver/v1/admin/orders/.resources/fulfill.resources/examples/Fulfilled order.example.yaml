@@ -1,0 +1,19 @@
+$kind: http-example
+id: 1f1337d8a5a612d38e6efc70
+name: Fulfilled order
+response:
+  statusCode: 200
+  statusText: OK
+  body:
+    type: json
+    content: |-
+      {"success":true,"tracking_url":"https://track.fastship.co/LR123456789"}
+  headers:
+    - key: content-type
+      value: application/json
+request:
+  url: '{{server}}/v1/admin/orders/{{order_id}}/fulfill'
+  method: POST
+  body:
+    type: json
+    content: '{"courier":"FASTSHIP","tracking_number":"LR123456789"}'
