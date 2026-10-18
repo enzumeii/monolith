@@ -9,4 +9,4 @@ target/
 /docs/superpowers/
 /.superpowers/
 
-node_modules/
+/.tools/
