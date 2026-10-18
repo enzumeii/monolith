@@ -129,6 +129,8 @@ async fn mutations_return_raw_user_errors_and_optional_outputs_without_replay() 
             inventory_item_id: id("InventoryItem", 1),
             location_id: id("Location", 1),
             idempotency_key: key,
+            on_hand: 5,
+            available: 4,
         })
         .await
         .unwrap()
@@ -142,8 +144,8 @@ async fn mutations_return_raw_user_errors_and_optional_outputs_without_replay() 
         requests[1].2["variables"]["idempotencyKey"],
         key.to_string()
     );
-    assert!(requests[1].2["variables"].get("available").is_none());
-    assert!(requests[1].2["variables"].get("onHand").is_none());
+    assert_eq!(requests[1].2["variables"]["available"], 4);
+    assert_eq!(requests[1].2["variables"]["onHand"], 5);
 }
 
 #[tokio::test]
@@ -157,6 +159,8 @@ async fn activation_preserves_quantities_and_idempotency_key_on_throttling() {
             inventory_item_id: id("InventoryItem", 1),
             location_id: id("Location", 1),
             idempotency_key: key,
+            on_hand: 5,
+            available: 4,
         })
         .await
         .unwrap()
@@ -172,12 +176,12 @@ async fn activation_preserves_quantities_and_idempotency_key_on_throttling() {
     );
     assert_eq!(requests[0].2, requests[1].2);
     assert!(
-        !requests[0].2["query"]
+        requests[0].2["query"]
             .as_str()
             .unwrap()
             .contains("available:")
     );
-    assert!(!requests[0].2["query"].as_str().unwrap().contains("onHand:"));
+    assert!(requests[0].2["query"].as_str().unwrap().contains("onHand:"));
 }
 
 #[tokio::test]
@@ -495,6 +499,7 @@ async fn call_root_proxy(
                 )
                 .await
                 .unwrap();
+            let p = p.unwrap();
             assert!(!p.nodes[0].is_active);
             (p.nodes.len(), p.page_info)
         }

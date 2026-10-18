@@ -36,3 +36,24 @@ pub fn extract_inventory_request(
 #[cfg(test)]
 #[path = "../tests/validations/inventories.rs"]
 mod tests;
+
+pub fn extract_enable_request(
+    path: Result<Path<String>, PathRejection>,
+    query: Option<&str>,
+) -> Result<ShopifyId, AppError> {
+    let invalid = || {
+        AppError::new(
+            StatusCode::BAD_REQUEST,
+            "Expected a positive location id and no query parameters",
+        )
+    };
+    let Path(id) = path.map_err(|_| invalid())?;
+    if query.is_some_and(|query| !query.is_empty())
+        || id.is_empty()
+        || !id.bytes().all(|byte| byte.is_ascii_digit())
+        || id.bytes().all(|byte| byte == b'0')
+    {
+        return Err(invalid());
+    }
+    ShopifyId::new(format!("gid://shopify/Location/{id}")).map_err(|_| invalid())
+}

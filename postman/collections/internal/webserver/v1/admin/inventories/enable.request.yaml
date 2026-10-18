@@ -1,0 +1,38 @@
+$kind: http-request
+description: |-
+  Activate every tracked inactive inventory item with on_hand > 0 at the numeric Shopify location_id. Uses inherited ADMIN or SUPER_ADMIN credentials. No body or query parameters. Discovers all pages before writing, preserves discovered on_hand/available explicitly, and counts each variant inventory item independently. Stock can change between discovery and activation.
+  Success 200: {"total":2,"success":2,"failed":0}
+  Empty 200: {"total":0,"success":0,"failed":0}
+  Partial 200: {"total":2,"success":1,"failed":1,"errors":[{"product_id":42,"reason":"Inventory activation rejected"}]}
+  Timeout 200: {"total":1,"success":0,"failed":1,"errors":[{"product_id":42,"reason":"Inventory activation timed out; outcome could not be confirmed"}]}
+  Invalid input 400: {"error":"Expected a positive location id and no query parameters"}
+  Missing location 404: {"error":"Shopify location not found"}
+  Discovery failure 502 or timeout 504: {"error":"Upstream request failed"}
+  Unconfigured Shopify 503: {"error":"Shopify inventory activation unavailable"}
+url: "{{server}}/v1/admin/inventories/:location_id/enable"
+method: POST
+pathVariables:
+  location_id: "90340917419"
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Successful batch response has consistent counts", () => {
+        if (pm.response.code === 200) {
+          const result = pm.response.json();
+          [result.total, result.success, result.failed].forEach(value => {
+            pm.expect(Number.isInteger(value) && value >= 0).to.be.true;
+          });
+          pm.expect(result.total).to.equal(result.success + result.failed);
+          if (result.failed > 0) {
+            pm.expect(result.errors).to.have.lengthOf(result.failed);
+            result.errors.forEach(error => {
+              pm.expect(error.product_id).to.be.a("number");
+              pm.expect(error.reason).to.be.a("string");
+            });
+          } else {
+            pm.expect(result).not.to.have.property("errors");
+          }
+        }
+      });
+    language: text/javascript
+order: 3000

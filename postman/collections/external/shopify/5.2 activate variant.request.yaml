@@ -1,13 +1,20 @@
 $kind: graphql-request
+description: Activate one variant inventory item at a location. Requires write_inventory and activation permission. Set onHand and available to discovered quantities; omission is not supported. Reuse the UUID only for retries of the same operation. Quantities may change between discovery and activation.
 url: "{{shopify}}/graphql.json"
 query: |
   mutation ActivateExistingInventory(
     $inventoryItemId: ID!
     $locationId: ID!
     $idempotencyKey: String!
+    $onHand: Int!
+    $available: Int!
   ) {
-    inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId)
-      @idempotent(key: $idempotencyKey) {
+    inventoryActivate(
+      inventoryItemId: $inventoryItemId
+      locationId: $locationId
+      onHand: $onHand
+      available: $available
+    ) @idempotent(key: $idempotencyKey) {
       inventoryLevel {
         id
         isActive
@@ -26,7 +33,9 @@ variables: |
   {
     "inventoryItemId": "gid://shopify/InventoryItem/49697008189611",
     "locationId": "gid://shopify/Location/90340917419",
-    "idempotencyKey": "e554f27d-d18f-4d6a-981e-f15b7aad81dc"
+    "idempotencyKey": "e554f27d-d18f-4d6a-981e-f15b7aad81dc",
+    "onHand": 5,
+    "available": 4
   }
 settings: {}
 schema:

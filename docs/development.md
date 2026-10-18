@@ -75,7 +75,7 @@ Handlers pass AppState to report services; services resolve the shared state.sho
 | Order lines | sales_order_lines(request): order ID only; bounded250 lines and hasNextPage metadata |
 | Tag replacement | replace_order_tags(request): complete replacement list; empty list clears; inspect userErrors and optional order |
 | Inventory discovery | find_inventory_to_activate(request, page): one raw level page; caller decides eligibility from tracked/isActive/on_hand |
-| Inventory activation | activate_existing_inventory(request): item/location IDs and stable UUID; no quantity arguments; inspect userErrors/optional level |
+| Inventory activation | activate_existing_inventory(request): item/location IDs, explicit discovered onHand/available quantities and stable UUID; inspect userErrors/optional level |
 | Nested bounds | Fixed250 variants/order lines is the agreed store workload; report services reject unexpected hasNextPage instead of silently truncating |
 | Credentials/scopes | Appropriate product/inventory/location/order permissions and approved older-order/protected-customer access where applicable |
 | Failure handling | ClientError automatically captures its construction/conversion file:line:column and retains its typed failure and underlying source. Convert to AppError at the response boundary or use log_background_error for one ERROR; returning/propagating a Result does not log |
@@ -90,7 +90,7 @@ Inventory returns one caller-selected product page with active inventory levels;
 | Backoff | At most three retries after the initial attempt; 1/2/4 seconds plus jitter and applicable Retry-After |
 | Budget | Shared HTTP/GraphQL attempt count; 30-second total sleep budget |
 | Fail without retry | HTTP 5xx and other errors, ambiguous network failures, decoding/partial-data errors, mutation user errors |
-| Stored inventory | Inactive levels can retain quantities; activate without resetting available/on-hand |
+| Stored inventory | Enablement sends discovered available/on-hand explicitly; quantities can change before mutation |
 | Sales interpretation | Current line quantities exclude refunded/removed units and can change after the date range; not event-date net sales |
 
 ## Runtime, failures, and administration
@@ -137,3 +137,16 @@ Inventory returns one caller-selected product page with active inventory levels;
 | Formatting | API just setup installs dprint 0.63.0 with Cargo under services/api/.tools and caches the pinned Rust-based GraphQL/JSON Wasm plugins there. just check checks API GraphQL/JSON, Rust formatting and strict lint; just fix prepares SQLx metadata before formatting. CI uses the same setup recipe. Update Postman query text after formatting GraphQL |
 
 Report queries require product, inventory, location and order access; reading unitCost may also require View product costs permission. Historical order access remains subject to Shopify permissions. Missing product/variant metadata produces null values; quantities use original order lines, not refund-adjusted accounting.
+
+## Inventory enablement
+
+| Request / outcome | Behavior |
+| --- | --- |
+| POST /v1/admin/inventories/{inventory_id}/enable | Numeric Shopify location ID; no body or query parameters; existing ADMIN/SUPER_ADMIN bearer or cookie credentials |
+| Discovery | Validate location, exhaust inventory level batches250 with inactive levels included, then activate unique tracked inactive items with positive on_hand |
+| Quantities | Send discovered on_hand and available explicitly; concurrent stock changes between discovery and activation are possible |
+| Response200 | total/success/failed count variant inventory items, not unique products; omit errors if none fail; each failed item includes numeric product_id and a safe reason, so a product ID can repeat |
+| Mutation failures | Continue independent items; timeouts report an unconfirmed outcome; prior successful activations are not rolled back |
+| Discovery failures | No writes before full discovery: malformed input400, missing location404, unavailable client503, upstream502/timeout504 |
+| Provider permission | Shopify write_inventory and permission to activate inventory; one activation enables one variant at one location |
+| Manual tooling | Postman inventories/enable uses inherited credentials and location_id; it mutates store inventory when run against a live store |
