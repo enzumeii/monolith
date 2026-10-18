@@ -1,0 +1,8 @@
+$kind: collection
+auth:
+  - id: 608caec8-6769-4f5b-8ff2-a1bbf8e70e96
+    type: bearer
+    name: Bearer Token
+    credentials:
+      token: "{{resend_api_key}}"
+order: 2000
