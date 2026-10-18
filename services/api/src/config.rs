@@ -29,6 +29,7 @@ pub struct BrowserConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct ClientConfig {
     pub shopify: Option<ShopifyConfig>,
+    pub resend: Option<ResendConfig>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -40,6 +41,17 @@ pub struct ShopifyConfig {
 impl std::fmt::Debug for ShopifyConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ShopifyConfig { access_token: [REDACTED], .. }")
+    }
+}
+
+#[derive(Deserialize, Clone)]
+pub struct ResendConfig {
+    pub api_key: Option<String>,
+}
+
+impl std::fmt::Debug for ResendConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ResendConfig { api_key: [REDACTED], .. }")
     }
 }
 
@@ -111,6 +123,9 @@ impl Settings {
 
         if let Ok(shopify_access_token) = env::var("SHOPIFY_ACCESS_TOKEN") {
             builder = builder.set_override("client.shopify.access_token", shopify_access_token)?;
+        }
+        if let Ok(resend_api_key) = env::var("RESEND_API_KEY") {
+            builder = builder.set_override("client.resend.api_key", resend_api_key)?;
         }
         let settings: Self = builder.build()?.try_deserialize()?;
         settings.validate()?;

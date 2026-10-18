@@ -453,6 +453,7 @@ country_code = "TH"
             .env("DATABASE_URL", database_url())
             .env("JWT_SECRET", JWT_SECRET)
             .env_remove("SHOPIFY_ACCESS_TOKEN")
+            .env_remove("RESEND_API_KEY")
             .envs(shopify_url.map(|_| ("SHOPIFY_ACCESS_TOKEN", "e2e-fixture-token")))
             .stdin(Stdio::null())
             .stdout(Stdio::null())

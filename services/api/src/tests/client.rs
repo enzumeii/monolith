@@ -41,6 +41,7 @@ type Captured = (String, HeaderMap, Value);
 struct FixtureState {
     replies: Arc<Mutex<VecDeque<Reply>>>,
     requests: Arc<Mutex<Vec<Captured>>>,
+    methods: Arc<Mutex<Vec<Method>>>,
 }
 pub(crate) struct Fixture {
     pub url: Url,
@@ -58,12 +59,16 @@ impl Fixture {
         let state = FixtureState {
             replies: Arc::new(Mutex::new(replies.into())),
             requests: Arc::new(Mutex::new(vec![])),
+            methods: Arc::new(Mutex::new(vec![])),
         };
         let app = Router::new().fallback(respond).with_state(state.clone());
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
         Self { url, state, server }
+    }
+    pub fn methods(&self) -> Vec<Method> {
+        self.state.methods.lock().unwrap().clone()
     }
     pub fn requests(&self) -> Vec<Captured> {
         self.state.requests.lock().unwrap().clone()
@@ -76,6 +81,7 @@ impl Drop for Fixture {
 }
 async fn respond(State(state): State<FixtureState>, request: Request<Body>) -> Response {
     let (parts, body) = request.into_parts();
+    state.methods.lock().unwrap().push(parts.method);
     let bytes = to_bytes(body, 1_000_000).await.unwrap();
     let value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     state

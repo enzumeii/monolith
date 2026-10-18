@@ -267,3 +267,59 @@ country_code="TH"
         serde_json::from_value::<ShippingSender>(serde_json::json!({"postcode":"00123"})).is_err()
     );
 }
+
+#[test]
+fn resend_api_key_comes_from_central_configuration() {
+    let settings = temp_env::with_vars(
+        [
+            ("DATABASE_URL", Some("postgres://unused")),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
+            ("RESEND_API_KEY", Some("re_private-fixture")),
+        ],
+        Settings::new,
+    )
+    .unwrap();
+    let resend = settings.client.unwrap().resend.unwrap();
+    assert_eq!(resend.api_key.as_deref(), Some("re_private-fixture"));
+    assert!(!format!("{resend:?}").contains("re_private-fixture"));
+}
+
+#[test]
+fn resend_settings_follow_file_and_secret_override_precedence() {
+    let settings: ResendConfig = config::Config::builder()
+        .add_source(config::File::from_str(
+            "api_key = 'file-key'",
+            config::FileFormat::Toml,
+        ))
+        .set_override("api_key", "env-key")
+        .unwrap()
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert_eq!(settings.api_key.as_deref(), Some("env-key"));
+    let absent: ResendConfig = config::Config::builder()
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert!(absent.api_key.is_none());
+}
+
+#[test]
+fn resend_configuration_needs_only_the_api_key() {
+    let config: ResendConfig = config::Config::builder()
+        .add_source(config::File::from_str(
+            "api_key = 'fixture-key'",
+            config::FileFormat::Toml,
+        ))
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert_eq!(config.api_key.as_deref(), Some("fixture-key"));
+    assert!(!format!("{config:?}").contains("fixture-key"));
+}

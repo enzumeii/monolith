@@ -62,7 +62,7 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitl
 | Fulfillment | POST numeric order ID; remaining eligible quantities grouped by location, tracking-pattern precedence and URL encoding, customer notification enabled; remove SHIPPING after all fulfillment calls succeed |
 | TCP dependencies | Production API/middleware/client against controlled Shopify HTTP servers; Compose PostgreSQL and uniquely owned admin fixtures. Each reachable operation covers malformed/partial/missing responses, HTTP/GraphQL rejection, throttling and timeout; later-call failures assert no unintended subsequent calls |
 | Errors and validation | Missing/invalid/expired JWTs; invalid paths/query/JSON/tracking, unsupported actions and missing order; safe 400/401/404/409/502/503/504 responses. ADMIN and SUPER_ADMIN are the only current roles; these stateless JWT routes perform no database lookup |
-| Native regression | Corrected implementation fc5392c:137 native API tests and66 real-TCP tests passed, with Compose teardown. Domain/backoffice/client native and configured WASM checks/tests passed; API formatting/lint and Postman lint passed |
+| Native regression | After integrating main’s Resend SDK:147 native API tests and66 real-TCP tests passed, with Compose teardown. Domain/backoffice/client native and configured WASM checks/tests passed; API formatting/lint and Postman lint passed |
 | Postman | Both collections lint without diagnostics; nine new GraphQL documents and variable sets match executable requests exactly |
 
 | Limit | Behavior |
