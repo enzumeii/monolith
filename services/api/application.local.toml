@@ -1,11 +1,2 @@
-[server]
-host = "0.0.0.0"
-port = 3000
-
-[database]
-max_connections = 1
-min_connections = 1
-
 [browser]
 public_origin = "http://localhost:8084"
-insecure_local = true
