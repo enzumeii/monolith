@@ -1,0 +1,36 @@
+$kind: graphql-request
+description: "Continue the nested connection; set nested_cursor to its endCursor. Requires Shopify vault token. Missing or partial data and mutation userErrors are failures."
+url: "{{shopify}}/graphql.json"
+query: |
+  query ShippingOrderItems($id: ID!, $first: Int!, $after: String) {
+    order(id: $id) {
+      id
+      lineItems(first: $first, after: $after) {
+        nodes {
+          title
+          sku
+          quantity
+          originalUnitPriceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+variables: |
+  {
+    "id": "gid://shopify/Order/123",
+    "first": 250,
+    "after": "{{nested_cursor}}"
+  }
+settings: {}
+schema:
+  source: auto
+order: 3700

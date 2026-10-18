@@ -12,6 +12,43 @@ use crate::{
 use serde_json::{Value, json};
 
 impl ShopifyClient {
+    pub(crate) async fn shipping_order_items(
+        &self,
+        id: &str,
+        after: Option<String>,
+    ) -> Result<crate::models::fulfillment::ShippingItemsData, ClientError> {
+        self.execute(
+            "ShippingOrderItems",
+            include_str!("shipping_order_items.graphql"),
+            json!({"id":id,"first":250,"after":after}),
+        )
+        .await
+    }
+    pub(crate) async fn shipping_order_methods(
+        &self,
+        id: &str,
+        after: Option<String>,
+    ) -> Result<crate::models::fulfillment::ShippingMethodsData, ClientError> {
+        self.execute(
+            "ShippingOrderMethods",
+            include_str!("shipping_order_methods.graphql"),
+            json!({"id":id,"first":250,"after":after}),
+        )
+        .await
+    }
+    pub(crate) async fn fulfillment_order_items(
+        &self,
+        id: &str,
+        after: Option<String>,
+    ) -> Result<crate::models::fulfillment::FulfillmentItemsData, ClientError> {
+        self.execute(
+            "FulfillmentOrderItems",
+            include_str!("fulfillment_order_items.graphql"),
+            json!({"id":id,"first":250,"after":after}),
+        )
+        .await
+    }
+
     pub(crate) async fn list_orders(
         &self,
         search: &str,

@@ -37,3 +37,30 @@ where
 #[cfg(test)]
 #[path = "../tests/services/pagination.rs"]
 mod tests;
+
+pub(crate) async fn collect_connection<T: Send, F, Fut>(
+    mut page: Connection<T>,
+    mut fetch: F,
+) -> Result<Vec<T>, ClientError>
+where
+    F: FnMut(Option<String>) -> Fut + Send,
+    Fut: std::future::Future<Output = Result<Connection<T>, ClientError>> + Send,
+{
+    let mut nodes = Vec::new();
+    let mut after = None;
+    let mut seen = HashSet::new();
+    loop {
+        page.page_info.validate_after(after.as_deref())?;
+        nodes.extend(page.nodes);
+        if !page.page_info.has_next_page {
+            return Ok(nodes);
+        }
+        after = page.page_info.end_cursor;
+        if !seen.insert(after.clone()) {
+            return Err(ClientError::new(ClientErrorKind::Protocol(
+                "nested cursor did not progress",
+            )));
+        }
+        page = fetch(after.clone()).await?;
+    }
+}

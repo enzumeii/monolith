@@ -41,9 +41,16 @@ pub async fn fulfill(
             if !seen.insert(order.id.clone()) {
                 return Err(protocol("duplicate fulfillment order"));
             }
-            let lines = order
-                .line_items
-                .into_complete_nodes()
+            let lines =
+                super::super::pagination::collect_connection(order.line_items, async |after| {
+                    let result = client.fulfillment_order_items(&order.id, after).await?;
+                    let next = result.fulfillment_order.ok_or_else(|| {
+                        ClientError::new(ClientErrorKind::Protocol("fulfillment order disappeared"))
+                    })?;
+                    ensure_same_order(&order.id, &next.id)?;
+                    Ok(next.line_items)
+                })
+                .await
                 .map_err(|error| upstream(error))?;
             if matches!(order.status.as_str(), "CLOSED" | "CANCELLED") {
                 continue;
@@ -70,20 +77,13 @@ pub async fn fulfill(
                 .location
                 .ok_or_else(|| protocol("fulfillment location missing"))?;
             resource_number(&location.id, "Location").map_err(|error| upstream(error))?;
-            let mut items = Vec::new();
-            let mut ids = HashSet::new();
-            for line in lines {
-                resource_number(&line.id, "FulfillmentOrderLineItem")
-                    .map_err(|error| upstream(error))?;
-                if !ids.insert(line.id.clone()) {
-                    return Err(protocol("duplicate fulfillment line"));
-                }
-                items.push(json!({"id":line.id,"quantity":line.remaining_quantity}));
+            let items = fulfillment_lines(lines)?;
+            for chunk in items.chunks(250) {
+                locations
+                    .entry(location.id.clone())
+                    .or_default()
+                    .push(json!({"fulfillmentOrderId":order.id,"fulfillmentOrderLineItems":chunk}));
             }
-            locations
-                .entry(location.id)
-                .or_default()
-                .push(json!({"fulfillmentOrderId":order.id,"fulfillmentOrderLineItems":items}));
         }
         if !page.page_info.has_next_page {
             break;
@@ -101,8 +101,10 @@ pub async fn fulfill(
     }
     let (company, url) = tracking(&request.tracking_number)?;
     for lines in locations.into_values() {
-        let created=client.create_fulfillment(json!({"notifyCustomer":true,"trackingInfo":{"company":company,"number":request.tracking_number,"url":url},"lineItemsByFulfillmentOrder":lines})).await.map_err(|error|upstream(error))?;
-        resource_number(&created, "Fulfillment").map_err(|error| upstream(error))?;
+        for line in lines {
+            let created=client.create_fulfillment(json!({"notifyCustomer":true,"trackingInfo":{"company":company,"number":request.tracking_number,"url":url},"lineItemsByFulfillmentOrder":[line]})).await.map_err(|error|upstream(error))?;
+            resource_number(&created, "Fulfillment").map_err(|error| upstream(error))?;
+        }
     }
     let updated = client
         .remove_order_tags(&id, &["SHIPPING"])
@@ -113,6 +115,20 @@ pub async fn fulfill(
         success: true,
         tracking_url: url,
     })
+}
+fn fulfillment_lines(
+    lines: Vec<crate::models::fulfillment::FulfillmentLine>,
+) -> Result<Vec<Value>, AppError> {
+    let mut items = Vec::new();
+    let mut ids = HashSet::new();
+    for line in lines {
+        resource_number(&line.id, "FulfillmentOrderLineItem").map_err(|error| upstream(error))?;
+        if !ids.insert(line.id.clone()) {
+            return Err(protocol("duplicate fulfillment line"));
+        }
+        items.push(json!({"id":line.id,"quantity":line.remaining_quantity}));
+    }
+    Ok(items)
 }
 fn tracking(number: &str) -> Result<(&'static str, String), AppError> {
     let (company, base) =

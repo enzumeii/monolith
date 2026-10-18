@@ -849,7 +849,7 @@ async fn shipping_labels_pagination_and_nested_completeness_guard_before_mutatio
     let fixture = fixture().await;
     for field in ["lineItems", "shippingLines"] {
         let mut order = shipping_order(1, "US", "USPS");
-        order[field]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"child"});
+        order[field]["pageInfo"] = json!({"hasNextPage":true,"endCursor":null});
         let (client, upstream) =
             client_with_upstream_script(vec![json!({"orders":page(vec![order],None)})], "http")
                 .await;
@@ -1036,7 +1036,7 @@ async fn fulfillment_nested_truncation_and_unsupported_actions_never_create_fulf
         let node = &mut order["order"]["fulfillmentOrders"]["nodes"][0];
         match case {
             "nested" => {
-                node["lineItems"]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"child"})
+                node["lineItems"]["pageInfo"] = json!({"hasNextPage":true,"endCursor":null})
             }
             "action" => node["supportedActions"] = json!([]),
             "closed" => node["status"] = json!("CLOSED"),
@@ -1060,4 +1060,276 @@ async fn fulfillment_nested_truncation_and_unsupported_actions_never_create_fulf
         assert_report_error(response, status, message).await;
         assert_eq!(upstream.requests().len(), 1);
     }
+}
+
+#[tokio::test]
+async fn review_regression_rejects_bad_carrier_contact_and_dot_tracking_before_writes() {
+    let fixture = fixture().await;
+    for (country, method, field, value, message) in [
+        (
+            "TH",
+            "Standard Shipping",
+            "phone",
+            Value::Null,
+            "Order shipping phone missing",
+        ),
+        (
+            "SG",
+            "TELEPORT AIRASIA : TRACKING & FAST",
+            "phone",
+            json!("++ ( )"),
+            "Order shipping phone missing",
+        ),
+        (
+            "TH",
+            "Standard Shipping",
+            "zip",
+            json!(" "),
+            "Order shipping postcode missing",
+        ),
+        (
+            "SG",
+            "TELEPORT AIRASIA : TRACKING & FAST",
+            "zip",
+            Value::Null,
+            "Order shipping postcode missing",
+        ),
+        (
+            "SG",
+            "DHL Express",
+            "phone",
+            json!("123"),
+            "Order has no supported shipping method",
+        ),
+    ] {
+        let mut order = shipping_order(1, country, method);
+        order["shippingAddress"][field] = value;
+        let (client, upstream) =
+            client_with_upstream_script(vec![json!({"orders":page(vec![order],None)})], "http")
+                .await;
+        let response = client
+            .send(authed(
+                "POST",
+                "/v1/admin/orders/shipping_label",
+                fixture.root_id(),
+                AdminRole::Admin,
+            ))
+            .await
+            .unwrap();
+        assert_report_error(
+            response,
+            if method == "DHL Express" { 409 } else { 502 },
+            message,
+        )
+        .await;
+        assert_eq!(upstream.requests().len(), 1);
+    }
+    let (client, upstream) = client_with_upstream_script(vec![], "http").await;
+    for tracking in [".", ".."] {
+        let body = json!({"courier":"FASTSHIP","tracking_number":tracking}).to_string();
+        let response = client
+            .send(fulfill_request(
+                "42",
+                &body,
+                fixture.root_id(),
+                AdminRole::Admin,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400);
+    }
+    assert!(upstream.requests().is_empty());
+}
+
+#[tokio::test]
+async fn review_regression_traverses_order_and_fulfillment_lines_before_mutations() {
+    let fixture = fixture().await;
+    let mut order = shipping_order(1, "US", "USPS");
+    order["lineItems"]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"child"});
+    let extra = order["lineItems"]["nodes"][0].clone();
+    let (client, upstream) = client_with_upstream_script(
+        vec![
+            json!({"orders":page(vec![order],None)}),
+            json!({"order":{"id":"gid://shopify/Order/1","lineItems":page(vec![extra],None)}}),
+            tags_result(false, 1),
+            tags_result(true, 1),
+        ],
+        "http",
+    )
+    .await;
+    let response = client
+        .send(authed(
+            "POST",
+            "/v1/admin/orders/shipping_label",
+            fixture.root_id(),
+            AdminRole::Admin,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(body_json(response).await["fastship"][0]["quantity"], 6);
+    assert_eq!(upstream.requests()[1]["variables"]["after"], "child");
+    let mut order = fulfillable_order(None);
+    order["order"]["fulfillmentOrders"]["nodes"][0]["lineItems"]["pageInfo"] =
+        json!({"hasNextPage":true,"endCursor":"child"});
+    let (client,upstream)=client_with_upstream_script(vec![order,json!({"fulfillmentOrder":{"id":"gid://shopify/FulfillmentOrder/7","lineItems":page(vec![json!({"id":"gid://shopify/FulfillmentOrderLineItem/18","remainingQuantity":3})],None)}}),json!({"fulfillmentCreate":{"fulfillment":{"id":"gid://shopify/Fulfillment/10"},"userErrors":[]}}),tags_result(true,42)],"http").await;
+    let response = client
+        .send(fulfill_request(
+            "42",
+            r#"{"courier":"BEST","tracking_number":"VP123"}"#,
+            fixture.root_id(),
+            AdminRole::Admin,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(upstream.requests()[2]["variables"]["fulfillment"]["lineItemsByFulfillmentOrder"][0]["fulfillmentOrderLineItems"].as_array().unwrap().len(),2);
+}
+
+#[tokio::test]
+async fn review_regression_unknown_shipping_code_never_changes_tags() {
+    let fixture = fixture().await;
+    let (client, upstream) = client_with_upstream_script(
+        vec![json!({"orders":page(vec![shipping_order(1,"SG","DHL Express")],None)})],
+        "http",
+    )
+    .await;
+    let response = client
+        .send(authed(
+            "POST",
+            "/v1/admin/orders/shipping_label",
+            fixture.root_id(),
+            AdminRole::Admin,
+        ))
+        .await
+        .unwrap();
+    assert_report_error(response, 409, "Order has no supported shipping method").await;
+    assert_eq!(upstream.requests().len(), 1);
+}
+#[tokio::test]
+async fn review_regression_dot_tracking_never_reaches_shopify() {
+    let fixture = fixture().await;
+    let (client, upstream) = client_with_upstream_script(vec![], "http").await;
+    for number in [".", ".."] {
+        let response = client
+            .send(fulfill_request(
+                "42",
+                &json!({"courier":"BEST","tracking_number":number}).to_string(),
+                fixture.root_id(),
+                AdminRole::Admin,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400);
+    }
+    assert!(upstream.requests().is_empty());
+}
+
+#[tokio::test]
+async fn review_nested_operations_map_each_dependency_failure_before_writes() {
+    let fixture = fixture().await;
+    for flow in ["items", "methods", "fulfillment"] {
+        for failure in [
+            "http",
+            "graphql",
+            "partial",
+            "malformed",
+            "missing",
+            "shape",
+            "timeout",
+            "throttled",
+        ] {
+            let prefix = if flow == "fulfillment" {
+                let mut order = fulfillable_order(None);
+                order["order"]["fulfillmentOrders"]["nodes"][0]["lineItems"]["pageInfo"] =
+                    json!({"hasNextPage":true,"endCursor":"child"});
+                order
+            } else {
+                let mut order = shipping_order(1, "US", "USPS");
+                let field = if flow == "items" {
+                    "lineItems"
+                } else {
+                    "shippingLines"
+                };
+                order[field]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"child"});
+                json!({"orders":page(vec![order],None)})
+            };
+            let (client, upstream) = client_with_upstream_script(vec![prefix], failure).await;
+            let request = if flow == "fulfillment" {
+                fulfill_request(
+                    "42",
+                    r#"{"courier":"BEST","tracking_number":"VP123"}"#,
+                    fixture.root_id(),
+                    AdminRole::Admin,
+                )
+            } else {
+                authed(
+                    "POST",
+                    "/v1/admin/orders/shipping_label",
+                    fixture.root_id(),
+                    AdminRole::Admin,
+                )
+            };
+            assert_report_error(
+                client.send(request).await.unwrap(),
+                if failure == "timeout" { 504 } else { 502 },
+                "Upstream request failed",
+            )
+            .await;
+            assert_eq!(
+                upstream.requests().len(),
+                if failure == "throttled" { 5 } else { 2 },
+                "{flow} {failure}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn review_nested_shipping_methods_and_large_fulfillment_arrays_complete() {
+    let fixture = fixture().await;
+    let mut order = shipping_order(1, "US", "USPS");
+    order["shippingLines"]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"method"});
+    let (client,upstream)=client_with_upstream_script(vec![json!({"orders":page(vec![order],None)}),json!({"order":{"id":"gid://shopify/Order/1","shippingLines":page(vec![json!({"code":"Standard Shipping"})],None)}}),tags_result(false,1),tags_result(true,1)],"http").await;
+    assert_eq!(
+        client
+            .send(authed(
+                "POST",
+                "/v1/admin/orders/shipping_label",
+                fixture.root_id(),
+                AdminRole::Admin
+            ))
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        upstream.requests()[1]["operationName"],
+        "ShippingOrderMethods"
+    );
+    let mut order = fulfillable_order(None);
+    let lines=(1..=250).map(|id|json!({"id":format!("gid://shopify/FulfillmentOrderLineItem/{id}"),"remainingQuantity":1})).collect();
+    order["order"]["fulfillmentOrders"]["nodes"][0]["lineItems"] = page(lines, Some("line"));
+    let created = json!({"fulfillmentCreate":{"fulfillment":{"id":"gid://shopify/Fulfillment/10"},"userErrors":[]}});
+    let (client,upstream)=client_with_upstream_script(vec![order,json!({"fulfillmentOrder":{"id":"gid://shopify/FulfillmentOrder/7","lineItems":page(vec![json!({"id":"gid://shopify/FulfillmentOrderLineItem/251","remainingQuantity":1})],None)}}),created.clone(),created,tags_result(true,42)],"http").await;
+    assert_eq!(
+        client
+            .send(fulfill_request(
+                "42",
+                r#"{"courier":"BEST","tracking_number":"VP123"}"#,
+                fixture.root_id(),
+                AdminRole::Admin
+            ))
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let requests = upstream.requests();
+    assert_eq!(requests.len(), 5);
+    for (index, size) in [(2, 250), (3, 1)] {
+        assert_eq!(requests[index]["variables"]["fulfillment"]["lineItemsByFulfillmentOrder"][0]["fulfillmentOrderLineItems"].as_array().unwrap().len(),size);
+    }
+    assert_eq!(requests[4]["variables"]["tags"], json!(["SHIPPING"]));
 }

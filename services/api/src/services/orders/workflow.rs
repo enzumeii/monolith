@@ -57,9 +57,32 @@ pub async fn labels(state: &AppState) -> Result<ShippingLabels, AppError> {
     .map_err(|error| upstream(error))?;
     let mut labels = ShippingLabels::default();
     let mut tags = Vec::new();
-    for order in orders {
+    for mut order in orders {
         resource_number(&order.id, "Order").map_err(|error| upstream(error))?;
         let id = order.id.clone();
+        let items = super::super::pagination::collect_connection(order.line_items, async |after| {
+            let result = client.shipping_order_items(&id, after).await?;
+            let next = result.order.ok_or_else(|| {
+                ClientError::new(ClientErrorKind::Protocol("shipping order disappeared"))
+            })?;
+            ensure_same_order(&id, &next.id)?;
+            Ok(next.line_items)
+        })
+        .await
+        .map_err(|error| upstream(error))?;
+        order.line_items = complete(items);
+        let methods =
+            super::super::pagination::collect_connection(order.shipping_lines, async |after| {
+                let result = client.shipping_order_methods(&id, after).await?;
+                let next = result.order.ok_or_else(|| {
+                    ClientError::new(ClientErrorKind::Protocol("shipping order disappeared"))
+                })?;
+                ensure_same_order(&id, &next.id)?;
+                Ok(next.shipping_lines)
+            })
+            .await
+            .map_err(|error| upstream(error))?;
+        order.shipping_lines = complete(methods);
         let courier = super::shipping::append_label(
             order,
             state.settings.shipping_sender.as_ref(),
@@ -88,4 +111,14 @@ pub(super) fn ensure_same_order(expected: &str, actual: &str) -> Result<(), Clie
         )));
     }
     Ok(())
+}
+
+fn complete<T>(nodes: Vec<T>) -> crate::models::shopify::Connection<T> {
+    crate::models::shopify::Connection {
+        nodes,
+        page_info: crate::models::shopify::PageInfo {
+            has_next_page: false,
+            end_cursor: None,
+        },
+    }
 }

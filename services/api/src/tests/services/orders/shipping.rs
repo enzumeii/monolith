@@ -52,7 +52,7 @@ fn japanese_kanji_uses_japanese_readings_and_other_addresses_transliterate() {
 }
 #[test]
 fn best_labels_preserve_reference_zero_weight_without_requiring_order_weight() {
-    let order:ShippingOrder=serde_json::from_value(json!({"id":"gid://shopify/Order/1","email":null,"currencyCode":"THB","totalWeight":null,"shippingAddress":{"firstName":"A","lastName":"B","name":"A B","address1":"1 Main","address2":null,"city":"Bangkok","provinceCode":null,"zip":"00123","country":"Thailand","countryCodeV2":"TH","phone":null},"shippingLines":{"nodes":[{"code":"Standard Shipping"}],"pageInfo":{"hasNextPage":false,"endCursor":null}},"lineItems":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}})).expect("valid fixture");
+    let order:ShippingOrder=serde_json::from_value(json!({"id":"gid://shopify/Order/1","email":null,"currencyCode":"THB","totalWeight":null,"shippingAddress":{"firstName":"A","lastName":"B","name":"A B","address1":"1 Main","address2":null,"city":"Bangkok","provinceCode":null,"zip":"00123","country":"Thailand","countryCodeV2":"TH","phone":"123"},"shippingLines":{"nodes":[{"code":"Standard Shipping"}],"pageInfo":{"hasNextPage":false,"endCursor":null}},"lineItems":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}})).expect("valid fixture");
     let mut labels = ShippingLabels::default();
     assert_eq!(
         append_label(order, None, &mut labels).expect("valid fixture"),

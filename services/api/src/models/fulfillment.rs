@@ -152,3 +152,38 @@ fn deserialize_weight<'de, D: serde::Deserializer<'de>>(
         })
         .transpose()
 }
+
+#[derive(Deserialize)]
+pub struct ShippingItemsData {
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub order: Option<OrderItems>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrderItems {
+    pub id: String,
+    pub line_items: Connection<ShippingItem>,
+}
+#[derive(Deserialize)]
+pub struct ShippingMethodsData {
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub order: Option<OrderMethods>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrderMethods {
+    pub id: String,
+    pub shipping_lines: Connection<ShippingLine>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FulfillmentItemsData {
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub fulfillment_order: Option<FulfillmentItems>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FulfillmentItems {
+    pub id: String,
+    pub line_items: Connection<FulfillmentLine>,
+}

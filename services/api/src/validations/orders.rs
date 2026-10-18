@@ -87,7 +87,8 @@ pub fn extract_fulfill_request(
         return Err(invalid());
     }
     let axum::Json(body) = body.map_err(|_| invalid())?;
-    if body.tracking_number.is_empty()
+    if matches!(body.tracking_number.as_str(), "." | "..")
+        || body.tracking_number.is_empty()
         || body.tracking_number.chars().count() > 256
         || body
             .tracking_number

@@ -88,7 +88,17 @@ impl Parcel {
                     "Order has no supported shipping method",
                 )
             })?;
+        if !known_method(code) {
+            return Err(AppError::new(
+                StatusCode::CONFLICT,
+                "Order has no supported shipping method",
+            ));
+        }
         let method = normalize_method(code, &country_code);
+        if matches!(select_courier(&method), "BEST" | "TELEPORT") {
+            required(address.phone.as_deref(), "Order shipping phone missing")?;
+            required(address.zip.as_deref(), "Order shipping postcode missing")?;
+        }
         let (quantity, price, category) = declaration(
             order
                 .line_items
@@ -360,7 +370,9 @@ fn select_courier(method: &str) -> &'static str {
         "Fastship(tracking&fast)" | "USPS(tracking&fast)" => "FASTSHIP",
         "Best Express" => "BEST",
         "TELEPORT AIRASIA : TRACKING & FAST" => "TELEPORT",
-        _ => "THAI_POST",
+        "Tracking number" | "custom" | "No tracking" | "Headquarter" | "Standard Shipping"
+        | "Reship" => "THAI_POST",
+        _ => "UNKNOWN",
     }
 }
 fn romanize(value: &str, country: &str) -> String {
@@ -396,3 +408,26 @@ fn invalid(message: &'static str) -> AppError {
 #[cfg(test)]
 #[path = "../../tests/services/orders/shipping.rs"]
 mod tests;
+
+fn known_method(code: &str) -> bool {
+    matches!(
+        code,
+        "USPS"
+            | "USPS(tracking&fast)"
+            | "Fastship(tracking&fast)"
+            | "[NEW] TAX CLEARED SHIPPING"
+            | "[NEW] Tax cleared shipping"
+            | "Best Express"
+            | "Best express"
+            | "Tracking number"
+            | "custom"
+            | "No tracking"
+            | "Local Delivery"
+            | "41/229 Nuanchan 23 Klongkhum Beungkhum"
+            | "Headquarter"
+            | "Standard Shipping"
+            | "Reship"
+            | "TELEPORT AIRASIA : TRACKING & FAST"
+            | "ไปรษณีย์ไทย EMS"
+    )
+}

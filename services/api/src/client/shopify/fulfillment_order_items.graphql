@@ -1,0 +1,15 @@
+query FulfillmentOrderItems($id: ID!, $first: Int!, $after: String) {
+  fulfillmentOrder(id: $id) {
+    id
+    lineItems(first: $first, after: $after) {
+      nodes {
+        id
+        remainingQuantity
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+query ShippingOrderMethods($id: ID!, $first: Int!, $after: String) {
+  order(id: $id) {
+    id
+    shippingLines(first: $first, after: $after) {
+      nodes {
+        code
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+}
