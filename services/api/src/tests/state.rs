@@ -50,7 +50,7 @@ async fn state_reuses_shopify_client_and_preserves_optional_initialization_failu
 }
 
 #[tokio::test]
-async fn resend_state_reuses_client_and_disables_missing_or_empty_keys() {
+async fn resend_state_reuses_client_and_retains_missing_or_empty_key_errors() {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://fixture:fixture@localhost/fixture")
         .unwrap();
@@ -67,7 +67,15 @@ async fn resend_state_reuses_client_and_disables_missing_or_empty_keys() {
                 cloned.resend.as_ref().unwrap().as_ref().unwrap()
             ));
         } else {
-            assert!(state.resend.unwrap().is_none());
+            let error = state
+                .resend
+                .err()
+                .expect("constructor error must be retained");
+            assert!(matches!(
+                error.kind(),
+                crate::client::ClientErrorKind::InvalidInput("Resend API key is missing")
+            ));
+            assert!(error.location().file().ends_with("client/resend.rs"));
         }
     }
     assert!(

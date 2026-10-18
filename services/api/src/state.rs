@@ -30,12 +30,6 @@ pub fn app_state(pool: PgPool, settings: Settings) -> Result<AppState, config::C
             .client
             .as_ref()
             .and_then(|client| client.resend.as_ref())
-            .filter(|config| {
-                config
-                    .api_key
-                    .as_ref()
-                    .is_some_and(|key| !key.trim().is_empty())
-            })
             .map(ResendClient::new)
             .transpose()
             .map(|client| client.map(Arc::new))
