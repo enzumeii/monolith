@@ -1755,29 +1755,39 @@ async fn reship_email_failures_keep_returned_tag_and_never_retry() {
     }
 }
 
-struct ReshipFaultServer {
+struct OrderFaultServer {
     url: String,
     received: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     task: tokio::task::JoinHandle<()>,
 }
-impl Drop for ReshipFaultServer {
+impl Drop for OrderFaultServer {
     fn drop(&mut self) {
         self.task.abort();
     }
 }
-impl ReshipFaultServer {
+impl OrderFaultServer {
     async fn start(later: bool, disconnect: bool) -> Self {
+        Self::script(
+            if later { vec![reship_order()] } else { vec![] },
+            disconnect,
+        )
+        .await
+    }
+    async fn script(prefix: Vec<Value>, disconnect: bool) -> Self {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let received = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let count = received.clone();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
-            // For a refused lookup/send, release the port immediately. For a later
-            // refusal, close the listener only after returning the successful lookup.
-            if !later && !disconnect {
+            let mut prefix = std::collections::VecDeque::from(prefix);
+            if prefix.is_empty() && !disconnect {
+                drop(listener);
+                ready_tx.send(()).unwrap();
                 return;
             }
+            ready_tx.send(()).unwrap();
             loop {
                 let (mut stream, _) = listener.accept().await.unwrap();
                 let mut bytes = Vec::new();
@@ -1807,19 +1817,19 @@ impl ReshipFaultServer {
                 })
                 .await
                 .unwrap();
-                let index = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                if later && index == 0 {
-                    let body = json!({"data":reship_order()}).to_string();
+                count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if let Some(data) = prefix.pop_front() {
+                    let body = json!({"data":data}).to_string();
                     stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
                     stream.shutdown().await.unwrap();
-                    if !disconnect {
+                    if prefix.is_empty() && !disconnect {
                         break;
                     }
                 }
                 // Otherwise drop the socket after receiving the real request.
             }
         });
-        tokio::task::yield_now().await;
+        ready_rx.await.unwrap();
         Self {
             url,
             received,
@@ -1835,7 +1845,7 @@ impl ReshipFaultServer {
 async fn reship_connection_refusal_and_disconnect_map_at_each_dependency_stage() {
     for disconnect in [false, true] {
         for later in [false, true] {
-            let fault = ReshipFaultServer::start(later, disconnect).await;
+            let fault = OrderFaultServer::start(later, disconnect).await;
             let mail = ReshipMailServer::start("ok").await;
             let client = reship_client(&format!("{}/graphql.json", fault.url), &mail).await;
             assert_report_error(
@@ -1850,7 +1860,7 @@ async fn reship_connection_refusal_and_disconnect_map_at_each_dependency_stage()
         let (url, upstream) =
             crate::common::scripted_upstream(vec![reship_order(), tags_result(false, 42)], "http")
                 .await;
-        let fault = ReshipFaultServer::start(false, disconnect).await;
+        let fault = OrderFaultServer::start(false, disconnect).await;
         let client = crate::common::client_with_providers(crate::common::ProviderConfig {
             shopify_url: Some(&url),
             resend_url: Some(&fault.url),
@@ -1866,5 +1876,57 @@ async fn reship_connection_refusal_and_disconnect_map_at_each_dependency_stage()
         .await;
         assert_eq!(fault.count(), usize::from(disconnect));
         assert_eq!(upstream.requests().len(), 2);
+    }
+}
+
+#[tokio::test]
+async fn review_connection_faults_stop_at_every_workflow_operation() {
+    let mut cases = vec![("list", vec![])];
+    for stage in 0..3 {
+        cases.push(("labels", label_prefix(stage)));
+        cases.push(("fulfill", fulfillment_prefix(stage)));
+    }
+    for field in ["lineItems", "shippingLines"] {
+        let mut order = shipping_order(1, "US", "USPS");
+        order[field]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"child"});
+        cases.push(("labels", vec![json!({"orders":page(vec![order],None)})]));
+    }
+    let mut order = fulfillable_order(None);
+    order["order"]["fulfillmentOrders"]["nodes"][0]["lineItems"]["pageInfo"] =
+        json!({"hasNextPage":true,"endCursor":"child"});
+    cases.push(("fulfill", vec![order]));
+    for disconnect in [false, true] {
+        for (flow, prefix) in &cases {
+            let completed = prefix.len();
+            let server = OrderFaultServer::script(prefix.clone(), disconnect).await;
+            let client =
+                crate::common::client_with_shopify(&format!("{}/graphql.json", server.url)).await;
+            let request = match *flow {
+                "labels" => authed(
+                    "POST",
+                    "/v1/admin/orders/shipping_label",
+                    1,
+                    AdminRole::Admin,
+                ),
+                "fulfill" => fulfill_request(
+                    "42",
+                    r#"{"courier":"THAI_POST","tracking_number":"RR123TH"}"#,
+                    1,
+                    AdminRole::Admin,
+                ),
+                _ => authed("GET", "/v1/admin/orders?tag=X", 1, AdminRole::Admin),
+            };
+            assert_report_error(
+                client.send(request).await.unwrap(),
+                502,
+                "Upstream request failed",
+            )
+            .await;
+            assert_eq!(
+                server.count(),
+                completed + usize::from(disconnect),
+                "{flow} after{completed}, disconnect={disconnect}"
+            );
+        }
     }
 }
