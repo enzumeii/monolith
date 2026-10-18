@@ -8,7 +8,7 @@ description: |-
   Invalid input 400: {"error":"Expected a positive location id and no query parameters"}
   Missing location 404: {"error":"Shopify location not found"}
   Discovery failure 502 or timeout 504: {"error":"Upstream request failed"}
-  Unconfigured Shopify 503: {"error":"Shopify inventory activation unavailable"}
+  Unconfigured Shopify 503: {"error":"Shopify client unavailable"}
 url: "{{server}}/v1/admin/inventories/:location_id/enable"
 method: POST
 pathVariables:

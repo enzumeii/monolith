@@ -20,7 +20,7 @@ pub async fn enable_inventory(
     state: &AppState,
     location_id: ShopifyId,
 ) -> Result<InventoryEnableResponse, AppError> {
-    let client = shopify_client(state, "Shopify inventory activation unavailable")?;
+    let client = shopify_client(state)?;
     validate_location(client, &location_id).await?;
     let items = discover(client, &location_id).await?;
     let mut result = InventoryEnableResponse {

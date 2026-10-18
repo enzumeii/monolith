@@ -21,10 +21,7 @@ pub fn extract_inventory_request(
     };
     let Path(id) = path.map_err(|_| invalid())?;
     let Query(query) = query.map_err(|_| invalid())?;
-    if id.is_empty() || !id.bytes().all(|c| c.is_ascii_digit()) || id.bytes().all(|c| c == b'0') {
-        return Err(invalid());
-    }
-    let location = ShopifyId::new(format!("gid://shopify/Location/{id}")).map_err(|_| invalid())?;
+    let location = parse_location_id(&id).ok_or_else(invalid)?;
     let page = PageRequest {
         first: query.page_size.unwrap_or(50),
         after: query.cursor,
@@ -32,10 +29,6 @@ pub fn extract_inventory_request(
     page.validate().map_err(|_| invalid())?;
     Ok((location, page))
 }
-
-#[cfg(test)]
-#[path = "../tests/validations/inventories.rs"]
-mod tests;
 
 pub fn extract_enable_request(
     path: Result<Path<String>, PathRejection>,
@@ -48,12 +41,22 @@ pub fn extract_enable_request(
         )
     };
     let Path(id) = path.map_err(|_| invalid())?;
-    if query.is_some_and(|query| !query.is_empty())
-        || id.is_empty()
+    if query.is_some_and(|query| !query.is_empty()) {
+        return Err(invalid());
+    }
+    parse_location_id(&id).ok_or_else(invalid)
+}
+
+fn parse_location_id(id: &str) -> Option<ShopifyId> {
+    if id.is_empty()
         || !id.bytes().all(|byte| byte.is_ascii_digit())
         || id.bytes().all(|byte| byte == b'0')
     {
-        return Err(invalid());
+        return None;
     }
-    ShopifyId::new(format!("gid://shopify/Location/{id}")).map_err(|_| invalid())
+    ShopifyId::new(format!("gid://shopify/Location/{id}")).ok()
 }
+
+#[cfg(test)]
+#[path = "../tests/validations/inventories.rs"]
+mod tests;

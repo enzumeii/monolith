@@ -79,3 +79,13 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitl
 | Activation inputs | Retry payload has exactly three variables; no onHand/available arguments or variables. Positive on_hand remains eligibility data; missing or large unused available values do not block activation |
 | Repository skill | Skill validator and UI metadata checks passed. Five controlled evaluations chose reuse/enhancement or justified security separation; five baseline controls also did so, so no measured improvement is claimed |
 | Review | Independent review found no actionable findings; final-head hosted CI is recorded in the PR |
+
+## ENZ-22 additional review remediation (2026-10-19)
+
+| Check | Evidence |
+| --- | --- |
+| Shared inventory validation | Both extractors cover positive IDs, preserved leading zeros, empty/zero/signed/decimal/whitespace/Unicode rejection and endpoint-specific query rules |
+| Shared client availability | All three callers use one accessor with no message parameter; absent/failed initialization returns503 `Shopify client unavailable`, with initialization causes retained privately |
+| Local verification | Strict API `just check` and complete `just test` passed134 library tests and56 TCP E2E tests; Compose teardown completed. Workspace formatting/diff checks passed |
+| Postman and review | Changed YAML parses; internal13 requests lint with0 errors/warnings. Independent read-only review found no actionable issues |
+| Limits | Final-head hosted CI is recorded in the PR; no live Shopify calls or deployment |

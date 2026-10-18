@@ -5,19 +5,24 @@ use crate::{
 };
 use axum::http::StatusCode;
 
-pub(super) fn shopify_client<'a>(
-    state: &'a AppState,
-    unavailable_message: &'static str,
-) -> Result<&'a ShopifyClient, AppError> {
+pub(super) fn shopify_client(state: &AppState) -> Result<&ShopifyClient, AppError> {
     state
         .shopify
         .as_ref()
         .map_err(|error| {
-            AppError::new(StatusCode::SERVICE_UNAVAILABLE, unavailable_message)
-                .with_source(error.clone())
+            AppError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Shopify client unavailable",
+            )
+            .with_source(error.clone())
         })?
         .as_deref()
-        .ok_or_else(|| AppError::new(StatusCode::SERVICE_UNAVAILABLE, unavailable_message))
+        .ok_or_else(|| {
+            AppError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Shopify client unavailable",
+            )
+        })
 }
 
 #[track_caller]

@@ -194,7 +194,7 @@ async fn status_message_and_challenge_are_independent() {
         (StatusCode::CONFLICT, "Username already exists", false),
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            "Shopify report unavailable",
+            "Shopify client unavailable",
             false,
         ),
         (StatusCode::BAD_GATEWAY, "Upstream request failed", false),
@@ -358,7 +358,7 @@ mod logging_tests {
                         };
                         let error = AppError::new(
                             StatusCode::SERVICE_UNAVAILABLE,
-                            "Shopify report unavailable",
+                            "Shopify client unavailable",
                         )
                         .with_source(cause)
                         .context("report request");

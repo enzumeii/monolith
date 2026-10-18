@@ -40,7 +40,7 @@ async fn state_reuses_shopify_client_and_preserves_optional_initialization_failu
     );
     let error = crate::error::AppError::new(
         StatusCode::SERVICE_UNAVAILABLE,
-        "Shopify report unavailable",
+        "Shopify client unavailable",
     )
     .with_source(cause);
     assert_eq!(

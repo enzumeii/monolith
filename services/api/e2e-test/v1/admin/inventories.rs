@@ -616,7 +616,7 @@ async fn enable_inventory_rejects_invalid_requests_without_shopify_calls() {
                 .await
                 .unwrap(),
             503,
-            "Shopify inventory activation unavailable",
+            "Shopify client unavailable",
         )
         .await;
     }
