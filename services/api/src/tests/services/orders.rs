@@ -178,18 +178,14 @@ async fn service_resolves_unavailable_shared_dependency_without_network() {
 
 #[tokio::test]
 async fn later_numeric_failures_never_return_partial_reports() {
-    for kind in ["quantity-overflow", "total-overflow", "invalid-amount"] {
-        let mut first = line(if kind == "quantity-overflow" {
+    for kind in ["quantity-overflow", "invalid-amount"] {
+        let first = line(if kind == "quantity-overflow" {
             i64::MAX
         } else {
             1
         });
         let mut second = line(1);
-        if kind == "total-overflow" {
-            let amount = json!("79228162514264337593543950335");
-            first["originalUnitPriceSet"]["shopMoney"]["amount"] = amount.clone();
-            second["originalUnitPriceSet"]["shopMoney"]["amount"] = amount;
-        } else if kind == "invalid-amount" {
+        if kind == "invalid-amount" {
             second["originalUnitPriceSet"]["shopMoney"]["amount"] = json!("private-invalid-amount");
         }
         let f = Fixture::new(vec![

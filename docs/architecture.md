@@ -41,7 +41,7 @@ AppState constructs the optional Shopify client once and shares its HTTP pool. H
 | `src/middleware/token.rs` | JWT validation and role checks |
 | `src/services/` / `src/repositories/` | Use cases and transaction boundaries / SQL queries |
 | `src/models/` | Persistence/authentication models and API-owned Shopify contracts |
-| `src/validations/` / `src/utils/` | Input rules / Argon2 operations and exact decimal parsing/multiplication |
+| `src/validations/` / `src/utils/` | Input rules / Argon2 operations and native number parsing and multiplication |
 | `src/error.rs` | Public error mapping and centralized boundary logging |
 | `src/client.rs` | Generic HTTP/GraphQL request envelopes, decoding, failures, throttling backoff |
 | `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication and single-operation proxy methods / matching query documents |
@@ -131,7 +131,7 @@ flowchart LR
 | Initialization | AppState owns one optional client; service resolves availability and retained initialization causes |
 | Root report traversal | Inventory forwards caller size/cursor and returns one product page; orders process batches250 until exhausted with cursor progress/cycle checks |
 | Nested report data | Product variants and tagged-order lines use fixed first250 without child queries; unexpected hasNextPage fails rather than truncates |
-| Models | API-owned source conversions, SKU/stock derivation, report row totals and merge compatibility; reusable exact arithmetic lives in utils/numbers.rs; domain DTOs remain wire-only |
+| Models | API-owned source conversions, SKU/stock derivation, report row totals and merge compatibility; shared numeric helpers live in utils/numbers.rs; domain DTOs remain wire-only |
 
 | Operation | Result |
 | --- | --- |
@@ -178,7 +178,7 @@ flowchart LR
 | Metadata | Category = productType; collection = SKU characters 4–9 inclusive, null for short/missing SKU; cost and weight are current inventory metadata |
 | Orders | Literal tag; original quantities and original unit shop-money prices; merge SKU + price + currency with compatible cost/weight/category; missing SKUs stay separate |
 | Completeness | Inventory returns one root product page; orders return one response after every matching order page is processed. Bounded nested connections must be complete |
-| Precision | API checked decimal arithmetic; domain JSON numbers preserve decimal precision; overflow/invalid upstream numbers fail the whole report |
+| Precision | Native f64 arithmetic with calculated totals rounded to two decimal places; invalid/non-finite values fail the whole report; integer quantity addition remains checked |
 | Failures | 400 invalid input, 401 authentication, 404 location absent, 503 missing configuration, 502 upstream failure, 504 upstream timeout; sanitized responses |
 | Inventory input/output | Location ID path; page_size defaults50 (1–250), cursor forwards unchanged; products plus page_info; filtered empty pages retain continuation |
 | Order input/output | Required comma-separated tags; every tag must match (AND); products only; page_size/cursor rejected400. |

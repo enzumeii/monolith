@@ -1,5 +1,5 @@
 $kind: http-request
-description: Summarize all matching orders. Set order_tag to one tag or comma-separated tags such as SHIPPING,TEST; every tag must match (AND). Empty entries return 400. Upstream failures return HTTP 502, or HTTP 504 for timeouts, with {"error":"Upstream request failed"}.
+description: Summarize all matching orders. Set order_tag to one tag or comma-separated tags such as SHIPPING,TEST; every tag must match (AND). Empty entries return 400. Upstream failures return HTTP 502, or HTTP 504 for timeouts, with {"error":"Upstream request failed"}. Calculated totals are rounded to two decimal places.
 url: "{{server}}/v1/admin/orders/report?tags=shipping"
 method: GET
 queryParams:

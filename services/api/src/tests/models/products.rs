@@ -29,7 +29,7 @@ fn row(quantity: i64, price: &str) -> ProductReportRow {
 }
 
 #[test]
-fn totals_use_exact_decimal_and_preserve_negative_inventory() {
+fn totals_use_two_decimal_places_and_preserve_negative_inventory() {
     let mut value = row(3, "0.1");
     totals(&mut value).unwrap();
     assert_eq!(value.total_selling_price.to_string(), "0.3");

@@ -1,7 +1,7 @@
 use crate::{
     client::{ClientError, ClientErrorKind},
     models::shopify::{InventoryMetadata, Money, Sku},
-    utils::numbers::{multiply_decimal, parse_decimal},
+    utils::numbers::{multiply_number, parse_number},
 };
 use domain::dto::ProductReportRow;
 use serde_json::Number;
@@ -27,15 +27,15 @@ impl ReportRow {
             category: category.filter(|value| !value.is_empty()),
             cost: cost
                 .as_ref()
-                .map(|value| parse_decimal(&value.amount))
+                .map(|value| parse_number(&value.amount))
                 .transpose()?,
             cost_currency: cost.map(|value| value.currency_code),
             weight: weight
                 .as_ref()
-                .map(|value| parse_decimal(&value.value.to_string()))
+                .map(|value| parse_number(&value.value.to_string()))
                 .transpose()?,
             unit: weight.map(|value| value.unit),
-            selling_price: parse_decimal(&price.amount)?,
+            selling_price: parse_number(&price.amount)?,
             selling_price_currency: price.currency_code,
             quantity,
             total_selling_price: Number::from(0),
@@ -75,11 +75,11 @@ impl ReportRow {
     }
 }
 fn totals(row: &mut ProductReportRow) -> Result<(), ClientError> {
-    row.total_selling_price = multiply_decimal(&row.selling_price, row.quantity)?;
+    row.total_selling_price = multiply_number(&row.selling_price, row.quantity)?;
     row.total_weight = row
         .weight
         .as_ref()
-        .map(|w| multiply_decimal(w, row.quantity))
+        .map(|w| multiply_number(w, row.quantity))
         .transpose()?;
     Ok(())
 }
