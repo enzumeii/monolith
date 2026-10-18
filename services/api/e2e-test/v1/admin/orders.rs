@@ -1333,3 +1333,538 @@ async fn review_nested_shipping_methods_and_large_fulfillment_arrays_complete() 
     }
     assert_eq!(requests[4]["variables"]["tags"], json!(["SHIPPING"]));
 }
+
+struct ReshipMailServer {
+    url: String,
+    requests: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
+    task: tokio::task::JoinHandle<()>,
+}
+impl Drop for ReshipMailServer {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+impl ReshipMailServer {
+    async fn start(mode: &'static str) -> Self {
+        use axum::http::{HeaderMap, StatusCode};
+        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = requests.clone();
+        let router = Router::new().route("/emails", axum::routing::post(move |headers: HeaderMap, Json(body): Json<Value>| {
+            let recorded = recorded.clone();
+            async move {
+                assert_eq!(headers["authorization"], "Bearer re_e2e-fixture");
+                assert!(!headers.contains_key("idempotency-key"));
+                recorded.lock().unwrap().push(body);
+                match mode {
+                    "ok" => Json(json!({"id":"email-fixture-id"})).into_response(),
+                    "blank" => Json(json!({"id":"  "})).into_response(),
+                    "missing" => Json(json!({})).into_response(),
+                    "malformed" => "{".into_response(),
+                    "timeout" => { tokio::time::sleep(std::time::Duration::from_secs(3)).await; Json(json!({"id":"late"})).into_response() },
+                    status => (StatusCode::from_u16(status.parse().unwrap()).unwrap(), Json(json!({"statusCode":status.parse::<u16>().unwrap(),"name":"validation_error","message":"private recipient@example.test re_secret body"}))).into_response(),
+                }
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        Self {
+            url,
+            requests,
+            task,
+        }
+    }
+    fn requests(&self) -> Vec<Value> {
+        self.requests.lock().unwrap().clone()
+    }
+}
+fn reship_order() -> Value {
+    json!({"order":{"id":"gid://shopify/Order/42","number":1085,"email":"recipient@example.test"}})
+}
+fn reship_request() -> axum::http::Request<axum::body::Body> {
+    authed("POST", "/v1/admin/orders/42/reship", 1, AdminRole::Admin)
+}
+async fn reship_client(shopify_url: &str, mail: &ReshipMailServer) -> crate::common::TestClient {
+    crate::common::client_with_providers(crate::common::ProviderConfig {
+        shopify_url: Some(shopify_url),
+        resend_url: Some(&mail.url),
+        resend_key: Some("re_e2e-fixture"),
+        email_timeout_secs: Some(1),
+    })
+    .await
+}
+
+#[tokio::test]
+async fn reship_sends_reference_notice_after_tagging_and_each_explicit_post() {
+    let (url, upstream) = crate::common::scripted_upstream(
+        vec![
+            reship_order(),
+            tags_result(false, 42),
+            reship_order(),
+            tags_result(false, 42),
+        ],
+        "http",
+    )
+    .await;
+    let mail = ReshipMailServer::start("ok").await;
+    let client = reship_client(&url, &mail).await;
+    for (index, role) in [AdminRole::Admin, AdminRole::SuperAdmin]
+        .into_iter()
+        .enumerate()
+    {
+        let response = client
+            .send(authed("POST", "/v1/admin/orders/42/reship", 1, role))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(body_json(response).await, json!({"success":true}));
+        let calls = upstream.requests();
+        assert_eq!(calls.len(), (index + 1) * 2);
+        assert_eq!(calls[index * 2]["operationName"], "ReshipOrder");
+        assert_eq!(
+            calls[index * 2]["variables"],
+            json!({"id":"gid://shopify/Order/42"})
+        );
+        assert_eq!(calls[index * 2 + 1]["operationName"], "AddOrderTags");
+        assert_eq!(
+            calls[index * 2 + 1]["variables"],
+            json!({"id":"gid://shopify/Order/42","tags":["RETURNED"]})
+        );
+        let sends = mail.requests();
+        assert_eq!(sends.len(), index + 1);
+        assert_eq!(sends[index]["from"], "shipping@enzumeii.com");
+        assert_eq!(sends[index]["to"], json!(["recipient@example.test"]));
+        assert_eq!(
+            sends[index]["subject"],
+            "[ENZUMEII] Urgent : Reshipping your returned package order #1085"
+        );
+        let html = sends[index]["html"].as_str().unwrap();
+        for phrase in [
+            "order #1085",
+            "Hello from Automated Zuzu",
+            "85% of the item price",
+            "The shipping fee will not be included",
+            "verifying and updating your delivery information",
+            "invoice you just the shipping fee again",
+            "reply directly to this email",
+            "https://twitter.com/enzumeii",
+            "https://www.instagram.com/enzumeii",
+        ] {
+            assert!(html.contains(phrase), "missing {phrase}");
+        }
+        assert!(!html.contains("{order_no}"));
+        assert!(sends[index].get("reply_to").is_none());
+    }
+}
+
+#[tokio::test]
+async fn reship_rejects_each_invalid_input_without_provider_calls() {
+    let (url, upstream) = crate::common::scripted_upstream(vec![], "http").await;
+    let mail = ReshipMailServer::start("ok").await;
+    let client = reship_client(&url, &mail).await;
+    for id in ["abc", "0", "-1", "18446744073709551616", "%FF"] {
+        let response = client
+            .send(authed(
+                "POST",
+                &format!("/v1/admin/orders/{id}/reship"),
+                1,
+                AdminRole::Admin,
+            ))
+            .await
+            .unwrap();
+        assert_report_error(
+            response,
+            400,
+            "Expected a positive order id without query parameters or a request body",
+        )
+        .await;
+    }
+    for (query, body) in [("?x=1", ""), ("", "{}"), ("", "{"), ("", " ")] {
+        let mut request = authed(
+            "POST",
+            &format!("/v1/admin/orders/42/reship{query}"),
+            1,
+            AdminRole::Admin,
+        );
+        *request.body_mut() = axum::body::Body::from(body);
+        assert_report_error(
+            client.send(request).await.unwrap(),
+            400,
+            "Expected a positive order id without query parameters or a request body",
+        )
+        .await;
+    }
+    assert!(upstream.requests().is_empty());
+    assert!(mail.requests().is_empty());
+}
+
+#[tokio::test]
+async fn reship_auth_and_cookie_origin_rejections_precede_providers() {
+    let (url, upstream) = crate::common::scripted_upstream(vec![], "http").await;
+    let mail = ReshipMailServer::start("ok").await;
+    let client = reship_client(&url, &mail).await;
+    let expired = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &json!({"sub":1,"username":"fixture","role":"ADMIN","exp":1}),
+        &jsonwebtoken::EncodingKey::from_secret(&hex::decode(crate::common::JWT_SECRET).unwrap()),
+    )
+    .unwrap();
+    for token in [None, Some("invalid".to_owned()), Some(expired)] {
+        let mut request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/admin/orders/42/reship");
+        if let Some(token) = token {
+            request = request.header("authorization", format!("Bearer {token}"));
+        }
+        let response = client
+            .send(request.body(axum::body::Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.headers()["www-authenticate"], "Bearer");
+        assert_report_error(response, 401, "Invalid or expired token").await;
+    }
+    let cookie = format!(
+        "backoffice_auth={}~{}",
+        crate::common::jwt_for(1, AdminRole::Admin),
+        "ab".repeat(32)
+    );
+    for origin in [None, Some("https://untrusted.example.test")] {
+        let mut request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/v1/admin/orders/42/reship")
+            .header("cookie", &cookie);
+        if let Some(origin) = origin {
+            request = request.header("origin", origin);
+        }
+        let response = client
+            .send(request.body(axum::body::Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 403);
+    }
+    assert!(upstream.requests().is_empty());
+    assert!(mail.requests().is_empty());
+}
+
+#[tokio::test]
+async fn reship_domain_and_unusable_contacts_never_tag_or_send() {
+    let mut cases = vec![
+        (json!({"order":null}), 404, "Order not found"),
+        (json!({}), 502, "Upstream request failed"),
+        (json!({"order":false}), 502, "Upstream request failed"),
+    ];
+    for email in [Value::Null, json!(""), json!("  ")] {
+        let mut data = reship_order();
+        data["order"]["email"] = email;
+        cases.push((data, 409, "Order email missing"));
+    }
+    for (field, value) in [
+        ("id", json!("gid://shopify/Order/43")),
+        ("number", json!(0)),
+        ("number", json!(-1)),
+        ("number", json!("1085")),
+    ] {
+        let mut data = reship_order();
+        data["order"][field] = value;
+        cases.push((data, 502, "Upstream request failed"));
+    }
+    for field in ["id", "number", "email"] {
+        let mut data = reship_order();
+        data["order"].as_object_mut().unwrap().remove(field);
+        cases.push((data, 502, "Upstream request failed"));
+    }
+    let mail = ReshipMailServer::start("ok").await;
+    for (data, status, message) in cases {
+        let (url, upstream) = crate::common::scripted_upstream(vec![data], "http").await;
+        let client = reship_client(&url, &mail).await;
+        assert_report_error(
+            client.send(reship_request()).await.unwrap(),
+            status,
+            message,
+        )
+        .await;
+        assert_eq!(upstream.requests().len(), 1);
+    }
+    assert!(mail.requests().is_empty());
+}
+
+#[tokio::test]
+async fn reship_optional_clients_and_settings_fail_before_lookup() {
+    let (url, upstream) = crate::common::scripted_upstream(vec![], "http").await;
+    let mail = ReshipMailServer::start("ok").await;
+    for (shopify, key, timeout, message) in [
+        (
+            None,
+            Some("re_e2e-fixture"),
+            Some(1),
+            "Shopify report unavailable",
+        ),
+        (
+            Some("invalid-url"),
+            Some("re_e2e-fixture"),
+            Some(1),
+            "Shopify report unavailable",
+        ),
+        (
+            Some(url.as_str()),
+            None,
+            Some(1),
+            "Reship email unavailable",
+        ),
+        (
+            Some(url.as_str()),
+            Some(""),
+            Some(1),
+            "Reship email unavailable",
+        ),
+        (
+            Some(url.as_str()),
+            Some("re_e2e-fixture"),
+            None,
+            "Reship email unavailable",
+        ),
+        (
+            Some(url.as_str()),
+            Some("re_e2e-fixture"),
+            Some(0),
+            "Reship email unavailable",
+        ),
+    ] {
+        let client = crate::common::client_with_providers(crate::common::ProviderConfig {
+            shopify_url: shopify,
+            resend_url: Some(&mail.url),
+            resend_key: key,
+            email_timeout_secs: timeout,
+        })
+        .await;
+        assert_report_error(client.send(reship_request()).await.unwrap(), 503, message).await;
+        assert_eq!(
+            client
+                .send(authed("GET", "/healthz", 1, AdminRole::Admin))
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+    }
+    assert!(upstream.requests().is_empty());
+    assert!(mail.requests().is_empty());
+}
+
+#[tokio::test]
+async fn reship_each_shopify_operation_failure_stops_before_email() {
+    let mail = ReshipMailServer::start("ok").await;
+    for later in [false, true] {
+        for failure in [
+            "http",
+            "graphql",
+            "partial",
+            "malformed",
+            "missing",
+            "shape",
+            "throttled",
+            "timeout",
+        ] {
+            let prefix = if later { vec![reship_order()] } else { vec![] };
+            let (url, upstream) = crate::common::scripted_upstream(prefix, failure).await;
+            let client = reship_client(&url, &mail).await;
+            assert_report_error(
+                client.send(reship_request()).await.unwrap(),
+                if failure == "timeout" { 504 } else { 502 },
+                "Upstream request failed",
+            )
+            .await;
+            assert_eq!(
+                upstream.requests().len(),
+                usize::from(later) + if failure == "throttled" { 4 } else { 1 },
+                "{failure} later={later}"
+            );
+        }
+    }
+    assert!(mail.requests().is_empty());
+}
+
+#[tokio::test]
+async fn reship_unusable_tag_results_stop_before_email() {
+    let mail = ReshipMailServer::start("ok").await;
+    for data in [
+        json!({"tagsAdd":{"node":null,"userErrors":[]}}),
+        json!({"tagsAdd":{"node":{"id":"gid://shopify/Order/43"},"userErrors":[]}}),
+        json!({"tagsAdd":{"node":{"id":"gid://shopify/Order/42"},"userErrors":[{"field":["tags"],"message":"private recipient@example.test"}]}}),
+        json!({"tagsAdd":{}}),
+    ] {
+        let (url, upstream) =
+            crate::common::scripted_upstream(vec![reship_order(), data], "http").await;
+        let client = reship_client(&url, &mail).await;
+        assert_report_error(
+            client.send(reship_request()).await.unwrap(),
+            502,
+            "Upstream request failed",
+        )
+        .await;
+        assert_eq!(upstream.requests().len(), 2);
+    }
+    assert!(mail.requests().is_empty());
+}
+
+#[tokio::test]
+async fn reship_email_failures_keep_returned_tag_and_never_retry() {
+    for failure in [
+        "401",
+        "422",
+        "429",
+        "500",
+        "503",
+        "malformed",
+        "missing",
+        "blank",
+        "timeout",
+    ] {
+        let (url, upstream) =
+            crate::common::scripted_upstream(vec![reship_order(), tags_result(false, 42)], "http")
+                .await;
+        let mail = ReshipMailServer::start(failure).await;
+        let client = reship_client(&url, &mail).await;
+        let started = std::time::Instant::now();
+        assert_report_error(
+            client.send(reship_request()).await.unwrap(),
+            if failure == "timeout" { 504 } else { 502 },
+            "Upstream request failed",
+        )
+        .await;
+        if failure == "timeout" {
+            assert!(started.elapsed() < std::time::Duration::from_secs(3));
+        }
+        assert_eq!(mail.requests().len(), 1, "{failure}");
+        let calls = upstream.requests();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[1]["operationName"], "AddOrderTags");
+        let logs = client.logs();
+        assert!(logs.contains("API operation failed"));
+        for private in [
+            "recipient@example.test",
+            "re_secret",
+            "re_e2e-fixture",
+            "private recipient",
+            "Automated Zuzu",
+        ] {
+            assert!(!logs.contains(private), "ordinary log leaked {private}");
+        }
+    }
+}
+
+struct ReshipFaultServer {
+    url: String,
+    received: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    task: tokio::task::JoinHandle<()>,
+}
+impl Drop for ReshipFaultServer {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+impl ReshipFaultServer {
+    async fn start(later: bool, disconnect: bool) -> Self {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let received = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = received.clone();
+        let task = tokio::spawn(async move {
+            // For a refused lookup/send, release the port immediately. For a later
+            // refusal, close the listener only after returning the successful lookup.
+            if !later && !disconnect {
+                return;
+            }
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                let mut buf = [0; 4096];
+                tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                    loop {
+                        let n = stream.read(&mut buf).await.unwrap();
+                        if n == 0 {
+                            break;
+                        }
+                        bytes.extend_from_slice(&buf[..n]);
+                        if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                            let headers = String::from_utf8_lossy(&bytes[..end]);
+                            let length = headers
+                                .lines()
+                                .find_map(|line| {
+                                    line.to_ascii_lowercase()
+                                        .strip_prefix("content-length:")
+                                        .map(|value| value.trim().parse::<usize>().unwrap())
+                                })
+                                .unwrap_or(0);
+                            if bytes.len() >= end + 4 + length {
+                                break;
+                            }
+                        }
+                    }
+                })
+                .await
+                .unwrap();
+                let index = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if later && index == 0 {
+                    let body = json!({"data":reship_order()}).to_string();
+                    stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+                    stream.shutdown().await.unwrap();
+                    if !disconnect {
+                        break;
+                    }
+                }
+                // Otherwise drop the socket after receiving the real request.
+            }
+        });
+        tokio::task::yield_now().await;
+        Self {
+            url,
+            received,
+            task,
+        }
+    }
+    fn count(&self) -> usize {
+        self.received.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[tokio::test]
+async fn reship_connection_refusal_and_disconnect_map_at_each_dependency_stage() {
+    for disconnect in [false, true] {
+        for later in [false, true] {
+            let fault = ReshipFaultServer::start(later, disconnect).await;
+            let mail = ReshipMailServer::start("ok").await;
+            let client = reship_client(&format!("{}/graphql.json", fault.url), &mail).await;
+            assert_report_error(
+                client.send(reship_request()).await.unwrap(),
+                502,
+                "Upstream request failed",
+            )
+            .await;
+            assert_eq!(fault.count(), usize::from(later) + usize::from(disconnect));
+            assert!(mail.requests().is_empty());
+        }
+        let (url, upstream) =
+            crate::common::scripted_upstream(vec![reship_order(), tags_result(false, 42)], "http")
+                .await;
+        let fault = ReshipFaultServer::start(false, disconnect).await;
+        let client = crate::common::client_with_providers(crate::common::ProviderConfig {
+            shopify_url: Some(&url),
+            resend_url: Some(&fault.url),
+            resend_key: Some("re_e2e-fixture"),
+            email_timeout_secs: Some(1),
+        })
+        .await;
+        assert_report_error(
+            client.send(reship_request()).await.unwrap(),
+            502,
+            "Upstream request failed",
+        )
+        .await;
+        assert_eq!(fault.count(), usize::from(disconnect));
+        assert_eq!(upstream.requests().len(), 2);
+    }
+}

@@ -10,4 +10,5 @@ pub fn router() -> Router<AppState> {
         .route("/", get(orders::list))
         .route("/shipping_label", post(orders::shipping_labels))
         .route("/{order_id}/fulfill", post(orders::fulfill))
+        .route("/{order_id}/reship", post(orders::reship))
 }

@@ -1,0 +1,16 @@
+$kind: http-example
+id: 48369d6bb47845eeb4ee9aa1
+name: Email send failed
+response:
+  statusCode: 502
+  statusText: Bad Gateway
+  body:
+    type: json
+    content: |-
+      {"error":"Upstream request failed"}
+  headers:
+    - key: content-type
+      value: application/json
+request:
+  url: '{{server}}/v1/admin/orders/{{order_id}}/reship'
+  method: POST

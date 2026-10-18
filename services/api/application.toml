@@ -25,3 +25,6 @@ district = "Buengkhum"
 province = "Bangkok"
 postcode = "10230"
 country_code = "TH"
+
+[reship]
+email_timeout_secs = 10

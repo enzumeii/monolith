@@ -1,0 +1,16 @@
+$kind: http-example
+id: c4dc1d0500044b9893a2e28b
+name: Order email missing
+response:
+  statusCode: 409
+  statusText: Conflict
+  body:
+    type: json
+    content: |-
+      {"error":"Order email missing"}
+  headers:
+    - key: content-type
+      value: application/json
+request:
+  url: '{{server}}/v1/admin/orders/{{order_id}}/reship'
+  method: POST

@@ -1,0 +1,7 @@
+query ReshipOrder($id: ID!) {
+  order(id: $id) {
+    id
+    number
+    email
+  }
+}

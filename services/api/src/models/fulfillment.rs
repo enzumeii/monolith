@@ -3,6 +3,20 @@ use crate::client::{ClientError, ClientErrorKind, MutationUserError};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
+pub struct ReshipOrderData {
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub order: Option<ReshipOrder>,
+}
+
+#[derive(Deserialize)]
+pub struct ReshipOrder {
+    pub id: String,
+    pub number: i64,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub email: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct OrdersPage<T> {
     pub orders: Connection<T>,
 }

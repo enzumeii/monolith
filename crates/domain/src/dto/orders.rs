@@ -179,3 +179,8 @@ pub struct TeleportLabel {
     pub reference: String,
     pub destination_geo: String,
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ReshipOrderResponse {
+    pub success: bool,
+}

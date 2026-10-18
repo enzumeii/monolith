@@ -1,0 +1,19 @@
+$kind: graphql-request
+description: 'Requires Shopify token from the local vault and a test-store order ID. Fetches only id, merchant number and email for the reship notice. order:null is absent; missing/blank email prevents sending. Older orders may require read_all_orders. Synthetic values only; no production verification.'
+url: '{{shopify}}/graphql.json'
+query: |
+  query ReshipOrder($id: ID!) {
+    order(id: $id) {
+      id
+      number
+      email
+    }
+  }
+variables: |
+  {
+    "id": "gid://shopify/Order/123"
+  }
+settings: {}
+schema:
+  source: auto
+order: 3900

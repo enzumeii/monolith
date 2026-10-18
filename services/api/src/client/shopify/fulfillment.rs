@@ -12,6 +12,18 @@ use crate::{
 use serde_json::{Value, json};
 
 impl ShopifyClient {
+    pub(crate) async fn reship_order(
+        &self,
+        id: &str,
+    ) -> Result<crate::models::fulfillment::ReshipOrderData, ClientError> {
+        self.execute(
+            "ReshipOrder",
+            include_str!("reship_order.graphql"),
+            json!({"id":id}),
+        )
+        .await
+    }
+
     pub(crate) async fn shipping_order_items(
         &self,
         id: &str,

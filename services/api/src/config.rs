@@ -58,6 +58,7 @@ impl std::fmt::Debug for ResendConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
     pub shipping_sender: Option<ShippingSender>,
+    pub reship: Option<ReshipSettings>,
     pub client: Option<ClientConfig>,
     pub browser: BrowserConfig,
     pub server: ServerConfig,
@@ -164,4 +165,9 @@ pub struct ShippingSender {
     pub province: String,
     pub postcode: String,
     pub country_code: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ReshipSettings {
+    pub email_timeout_secs: u64,
 }

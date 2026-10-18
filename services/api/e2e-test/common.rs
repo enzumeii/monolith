@@ -126,6 +126,9 @@ pub async fn client() -> TestClient {
     }
 }
 impl TestClient {
+    pub fn logs(&self) -> String {
+        std::fs::read_to_string(self.api.directory.join("api.log")).unwrap()
+    }
     pub async fn send(
         &self,
         request: Request<Body>,
@@ -295,6 +298,14 @@ pub async fn client_with_upstream_script(
     prefix: Vec<serde_json::Value>,
     failure: &'static str,
 ) -> (TestClient, ScriptedUpstream) {
+    let (url, upstream) = scripted_upstream(prefix, failure).await;
+    (client_with_shopify(&url).await, upstream)
+}
+
+pub async fn scripted_upstream(
+    prefix: Vec<serde_json::Value>,
+    failure: &'static str,
+) -> (String, ScriptedUpstream) {
     use axum::{Json, response::IntoResponse};
     use serde_json::{Value, json};
 
@@ -332,9 +343,13 @@ pub async fn client_with_upstream_script(
             }
         }),
     );
-    let (client, server) = client_with_upstream(router).await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/graphql.json", listener.local_addr().unwrap());
+    let server = TestUpstream(tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    }));
     (
-        client,
+        url,
         ScriptedUpstream {
             requests,
             _server: server,
@@ -386,7 +401,7 @@ async fn test_api() -> Arc<TestApi> {
     if let Some(api) = shared.upgrade() {
         return api;
     }
-    let api = start_api(None).await;
+    let api = start_api(ProviderConfig::default()).await;
     *shared = Arc::downgrade(&api);
     api
 }
@@ -394,12 +409,38 @@ async fn test_api() -> Arc<TestApi> {
 pub async fn client_with_shopify(url: &str) -> TestClient {
     TestClient {
         http: reqwest::Client::new(),
-        api: start_api(Some(url)).await,
+        api: start_api(ProviderConfig {
+            shopify_url: Some(url),
+            ..Default::default()
+        })
+        .await,
     }
 }
 
-async fn start_api(shopify_url: Option<&str>) -> Arc<TestApi> {
-    let port = if shopify_url.is_some() {
+#[derive(Default)]
+pub struct ProviderConfig<'a> {
+    pub shopify_url: Option<&'a str>,
+    pub resend_url: Option<&'a str>,
+    pub resend_key: Option<&'a str>,
+    pub email_timeout_secs: Option<u64>,
+}
+
+pub async fn client_with_providers(config: ProviderConfig<'_>) -> TestClient {
+    TestClient {
+        http: reqwest::Client::builder()
+            .timeout(Duration::from_secs(45))
+            .build()
+            .unwrap(),
+        api: start_api(config).await,
+    }
+}
+
+async fn start_api(config: ProviderConfig<'_>) -> Arc<TestApi> {
+    let shopify_url = config.shopify_url;
+    let port = if shopify_url.is_some()
+        || config.resend_url.is_some()
+        || std::env::var("E2E_API_PORT").is_err()
+    {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("allocate API port");
         listener
             .local_addr()
@@ -411,6 +452,10 @@ async fn start_api(shopify_url: Option<&str>) -> Arc<TestApi> {
     };
     let shopify = shopify_url
         .map(|url| format!("\n[client.shopify]\nadmin_api_url = {url:?}\ntimeout_secs = 3\n"))
+        .unwrap_or_default();
+    let reship = config
+        .email_timeout_secs
+        .map(|secs| format!("\n[reship]\nemail_timeout_secs = {secs}\n"))
         .unwrap_or_default();
     let directory = std::env::temp_dir().join(format!("monolith-api-e2e-{}", Uuid::new_v4()));
     std::fs::create_dir(&directory).expect("create owned E2E configuration directory");
@@ -433,6 +478,7 @@ min_connections = 1
 public_origin = "http://127.0.0.1:8084"
 insecure_local = true
 {shopify}
+{reship}
 [shipping_sender]
 name = "Nanmanas Tandavanitj"
 phone = "0989473856"
@@ -452,11 +498,20 @@ country_code = "TH"
             .current_dir(&api.directory)
             .env("DATABASE_URL", database_url())
             .env("JWT_SECRET", JWT_SECRET)
+            .env("RUST_LOG", "info")
             .env_remove("SHOPIFY_ACCESS_TOKEN")
             .env_remove("RESEND_API_KEY")
+            .env_remove("RESEND_BASE_URL")
+            .env_remove("RESEND_RATE_LIMIT")
+            .env_remove("RUN_ENV")
+            .envs(config.resend_key.map(|key| ("RESEND_API_KEY", key)))
+            .envs(config.resend_url.map(|url| ("RESEND_BASE_URL", url)))
+            .envs(config.resend_url.map(|_| ("RESEND_RATE_LIMIT", "1000")))
             .envs(shopify_url.map(|_| ("SHOPIFY_ACCESS_TOKEN", "e2e-fixture-token")))
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(Stdio::from(
+                std::fs::File::create(api.directory.join("api.log")).expect("create owned API log"),
+            ))
             .spawn()
             .expect("start local E2E API"),
     );

@@ -109,3 +109,26 @@ pub fn require_no_query(query: Option<&str>) -> Result<(), AppError> {
     }
     Ok(())
 }
+
+pub fn extract_reship_request(
+    path: Result<axum::extract::Path<String>, axum::extract::rejection::PathRejection>,
+    query: Option<&str>,
+    body: Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
+) -> Result<String, AppError> {
+    let invalid = || {
+        AppError::new(
+            StatusCode::BAD_REQUEST,
+            "Expected a positive order id without query parameters or a request body",
+        )
+    };
+    let axum::extract::Path(id) = path.map_err(|_| invalid())?;
+    if query.is_some_and(|query| !query.is_empty())
+        || !body.map_err(|_| invalid())?.is_empty()
+        || id.is_empty()
+        || !id.bytes().all(|b| b.is_ascii_digit())
+        || id.parse::<u64>().ok().is_none_or(|id| id == 0)
+    {
+        return Err(invalid());
+    }
+    Ok(format!("gid://shopify/Order/{id}"))
+}

@@ -51,3 +51,13 @@ pub async fn fulfill(
         services::orders::fulfillment::fulfill(&state, id, body).await?,
     ))
 }
+
+pub async fn reship(
+    State(state): State<AppState>,
+    uri: axum::http::Uri,
+    path: Result<axum::extract::Path<String>, axum::extract::rejection::PathRejection>,
+    body: Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
+) -> Result<Json<domain::dto::orders::ReshipOrderResponse>, AppError> {
+    let id = validations::orders::extract_reship_request(path, uri.query(), body)?;
+    Ok(Json(services::orders::reship::reship(&state, id).await?))
+}
