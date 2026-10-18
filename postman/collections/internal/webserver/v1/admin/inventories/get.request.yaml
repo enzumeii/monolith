@@ -1,7 +1,11 @@
 $kind: http-request
-description: >-
-  Fetch one inventory page. A valid but missing Shopify location returns
-  HTTP 404 with {"error":"Shopify location not found"}.
-url: "{{server}}/v1/admin/inventories/{{location_id}}?page_size=50"
+description: Fetch one inventory page. A valid but missing Shopify location returns HTTP 404 with {"error":"Shopify location not found"}.
+url: "{{server}}/v1/admin/inventories/:location_id?page_size=50"
 method: GET
+queryParams:
+  page_size: "50"
+pathVariables:
+  - key: location_id
+    value: "1"
+    description: ""
 order: 1000

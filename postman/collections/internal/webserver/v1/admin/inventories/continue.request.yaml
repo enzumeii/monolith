@@ -1,7 +1,12 @@
 $kind: http-request
-description: >-
-  Fetch the next inventory page using the returned cursor. A valid but missing
-  Shopify location returns HTTP 404 with {"error":"Shopify location not found"}.
-url: "{{server}}/v1/admin/inventories/{{location_id}}?page_size=50&cursor=abc"
+description: Fetch the next inventory page using the returned cursor. A valid but missing Shopify location returns HTTP 404 with {"error":"Shopify location not found"}.
+url: "{{server}}/v1/admin/inventories/:location_id?page_size=50&cursor=abc"
 method: GET
+queryParams:
+  page_size: "50"
+  cursor: abc
+pathVariables:
+  - key: location_id
+    value: "1"
+    description: ""
 order: 2000
