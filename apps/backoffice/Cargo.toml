@@ -17,3 +17,6 @@ web-time.workspace = true
 [features]
 default = ["web"]
 web = ["dioxus/web"]
+
+[dev-dependencies]
+futures.workspace = true

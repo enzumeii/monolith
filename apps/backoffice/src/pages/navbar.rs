@@ -1,6 +1,3 @@
-//! Top navigation bar: brand, two tabs (Admin List for super admins, Profile),
-//! and a logout button on the right.
-
 use dioxus::prelude::*;
 use domain::AdminRole;
 
@@ -26,6 +23,7 @@ pub fn Navbar() -> Element {
                 if is_super {
                     Link { class: "tab", to: Route::Admins {}, "Admin List" }
                 }
+                Link { class: "tab", to: Route::Reports {}, "Reports" }
                 Link { class: "tab", to: Route::Profile {}, "Profile" }
             }
             div { class: "topbar-actions",
