@@ -95,7 +95,7 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
         }
         "ProductsWithVariants" => {
             assert_eq!(v["search"], "status:active");
-            assert_eq!(v["first"], 1);
+            assert_eq!(v["first"], 250);
             assert!(v.get("variantsFirst").is_none());
             assert!(
                 request["query"]
@@ -148,7 +148,7 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
             }
         }
         "OrdersByTag" => {
-            assert_eq!(v["first"], 1);
+            assert_eq!(v["first"], 250);
             assert!(v.get("linesFirst").is_none());
             assert!(
                 request["query"]

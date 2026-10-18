@@ -38,7 +38,7 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitl
 
 | Area | Limit |
 | --- | --- |
-| Retrieval | One complete API response; services request first1 parent per Shopify call and exhaust root pages; no snapshot isolation |
+| Retrieval | One complete API response; services request first250 parents per Shopify call and exhaust root pages; no snapshot isolation |
 | Nested workload bound | At most250 variants/order lines per parent is the agreed store assumption; nested hasNextPage=true returns502, preventing silent truncation |
 | Live Shopify | Schema compatibility, store permissions and actual requested query cost were not executed against Shopify |
 | Concurrent changes | No snapshot isolation; traversal/incomplete nested-data failures are rejected, but complete reports can reflect changing store data across Shopify pages |

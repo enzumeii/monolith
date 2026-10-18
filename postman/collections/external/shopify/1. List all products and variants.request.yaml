@@ -72,7 +72,7 @@ variables: |
     "locationId": "gid://shopify/Location/123",
     "search": "status:active",
     "after": null,
-    "first": 1
+    "first": 250
   }
 settings: {}
 schema:

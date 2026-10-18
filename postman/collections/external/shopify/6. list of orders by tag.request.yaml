@@ -67,7 +67,7 @@ variables: |
   {
     "search": "tag:\"shipping\"",
     "after": null,
-    "first": 1
+    "first": 250
   }
 settings: {}
 schema:

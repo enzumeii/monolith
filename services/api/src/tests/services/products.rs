@@ -97,9 +97,10 @@ async fn full_report_merges_matching_skus_across_all_order_pages() {
     assert_eq!(requests.len(), 2);
     assert_eq!(
         requests[0].2["variables"],
-        json!({"search":r#"tag:"a\:b""#,"first":1,"after":null})
+        json!({"search":r#"tag:"a\:b""#,"first":250,"after":null})
     );
     assert_eq!(requests[1].2["variables"]["after"], "next");
+    assert!(requests.iter().all(|r| r.2["variables"]["first"] == 250));
 }
 #[tokio::test]
 async fn inventory_exhausts_root_pages_and_preserves_zero_negative_stock() {
@@ -122,11 +123,9 @@ async fn inventory_exhausts_root_pages_and_preserves_zero_negative_stock() {
     let requests = f.requests();
     assert_eq!(requests.len(), 3);
     assert_eq!(requests[2].2["variables"]["after"], "next");
-    assert!(
-        requests[1..]
-            .iter()
-            .all(|r| r.2["operationName"] == "ProductsWithVariants")
-    );
+    assert!(requests[1..].iter().all(
+        |r| r.2["operationName"] == "ProductsWithVariants" && r.2["variables"]["first"] == 250
+    ));
 }
 #[tokio::test]
 async fn missing_skus_stay_separate_in_first_seen_order_across_pages() {

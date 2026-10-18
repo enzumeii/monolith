@@ -129,7 +129,7 @@ The report service exhausts outer product/order pages, consumes nested data from
 | Postman | Internal webserver products requests use `location_id` and `order_tag` variables |
 | Verification | Existing API `just test` includes real TCP product routes with Docker PostgreSQL and mocked Shopify, explicitly requested for this feature; live store verification remains manual |
 | Report contract | type/id only; one products-only response. Removed page_size/cursor parameters return400 |
-| Complete report | Services request first1 root product/order per call and follow cursors until exhausted. ORDER_TAG aggregation spans every matching order; no client-side continuation |
+| Complete report | Services request first250 root products/orders per call and follow cursors until exhausted. ORDER_TAG aggregation spans every matching order; no client-side continuation |
 | Formatting | API just setup installs pinned Prettier with npm ci; just check checks Rust/GraphQL, just fix formats both. CI uses Node.js24 and the lockfile. Update Postman query text after formatting GraphQL |
 
 Report queries require product, inventory, location and order access; reading unitCost may also require View product costs permission. Historical order access remains subject to Shopify permissions. Missing product/variant metadata produces null values; quantities use original order lines, not refund-adjusted accounting.
