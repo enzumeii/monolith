@@ -16,20 +16,12 @@ pub async fn create_pool(settings: &Settings) -> Result<PgPool, crate::error::Ap
         .min_connections(settings.database.min_connections)
         .connect(&settings.database.url)
         .await
-        .map_err(|error| {
-            crate::error::AppError::from(error)
-                .context("connect database")
-                .at(concat!(module_path!(), "::create_pool"))
-        })?;
+        .map_err(|error| crate::error::AppError::from(error).context("connect database"))?;
 
     sqlx::migrate!("./migrations")
         .run(&pool)
         .await
-        .map_err(|error| {
-            crate::error::AppError::from(error)
-                .context("run database migrations")
-                .at(concat!(module_path!(), "::create_pool"))
-        })?;
+        .map_err(|error| crate::error::AppError::from(error).context("run database migrations"))?;
 
     tracing::info!("Database migrations ran successfully");
 

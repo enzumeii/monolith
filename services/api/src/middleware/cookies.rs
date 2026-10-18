@@ -18,10 +18,10 @@ pub(crate) fn cookie_mode(headers: &HeaderMap) -> Result<bool, AppError> {
     match headers.get(MODE_HEADER) {
         None => Ok(false),
         Some(value) if value == "cookie" => Ok(true),
-        Some(_) => Err(
-            AppError::new(StatusCode::BAD_REQUEST, "Invalid session mode")
-                .at(concat!(module_path!(), "::cookie_mode")),
-        ),
+        Some(_) => Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            "Invalid session mode",
+        )),
     }
 }
 pub(crate) fn cookie_credentials<'a>(
@@ -33,13 +33,10 @@ pub(crate) fn cookie_credentials<'a>(
         .ok_or_else(|| {
             AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
                 .with_bearer_challenge()
-                .at(concat!(module_path!(), "::cookie_credentials"))
         })?
         .value();
     let (access, refresh) = value.split_once('~').ok_or_else(|| {
-        AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
-            .with_bearer_challenge()
-            .at(concat!(module_path!(), "::cookie_credentials"))
+        AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token").with_bearer_challenge()
     })?;
     if access.is_empty()
         || access.len() > 3500
@@ -48,8 +45,7 @@ pub(crate) fn cookie_credentials<'a>(
     {
         return Err(
             AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
-                .with_bearer_challenge()
-                .at(concat!(module_path!(), "::cookie_credentials")),
+                .with_bearer_challenge(),
         );
     }
     Ok((access, refresh))
@@ -110,8 +106,7 @@ pub(crate) async fn browser_guard(
         return Err(AppError::new(
             StatusCode::FORBIDDEN,
             "Your account is forbidden to make this action",
-        )
-        .at(concat!(module_path!(), "::browser_guard")));
+        ));
     }
     let mut response = next.run(request).await;
     response

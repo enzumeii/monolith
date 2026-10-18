@@ -6,8 +6,8 @@ Results describe this revision's exercised scope, separately from [architecture]
 
 | Evidence | Result |
 | --- | --- |
-| Native API tests | 118 passed; 2 Docker-dependent tests ignored in the native phase |
-| Docker PostgreSQL | 120 library tests and 42 real TCP E2E tests passed; Compose teardown completed |
+| Native API tests | 121 passed; 2 Docker-dependent tests ignored in the native phase |
+| Docker PostgreSQL | 123 library tests and 42 real TCP E2E tests passed; Compose teardown completed |
 | Formatting/lint | Workspace Rust formatting, strict API/domain/downstream checks and Cargo-installed GraphQL/JSON formatting passed |
 | Shared contracts / WASM | 5 domain contracts passed; domain WASM and backoffice native/WASM checks passed |
 | Downstream tests | Backoffice 6 tests passed; client-ui check/test passed with no tests |
@@ -16,6 +16,7 @@ Results describe this revision's exercised scope, separately from [architecture]
 | Split-contract regressions | Reproduced inventory overfetch and dropped page_info; inventory returns one page and orders retain full totals. Later-page order overflow/invalid amounts reject the summary |
 | Model cleanup | Removed unreferenced `SalesOrder`; API error encoding and backoffice decoding use shared `ErrorResponse`. Existing error/status/header regressions and the complete API suite passed; frontend native/WASM checks passed |
 | Error simplification | Shared status/message error preserves typed causes, first origin, ordered contexts and sanitized diagnostics, including wrapped/shared client causes. Exact missing-location404 and missing-admin GET/PATCH/DELETE401 bodies and Bearer headers passed; timeout504/non-timeout502 exercises the production mapper. API check, workspace formatting and internal Postman lint passed |
+| Automatic error locations | Constructors and all typed conversions capture caller file/line/column; async question-mark conversion, callback mapping, builder/propagation preservation, password blocking work, repository failures and terminal background logging passed. Production upstream mapper retains its caller, order failures retain the service mapping site, and direct/shared/wrapped client origins remain separate. HTTP bodies/headers and ordinary/DEBUG redaction regressions passed |
 | Published-head CI | Confirm separately against the pushed SHA in PR checks |
 
 Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitly approved synthetic Shopify HTTP upstream. No live Shopify requests or mutations ran.

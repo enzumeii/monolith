@@ -23,11 +23,12 @@ These rules apply to the entire repository.
 
 ## End-to-end tests
 
-- Run all E2E tests against a production-like environment. External runtime dependencies, such as PostgreSQL, must run in Docker. The application under test may run locally; Docker is not required for the application itself.
+- Every new API endpoint must include E2E tests in the same change for its happy path, every request-validation rejection and every distinct handled external-dependency failure. Use `.agents/skills/monolith-endpoint-test-coverage/SKILL.md`.
+- For new-endpoint E2E coverage, mock all external dependencies, including database access and outbound APIs. Run the real application over HTTP with controlled dependency doubles; preserve existing Docker PostgreSQL integration coverage separately.
 - Send requests directly to the running application's real endpoints over the network. Browser E2E tests must use the running application's real URLs.
-- Do not substitute mocks, in-process routers, or directly invoked handlers for deployed services in E2E tests. Use unit or integration tests for those approaches.
-- Use the existing Docker Compose setup and `services/api/e2e-test/` suite registered by the API Cargo manifest. Keep `healthz.rs` and `v1/{auth,admins}.rs` aligned with routes; put only shared fixtures/HTTP utilities in `common.rs`. Do not introduce an alternative E2E location.
-- Use the database configured by Docker Compose. Create uniquely identifiable fixtures and clean up only records owned by the test; do not create or drop a database per test or reset shared data.
+- Mock dependency boundaries, not the application's routing, middleware, validation or service logic. In-process routers and directly invoked handlers do not replace HTTP E2E tests.
+- Use the existing `services/api/e2e-test/` suite registered by the API Cargo manifest. Keep endpoint tests in their owning route modules; put only shared fixtures/HTTP utilities in `common.rs`. Do not introduce an alternative E2E location. Preserve the existing Docker Compose setup for real-database integration tests.
+- For real-database integration tests, use the database configured by Docker Compose. Create uniquely identifiable fixtures and clean up only records owned by the test; do not create or drop a database per test or reset shared data.
 - Keep API `just test` to native `cargo test`, Compose up, `cargo api-e2e`, and Compose down with volumes removed, including on failure. Keep E2E environment defaults and local API startup/readiness/process teardown inside the existing test harness. Share the Compose database during a run and delete its volume afterward.
 
 ## Rust module boundaries and layout
@@ -57,8 +58,10 @@ These rules apply to the entire repository.
 
 - Keep `docs/` focused on tables and Mermaid diagrams with brief supporting prose. Record verification results separately from architecture and state coverage limits explicitly.
 - For API endpoint testing, use `.agents/skills/monolith-api-e2e/SKILL.md`.
+- For every new API endpoint, also use `.agents/skills/monolith-endpoint-test-coverage/SKILL.md` for mocked dependencies and the required success/validation/dependency-failure matrix.
 - For architecture reviews, use `.agents/skills/monolith-architecture-review/SKILL.md`.
 
 - For internal API endpoints and external HTTP/GraphQL dependencies, use `.agents/skills/monolith-api-postman/SKILL.md`; keep matching Postman requests synchronized in the same change.
 - For reusable runtime dependencies, use `.agents/skills/monolith-dependency-injection/SKILL.md`; construct clients once in AppState and inject shared instances.
 - For application settings and configuration readers, use `.agents/skills/monolith-configuration/SKILL.md`; keep non-secret settings in TOML and secrets/tokens in environment variables.
+- For API errors and diagnostics, use `.agents/skills/monolith-error-handling/SKILL.md`; reuse generic errors with descriptive safe messages, appropriate HTTP status codes and preserved source diagnostics.

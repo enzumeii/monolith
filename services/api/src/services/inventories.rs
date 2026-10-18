@@ -22,17 +22,21 @@ pub async fn inventory_report(
     let products = client
         .products_with_variants(&request, &page)
         .await
-        .map_err(upstream)?;
+        .map_err(|error| upstream(error))?;
     products
         .page_info
         .validate_after(page.after.as_deref())
-        .map_err(upstream)?;
+        .map_err(|error| upstream(error))?;
     let mut rows = Vec::new();
     for product in products.nodes {
-        for variant in product.variants.into_complete_nodes().map_err(upstream)? {
+        for variant in product
+            .variants
+            .into_complete_nodes()
+            .map_err(|error| upstream(error))?
+        {
             if let Some(row) = variant
                 .into_report_row(&product.title, &product.product_type)
-                .map_err(upstream)?
+                .map_err(|error| upstream(error))?
             {
                 rows.push(row.into_dto());
             }
@@ -48,10 +52,15 @@ pub async fn inventory_report(
 }
 
 async fn validate_location(client: &ShopifyClient, id: &ShopifyId) -> Result<(), AppError> {
-    if !client.location_exists(id).await.map_err(upstream)? {
-        return Err(
-            AppError::new(StatusCode::NOT_FOUND, "Shopify location not found").at(module_path!()),
-        );
+    if !client
+        .location_exists(id)
+        .await
+        .map_err(|error| upstream(error))?
+    {
+        return Err(AppError::new(
+            StatusCode::NOT_FOUND,
+            "Shopify location not found",
+        ));
     }
     Ok(())
 }

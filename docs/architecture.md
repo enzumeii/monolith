@@ -159,9 +159,9 @@ flowchart LR
 
 | Area | Contract |
 | --- | --- |
-| API failures | One shared AppError carries status, public message, optional original cause and origin/context metadata. Sanitized responses; one WARN/ERROR summary at the handling boundary with operation, HTTP status and innermost origin |
+| API failures | One shared AppError carries status, public message, optional original cause, automatic creation/conversion location and ordered contexts. Sanitized responses; one WARN/ERROR summary at the handling boundary with operation, HTTP status and origin=file:line:column; propagation preserves the first location |
 | API DEBUG diagnostics | Underlying causes/context are opt-in; conversions do not log |
-| Client failures | Shopify entry-point failures carry origin api::client::shopify through ClientError::Origin, retaining typed causes and lower-level transport/decode origins. Generic unwrapped client errors retain their existing origins. One ERROR at AppError response/background handling; no events during creation/conversion/propagation; safe Display/Debug |
+| Client failures | Shopify entry-point failures retain api::client::shopify through ClientError::Origin, including lower-level typed causes. AppError derives optional client_origin from direct/shared/wrapped client causes alongside its own mapping location. One ERROR at response/background handling; no events during creation/conversion/propagation; safe Display/Debug |
 | Sensitive fields | Configuration Debug redacts secrets; do not log raw requests, upstream bodies, or client error fields |
 | Persistence | Transactions remain service-owned, SQL remains repository-owned; intentional admin/seed migrations are preserved |
 | Runtime | Standalone Axum listener and Tokio maintenance; no serverless adapter or production deployment mechanism |

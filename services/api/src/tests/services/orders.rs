@@ -86,12 +86,12 @@ async fn later_upstream_failures_never_return_partial_reports() {
         },
     ] {
         let f=Fixture::new(vec![Reply::json(json!({"data":{"orders":page(vec![order(1,page(vec![line(2)],None))],Some("next"))}})),failure]).await;
-        assert_failure(
-            &f,
-            order_report(&state(&f), "a:b".into()).await.unwrap_err(),
-            2,
-        )
-        .await;
+        let error = order_report(&state(&f), "a:b".into()).await.unwrap_err();
+        assert_eq!(
+            error.location().file(),
+            "services/api/src/services/orders.rs"
+        );
+        assert_failure(&f, error, 2).await;
     }
 }
 

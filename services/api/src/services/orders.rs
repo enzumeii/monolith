@@ -35,7 +35,7 @@ pub async fn order_report(state: &AppState, tag: String) -> Result<OrderReportRe
         },
     )
     .await
-    .map_err(upstream)?;
+    .map_err(|error| upstream(error))?;
     Ok(OrderReportResponse {
         products: rows.into_iter().map(ReportRow::into_dto).collect(),
     })

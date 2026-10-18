@@ -29,7 +29,11 @@ async fn report_transport_timeout_maps_to_504_and_other_transport_errors_to_502(
             origin: "api::client::shopify",
             source: Box::new(error),
         };
-        let response = upstream(error).into_response();
+        let line = line!() + 1;
+        let error = upstream(error);
+        assert_eq!(error.location().file(), file!());
+        assert_eq!(error.location().line(), line);
+        let response = error.into_response();
         assert_eq!(response.status(), status);
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await

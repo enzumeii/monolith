@@ -11,7 +11,6 @@ pub fn extract_order_query(
             StatusCode::BAD_REQUEST,
             "Expected a nonblank tags value without pagination",
         )
-        .at(module_path!())
     };
     let Query(query) = query.map_err(|_| invalid())?;
     if query.tags.trim().is_empty() {

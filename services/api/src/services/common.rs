@@ -15,7 +15,6 @@ pub(super) fn shopify_client(state: &AppState) -> Result<&ShopifyClient, AppErro
                 "Shopify report unavailable",
             )
             .with_source(error.clone())
-            .at("api::client::shopify")
         })?
         .as_deref()
         .ok_or_else(|| {
@@ -23,23 +22,17 @@ pub(super) fn shopify_client(state: &AppState) -> Result<&ShopifyClient, AppErro
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Shopify report unavailable",
             )
-            .at(module_path!())
         })
 }
 
+#[track_caller]
 pub(super) fn upstream(error: ClientError) -> AppError {
-    let origin = match &error {
-        ClientError::Origin { origin, .. } => *origin,
-        _ => module_path!(),
-    };
     let status = if client_timeout(&error) {
         StatusCode::GATEWAY_TIMEOUT
     } else {
         StatusCode::BAD_GATEWAY
     };
-    AppError::new(status, "Shopify upstream failure")
-        .with_source(error)
-        .at(origin)
+    AppError::new(status, "Shopify upstream failure").with_source(error)
 }
 
 #[cfg(test)]

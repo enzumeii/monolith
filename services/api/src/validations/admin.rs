@@ -35,8 +35,7 @@ pub fn validate_page(query: &ListAdminsQuery) -> Result<AdminPageRequest, AppErr
         return Err(AppError::new(
             StatusCode::BAD_REQUEST,
             "page must be positive and per_page must be between 1 and 100",
-        )
-        .at(concat!(module_path!(), "::validate_page")));
+        ));
     }
     Ok(AdminPageRequest { page, per_page })
 }
@@ -51,8 +50,7 @@ pub fn validate_update(claims: &AuthenticatedAdmin, target_id: i64) -> Result<()
         return Err(AppError::new(
             StatusCode::FORBIDDEN,
             "Your account is forbidden to make this action",
-        )
-        .at(concat!(module_path!(), "::validate_update")));
+        ));
     }
     Ok(())
 }
@@ -63,8 +61,7 @@ pub fn validate_delete(claims: &AuthenticatedAdmin, target_id: i64) -> Result<()
         return Err(AppError::new(
             StatusCode::FORBIDDEN,
             "Your account is forbidden to make this action",
-        )
-        .at(concat!(module_path!(), "::validate_delete")));
+        ));
     }
     Ok(())
 }
@@ -78,8 +75,7 @@ pub fn validate_update_input(req: &UpdateAdminRequest) -> Result<(), AppError> {
         return Err(AppError::new(
             StatusCode::BAD_REQUEST,
             "update must include a username or password",
-        )
-        .at(concat!(module_path!(), "::validate_update_input")));
+        ));
     }
     if let Some(username) = &req.username {
         validate_username(username)?;
@@ -97,8 +93,7 @@ fn validate_username(username: &str) -> Result<(), AppError> {
         return Err(AppError::new(
             StatusCode::BAD_REQUEST,
             "username must contain 1–20 characters without surrounding whitespace",
-        )
-        .at(concat!(module_path!(), "::validate_username")));
+        ));
     }
     Ok(())
 }
@@ -107,8 +102,7 @@ fn validate_password(password: &str) -> Result<(), AppError> {
         return Err(AppError::new(
             StatusCode::BAD_REQUEST,
             "new password must contain 12–128 characters",
-        )
-        .at(concat!(module_path!(), "::validate_password")));
+        ));
     }
     Ok(())
 }

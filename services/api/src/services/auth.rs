@@ -20,32 +20,23 @@ pub async fn login(
     req: LoginRequest,
 ) -> Result<TokenResponse, AppError> {
     if req.password.chars().count() > 128 {
-        return Err(
-            AppError::new(StatusCode::UNAUTHORIZED, "Invalid username or password")
-                .at(concat!(module_path!(), "::login")),
-        );
+        return Err(AppError::new(
+            StatusCode::UNAUTHORIZED,
+            "Invalid username or password",
+        ));
     }
     let account = admin::find_by_username(pool, &req.username)
         .await?
-        .ok_or_else(|| {
-            AppError::new(StatusCode::UNAUTHORIZED, "Invalid username or password")
-                .at(concat!(module_path!(), "::login"))
-        })?;
+        .ok_or_else(|| AppError::new(StatusCode::UNAUTHORIZED, "Invalid username or password"))?;
     if !password::verify(req.password, account.password_hash.clone()).await? {
-        return Err(
-            AppError::new(StatusCode::UNAUTHORIZED, "Invalid username or password")
-                .at(concat!(module_path!(), "::login")),
-        );
+        return Err(AppError::new(
+            StatusCode::UNAUTHORIZED,
+            "Invalid username or password",
+        ));
     }
-    let mut transaction = pool
-        .begin()
-        .await
-        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::login")))?;
+    let mut transaction = pool.begin().await?;
     let tokens = issue_token_pair(&mut transaction, jwt_secret, &account, None).await?;
-    transaction
-        .commit()
-        .await
-        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::login")))?;
+    transaction.commit().await?;
     Ok(tokens)
 }
 
@@ -57,31 +48,20 @@ pub async fn refresh(
 ) -> Result<TokenResponse, AppError> {
     let hash = hash_token(&req.refresh_token);
     let id = auth::refresh_owner(pool, &hash).await?.ok_or_else(|| {
-        AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
-            .with_bearer_challenge()
-            .at(concat!(module_path!(), "::refresh"))
+        AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token").with_bearer_challenge()
     })?;
     let account = admin::find_by_id(pool, id).await?.ok_or_else(|| {
-        AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
-            .with_bearer_challenge()
-            .at(concat!(module_path!(), "::refresh"))
+        AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token").with_bearer_challenge()
     })?;
-    let mut transaction = pool
-        .begin()
-        .await
-        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::refresh")))?;
+    let mut transaction = pool.begin().await?;
     let family_id = auth::consume_refresh_token(&mut transaction, &hash, id)
         .await?
         .ok_or_else(|| {
             AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
                 .with_bearer_challenge()
-                .at(concat!(module_path!(), "::refresh"))
         })?;
     let tokens = issue_token_pair(&mut transaction, jwt_secret, &account, Some(family_id)).await?;
-    transaction
-        .commit()
-        .await
-        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::refresh")))?;
+    transaction.commit().await?;
     Ok(tokens)
 }
 
@@ -90,10 +70,7 @@ pub async fn logout(
     actor: &crate::models::AuthenticatedAdmin,
     req: RefreshRequest,
 ) -> Result<(), AppError> {
-    let mut connection = pool
-        .acquire()
-        .await
-        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::logout")))?;
+    let mut connection = pool.acquire().await?;
     auth::delete_refresh_family(&mut connection, actor.id, &hash_token(&req.refresh_token)).await?;
     Ok(())
 }
@@ -108,11 +85,8 @@ async fn issue_token_pair(
     account: &Admin,
     family_id: Option<uuid::Uuid>,
 ) -> Result<TokenResponse, AppError> {
-    let expiration =
-        u64::try_from((Utc::now() + Duration::minutes(10)).timestamp()).map_err(|_| {
-            AppError::from(anyhow::anyhow!("timestamp overflow"))
-                .at(concat!(module_path!(), "::issue_token_pair"))
-        })?;
+    let expiration = u64::try_from((Utc::now() + Duration::minutes(10)).timestamp())
+        .map_err(|_| AppError::from(anyhow::anyhow!("timestamp overflow")))?;
     let claims = Claims {
         admin_id: account.id,
         username: account.username.clone(),
@@ -123,8 +97,7 @@ async fn issue_token_pair(
         &Header::default(),
         &claims,
         &EncodingKey::from_secret(jwt_secret),
-    )
-    .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::issue_token_pair")))?;
+    )?;
     let mut bytes = [0u8; 32];
     rand::rng().fill(&mut bytes);
     let refresh_token = hex::encode(bytes);

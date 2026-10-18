@@ -102,7 +102,8 @@ Inventory returns one caller-selected product page with active inventory levels;
 | Refresh retention | Startup/hourly batches, at most 500 rows, skip locked rows |
 | API rejection | Invalid request400; unauthenticated401; forbidden403; missing Shopify location404; duplicate username409. Missing admin targets return401 with {"error":"Not authorized"} and WWW-Authenticate: Bearer |
 | Internal failure | Generic public 500; underlying source retained internally |
-| Normal logs | One boundary event with operation, origin and HTTP status; no error messages or causes |
+| Normal logs | One boundary event with operation, HTTP status and automatic origin=file:line:column; optional client_origin retains the typed client's label. No error messages or causes |
+| Error location | First AppError creation/conversion location survives propagation; external-library failures identify our mapping site, not an internal dependency frame |
 | DEBUG logs | `RUST_LOG=info,api=debug` enables underlying API causes/context; diagnostic text may contain sensitive values |
 | UI failures | Preserve API status; only 401 triggers restoration; malformed response 502, missing config/coordination 503, stale account state 409 |
 | Initial administration | Intentional superadmin seed migration |

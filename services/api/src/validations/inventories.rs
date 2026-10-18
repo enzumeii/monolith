@@ -18,7 +18,6 @@ pub fn extract_inventory_request(
             StatusCode::BAD_REQUEST,
             "Expected a location id, page_size between 1 and 250, and a nonblank cursor",
         )
-        .at(module_path!())
     };
     let Path(id) = path.map_err(|_| invalid())?;
     let Query(query) = query.map_err(|_| invalid())?;

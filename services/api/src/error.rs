@@ -4,7 +4,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use domain::dto::ErrorResponse;
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, panic::Location, sync::Arc};
 use thiserror::Error;
 
 #[derive(Error)]
@@ -14,19 +14,20 @@ pub struct AppError {
     message: Cow<'static, str>,
     #[source]
     cause: Option<anyhow::Error>,
-    origin: Option<&'static str>,
+    location: &'static Location<'static>,
     contexts: Vec<&'static str>,
     bearer_challenge: bool,
 }
 
 impl AppError {
     #[must_use]
+    #[track_caller]
     pub fn new(status: StatusCode, message: impl Into<Cow<'static, str>>) -> Self {
         Self {
             status,
             message: message.into(),
             cause: None,
-            origin: None,
+            location: Location::caller(),
             contexts: Vec::new(),
             bearer_challenge: false,
         }
@@ -50,14 +51,8 @@ impl AppError {
         self
     }
 
-    #[must_use]
-    pub fn at(mut self, function: &'static str) -> Self {
-        self.origin.get_or_insert(function);
-        self
-    }
-
-    fn origin(&self) -> Option<&'static str> {
-        self.origin
+    pub(crate) fn location(&self) -> &'static Location<'static> {
+        self.location
     }
 
     fn operation(&self, fallback: &'static str) -> &'static str {
@@ -99,54 +94,56 @@ pub fn log_background_error(operation: &'static str, error: &AppError) {
 }
 
 impl From<anyhow::Error> for AppError {
+    #[track_caller]
     fn from(error: anyhow::Error) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error").with_source(error)
     }
 }
 
 impl From<config::ConfigError> for AppError {
+    #[track_caller]
     fn from(error: config::ConfigError) -> Self {
         Self::from(anyhow::Error::new(error))
     }
 }
 
 impl From<sqlx::migrate::MigrateError> for AppError {
+    #[track_caller]
     fn from(error: sqlx::migrate::MigrateError) -> Self {
         Self::from(anyhow::Error::new(error))
     }
 }
 
 impl From<std::io::Error> for AppError {
+    #[track_caller]
     fn from(error: std::io::Error) -> Self {
         Self::from(anyhow::Error::new(error))
     }
 }
 
 impl From<argon2::password_hash::Error> for AppError {
+    #[track_caller]
     fn from(error: argon2::password_hash::Error) -> Self {
         Self::from(anyhow::Error::new(error))
     }
 }
 
 impl From<jsonwebtoken::errors::Error> for AppError {
+    #[track_caller]
     fn from(error: jsonwebtoken::errors::Error) -> Self {
         Self::from(anyhow::Error::new(error))
     }
 }
 
 impl From<crate::client::ClientError> for AppError {
+    #[track_caller]
     fn from(error: crate::client::ClientError) -> Self {
-        let origin = match &error {
-            crate::client::ClientError::Origin { origin, .. }
-            | crate::client::ClientError::Transport { origin, .. }
-            | crate::client::ClientError::Decode { origin, .. } => *origin,
-            _ => "api::client",
-        };
-        Self::from(anyhow::Error::new(error)).at(origin)
+        Self::from(anyhow::Error::new(error))
     }
 }
 
 impl From<sqlx::Error> for AppError {
+    #[track_caller]
     fn from(error: sqlx::Error) -> Self {
         if let sqlx::Error::Database(ref db) = error
             && db.is_unique_violation()
@@ -168,14 +165,25 @@ pub(crate) fn client_timeout(error: &crate::client::ClientError) -> bool {
 
 fn emit(operation: &'static str, error: &AppError) {
     let operation = error.operation(operation);
-    let origin = error.origin().unwrap_or("unknown");
+    let origin = error.location();
+    let client_origin = client_origin(error);
     let status = error.status.as_u16();
     if error.status.is_client_error() {
-        tracing::warn!(operation, origin, status, "API request rejected");
+        tracing::warn!(operation, %origin, client_origin, status, "API request rejected");
     } else {
-        tracing::error!(operation, origin, status, "API operation failed");
+        tracing::error!(operation, %origin, client_origin, status, "API operation failed");
     }
-    tracing::debug!(operation, origin, status, error = ?Diagnostic(error), "API failure diagnostics");
+    tracing::debug!(operation, %origin, client_origin, status, error = ?Diagnostic(error), "API failure diagnostics");
+}
+
+fn client_origin(error: &AppError) -> Option<&'static str> {
+    let source = error.cause.as_ref()?.chain().find_map(client_cause)?;
+    Some(match source {
+        crate::client::ClientError::Origin { origin, .. }
+        | crate::client::ClientError::Transport { origin, .. }
+        | crate::client::ClientError::Decode { origin, .. } => origin,
+        _ => "api::client",
+    })
 }
 
 struct Diagnostic<'a>(&'a AppError);

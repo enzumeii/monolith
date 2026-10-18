@@ -42,17 +42,13 @@ pub async fn require_super_admin(req: Request, next: Next) -> Result<Response, A
     let claims = req
         .extensions()
         .get::<AuthenticatedAdmin>()
-        .ok_or_else(|| {
-            AppError::new(StatusCode::UNAUTHORIZED, "Invalid username or password")
-                .at(concat!(module_path!(), "::require_super_admin"))
-        })?;
+        .ok_or_else(|| AppError::new(StatusCode::UNAUTHORIZED, "Invalid username or password"))?;
 
     if claims.role != AdminRole::SuperAdmin {
         return Err(AppError::new(
             StatusCode::FORBIDDEN,
             "Your account is forbidden to make this action",
-        )
-        .at(concat!(module_path!(), "::require_super_admin")));
+        ));
     }
 
     Ok(next.run(req).await)
@@ -70,7 +66,6 @@ pub(crate) fn bearer(headers: &axum::http::HeaderMap) -> Result<Option<&str>, Ap
             .ok_or_else(|| {
                 AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
                     .with_bearer_challenge()
-                    .at(concat!(module_path!(), "::bearer"))
             }),
     }
 }
@@ -86,6 +81,5 @@ pub(crate) fn validate_token(token: &str, key: &[u8]) -> Result<Claims, AppError
             AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
                 .with_source(error)
                 .with_bearer_challenge()
-                .at(concat!(module_path!(), "::validate_token"))
         })
 }
