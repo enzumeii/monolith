@@ -27,6 +27,7 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitl
 | Area | Evidence |
 | --- | --- |
 | Client transport | Typed JSON/GraphQL decoding, error/partial-data handling, timeout, redirect rejection and original failure causes |
+| Request timeout | TOML-only client.shopify.timeout_secs=3; zero rejected. Initial/later inventory and order HTTP failures return504 after at least3 and under8 seconds, without replaying timed-out calls. Existing 1/2/4-second exponential retry and shared attempt-budget tests passed |
 | Retry policy | HTTP/GraphQL rejection shares a four-attempt budget; unchanged replay payloads, Retry-After bounds and no ambiguous timeout/5xx replay |
 | Shopify proxy boundary | Explicit size/cursor forwarded; one operation per method; returned root metadata without automatic traversal; bounded variants/lines use fixed250; raw inventory/mutation outputs retained |
 | Source models | Inventory and tagged-line conversion, SKU Unicode characters4–9, short/missing SKU, active levels, zero/negative stock and nullable metadata |

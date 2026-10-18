@@ -5,7 +5,16 @@ method: GET
 queryParams:
   page_size: "50"
 pathVariables:
-  - key: location_id
-    value: "1"
-    description: ""
+  location_id: "90340917419"
+scripts:
+  - type: afterResponse
+    code: |-
+      // 1. Parse the JSON response body
+      const responseData = pm.response.json();
+      // 2. Set the environment variable
+      const pageInfo = responseData.page_info;
+      if (pageInfo?.has_next_page === true && pageInfo.end_cursor != null) {
+        pm.collectionVariables.set("inventories_cursor", pageInfo.end_cursor);
+      }
+    language: text/javascript
 order: 1000

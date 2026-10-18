@@ -85,7 +85,7 @@ Inventory returns one caller-selected product page with active inventory levels;
 
 | Outbound request behavior | Policy |
 | --- | --- |
-| Timeout / redirects | 30 seconds per attempt; redirects disabled |
+| Timeout / redirects | client.shopify.timeout_secs in application.toml, checked-in value3 seconds per attempt; redirects disabled |
 | Retryable rejection | HTTP 4xx or data-less GraphQL-only `THROTTLED`, sharing one HttpClient retry budget |
 | Backoff | At most three retries after the initial attempt; 1/2/4 seconds plus jitter and applicable Retry-After |
 | Budget | Shared HTTP/GraphQL attempt count; 30-second total sleep budget |
