@@ -4,7 +4,7 @@
 
 Run `../../init.sh` to install the CLI packages after installing Rust and Docker.
 
-`just setup` installs pinned dprint with Cargo under `.tools/`, caches its GraphQL/JSON plugins, and creates `.env` when missing.
+`just setup` installs pinned dprint with Cargo under `.tools/`, caches its GraphQL/JSON plugins, and creates `.env` when missing. It adds an empty `RESEND_API_KEY` entry if absent; supply your Resend API key there to enable email sending.
 
 ## Run locally
 

@@ -696,6 +696,10 @@ mod logging_tests {
             ClientErrorKind::Protocol("invalid page"),
             ClientErrorKind::InvalidInput("invalid argument"),
             ClientErrorKind::RetryExhausted,
+            ClientErrorKind::Upstream {
+                source: Box::new(resend_rs::Error::Other("private-upstream-value".into())),
+                timed_out: false,
+            },
         ]
         .into_iter()
         .map(|kind| ClientError::new(kind))
