@@ -24,6 +24,7 @@ async fn root_pages_reject_missing_empty_repeated_and_cyclic_cursors() {
                 }
             },
             |_| Ok(()),
+            std::convert::identity,
         )
         .await;
         assert!(result.is_err());
@@ -53,6 +54,7 @@ async fn consumes_each_root_page_before_fetching_the_next() {
             consumed.lock().unwrap().extend(nodes);
             Ok(())
         },
+        std::convert::identity,
     )
     .await
     .unwrap();
@@ -79,8 +81,56 @@ async fn consumer_failure_stops_before_the_next_fetch() {
                 "invalid nested data",
             )))
         },
+        std::convert::identity,
     )
     .await;
     assert!(result.is_err());
     assert_eq!(count, 1);
+}
+
+#[tokio::test]
+async fn mapped_pagination_errors_do_not_become_internal_server_errors() {
+    use crate::{error::AppError, services::common::upstream};
+    use axum::{http::StatusCode, response::IntoResponse};
+    for failure in ["cursor", "fetch", "consume"] {
+        let error = for_each_page(
+            |_| async move {
+                if failure == "fetch" {
+                    return Err(AppError::new(
+                        StatusCode::NOT_FOUND,
+                        "Shopify location not found",
+                    ));
+                }
+                Ok(Connection {
+                    nodes: vec![1],
+                    page_info: PageInfo {
+                        has_next_page: failure == "cursor",
+                        end_cursor: None,
+                    },
+                })
+            },
+            |_| {
+                if failure == "consume" {
+                    Err(AppError::new(
+                        StatusCode::BAD_REQUEST,
+                        "Invalid consumer input",
+                    ))
+                } else {
+                    Ok(())
+                }
+            },
+            |error| upstream(error),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            error.into_response().status(),
+            match failure {
+                "cursor" => 502,
+                "fetch" => 404,
+                "consume" => 400,
+                _ => unreachable!(),
+            }
+        );
+    }
 }

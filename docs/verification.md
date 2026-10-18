@@ -79,3 +79,39 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitl
 | Email partial effects | RETURNED remains if sending fails; timeout can occur after acceptance. HTTP200 means provider acceptance only. No rollback, durable replay, idempotency key or exactly-once guarantee |
 | Email provider limits | No live customer email, sender-domain configuration or mailbox-delivery check. Older returned orders may need Shopify read_all_orders beyond the default60-day window. Legacy email wording retained, including85% item refund and shipping-fee exclusions; endpoint performs no refund or replacement shipment |
 | Scope | No production deployment, merge or browser changes |
+## Inventory enablement (ENZ-22, 2026-10-19)
+
+| Check | Evidence |
+| --- | --- |
+| Red/green | New response contract failed before DTO implementation; TCP enablement request failed404 before route implementation and then passed200; zero upstream item ID failed the boundary test before validation was tightened |
+| API | just check and the complete just test suite passed; additional zero/overflow ID and omitted-location-key regressions passed. Final commit counts and pipeline verification are recorded in the PR |
+| Shared DTO | Domain check (native strict lint and WASM),6 serialization tests, and no-default-features compilation passed |
+| Dependencies | Existing Compose PostgreSQL, real Axum child processes and controlled Shopify HTTP/TCP servers; fixture-owned rows and temporary configurations cleaned up; Compose teardown completed |
+| Eligibility and completeness | Tracked inactive items with positive on_hand; active/untracked/nonpositive items skipped; batches250, empty intermediate pages, deduplication, conflicting entries and missing/repeated/cyclic cursors |
+| Outcomes | Per-variant counts, repeated product_id errors, zero candidates, missing/disappearing location, rejected/null/inactive mutation outcomes and later successful independent items |
+| Failure matrix | Location, first/later discovery and activation cover HTTP/GraphQL rejection, partial/missing/malformed data, exhausted throttling, real connection loss and timeouts; discovery failures never mutate; mutation failures are counted safely |
+| Authentication | Missing/malformed/expired bearer rejection, ADMIN/SUPER_ADMIN success, real PostgreSQL-backed cookie login, valid origin success and missing/foreign origin rejection. Existing JWT validation has no database lookup or immediate revocation check |
+| Review regressions | Malformed entries use distinct item IDs so duplicate detection cannot mask quantity/ID validation. A temporary missing-quantity validator mutation originally made the corrected TCP test fail200 vs expected502. Current eligibility requires on_hand; unused available values no longer block activation. Missing discovery location key fails decoding, while explicit null retains404 |
+| Stock and retry | No onHand/available mutation inputs; eligibility reads on_hand; stable mutation UUID/payload across retry, successful throttle recovery and exhausted retries |
+| Postman | Internal13 and external9 requests lint with zero errors/warnings; YAML parses and formatted activation query/variable names match application source |
+| Limits | No live Shopify execution, merchant scope verification, load benchmark or deployment; live provider defaults for omitted quantities are unverified, and timed-out mutations can have unconfirmed outcomes |
+
+## ENZ-22 review remediation (2026-10-19)
+
+| Check | Evidence |
+| --- | --- |
+| API | Strict `just check` passed; complete `just test` passed133 library tests and56 real TCP E2E tests, followed by Compose teardown |
+| Shared consumers | Accessor identity/caller503/source retention; pagination cursor errors502, resource404 and consumer400; existing order-report regressions passed |
+| Activation inputs | Retry payload has exactly three variables; no onHand/available arguments or variables. Positive on_hand remains eligibility data; missing or large unused available values do not block activation |
+| Repository skill | Skill validator and UI metadata checks passed. Five controlled evaluations chose reuse/enhancement or justified security separation; five baseline controls also did so, so no measured improvement is claimed |
+| Review | Independent review found no actionable findings; final-head hosted CI is recorded in the PR |
+
+## ENZ-22 additional review remediation (2026-10-19)
+
+| Check | Evidence |
+| --- | --- |
+| Shared inventory validation | Both extractors cover positive IDs, preserved leading zeros, empty/zero/signed/decimal/whitespace/Unicode rejection and endpoint-specific query rules |
+| Shared client availability | All three callers use one accessor with no message parameter; absent/failed initialization returns503 `Shopify client unavailable`, with initialization causes retained privately |
+| Local verification | Strict API `just check` and complete `just test` passed134 library tests and56 TCP E2E tests; Compose teardown completed. Workspace formatting/diff checks passed |
+| Postman and review | Changed YAML parses; internal13 requests lint with0 errors/warnings. Independent read-only review found no actionable issues |
+| Limits | Final-head hosted CI is recorded in the PR; no live Shopify calls or deployment |

@@ -1,4 +1,5 @@
 $kind: graphql-request
+description: Activate one variant inventory item at a location using item/location IDs and a stable idempotency key only. No quantity arguments are sent. Requires write_inventory and activation permission. Reuse the UUID only for retries of the same operation; live provider quantity behavior is not verified by local tests.
 url: "{{shopify}}/graphql.json"
 query: |
   mutation ActivateExistingInventory(
@@ -6,8 +7,10 @@ query: |
     $locationId: ID!
     $idempotencyKey: String!
   ) {
-    inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId)
-      @idempotent(key: $idempotencyKey) {
+    inventoryActivate(
+      inventoryItemId: $inventoryItemId
+      locationId: $locationId
+    ) @idempotent(key: $idempotencyKey) {
       inventoryLevel {
         id
         isActive

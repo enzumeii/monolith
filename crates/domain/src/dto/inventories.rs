@@ -19,3 +19,18 @@ pub struct InventoryResponse {
     pub products: Vec<ProductReportRow>,
     pub page_info: InventoryPageInfo,
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct InventoryEnableResponse {
+    pub total: usize,
+    pub success: usize,
+    pub failed: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<InventoryEnableError>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct InventoryEnableError {
+    pub product_id: u64,
+    pub reason: String,
+}

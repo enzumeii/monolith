@@ -21,16 +21,40 @@ pub fn extract_inventory_request(
     };
     let Path(id) = path.map_err(|_| invalid())?;
     let Query(query) = query.map_err(|_| invalid())?;
-    if id.is_empty() || !id.bytes().all(|c| c.is_ascii_digit()) || id.bytes().all(|c| c == b'0') {
-        return Err(invalid());
-    }
-    let location = ShopifyId::new(format!("gid://shopify/Location/{id}")).map_err(|_| invalid())?;
+    let location = parse_location_id(&id).ok_or_else(invalid)?;
     let page = PageRequest {
         first: query.page_size.unwrap_or(50),
         after: query.cursor,
     };
     page.validate().map_err(|_| invalid())?;
     Ok((location, page))
+}
+
+pub fn extract_enable_request(
+    path: Result<Path<String>, PathRejection>,
+    query: Option<&str>,
+) -> Result<ShopifyId, AppError> {
+    let invalid = || {
+        AppError::new(
+            StatusCode::BAD_REQUEST,
+            "Expected a positive location id and no query parameters",
+        )
+    };
+    let Path(id) = path.map_err(|_| invalid())?;
+    if query.is_some_and(|query| !query.is_empty()) {
+        return Err(invalid());
+    }
+    parse_location_id(&id).ok_or_else(invalid)
+}
+
+fn parse_location_id(id: &str) -> Option<ShopifyId> {
+    if id.is_empty()
+        || !id.bytes().all(|byte| byte.is_ascii_digit())
+        || id.bytes().all(|byte| byte == b'0')
+    {
+        return None;
+    }
+    ShopifyId::new(format!("gid://shopify/Location/{id}")).ok()
 }
 
 #[cfg(test)]

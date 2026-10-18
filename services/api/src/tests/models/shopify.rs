@@ -174,7 +174,7 @@ fn search_requests_preserve_literals_and_validate_ranges() {
 }
 
 #[test]
-fn activation_request_validates_resource_kinds_and_never_sets_quantities() {
+fn activation_request_validates_resource_kinds_and_omits_quantities() {
     let location = ShopifyId::new("gid://shopify/Location/123").unwrap();
     let order = ShopifyId::new("gid://shopify/Order/456").unwrap();
     let item = ShopifyId::new("gid://shopify/InventoryItem/789").unwrap();
@@ -183,7 +183,7 @@ fn activation_request_validates_resource_kinds_and_never_sets_quantities() {
         ActivateInventoryRequest {
             inventory_item_id: order.clone(),
             location_id: location.clone(),
-            idempotency_key: key
+            idempotency_key: key,
         }
         .variables()
         .is_err()
@@ -192,7 +192,7 @@ fn activation_request_validates_resource_kinds_and_never_sets_quantities() {
         ActivateInventoryRequest {
             inventory_item_id: item.clone(),
             location_id: order,
-            idempotency_key: key
+            idempotency_key: key,
         }
         .variables()
         .is_err()
@@ -261,4 +261,29 @@ fn bounded_nested_connections_reject_incomplete_data() {
         },
     };
     assert!(incomplete.into_complete_nodes().is_err());
+}
+
+#[test]
+fn activation_candidates_reject_zero_and_overflowed_resource_ids() {
+    for (item, variant, product) in [
+        ("0", "1", "42"),
+        ("18446744073709551616", "1", "42"),
+        ("1", "0", "42"),
+        ("1", "18446744073709551616", "42"),
+        ("1", "1", "0"),
+        ("1", "1", "18446744073709551616"),
+    ] {
+        let candidate: InventoryActivationCandidate = serde_json::from_value(json!({
+            "id":"level","isActive":false,
+            "quantities":[{"name":"on_hand","quantity":1},{"name":"available","quantity":0}],
+            "item":{"id":format!("gid://shopify/InventoryItem/{item}"),"sku":null,"tracked":true,
+                "variant":{"id":format!("gid://shopify/ProductVariant/{variant}"),"title":"Variant",
+                    "product":{"id":format!("gid://shopify/Product/{product}"),"title":"Product"}}}
+        }))
+        .unwrap();
+        assert!(
+            candidate.activation_item().is_err(),
+            "item={item}, variant={variant}, product={product}"
+        );
+    }
 }

@@ -18,3 +18,14 @@ pub async fn get(
         services::inventories::inventory_report(&state, location, page).await?,
     ))
 }
+
+pub async fn post_enable(
+    State(state): State<AppState>,
+    path: Result<Path<String>, PathRejection>,
+    axum::extract::RawQuery(query): axum::extract::RawQuery,
+) -> Result<Json<domain::dto::InventoryEnableResponse>, AppError> {
+    let location = validations::inventories::extract_enable_request(path, query.as_deref())?;
+    Ok(Json(
+        services::inventories::enable_inventory(&state, location).await?,
+    ))
+}

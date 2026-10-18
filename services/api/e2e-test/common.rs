@@ -268,7 +268,7 @@ pub async fn assert_report_unavailable(
         .unwrap();
     assert_eq!(response.status(), 503);
     let body = body_json(response).await;
-    assert_eq!(body["error"], "Shopify report unavailable");
+    assert_eq!(body["error"], "Shopify client unavailable");
     assert!(body.get("products").is_none());
     assert!(!body.to_string().contains("invalid-url"));
 }

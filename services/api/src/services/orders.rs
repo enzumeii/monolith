@@ -36,6 +36,7 @@ pub async fn order_report(
             }
             Ok(())
         },
+        std::convert::identity,
     )
     .await
     .map_err(|error| upstream(error))?;
