@@ -41,7 +41,7 @@ AppState constructs the optional Shopify client once and shares its HTTP pool. H
 | `src/middleware/token.rs` | JWT validation and role checks |
 | `src/services/` / `src/repositories/` | Use cases and transaction boundaries / SQL queries |
 | `src/models/` | Persistence/authentication models and API-owned Shopify contracts |
-| `src/validations/` / `src/utils/password.rs` | Input rules / Argon2 operations |
+| `src/validations/` / `src/utils/` | Input rules / Argon2 operations and exact decimal parsing/multiplication |
 | `src/error.rs` | Public error mapping and centralized boundary logging |
 | `src/client.rs` | Generic HTTP/GraphQL request envelopes, decoding, failures, throttling backoff |
 | `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication and single-operation proxy methods / matching query documents |
@@ -131,7 +131,7 @@ flowchart LR
 | Initialization | AppState owns one optional client; service resolves availability and retained initialization causes |
 | Root report traversal | Inventory forwards caller size/cursor and returns one product page; orders process batches250 until exhausted with cursor progress/cycle checks |
 | Nested report data | Product variants and tagged-order lines use fixed first250 without child queries; unexpected hasNextPage fails rather than truncates |
-| Models | API-owned source conversions, SKU/stock derivation, exact report arithmetic and merge compatibility; domain DTOs remain wire-only |
+| Models | API-owned source conversions, SKU/stock derivation, report row totals and merge compatibility; reusable exact arithmetic lives in utils/numbers.rs; domain DTOs remain wire-only |
 
 | Operation | Result |
 | --- | --- |
@@ -171,7 +171,7 @@ flowchart LR
 
 | Concern | Behavior |
 | --- | --- |
-| Routes | Dedicated /v1/admin router owns admin authentication; /v1/customer reserved for future customer routes. GET /v1/admin/inventories/{inventory_id} and GET /v1/admin/orders/report?tags=TAG; existing ADMIN/SUPER_ADMIN bearer or cookie protection |
+| Routes | Parent v1 protected route group authenticates /v1/admin once; /v1/customer reserved for future customer routes. GET /v1/admin/inventories/{inventory_id} and GET /v1/admin/orders/report?tags=TAG; existing ADMIN/SUPER_ADMIN bearer or cookie protection |
 | Contract | Domain product report DTOs only; API owns Shopify models, validation and report orchestration |
 | Service ownership | inventories.rs retrieves one inventory page; orders.rs aggregates orders; common.rs shares client lookup and upstream-error mapping |
 | Inventory | Numeric location ID; active products and active inventory levels at the location; on_hand includes zero/negative quantities; missing location is 404 |

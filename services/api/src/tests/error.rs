@@ -197,10 +197,10 @@ async fn status_message_and_challenge_are_independent() {
             "Shopify report unavailable",
             false,
         ),
-        (StatusCode::BAD_GATEWAY, "Shopify upstream failure", false),
+        (StatusCode::BAD_GATEWAY, "Upstream request failed", false),
         (
             StatusCode::GATEWAY_TIMEOUT,
-            "Shopify upstream failure",
+            "Upstream request failed",
             false,
         ),
     ] {
@@ -307,7 +307,7 @@ mod logging_tests {
     fn report_failures_keep_private_diagnostics() {
         for filter in ["info", "info,api=debug"] {
             let log = capture(filter, || {
-                let error = AppError::new(StatusCode::BAD_GATEWAY, "Shopify upstream failure")
+                let error = AppError::new(StatusCode::BAD_GATEWAY, "Upstream request failed")
                     .with_source(crate::client::ClientError::new(ClientErrorKind::Protocol(
                         "private-report-cause",
                     )));

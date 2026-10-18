@@ -38,7 +38,7 @@ async fn report_transport_timeout_maps_to_504_and_other_transport_errors_to_502(
             .unwrap();
         assert_eq!(
             serde_json::from_slice::<Value>(&body).unwrap(),
-            serde_json::json!({"error":"Shopify upstream failure"})
+            serde_json::json!({"error":"Upstream request failed"})
         );
     }
 }

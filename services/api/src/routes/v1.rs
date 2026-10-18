@@ -15,13 +15,12 @@ pub fn router(state: AppState) -> Router<AppState> {
     let protected_routes = Router::new()
         .nest("/auth", auth::authed_router())
         .nest("/admins", admins::router())
+        .nest("/admin", admin::router())
         .merge(super_admin_routes)
         .layer(axum_middleware::from_fn_with_state(
-            state.clone(),
+            state,
             middleware::token::auth_middleware,
         ));
 
-    public_routes
-        .merge(protected_routes)
-        .nest("/admin", admin::router(state))
+    public_routes.merge(protected_routes)
 }

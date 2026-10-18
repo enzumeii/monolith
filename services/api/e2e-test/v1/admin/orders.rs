@@ -79,7 +79,7 @@ async fn order_dependency_failures_return_safe_errors_over_tcp() {
         ))
         .await
         .unwrap();
-    assert_report_error(response, 502, "Shopify upstream failure").await;
+    assert_report_error(response, 502, "Upstream request failed").await;
     while let Some(result) = timeouts.join_next().await {
         result.unwrap();
     }
@@ -109,7 +109,7 @@ async fn assert_order_failure(admin_id: i64, later: bool, failure: &'static str)
     assert_report_error(
         response,
         if failure == "timeout" { 504 } else { 502 },
-        "Shopify upstream failure",
+        "Upstream request failed",
     )
     .await;
     if failure == "timeout" {

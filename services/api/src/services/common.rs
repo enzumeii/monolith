@@ -32,7 +32,7 @@ pub(super) fn upstream(error: ClientError) -> AppError {
     } else {
         StatusCode::BAD_GATEWAY
     };
-    AppError::new(status, "Shopify upstream failure").with_source(error)
+    AppError::new(status, "Upstream request failed").with_source(error)
 }
 
 #[cfg(test)]

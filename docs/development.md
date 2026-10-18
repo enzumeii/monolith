@@ -130,6 +130,8 @@ Inventory returns one caller-selected product page with active inventory levels;
 | Missing inventory location | HTTP404 with {"error":"Shopify location not found"}; no catalog query is sent after a failed location lookup |
 | `GET /v1/admin/orders/report?tags=TAG` | Comma-separated literal tags, trimmed and combined with AND; empty entries rejected400; root batches250; merge compatible SKU/price/currency rows across every matching order page. Returns products only; page_size/cursor rejected400 |
 | Credentials | Existing ADMIN/SUPER_ADMIN bearer or cookie credentials; Shopify URL in TOML and SHOPIFY_ACCESS_TOKEN environment secret |
+| Shared helpers | utils/numbers.rs owns exact decimal parsing and multiplication; product models assemble report rows and update totals |
+| Upstream errors | Shared mapper returns Upstream request failed with502 for failures and504 for timeouts; original causes remain private |
 | Postman | Internal inventories first/continuation and orders report requests use location_id and order_tag variables; replace the synthetic abc cursor with the returned end_cursor |
 | Verification | API just test includes real TCP report routes with Docker PostgreSQL and the approved synthetic Shopify upstream; live store verification remains manual |
 | Formatting | API just setup installs dprint 0.63.0 with Cargo under services/api/.tools and caches the pinned Rust-based GraphQL/JSON Wasm plugins there. just check checks API GraphQL/JSON, Rust formatting and strict lint; just fix prepares SQLx metadata before formatting. CI uses the same setup recipe. Update Postman query text after formatting GraphQL |

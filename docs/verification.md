@@ -6,8 +6,8 @@ Results describe this revision's exercised scope, separately from [architecture]
 
 | Evidence | Result |
 | --- | --- |
-| Native API tests | 127 passed with Docker PostgreSQL ready; zero ignored; each library test runs once |
-| Docker PostgreSQL | 127 library tests and 45 real TCP E2E tests passed; Compose teardown completed |
+| Native API tests | 129 passed with Docker PostgreSQL ready; zero ignored; each library test runs once |
+| Docker PostgreSQL | 129 library tests and 45 real TCP E2E tests passed; Compose teardown completed |
 | Formatting/lint | Workspace Rust formatting, strict API/domain/downstream checks and Cargo-installed GraphQL/JSON formatting passed |
 | Shared contracts / WASM | 5 domain contracts passed; domain WASM and backoffice native/WASM checks passed |
 | Downstream tests | Backoffice 6 tests passed; client-ui check/test passed with no tests |
@@ -32,13 +32,13 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitl
 | Retry policy | HTTP/GraphQL rejection shares a four-attempt budget; unchanged replay payloads, Retry-After bounds and no ambiguous timeout/5xx replay |
 | Shopify proxy boundary | Explicit size/cursor forwarded; one operation per method; returned root metadata without automatic traversal; bounded variants/lines use fixed250; raw inventory/mutation outputs retained |
 | Source models | Inventory and tagged-line conversion, SKU Unicode characters4–9, short/missing SKU, active levels, zero/negative stock and nullable metadata |
-| Exact report values | Normalized prices, scientific weights, exact scaled/maximum totals, compatible metadata comparison and checked quantity/total overflow |
+| Exact report values | Reusable numeric utilities and mirrored tests retain normalized prices, scientific weights, exact scaled/maximum totals, compatible metadata comparison and checked quantity/total overflow |
 | Service pagination | Inventory forwards size/cursor and preserves one page; orders consume each root page before fetching the next. Missing/repeated/cyclic cursors and later failures reject the order report |
 | API pagination | Inventory first and continuation HTTP calls return page_info, including empty pages; order report rejects pagination and keeps products-only global totals |
-| Audience routing | Reports run under /v1/admin with admin authentication; existing auth/admin-account routes remain covered. Dedicated legacy/customer report-path rejection tests are not part of the current suite |
+| Audience routing | Parent v1 protected route group authenticates /v1/admin once; existing auth/admin-account routes remain covered. Dedicated legacy/customer report-path rejection tests are not part of the current suite |
 | Tagged orders | Comma-separated tags trimmed and combined with AND; blank entries rejected400 without upstream calls. Real TCP traversal preserves both tag filters and batch250 across pages and aggregates exact totals. Literal escaping, bounded nested lines, no child request, compatible rows merged in first-seen order and missing SKUs kept separate |
 | Dependency lifecycle | Shared AppState client Arc, optional/invalid initialization retained; services resolve availability and map affected requests to sanitized503 |
-| Report failures | Real TCP400/401/404/502/503/504 scenarios; configured upstream receives no invalid/unauthenticated requests. Initial/later operations cover HTTP/GraphQL rejection, partial/missing/malformed data, exhausted throttling, connection refusal and actual response timeouts; exact safe bodies/headers, paging variables and request counts asserted. Ordinary logs/public bodies sanitized, original causes available through DEBUG diagnostics |
+| Report failures | Real TCP400/401/404/502/503/504 scenarios; configured upstream receives no invalid/unauthenticated requests. Initial/later operations cover HTTP/GraphQL rejection, partial/missing/malformed data, exhausted throttling, connection refusal and actual response timeouts; exact safe bodies/headers (including Upstream request failed for502/504), paging variables and request counts asserted. Ordinary logs/public bodies sanitized, original causes available through DEBUG diagnostics |
 | Existing API | Authentication, authorization, cookies/origins/CORS, refresh-family transactions, database operations and registered routes remain covered by the complete suite |
 
 ## Limits

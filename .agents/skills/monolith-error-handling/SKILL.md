@@ -11,6 +11,7 @@ Read root [AGENTS.md](../../../AGENTS.md), the shared [AppError](../../../servic
 
 - Reuse the generic `AppError` status/message representation, optional typed cause, and response metadata. Different messages do not need new enum variants, error types, or endpoint-specific response wrappers. Keep typed client/protocol errors when retry or recovery logic consumes their distinctions.
 - Choose a public message at the layer that understands the failure. Name the affected resource or invalid input and explain the problem, for example `Shopify location not found` rather than `Record Not found`. Preserve intentional authentication messages that conceal account existence.
+- Shared upstream mappers use provider-neutral public messages such as `Upstream request failed`; retain provider-specific causes privately. Resource-specific failures remain descriptive.
 - Encode public failures through the shared domain `ErrorResponse` and central `IntoResponse` implementation. Keep HTTP status and authentication headers explicit; never infer them by matching message text.
 - Retain original SQLx, JWT, configuration and upstream causes privately. Unexpected failures return a safe `Internal server error`; raw driver/provider messages, credentials and tokens must not become public responses.
 
