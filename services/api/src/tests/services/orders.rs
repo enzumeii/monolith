@@ -161,6 +161,7 @@ async fn service_resolves_unavailable_shared_dependency_without_network() {
     );
     let source = ShopifyClient::new(&crate::config::ShopifyConfig {
         admin_api_url: "invalid-url".into(),
+        timeout_secs: 3,
         access_token: Some("fixture".into()),
     })
     .err()

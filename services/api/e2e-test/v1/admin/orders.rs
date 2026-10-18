@@ -96,6 +96,7 @@ async fn assert_order_failure(admin_id: i64, later: bool, failure: &'static str)
         vec![]
     };
     let (client, upstream) = client_with_upstream_script(prefix, failure).await;
+    let started = std::time::Instant::now();
     let response = client
         .send(authed(
             "GET",
@@ -111,6 +112,10 @@ async fn assert_order_failure(admin_id: i64, later: bool, failure: &'static str)
         "Shopify upstream failure",
     )
     .await;
+    if failure == "timeout" {
+        assert!(started.elapsed() >= std::time::Duration::from_secs(3));
+        assert!(started.elapsed() < std::time::Duration::from_secs(8));
+    }
     let requests = upstream.requests();
     assert_eq!(
         requests.len(),

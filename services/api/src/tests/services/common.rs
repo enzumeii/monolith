@@ -19,7 +19,7 @@ pub(crate) fn page(nodes: Vec<Value>, next: Option<&str>) -> Value {
 
 pub(crate) fn state(f: &Fixture) -> AppState {
     let settings = serde_json::from_value(json!({
-        "client":{"shopify":{"admin_api_url":f.url.as_str(),"access_token":"fixture"}},
+        "client":{"shopify":{"timeout_secs":3,"admin_api_url":f.url.as_str(),"access_token":"fixture"}},
         "browser":{"public_origin":"http://localhost:8084","insecure_local":true},
         "server":{"host":"localhost","port":3000},
         "database":{"url":"unused","max_connections":1,"min_connections":1},

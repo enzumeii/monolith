@@ -324,7 +324,7 @@ pub async fn client_with_upstream_script(
                     "shape" => Json(json!({"data":{"orders":false,"location":false,"products":false}})).into_response(),
                     "throttled" => Json(json!({"errors":[{"message":"private throttle","extensions":{"code":"THROTTLED"}}]})).into_response(),
                     "timeout" => {
-                        tokio::time::sleep(Duration::from_secs(31)).await;
+                        tokio::time::sleep(Duration::from_secs(4)).await;
                         Json(json!({"data":null})).into_response()
                     }
                     _ => panic!("unexpected upstream failure {failure}"),
@@ -410,7 +410,7 @@ async fn start_api(shopify_url: Option<&str>) -> Arc<TestApi> {
         std::env::var("E2E_API_PORT").unwrap_or_else(|_| "3100".into())
     };
     let shopify = shopify_url
-        .map(|url| format!("\n[client.shopify]\nadmin_api_url = {url:?}\n"))
+        .map(|url| format!("\n[client.shopify]\nadmin_api_url = {url:?}\ntimeout_secs = 3\n"))
         .unwrap_or_default();
     let directory = std::env::temp_dir().join(format!("monolith-api-e2e-{}", Uuid::new_v4()));
     std::fs::create_dir(&directory).expect("create owned E2E configuration directory");

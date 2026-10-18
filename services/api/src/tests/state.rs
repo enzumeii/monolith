@@ -13,7 +13,7 @@ async fn state_reuses_shopify_client_and_preserves_optional_initialization_failu
     let state = app_state(
         pool.clone(),
         settings(
-            &json!({"admin_api_url":"http://localhost:9999/graphql","access_token":"fixture"}),
+            &json!({"timeout_secs":3,"admin_api_url":"http://localhost:9999/graphql","access_token":"fixture"}),
         ),
     )
     .unwrap();
@@ -26,7 +26,7 @@ async fn state_reuses_shopify_client_and_preserves_optional_initialization_failu
     assert!(absent.shopify.unwrap().is_none());
     let invalid = app_state(
         pool,
-        settings(&json!({"admin_api_url":"invalid-url","access_token":"fixture"})),
+        settings(&json!({"timeout_secs":3,"admin_api_url":"invalid-url","access_token":"fixture"})),
     )
     .unwrap();
     let cause = invalid.shopify.err().unwrap();

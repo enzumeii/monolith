@@ -38,7 +38,8 @@ impl ShopifyClient {
         headers.insert("X-Shopify-Access-Token", value);
         Ok(Self {
             graphql: GraphqlClient::new(
-                HttpClient::new(Duration::from_secs(30)).map_err(|error| error.at(ORIGIN))?,
+                HttpClient::new(Duration::from_secs(config.timeout_secs))
+                    .map_err(|error| error.at(ORIGIN))?,
                 endpoint,
             ),
             headers,

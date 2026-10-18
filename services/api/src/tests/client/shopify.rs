@@ -10,6 +10,7 @@ fn id(kind: &str, n: u64) -> ShopifyId {
 fn client(f: &Fixture) -> ShopifyClient {
     ShopifyClient::new(&ShopifyConfig {
         admin_api_url: f.url.to_string(),
+        timeout_secs: 3,
         access_token: Some("private-token".into()),
     })
     .unwrap()
@@ -64,9 +65,17 @@ fn tagged_line() -> Value {
 fn constructor_trusts_configuration_but_rejects_invalid_url_or_token() {
     let config = ShopifyConfig {
         admin_api_url: "http://localhost:9999/custom/graphql?version=1".into(),
+        timeout_secs: 3,
         access_token: Some("token".into()),
     };
     assert!(ShopifyClient::new(&config).unwrap().headers["X-Shopify-Access-Token"].is_sensitive());
+    assert!(
+        ShopifyClient::new(&ShopifyConfig {
+            timeout_secs: 0,
+            ..config.clone()
+        })
+        .is_err()
+    );
     assert!(
         ShopifyClient::new(&ShopifyConfig {
             admin_api_url: "not a URL".into(),

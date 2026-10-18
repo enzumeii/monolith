@@ -649,6 +649,7 @@ mod logging_tests {
     fn shopify_constructor_errors_identify_the_specific_client() {
         let source = crate::client::shopify::ShopifyClient::new(&crate::config::ShopifyConfig {
             admin_api_url: "invalid URL".into(),
+            timeout_secs: 3,
             access_token: None,
         })
         .err()
@@ -783,6 +784,7 @@ mod logging_tests {
                         if kind == "constructor" {
                             return ShopifyClient::new(&ShopifyConfig {
                                 admin_api_url: "invalid URL".into(),
+                                timeout_secs: 3,
                                 access_token: None,
                             })
                             .err()
@@ -800,6 +802,7 @@ mod logging_tests {
                         let fixture = Fixture::new(vec![reply]).await;
                         let client = ShopifyClient::new(&ShopifyConfig {
                             admin_api_url: fixture.url.to_string(),
+                            timeout_secs: 3,
                             access_token: Some("private-upstream-value".into()),
                         })
                         .unwrap();
