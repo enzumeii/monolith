@@ -30,11 +30,12 @@ pub fn SaveReport(rows: Vec<ProductReportRow>, filename: String) -> Element {
     });
     rsx! {
         div { id: "{id}", class: "report-save",
-            button { class: "ghost", disabled: busy() || open(),
+            button { class: "ghost", disabled: busy() || open() || snapshot.is_empty(),
                 onclick: {
                     let id = id.clone();
                     let rows = snapshot.clone();
                     move |_| {
+                        if rows.is_empty() || busy() || open() { return; }
                         error.set(None);
                         busy.set(true);
                         let picker = begin_picker(&id, &filename);
@@ -70,7 +71,7 @@ pub fn SaveReport(rows: Vec<ProductReportRow>, filename: String) -> Element {
                                 let rows = snapshot.clone();
                                 move |event| {
                                     event.prevent_default();
-                                    if busy() { return; }
+                                    if busy() || rows.is_empty() { return; }
                                     let selected = format();
                                     let filename = match selected.filename(&name()) {
                                         Ok(filename) => filename,
@@ -102,6 +103,7 @@ pub fn SaveReport(rows: Vec<ProductReportRow>, filename: String) -> Element {
                                 option { value: "csv", "CSV (.csv)" }
                                 option { value: "xlsx", "Excel workbook (.xlsx)" }
                             }
+                            p { "Your browser controls the save location. To choose a folder each time, open its Downloads settings and enable “Ask where to save files before downloading” (Zen) or “Always ask you where to save files” (Firefox)." }
                             ErrorMessage { message: error() }
                             div { class: "modal-actions",
                                 button { r#type: "button", class: "ghost", disabled: busy(), onclick: move |_| close(()), "Cancel" }
