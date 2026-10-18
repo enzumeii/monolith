@@ -505,3 +505,28 @@ async fn call_root_proxy(
         }
     }
 }
+
+#[tokio::test]
+async fn inventory_discovery_distinguishes_missing_location_key_from_null() {
+    let f = Fixture::new(vec![
+        Reply::json(json!({"data":{}})),
+        Reply::json(json!({"data":{"location":null}})),
+    ])
+    .await;
+    let c = client(&f);
+    let input = InventoryDiscoveryRequest {
+        location_id: id("Location", 1),
+    };
+    let page = PageRequest {
+        first: 250,
+        after: None,
+    };
+    assert!(c.find_inventory_to_activate(&input, &page).await.is_err());
+    assert!(
+        c.find_inventory_to_activate(&input, &page)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(f.requests().len(), 2);
+}

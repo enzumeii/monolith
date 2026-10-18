@@ -402,6 +402,7 @@ pub struct SalesData {
 }
 #[derive(Deserialize)]
 pub struct InventoryData {
+    #[serde(deserialize_with = "Option::deserialize")]
     pub location: Option<LocationInventory>,
 }
 #[derive(Deserialize)]

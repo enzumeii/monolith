@@ -741,7 +741,7 @@ async fn enable_inventory_discovery_errors_never_activate_partial_candidates() {
 async fn enable_inventory_invalid_discovery_data_fails_before_any_activation() {
     let fixture = fixture().await;
     let candidate = activation_candidate(1, 42, false, true, 5);
-    let mut cases = vec![];
+    let mut cases = vec![vec![json!({})]];
     for cursor in [Value::Null, json!(""), json!(" ")] {
         cases.push(vec![json!({"location":{"inventoryLevels":{"nodes":[candidate.clone()],"pageInfo":{"hasNextPage":true,"endCursor":cursor}}}})]);
     }
@@ -766,7 +766,7 @@ async fn enable_inventory_invalid_discovery_data_fails_before_any_activation() {
         "overflow_product",
         "bad_item",
     ] {
-        let mut bad = candidate.clone();
+        let mut bad = activation_candidate(2, 43, false, true, 5);
         match field {
             "missing_on_hand" => bad["quantities"] = json!([{"name":"available","quantity":4}]),
             "overflow_available" => bad["quantities"][1]["quantity"] = json!(i64::MAX),

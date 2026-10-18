@@ -58,13 +58,14 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitl
 | Check | Evidence |
 | --- | --- |
 | Red/green | New response contract failed before DTO implementation; TCP enablement request failed404 before route implementation and then passed200; zero upstream item ID failed the boundary test before validation was tightened |
-| API | just check passed; just test passed129 library tests and55 TCP E2E tests; the additional zero/overflow ID test passed separately. Final commit/pipeline verification is recorded in the PR |
+| API | just check and the complete just test suite passed; additional zero/overflow ID and omitted-location-key regressions passed. Final commit counts and pipeline verification are recorded in the PR |
 | Shared DTO | Domain check (native strict lint and WASM),6 serialization tests, and no-default-features compilation passed |
 | Dependencies | Existing Compose PostgreSQL, real Axum child processes and controlled Shopify HTTP/TCP servers; fixture-owned rows and temporary configurations cleaned up; Compose teardown completed |
 | Eligibility and completeness | Tracked inactive items with positive on_hand; active/untracked/nonpositive items skipped; batches250, empty intermediate pages, deduplication, conflicting entries and missing/repeated/cyclic cursors |
 | Outcomes | Per-variant counts, repeated product_id errors, zero candidates, missing/disappearing location, rejected/null/inactive mutation outcomes and later successful independent items |
 | Failure matrix | Location, first/later discovery and activation cover HTTP/GraphQL rejection, partial/missing/malformed data, exhausted throttling, real connection loss and timeouts; discovery failures never mutate; mutation failures are counted safely |
 | Authentication | Missing/malformed/expired bearer rejection, ADMIN/SUPER_ADMIN success, real PostgreSQL-backed cookie login, valid origin success and missing/foreign origin rejection. Existing JWT validation has no database lookup or immediate revocation check |
+| Review regressions | Malformed entries use distinct item IDs so duplicate detection cannot mask quantity/ID validation. A temporary missing-quantity validator mutation made the corrected TCP test fail200 vs expected502; restoring the validator made it pass. Missing discovery location key fails decoding, while explicit null retains404 |
 | Stock and retry | Explicit discovered onHand/available; stable mutation UUID/payload across retry, successful throttle recovery and exhausted retries |
 | Postman | Internal13 and external9 requests lint with zero errors/warnings; YAML parses and formatted activation query/variable names match application source |
 | Limits | No live Shopify execution, merchant scope verification, load benchmark or deployment; discovery quantities can become stale before activation, and timed-out mutations can have unconfirmed outcomes |
