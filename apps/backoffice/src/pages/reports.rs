@@ -34,16 +34,14 @@ pub fn Reports() -> Element {
     let mut history = use_signal(CursorHistory::default);
     let mut submitted = use_signal(|| None::<ReportRequest>);
     let mut local_error = use_signal(|| None::<String>);
-    let mut report = use_resource(move || async move {
-        let request = submitted()?;
-        let result = session::with_session(|| generate(request.clone())).await;
-        Some((request, result))
+    let mut report = use_report(submitted, |request| async move {
+        session::with_session(|| generate(request.clone())).await
     });
-    let loading = submitted.read().is_some() && *report.state().read() == UseResourceState::Pending;
-    let result = report.read();
+    let loading = submitted.read().is_some() && report.pending();
+    let value = report.value().and_then(Result::ok);
+    let result = value.as_ref().map(|value| value.read());
     let current = result
-        .as_ref()
-        .and_then(Option::as_ref)
+        .as_deref()
         .filter(|(request, _)| submitted.read().as_ref() == Some(request));
     let data = if loading {
         None
@@ -74,7 +72,6 @@ pub fn Reports() -> Element {
                     history.write().reset();
                     local_error.set(None);
                     submitted.set(Some(ReportRequest { kind: kind(), parameter: if kind() == ReportKind::Convention { inventory().trim().into() } else { tags().trim().into() }, page_size: page_size(), cursor: None }));
-                    report.restart();
                 },
                 label { r#for: "report-kind", "Report" }
                 select { id: "report-kind", value: if kind() == ReportKind::Convention { "convention" } else { "picklist" },
@@ -100,7 +97,7 @@ pub fn Reports() -> Element {
             }
             ErrorMessage { message: error.clone() }
             if error.is_some() && submitted.read().is_some() {
-                button { class: "ghost", onclick: move |_| { local_error.set(None); report.restart(); }, "Retry" }
+                button { class: "ghost", onclick: move |_| { local_error.set(None); if let Some(request) = submitted() { report.call(request); } }, "Retry" }
             }
             if loading { ReportSkeleton {} }
             if let Some(data) = data {
@@ -230,3 +227,42 @@ async fn save_csv(contents: String, filename: &str) -> Result<(), String> {
         .map_err(|_| "Unable to save CSV".to_string())?;
     Ok(())
 }
+
+fn use_report<Fut: std::future::Future<Output = api::ApiResult<ReportData>> + 'static>(
+    mut submitted: Signal<Option<ReportRequest>>,
+    load: impl FnMut(ReportRequest) -> Fut + 'static,
+) -> Action<(ReportRequest,), (ReportRequest, api::ApiResult<ReportData>)> {
+    let load = use_callback(load);
+    let mut action = use_action(move |request: ReportRequest| {
+        let future = load.call(request.clone());
+        async move { Ok::<_, api::ApiError>((request, future.await)) }
+    });
+    use_effect(move || {
+        if let Some(request) = submitted() {
+            action.call(request);
+        } else {
+            action.reset();
+        }
+    });
+    let mut owner = use_signal(|| {
+        session::SESSION
+            .peek()
+            .as_ref()
+            .map(|viewer| (viewer.admin_id, viewer.role))
+    });
+    use_effect(move || {
+        let current = session::SESSION
+            .read()
+            .as_ref()
+            .map(|viewer| (viewer.admin_id, viewer.role));
+        if current != *owner.peek() {
+            owner.set(current);
+            submitted.set(None);
+            action.reset();
+        }
+    });
+    action
+}
+#[cfg(test)]
+#[path = "../tests/pages/reports.rs"]
+mod tests;
