@@ -1,3 +1,4 @@
+mod admin;
 mod admins;
 mod auth;
 use crate::{middleware, state::AppState};
@@ -14,6 +15,7 @@ pub fn router(state: AppState) -> Router<AppState> {
     let protected_routes = Router::new()
         .nest("/auth", auth::authed_router())
         .nest("/admins", admins::router())
+        .nest("/admin", admin::router())
         .merge(super_admin_routes)
         .layer(axum_middleware::from_fn_with_state(
             state,

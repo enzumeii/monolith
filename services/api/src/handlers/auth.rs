@@ -48,10 +48,7 @@ pub async fn refresh(
         }
     } else {
         payload
-            .ok_or_else(|| {
-                AppError::BadRequest("Refresh token is required".into())
-                    .at(concat!(module_path!(), "::refresh"))
-            })?
+            .ok_or_else(|| AppError::new(StatusCode::BAD_REQUEST, "Refresh token is required"))?
             .0
     };
     let tokens = services::auth::refresh(&state.pool, state.jwt_key.as_slice(), request).await?;
@@ -76,10 +73,7 @@ pub async fn logout(
         }
     } else {
         payload
-            .ok_or_else(|| {
-                AppError::BadRequest("Refresh token is required".into())
-                    .at(concat!(module_path!(), "::logout"))
-            })?
+            .ok_or_else(|| AppError::new(StatusCode::BAD_REQUEST, "Refresh token is required"))?
             .0
     };
     services::auth::logout(&state.pool, &actor, request).await?;

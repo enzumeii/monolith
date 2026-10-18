@@ -1,15 +1,13 @@
 $kind: graphql-request
 url: "{{shopify}}/graphql.json"
-query: |-
+query: |
   mutation ActivateExistingInventory(
     $inventoryItemId: ID!
     $locationId: ID!
     $idempotencyKey: String!
   ) {
-    inventoryActivate(
-      inventoryItemId: $inventoryItemId
-      locationId: $locationId
-    ) @idempotent(key: $idempotencyKey) {
+    inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId)
+      @idempotent(key: $idempotencyKey) {
       inventoryLevel {
         id
         isActive
@@ -24,7 +22,7 @@ query: |-
       }
     }
   }
-variables: |-
+variables: |
   {
     "inventoryItemId": "gid://shopify/InventoryItem/49697008189611",
     "locationId": "gid://shopify/Location/90340917419",

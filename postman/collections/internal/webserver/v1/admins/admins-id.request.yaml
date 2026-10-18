@@ -1,4 +1,7 @@
 $kind: http-request
+description: >-
+  A missing target admin returns HTTP 401 with {"error":"Not authorized"}
+  and WWW-Authenticate: Bearer. Existing permission checks still apply.
 name: admins/:id
 url: "{{server}}/v1/admins/:id"
 method: GET

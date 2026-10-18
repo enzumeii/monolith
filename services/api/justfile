@@ -1,13 +1,19 @@
 set dotenv-load := true
 set export := true
 
+dprint_version := "0.63.0"
+export DPRINT_CACHE_DIR := justfile_directory() / ".tools/cache"
+
 # Default target
 default:
     @just --list
 
-# Create .env if missing
+# Install pinned dprint locally with Cargo, cache its plugins and create .env if missing.
 setup:
     #!/usr/bin/env bash
+    set -euo pipefail
+    cargo install --locked dprint --version {{dprint_version}} --root .tools
+    .tools/bin/dprint config install
     if [ ! -f .env ]; then
       echo '→ Scaffolding .env from template...'
       printf '%s\n' \
@@ -41,25 +47,27 @@ run:
 db-down:
     docker compose -f docker-compose.yml down
 
-# Run API tests, then TCP E2E with Docker PostgreSQL; always stop Compose afterward.
+# Start Docker PostgreSQL, run API and TCP E2E tests once, then always stop Compose.
 test:
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo test --locked
     trap 'docker compose -p e2e -f docker-compose-e2e.yml down -v' EXIT
     docker compose -p e2e -f docker-compose-e2e.yml up -d --wait postgres
+    cargo test --locked
     cargo api-e2e
 
-# Check: format + lint check (no changes)
+# Check Rust/GraphQL/JSON formatting and strict API lint.
 check:
+    .tools/bin/dprint check
     cargo fmt --check -p api
     cargo clippy --locked -p api --all-targets -- -D warnings
 
-# Format: apply format + lint fix
+# Apply lint fixes, prepare SQLx metadata, then format Rust/GraphQL/JSON.
 fix:
-    cargo fmt -p api
     cargo clippy --locked -p api --fix --allow-dirty --allow-staged -- -D warnings
     cargo sqlx prepare
+    .tools/bin/dprint fmt
+    cargo fmt -p api
 
 # Recreate the dev Postgres database (drop + create)
 reset-db:

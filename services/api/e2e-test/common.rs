@@ -218,6 +218,148 @@ pub async fn body_json(response: axum::response::Response) -> serde_json::Value 
     serde_json::from_slice(&bytes).unwrap()
 }
 
+pub fn shopify_page(nodes: Vec<serde_json::Value>, next: Option<&str>) -> serde_json::Value {
+    serde_json::json!({"nodes":nodes,"pageInfo":{"hasNextPage":next.is_some(),"endCursor":next}})
+}
+
+pub async fn assert_report_auth(client: &TestClient, uri: &str) {
+    for token in [None, Some("Bearer invalid")] {
+        let mut request = Request::builder().uri(uri);
+        if let Some(token) = token {
+            request = request.header("authorization", token);
+        }
+        let response = client
+            .send(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_report_error(response, 401, "Invalid or expired token").await;
+    }
+}
+
+pub async fn assert_report_error(response: axum::response::Response, status: u16, message: &str) {
+    assert_eq!(response.status(), status);
+    assert_eq!(response.headers()["content-type"], "application/json");
+    assert_eq!(
+        response
+            .headers()
+            .get("www-authenticate")
+            .map(|value| value.to_str().unwrap()),
+        (status == 401).then_some("Bearer")
+    );
+    assert!(response.headers().get("set-cookie").is_none());
+    assert_eq!(
+        body_json(response).await,
+        serde_json::json!({"error":message})
+    );
+}
+
+pub async fn assert_report_unavailable(
+    client: &TestClient,
+    uri: &str,
+    admin_id: i64,
+    role: AdminRole,
+) {
+    let response = client
+        .send(authed("GET", uri, admin_id, role))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 503);
+    let body = body_json(response).await;
+    assert_eq!(body["error"], "Shopify report unavailable");
+    assert!(body.get("products").is_none());
+    assert!(!body.to_string().contains("invalid-url"));
+}
+
+pub async fn client_with_upstream(router: axum::Router) -> (TestClient, TestUpstream) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let upstream = TestUpstream(server);
+    let client = client_with_shopify(&format!("http://{address}/graphql.json")).await;
+    (client, upstream)
+}
+
+pub struct ScriptedUpstream {
+    requests: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    _server: TestUpstream,
+}
+impl ScriptedUpstream {
+    pub fn requests(&self) -> Vec<serde_json::Value> {
+        self.requests.lock().unwrap().clone()
+    }
+}
+
+pub async fn client_with_upstream_script(
+    prefix: Vec<serde_json::Value>,
+    failure: &'static str,
+) -> (TestClient, ScriptedUpstream) {
+    use axum::{Json, response::IntoResponse};
+    use serde_json::{Value, json};
+
+    let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = requests.clone();
+    let replies = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from(
+        prefix,
+    )));
+    let router = axum::Router::new().route(
+        "/graphql.json",
+        axum::routing::post(move |headers: axum::http::HeaderMap, Json(request): Json<Value>| {
+            let recorded = recorded.clone();
+            let replies = replies.clone();
+            async move {
+                assert_eq!(headers["x-shopify-access-token"], "e2e-fixture-token");
+                recorded.lock().unwrap().push(request);
+                let reply = replies.lock().unwrap().pop_front();
+                if let Some(reply) = reply {
+                    return Json(json!({"data":reply})).into_response();
+                }
+                match failure {
+                    "http" => (axum::http::StatusCode::SERVICE_UNAVAILABLE, "private upstream body").into_response(),
+                    "graphql" => Json(json!({"errors":[{"message":"private upstream error"}]})).into_response(),
+                    "partial" => Json(json!({"data":{},"errors":[{"message":"private partial result"}]})).into_response(),
+                    "malformed" => "{".into_response(),
+                    "missing" => Json(json!({"data":null})).into_response(),
+                    "shape" => Json(json!({"data":{"orders":false,"location":false,"products":false}})).into_response(),
+                    "throttled" => Json(json!({"errors":[{"message":"private throttle","extensions":{"code":"THROTTLED"}}]})).into_response(),
+                    "timeout" => {
+                        tokio::time::sleep(Duration::from_secs(4)).await;
+                        Json(json!({"data":null})).into_response()
+                    }
+                    _ => panic!("unexpected upstream failure {failure}"),
+                }
+            }
+        }),
+    );
+    let (client, server) = client_with_upstream(router).await;
+    (
+        client,
+        ScriptedUpstream {
+            requests,
+            _server: server,
+        },
+    )
+}
+
+pub async fn client_with_unreachable_shopify() -> TestClient {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let client = client_with_shopify(&format!(
+        "http://{}/graphql.json",
+        listener.local_addr().unwrap()
+    ))
+    .await;
+    drop(listener);
+    client
+}
+
+pub struct TestUpstream(tokio::task::JoinHandle<()>);
+impl Drop for TestUpstream {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 struct TestApi {
     process: Option<Child>,
     directory: std::path::PathBuf,
@@ -244,7 +386,32 @@ async fn test_api() -> Arc<TestApi> {
     if let Some(api) = shared.upgrade() {
         return api;
     }
-    let port = std::env::var("E2E_API_PORT").unwrap_or_else(|_| "3100".into());
+    let api = start_api(None).await;
+    *shared = Arc::downgrade(&api);
+    api
+}
+
+pub async fn client_with_shopify(url: &str) -> TestClient {
+    TestClient {
+        http: reqwest::Client::new(),
+        api: start_api(Some(url)).await,
+    }
+}
+
+async fn start_api(shopify_url: Option<&str>) -> Arc<TestApi> {
+    let port = if shopify_url.is_some() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("allocate API port");
+        listener
+            .local_addr()
+            .expect("API address")
+            .port()
+            .to_string()
+    } else {
+        std::env::var("E2E_API_PORT").unwrap_or_else(|_| "3100".into())
+    };
+    let shopify = shopify_url
+        .map(|url| format!("\n[client.shopify]\nadmin_api_url = {url:?}\ntimeout_secs = 3\n"))
+        .unwrap_or_default();
     let directory = std::env::temp_dir().join(format!("monolith-api-e2e-{}", Uuid::new_v4()));
     std::fs::create_dir(&directory).expect("create owned E2E configuration directory");
     let mut api = TestApi {
@@ -265,6 +432,7 @@ min_connections = 1
 [browser]
 public_origin = "http://127.0.0.1:8084"
 insecure_local = true
+{shopify}
 "#
         ),
     )
@@ -274,6 +442,8 @@ insecure_local = true
             .current_dir(&api.directory)
             .env("DATABASE_URL", database_url())
             .env("JWT_SECRET", JWT_SECRET)
+            .env_remove("SHOPIFY_ACCESS_TOKEN")
+            .envs(shopify_url.map(|_| ("SHOPIFY_ACCESS_TOKEN", "e2e-fixture-token")))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .spawn()
@@ -295,7 +465,6 @@ insecure_local = true
             .is_ok_and(|response| response.status().is_success())
         {
             let api = Arc::new(api);
-            *shared = Arc::downgrade(&api);
             return api;
         }
         tokio::time::sleep(Duration::from_millis(250)).await;

@@ -4,6 +4,7 @@ use crate::{
     models::{AuthenticatedAdmin, Claims},
     state::AppState,
 };
+use axum::http::StatusCode;
 use axum::{
     extract::{Request, State},
     middleware::Next,
@@ -41,12 +42,13 @@ pub async fn require_super_admin(req: Request, next: Next) -> Result<Response, A
     let claims = req
         .extensions()
         .get::<AuthenticatedAdmin>()
-        .ok_or_else(|| {
-            AppError::InvalidCredentials.at(concat!(module_path!(), "::require_super_admin"))
-        })?;
+        .ok_or_else(|| AppError::new(StatusCode::UNAUTHORIZED, "Invalid username or password"))?;
 
     if claims.role != AdminRole::SuperAdmin {
-        return Err(AppError::Forbidden.at(concat!(module_path!(), "::require_super_admin")));
+        return Err(AppError::new(
+            StatusCode::FORBIDDEN,
+            "Your account is forbidden to make this action",
+        ));
     }
 
     Ok(next.run(req).await)
@@ -61,7 +63,10 @@ pub(crate) fn bearer(headers: &axum::http::HeaderMap) -> Result<Option<&str>, Ap
             .and_then(|value| value.strip_prefix("Bearer "))
             .filter(|token| !token.is_empty())
             .map(Some)
-            .ok_or_else(|| AppError::InvalidToken.at(concat!(module_path!(), "::bearer"))),
+            .ok_or_else(|| {
+                AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
+                    .with_bearer_challenge()
+            }),
     }
 }
 pub(crate) fn validate_token(token: &str, key: &[u8]) -> Result<Claims, AppError> {
@@ -73,6 +78,8 @@ pub(crate) fn validate_token(token: &str, key: &[u8]) -> Result<Claims, AppError
     decode::<Claims>(token, &DecodingKey::from_secret(key), &validation)
         .map(|data| data.claims)
         .map_err(|error| {
-            AppError::TokenValidation(error).at(concat!(module_path!(), "::validate_token"))
+            AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
+                .with_source(error)
+                .with_bearer_challenge()
         })
 }

@@ -3,6 +3,7 @@ pub mod auth;
 pub use admins::{create_admin, delete_admin, list_admins, update_admin};
 pub use auth::{login, logout, refresh_session};
 
+use domain::dto::ErrorResponse;
 use reqwest::{Method, RequestBuilder, Response, StatusCode};
 use serde::de::DeserializeOwned;
 
@@ -39,10 +40,6 @@ fn request(method: Method, path: &str) -> ApiResult<RequestBuilder> {
     Ok(request)
 }
 async fn send(request: RequestBuilder) -> ApiResult<Response> {
-    #[derive(serde::Deserialize)]
-    struct Failure {
-        error: String,
-    }
     let response = request
         .send()
         .await
@@ -52,7 +49,7 @@ async fn send(request: RequestBuilder) -> ApiResult<Response> {
     }
     let status = response.status().as_u16();
     let message = response
-        .json::<Failure>()
+        .json::<ErrorResponse>()
         .await
         .map_or_else(|_| "Request failed".into(), |body| body.error);
     Err(ApiError { status, message })

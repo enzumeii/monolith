@@ -11,26 +11,24 @@ use argon2::{
 pub(crate) async fn hash(password: String) -> Result<String, AppError> {
     tokio::task::spawn_blocking(move || {
         let salt = SaltString::generate(&mut OsRng);
-        Argon2::default()
-            .hash_password(password.as_bytes(), &salt)
-            .map(|hash| hash.to_string())
-            .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::hash")))
+        Ok(Argon2::default()
+            .hash_password(password.as_bytes(), &salt)?
+            .to_string())
     })
     .await
-    .map_err(|error| AppError::Internal(error.into()).at(concat!(module_path!(), "::hash")))?
+    .map_err(|error| AppError::from(anyhow::Error::from(error)))?
 }
 
 /// Verify a plaintext password against a PHC hash. `true` on match.
 pub(crate) async fn verify(password: String, password_hash: String) -> Result<bool, AppError> {
     tokio::task::spawn_blocking(move || {
-        let parsed_hash = PasswordHash::new(&password_hash)
-            .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::verify")))?;
+        let parsed_hash = PasswordHash::new(&password_hash)?;
         Ok(Argon2::default()
             .verify_password(password.as_bytes(), &parsed_hash)
             .is_ok())
     })
     .await
-    .map_err(|error| AppError::Internal(error.into()).at(concat!(module_path!(), "::verify")))?
+    .map_err(|error| AppError::from(anyhow::Error::from(error)))?
 }
 
 #[cfg(test)]

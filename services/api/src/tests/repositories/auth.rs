@@ -1,6 +1,5 @@
 use super::*;
 #[tokio::test]
-#[ignore = "requires the configured Docker PostgreSQL; run just test"]
 async fn postgres_cleanup_is_bounded_and_preserves_live_rows() {
     let url = std::env::var("E2E_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://e2e:e2e@127.0.0.1:5433/e2e".into());

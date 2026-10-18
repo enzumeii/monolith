@@ -1,4 +1,5 @@
 use crate::{config::BrowserConfig, error::AppError, state::AppState};
+use axum::http::StatusCode;
 use axum::{
     extract::{Request, State},
     http::{
@@ -17,8 +18,10 @@ pub(crate) fn cookie_mode(headers: &HeaderMap) -> Result<bool, AppError> {
     match headers.get(MODE_HEADER) {
         None => Ok(false),
         Some(value) if value == "cookie" => Ok(true),
-        Some(_) => Err(AppError::BadRequest("Invalid session mode".into())
-            .at(concat!(module_path!(), "::cookie_mode"))),
+        Some(_) => Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            "Invalid session mode",
+        )),
     }
 }
 pub(crate) fn cookie_credentials<'a>(
@@ -27,17 +30,23 @@ pub(crate) fn cookie_credentials<'a>(
 ) -> Result<(&'a str, &'a str), AppError> {
     let value = jar
         .get(cookie_name(config))
-        .ok_or_else(|| AppError::InvalidToken.at(concat!(module_path!(), "::cookie_credentials")))?
+        .ok_or_else(|| {
+            AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
+                .with_bearer_challenge()
+        })?
         .value();
     let (access, refresh) = value.split_once('~').ok_or_else(|| {
-        AppError::InvalidToken.at(concat!(module_path!(), "::cookie_credentials"))
+        AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token").with_bearer_challenge()
     })?;
     if access.is_empty()
         || access.len() > 3500
         || refresh.len() != 64
         || !refresh.bytes().all(|byte| byte.is_ascii_hexdigit())
     {
-        return Err(AppError::InvalidToken.at(concat!(module_path!(), "::cookie_credentials")));
+        return Err(
+            AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
+                .with_bearer_challenge(),
+        );
     }
     Ok((access, refresh))
 }
@@ -94,7 +103,10 @@ pub(crate) async fn browser_guard(
             .and_then(|value| value.to_str().ok())
             != Some(state.settings.browser.public_origin.as_str())
     {
-        return Err(AppError::Forbidden.at(concat!(module_path!(), "::browser_guard")));
+        return Err(AppError::new(
+            StatusCode::FORBIDDEN,
+            "Your account is forbidden to make this action",
+        ));
     }
     let mut response = next.run(request).await;
     response

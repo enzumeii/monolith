@@ -1,0 +1,21 @@
+$kind: http-request
+description: Fetch the next inventory page using the returned cursor. A valid but missing Shopify location returns HTTP 404 with {"error":"Shopify location not found"}. Upstream failures return HTTP 502, or HTTP 504 for timeouts, with {"error":"Upstream request failed"}. Calculated totals are rounded to two decimal places.
+url: "{{server}}/v1/admin/inventories/:location_id?page_size=50&cursor={{inventories_cursor}}"
+method: GET
+queryParams:
+  page_size: "50"
+  cursor: "{{inventories_cursor}}"
+pathVariables:
+  location_id: "90340917419"
+scripts:
+  - type: afterResponse
+    code: |-
+      // 1. Parse the JSON response body
+      const responseData = pm.response.json();
+      // 2. Set the environment variable
+      const pageInfo = responseData.page_info;
+      if (pageInfo?.has_next_page === true && pageInfo.end_cursor != null) {
+        pm.collectionVariables.set("inventories_cursor", pageInfo.end_cursor);
+      }
+    language: text/javascript
+order: 2000

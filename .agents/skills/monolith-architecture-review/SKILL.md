@@ -22,7 +22,7 @@ Read the root [AGENTS.md](../../../AGENTS.md), [architecture](../../../docs/arch
 | Concurrency | Distinguish atomic writes from global issuance/revocation serialization |
 | Source organization | Exported functions before private helpers; unit files mirror core logic under src/tests, including backoffice src/tests/api.rs |
 | E2E | services/api/e2e-test/main.rs registers healthz and v1/auth/admins; common.rs owns shared fixtures, temporary TOML, secret environment, local process startup/readiness/teardown and TestClient::send |
-| Test orchestration | API just test runs cargo test → Compose up → cargo api-e2e → Compose down -v, also on failure; no API environment exports or process management in justfile |
+| Test orchestration | API just test runs Compose up → cargo test → cargo api-e2e → Compose down -v, also on failure; library tests run once with PostgreSQL ready, with no ignored tests; no API environment exports or process management in justfile |
 | Configuration | API non-secret settings are TOML-only; DB/JWT secrets use env; E2E owns temporary TOML. Backoffice has one published application.toml and typed reader; verify browser asset URL resolution and startup gating; distinguish planned local/prod sources from implemented code |
 | Modularity | Existing framework mechanisms and cohesive components; no requirement-free layers |
 

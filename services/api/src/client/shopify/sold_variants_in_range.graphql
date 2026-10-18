@@ -1,9 +1,10 @@
 query SoldVariantsInRange(
+  $first: Int!
   $search: String!
   $ordersAfter: String
 ) {
   orders(
-    first: 250
+    first: $first
     after: $ordersAfter
     query: $search
     sortKey: CREATED_AT

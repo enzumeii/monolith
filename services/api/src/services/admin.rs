@@ -6,6 +6,7 @@ use crate::{
     utils::password,
     validations::admin::{self as validate, AdminPageRequest},
 };
+use axum::http::StatusCode;
 use domain::dto::{AdminDTO, AdminListResponse, CreateAdminRequest, UpdateAdminRequest};
 use sqlx::PgPool;
 
@@ -28,16 +29,16 @@ pub async fn add(
 ) -> Result<AdminDTO, AppError> {
     validate::validate_create(&req)?;
     let hash = password::hash(req.password).await?;
-    let current = admin::find_by_id(pool, actor.id)
-        .await?
-        .ok_or_else(|| AppError::InvalidToken.at(concat!(module_path!(), "::add")))?;
+    let current = admin::find_by_id(pool, actor.id).await?.ok_or_else(|| {
+        AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token").with_bearer_challenge()
+    })?;
     if current.role != DbAdminRole::SuperAdmin {
-        return Err(AppError::Forbidden.at(concat!(module_path!(), "::add")));
+        return Err(AppError::new(
+            StatusCode::FORBIDDEN,
+            "Your account is forbidden to make this action",
+        ));
     }
-    let mut connection = pool
-        .acquire()
-        .await
-        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::add")))?;
+    let mut connection = pool.acquire().await?;
     let row = admin::add(&mut connection, req.username, hash, req.role).await?;
     Ok(row.into())
 }
@@ -50,33 +51,32 @@ pub async fn update(
 ) -> Result<AdminDTO, AppError> {
     validate::validate_update(actor, id)?;
     validate::validate_update_input(&req)?;
-    let current = admin::find_by_id(pool, actor.id)
-        .await?
-        .ok_or_else(|| AppError::InvalidToken.at(concat!(module_path!(), "::update")))?;
+    let current = admin::find_by_id(pool, actor.id).await?.ok_or_else(|| {
+        AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token").with_bearer_challenge()
+    })?;
     validate::validate_update(&AuthenticatedAdmin::from(&current), id)?;
     let hash = match req.password {
         Some(value) => Some(password::hash(value).await?),
         None => None,
     };
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::update")))?;
+    let mut tx = pool.begin().await?;
 
     let row = admin::update(&mut tx, id, req.username, hash)
         .await?
-        .ok_or_else(|| AppError::NotFound.at(concat!(module_path!(), "::update")))?;
+        .ok_or_else(|| {
+            AppError::new(StatusCode::UNAUTHORIZED, "Not authorized").with_bearer_challenge()
+        })?;
     auth::delete_account_refresh_tokens(&mut tx, id).await?;
-    tx.commit()
-        .await
-        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::update")))?;
+    tx.commit().await?;
     Ok(row.into())
 }
 
 pub async fn get(pool: &PgPool, id: i64) -> Result<AdminDTO, AppError> {
     Ok(admin::find_by_id(pool, id)
         .await?
-        .ok_or_else(|| AppError::NotFound.at(concat!(module_path!(), "::get")))?
+        .ok_or_else(|| {
+            AppError::new(StatusCode::UNAUTHORIZED, "Not authorized").with_bearer_challenge()
+        })?
         .into())
 }
 
@@ -86,21 +86,21 @@ pub async fn delete(
     id: i64,
 ) -> Result<AdminDTO, AppError> {
     validate::validate_delete(actor, id)?;
-    let current = admin::find_by_id(pool, actor.id)
-        .await?
-        .ok_or_else(|| AppError::InvalidToken.at(concat!(module_path!(), "::delete")))?;
-    let target = admin::find_by_id(pool, id)
-        .await?
-        .ok_or_else(|| AppError::NotFound.at(concat!(module_path!(), "::delete")))?;
+    let current = admin::find_by_id(pool, actor.id).await?.ok_or_else(|| {
+        AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token").with_bearer_challenge()
+    })?;
+    let target = admin::find_by_id(pool, id).await?.ok_or_else(|| {
+        AppError::new(StatusCode::UNAUTHORIZED, "Not authorized").with_bearer_challenge()
+    })?;
     if current.role != DbAdminRole::SuperAdmin || target.role == DbAdminRole::SuperAdmin {
-        return Err(AppError::Forbidden.at(concat!(module_path!(), "::delete")));
+        return Err(AppError::new(
+            StatusCode::FORBIDDEN,
+            "Your account is forbidden to make this action",
+        ));
     }
-    let mut connection = pool
-        .acquire()
-        .await
-        .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::delete")))?;
-    let row = admin::delete(&mut connection, id)
-        .await?
-        .ok_or_else(|| AppError::NotFound.at(concat!(module_path!(), "::delete")))?;
+    let mut connection = pool.acquire().await?;
+    let row = admin::delete(&mut connection, id).await?.ok_or_else(|| {
+        AppError::new(StatusCode::UNAUTHORIZED, "Not authorized").with_bearer_challenge()
+    })?;
     Ok(row.into())
 }

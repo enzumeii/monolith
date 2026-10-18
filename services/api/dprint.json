@@ -1,0 +1,22 @@
+{
+  "$schema": "https://dprint.dev/schemas/v0.json",
+  "lineWidth": 80,
+  "indentWidth": 2,
+  "useTabs": false,
+  "newLineKind": "lf",
+  "includes": [
+    "**/*.graphql",
+    "**/*.json",
+    "**/*.jsonc"
+  ],
+  "excludes": [
+    ".tools/**"
+  ],
+  "json": {
+    "preferSingleLine": false
+  },
+  "plugins": [
+    "https://plugins.dprint.dev/json-0.25.2.wasm",
+    "https://plugins.dprint.dev/g-plane/pretty_graphql-v0.2.3.wasm"
+  ]
+}

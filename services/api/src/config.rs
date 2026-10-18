@@ -34,6 +34,7 @@ pub struct ClientConfig {
 #[derive(Deserialize, Clone)]
 pub struct ShopifyConfig {
     pub admin_api_url: String,
+    pub timeout_secs: u64,
     pub access_token: Option<String>,
 }
 impl std::fmt::Debug for ShopifyConfig {

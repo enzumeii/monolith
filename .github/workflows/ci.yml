@@ -34,6 +34,9 @@ jobs:
 
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          key: api-tools-${{ hashFiles('services/api/justfile', 'services/api/dprint.json') }}
+          cache-directories: services/api/.tools
 
       # Detect which service changed so we only run its check/test.
       - name: Detect changed services
@@ -62,6 +65,11 @@ jobs:
               - 'Cargo.lock'
               - '.cargo/**'
               - '.github/workflows/ci.yml'
+
+      - name: Install API formatter
+        if: steps.changes.outputs.api == 'true'
+        working-directory: services/api
+        run: just setup
 
       - name: api check + test
         if: steps.changes.outputs.api == 'true'
