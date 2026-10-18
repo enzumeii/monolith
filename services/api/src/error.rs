@@ -158,6 +158,7 @@ impl From<sqlx::Error> for AppError {
 pub(crate) fn client_timeout(error: &crate::client::ClientError) -> bool {
     match error.kind() {
         crate::client::ClientErrorKind::Transport { source } => source.is_timeout(),
+        crate::client::ClientErrorKind::Upstream { timed_out, .. } => *timed_out,
         _ => false,
     }
 }

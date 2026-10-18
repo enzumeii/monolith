@@ -48,3 +48,45 @@ async fn state_reuses_shopify_client_and_preserves_optional_initialization_failu
         503
     );
 }
+
+#[tokio::test]
+async fn resend_state_reuses_client_and_preserves_missing_key_and_initialization_failures() {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://fixture:fixture@localhost/fixture")
+        .unwrap();
+    for (key, url, expected) in [
+        (None, "http://localhost:1234", "absent"),
+        (Some(""), "http://localhost:1234", "absent"),
+        (Some(" "), "http://localhost:1234", "absent"),
+        (Some("fixture-key"), "http://localhost:1234", "present"),
+        (Some("fixture-key"), "invalid-url", "error"),
+    ] {
+        let mut settings = settings(&json!(null));
+        settings.client.as_mut().unwrap().resend = Some(crate::config::ResendConfig {
+            base_url: url.into(),
+            timeout_secs: 1,
+            default_sender: "shipping@enzumeii.com".into(),
+            api_key: key.map(str::to_owned),
+        });
+        let state = app_state(pool.clone(), settings).unwrap();
+        let cloned = state.clone();
+        match expected {
+            "absent" => assert!(state.resend.unwrap().is_none()),
+            "present" => assert!(Arc::ptr_eq(
+                state.resend.as_ref().unwrap().as_ref().unwrap(),
+                cloned.resend.as_ref().unwrap().as_ref().unwrap()
+            )),
+            _ => assert!(matches!(
+                state.resend.err().unwrap().kind(),
+                crate::client::ClientErrorKind::InvalidInput(_)
+            )),
+        }
+    }
+    assert!(
+        app_state(pool, settings(&json!(null)))
+            .unwrap()
+            .resend
+            .unwrap()
+            .is_none()
+    );
+}

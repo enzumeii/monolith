@@ -240,3 +240,57 @@ fn builder_override_populates_shopify_token_without_a_construction_helper() {
         .unwrap();
     assert_eq!(config.access_token.as_deref(), Some("env-token"));
 }
+
+#[test]
+fn resend_api_key_comes_from_central_configuration_without_non_secret_env_overrides() {
+    let settings = temp_env::with_vars(
+        [
+            ("DATABASE_URL", Some("postgres://unused")),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
+            ("RESEND_API_KEY", Some("re_private-fixture")),
+            ("RESEND_BASE_URL", Some("invalid-ignored-url")),
+            ("RESEND_TIMEOUT_SECS", Some("999")),
+        ],
+        Settings::new,
+    )
+    .unwrap();
+    let resend = settings.client.unwrap().resend.unwrap();
+    assert_eq!(resend.api_key.as_deref(), Some("re_private-fixture"));
+    assert_eq!(resend.base_url, "https://api.resend.com");
+    assert_eq!(resend.timeout_secs, 10);
+    assert_eq!(resend.default_sender, "shipping@enzumeii.com");
+    assert!(!format!("{resend:?}").contains("re_private-fixture"));
+}
+
+#[test]
+fn resend_settings_follow_file_and_secret_override_precedence() {
+    let configured = "base_url = 'http://localhost:1234/proxy'\ntimeout_secs = 2\ndefault_sender = 'file@example.com'\napi_key = 'file-key'";
+    let settings: ResendConfig = config::Config::builder()
+        .add_source(config::File::from_str(configured, config::FileFormat::Toml))
+        .set_override("api_key", "env-key")
+        .unwrap()
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert_eq!(settings.api_key.as_deref(), Some("env-key"));
+    assert_eq!(settings.base_url, "http://localhost:1234/proxy");
+    assert_eq!(settings.default_sender, "file@example.com");
+    assert_eq!(settings.timeout_secs, 2);
+    for source in [
+        "api_key = 'key'",
+        "base_url = 'http://localhost'\ntimeout_secs = 'invalid'\ndefault_sender = 'sender@example.com'",
+    ] {
+        assert!(
+            config::Config::builder()
+                .add_source(config::File::from_str(source, config::FileFormat::Toml))
+                .build()
+                .unwrap()
+                .try_deserialize::<ResendConfig>()
+                .is_err()
+        );
+    }
+}

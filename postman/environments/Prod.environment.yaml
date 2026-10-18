@@ -7,4 +7,10 @@ values:
   - key: access_token
     value: ''
   - key: shopify
+    value: 'https://enzumeii.myshopify.com/admin/api/2026-10'
+  - key: resend
     value: ''
+
+  - key: resend_api_key
+    value: ""
+    type: secret

@@ -5,6 +5,7 @@ use reqwest::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{collections::BTreeMap, fmt, panic::Location, time::Duration};
 
+pub mod resend;
 pub mod shopify;
 
 pub struct ClientError {
@@ -33,6 +34,10 @@ pub enum ClientErrorKind {
     Protocol(&'static str),
     InvalidInput(&'static str),
     RetryExhausted,
+    Upstream {
+        source: Box<dyn std::error::Error + Send + Sync>,
+        timed_out: bool,
+    },
 }
 impl ClientError {
     #[must_use]
@@ -80,6 +85,7 @@ impl fmt::Display for ClientError {
             ClientErrorKind::Protocol(message) => write!(f, "Invalid upstream response: {message}"),
             ClientErrorKind::InvalidInput(message) => write!(f, "Invalid client input: {message}"),
             ClientErrorKind::RetryExhausted => f.write_str("Retry budget exhausted"),
+            ClientErrorKind::Upstream { .. } => f.write_str("Upstream request failed"),
         }
     }
 }
@@ -88,6 +94,7 @@ impl std::error::Error for ClientError {
         match self.kind() {
             ClientErrorKind::Transport { source } => Some(source),
             ClientErrorKind::Decode { source } => Some(source),
+            ClientErrorKind::Upstream { source, .. } => Some(source.as_ref()),
             _ => None,
         }
     }

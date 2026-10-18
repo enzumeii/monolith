@@ -1,5 +1,5 @@
 use crate::{
-    client::{ClientError, shopify::ShopifyClient},
+    client::{ClientError, resend::ResendClient, shopify::ShopifyClient},
     config::Settings,
 };
 use sqlx::PgPool;
@@ -9,6 +9,7 @@ use std::sync::Arc;
 pub struct AppState {
     pub pool: PgPool,
     pub shopify: Result<Option<Arc<ShopifyClient>>, Arc<ClientError>>,
+    pub resend: Result<Option<Arc<ResendClient>>, Arc<ClientError>>,
     pub jwt_key: Arc<Vec<u8>>,
     pub settings: Arc<Settings>,
 }
@@ -22,6 +23,20 @@ pub fn app_state(pool: PgPool, settings: Settings) -> Result<AppState, config::C
             .as_ref()
             .and_then(|c| c.shopify.as_ref())
             .map(ShopifyClient::new)
+            .transpose()
+            .map(|client| client.map(Arc::new))
+            .map_err(Arc::new),
+        resend: settings
+            .client
+            .as_ref()
+            .and_then(|client| client.resend.as_ref())
+            .filter(|config| {
+                config
+                    .api_key
+                    .as_ref()
+                    .is_some_and(|key| !key.trim().is_empty())
+            })
+            .map(ResendClient::new)
             .transpose()
             .map(|client| client.map(Arc::new))
             .map_err(Arc::new),
