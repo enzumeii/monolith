@@ -121,7 +121,7 @@ impl ShopifyClient {
         &self,
         input: &InventoryDiscoveryRequest,
         page: &PageRequest,
-    ) -> Result<Connection<InventoryActivationCandidate>, ClientError> {
+    ) -> Result<Option<Connection<InventoryActivationCandidate>>, ClientError> {
         let data: InventoryData = self
             .execute(
                 "FindInventoryToActivate",
@@ -129,12 +129,7 @@ impl ShopifyClient {
                 input.variables(page)?,
             )
             .await?;
-        Ok(data
-            .location
-            .ok_or_else(|| {
-                ClientError::new(ClientErrorKind::InvalidInput("location was not found"))
-            })?
-            .inventory_levels)
+        Ok(data.location.map(|location| location.inventory_levels))
     }
     pub async fn location_exists(&self, id: &ShopifyId) -> Result<bool, ClientError> {
         id.require_kind("Location")?;

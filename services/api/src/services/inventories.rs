@@ -1,3 +1,6 @@
+mod enable;
+pub use enable::enable_inventory;
+
 use super::common::{shopify_client, upstream};
 use crate::{
     client::shopify::ShopifyClient,

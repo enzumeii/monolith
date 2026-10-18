@@ -147,7 +147,7 @@ async fn mutations_return_raw_user_errors_and_optional_outputs_without_replay() 
 }
 
 #[tokio::test]
-async fn activation_preserves_quantities_and_idempotency_key_on_throttling() {
+async fn activation_omits_quantities_and_preserves_idempotency_key_on_throttling() {
     let f=Fixture::new(vec![Reply::status(429),Reply::json(json!({"data":{"inventoryActivate":{
         "inventoryLevel":{"id":"level-1","isActive":true,"quantities":[{"name":"available","quantity":1},{"name":"on_hand","quantity":1}]},"userErrors":[]
     }}}))]).await;
@@ -178,6 +178,14 @@ async fn activation_preserves_quantities_and_idempotency_key_on_throttling() {
             .contains("available:")
     );
     assert!(!requests[0].2["query"].as_str().unwrap().contains("onHand:"));
+    for (_, _, request) in requests {
+        let variables = request["variables"].as_object().unwrap();
+        assert_eq!(variables.len(), 3);
+        assert!(variables.get("onHand").is_none());
+        assert!(variables.get("available").is_none());
+        let query = request["query"].as_str().unwrap();
+        assert!(!query.contains("$onHand") && !query.contains("$available"));
+    }
 }
 
 #[tokio::test]
@@ -495,8 +503,34 @@ async fn call_root_proxy(
                 )
                 .await
                 .unwrap();
+            let p = p.unwrap();
             assert!(!p.nodes[0].is_active);
             (p.nodes.len(), p.page_info)
         }
     }
+}
+
+#[tokio::test]
+async fn inventory_discovery_distinguishes_missing_location_key_from_null() {
+    let f = Fixture::new(vec![
+        Reply::json(json!({"data":{}})),
+        Reply::json(json!({"data":{"location":null}})),
+    ])
+    .await;
+    let c = client(&f);
+    let input = InventoryDiscoveryRequest {
+        location_id: id("Location", 1),
+    };
+    let page = PageRequest {
+        first: 250,
+        after: None,
+    };
+    assert!(c.find_inventory_to_activate(&input, &page).await.is_err());
+    assert!(
+        c.find_inventory_to_activate(&input, &page)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(f.requests().len(), 2);
 }

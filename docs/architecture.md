@@ -141,7 +141,7 @@ flowchart LR
 | SalesOrderLines | One order envelope with fixed250 lines and completeness metadata; ID-only input |
 | Location | Location existence before inventory report queries |
 | FindInventoryToActivate | One raw inventory-level page; no eligibility filtering |
-| ReplaceOrderTags / ActivateExistingInventory | Raw mutation userErrors and optional output; no automatic inventory mutation |
+| ReplaceOrderTags / ActivateExistingInventory | Raw mutation userErrors and optional output; activation takes item/location IDs and a stable UUID; no quantity arguments |
 
 | Request policy | Guarantee / limit |
 | --- | --- |
@@ -185,3 +185,14 @@ flowchart LR
 | Aggregation | Order report merges compatible rows across all matching order pages, in first-seen order; no snapshot isolation |
 
 The nested250 bound is the agreed store workload, not a Shopify platform maximum. Exact live requested query cost remains unverified.
+
+## Inventory enablement
+
+| Owner | Responsibility |
+| --- | --- |
+| POST /v1/admin/inventories/{inventory_id}/enable | Existing admin authentication and cookie origin checks; numeric location validation; no query parameters or body |
+| Inventory enable service | Resolve the shared client through services/common; use services/pagination for complete traversal before writing; retain item deduplication and eligibility in the service |
+| Shopify inventory models | Eligibility: tracked, inactive, positive on_hand; validate required quantities and item/product IDs |
+| Shared Shopify client | One GraphQL operation per call; activate each variant inventory item using item/location IDs and stable retry UUID, without quantity arguments |
+| Outcome DTO | Per-item total/success/failed and optional errors with numeric product_id; partial mutation failures continue; discovery failures return ordinary API errors before writes |
+| Consistency limit | No upstream snapshot or rollback; timeouts can leave activation outcome unconfirmed. No quantity arguments are sent; live provider defaults are unverified |
