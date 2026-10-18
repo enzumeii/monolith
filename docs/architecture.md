@@ -171,7 +171,7 @@ flowchart LR
 
 | Concern | Behavior |
 | --- | --- |
-| Routes | GET /v1/inventories/{inventory_id} and GET /v1/orders/report?tags=TAG; existing ADMIN/SUPER_ADMIN bearer or cookie protection |
+| Routes | Dedicated /v1/admin router owns admin authentication; /v1/customer reserved for future customer routes. GET /v1/admin/inventories/{inventory_id} and GET /v1/admin/orders/report?tags=TAG; existing ADMIN/SUPER_ADMIN bearer or cookie protection |
 | Contract | Domain product report DTOs only; API owns Shopify models, validation and report orchestration |
 | Service ownership | inventories.rs retrieves one inventory page; orders.rs aggregates orders; common.rs shares client lookup and upstream-error mapping |
 | Inventory | Numeric location ID; active products and active inventory levels at the location; on_hand includes zero/negative quantities; missing location is 404 |
@@ -181,7 +181,7 @@ flowchart LR
 | Precision | API checked decimal arithmetic; domain JSON numbers preserve decimal precision; overflow/invalid upstream numbers fail the whole report |
 | Failures | 400 invalid input, 401 authentication, 404 location absent, 503 missing configuration, 502 upstream failure, 504 upstream timeout; sanitized responses |
 | Inventory input/output | Location ID path; page_size defaults50 (1–250), cursor forwards unchanged; products plus page_info; filtered empty pages retain continuation |
-| Order input/output | Required literal tags value; products only; page_size/cursor rejected400. |
+| Order input/output | Required comma-separated tags; every tag must match (AND); products only; page_size/cursor rejected400. |
 | Aggregation | Order report merges compatible rows across all matching order pages, in first-seen order; no snapshot isolation |
 
 The nested250 bound is the agreed store workload, not a Shopify platform maximum. Exact live requested query cost remains unverified.

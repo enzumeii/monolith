@@ -33,7 +33,7 @@ async fn full_report_merges_matching_skus_across_all_order_pages() {
         Reply::json(json!({"data":{"orders":page(vec![order(2,page(vec![line(3)],None))],None)}})),
     ])
     .await;
-    let result = order_report(&state(&f), "a:b".into()).await.unwrap();
+    let result = order_report(&state(&f), vec!["a:b".into()]).await.unwrap();
     assert_eq!(result.products.len(), 1);
     assert_eq!(result.products[0].quantity, 5);
     assert_eq!(result.products[0].total_selling_price.to_string(), "0.5");
@@ -63,7 +63,7 @@ async fn missing_skus_stay_separate_in_first_seen_order_across_pages() {
         Reply::json(json!({"data":{"orders":page(vec![order(1,page(vec![missing.clone(),line(2)],None))],Some("next"))}})),
         Reply::json(json!({"data":{"orders":page(vec![order(2,page(vec![line(3),missing],None))],None)}}))
     ]).await;
-    let result = order_report(&state(&f), "a:b".into()).await.unwrap();
+    let result = order_report(&state(&f), vec!["a:b".into()]).await.unwrap();
     assert_eq!(
         result
             .products
@@ -86,7 +86,9 @@ async fn later_upstream_failures_never_return_partial_reports() {
         },
     ] {
         let f=Fixture::new(vec![Reply::json(json!({"data":{"orders":page(vec![order(1,page(vec![line(2)],None))],Some("next"))}})),failure]).await;
-        let error = order_report(&state(&f), "a:b".into()).await.unwrap_err();
+        let error = order_report(&state(&f), vec!["a:b".into()])
+            .await
+            .unwrap_err();
         assert_eq!(
             error.location().file(),
             "services/api/src/services/orders.rs"
@@ -100,7 +102,9 @@ async fn nested_continuation_fails_without_a_child_lookup() {
     let f=Fixture::new(vec![Reply::json(json!({"data":{"orders":page(vec![order(1,page(vec![line(2)],Some("child")))],Some("next"))}}))]).await;
     assert_failure(
         &f,
-        order_report(&state(&f), "a:b".into()).await.unwrap_err(),
+        order_report(&state(&f), vec!["a:b".into()])
+            .await
+            .unwrap_err(),
         1,
     )
     .await;
@@ -112,7 +116,7 @@ async fn exactly_250_nested_nodes_are_included() {
         json!({"data":{"orders":page(vec![order(1,page(vec![line(1);250],None))],None)}}),
     )])
     .await;
-    let result = order_report(&state(&f), "a:b".into()).await.unwrap();
+    let result = order_report(&state(&f), vec!["a:b".into()]).await.unwrap();
     assert_eq!(result.products[0].quantity, 250);
     assert_eq!(result.products[0].total_selling_price.to_string(), "25");
 }
@@ -125,7 +129,7 @@ async fn empty_root_pages_continue_and_missing_cursors_fail() {
     ])
     .await;
     assert_eq!(
-        serde_json::to_value(order_report(&state(&f), "a:b".into()).await.unwrap()).unwrap(),
+        serde_json::to_value(order_report(&state(&f), vec!["a:b".into()]).await.unwrap()).unwrap(),
         json!({"products":[]})
     );
     assert_eq!(f.requests().len(), 2);
@@ -136,7 +140,9 @@ async fn empty_root_pages_continue_and_missing_cursors_fail() {
         .await;
         assert_failure(
             &f,
-            order_report(&state(&f), "a:b".into()).await.unwrap_err(),
+            order_report(&state(&f), vec!["a:b".into()])
+                .await
+                .unwrap_err(),
             1,
         )
         .await;
@@ -148,7 +154,7 @@ async fn service_resolves_unavailable_shared_dependency_without_network() {
     let f = Fixture::new(vec![]).await;
     let mut state = state(&f);
     state.shopify = Ok(None);
-    let error = order_report(&state, "a:b".into()).await.unwrap_err();
+    let error = order_report(&state, vec!["a:b".into()]).await.unwrap_err();
     assert_eq!(
         axum::response::IntoResponse::into_response(error).status(),
         503
@@ -160,7 +166,7 @@ async fn service_resolves_unavailable_shared_dependency_without_network() {
     .err()
     .unwrap();
     state.shopify = Err(std::sync::Arc::new(source));
-    let error = order_report(&state, "a:b".into()).await.unwrap_err();
+    let error = order_report(&state, vec!["a:b".into()]).await.unwrap_err();
     assert!(std::error::Error::source(&error).is_some());
     assert_eq!(
         axum::response::IntoResponse::into_response(error).status(),
@@ -196,7 +202,9 @@ async fn later_numeric_failures_never_return_partial_reports() {
         .await;
         assert_failure(
             &f,
-            order_report(&state(&f), "a:b".into()).await.unwrap_err(),
+            order_report(&state(&f), vec!["a:b".into()])
+                .await
+                .unwrap_err(),
             2,
         )
         .await;

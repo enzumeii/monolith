@@ -47,13 +47,13 @@ run:
 db-down:
     docker compose -f docker-compose.yml down
 
-# Run API tests, then TCP E2E with Docker PostgreSQL; always stop Compose afterward.
+# Start Docker PostgreSQL, run API and TCP E2E tests once, then always stop Compose.
 test:
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo test --locked
     trap 'docker compose -p e2e -f docker-compose-e2e.yml down -v' EXIT
     docker compose -p e2e -f docker-compose-e2e.yml up -d --wait postgres
+    cargo test --locked
     cargo api-e2e
 
 # Check Rust/GraphQL/JSON formatting and strict API lint.

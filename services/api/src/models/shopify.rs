@@ -79,7 +79,7 @@ pub struct OrdersByPaymentRequest {
     pub payment_id: String,
 }
 pub struct OrdersByTagRequest {
-    pub tag: String,
+    pub tags: Vec<String>,
 }
 pub struct OrderLinesRequest {
     pub order_id: ShopifyId,
@@ -143,12 +143,16 @@ impl OrdersByPaymentRequest {
 impl OrdersByTagRequest {
     pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
         page.validate()?;
-        if self.tag.trim().is_empty() {
+        if self.tags.is_empty() || self.tags.iter().any(|tag| tag.trim().is_empty()) {
             return Err(ClientError::InvalidInput("order tag is empty"));
         }
-        Ok(
-            json!({"search": format!("tag:\"{}\"", escape_search(&self.tag)), "after": page.after, "first": page.first}),
-        )
+        let search = self
+            .tags
+            .iter()
+            .map(|tag| format!("tag:\"{}\"", escape_search(tag)))
+            .collect::<Vec<_>>()
+            .join(" AND ");
+        Ok(json!({"search": search, "after": page.after, "first": page.first}))
     }
 }
 impl SalesRangeRequest {

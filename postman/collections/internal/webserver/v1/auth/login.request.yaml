@@ -1,13 +1,18 @@
 $kind: http-request
+description: >-
+  Set login_username and login_password as local Postman variables.
+  Keep credentials out of shared or committed files.
 url: "{{server}}/v1/auth/login"
 method: POST
 body:
   type: json
   content: |-
     {
-        "username": "wichayutdew",
-        "password": ""
+        "username": "{{login_username}}",
+        "password": "{{login_password}}"
     }
+auth:
+  type: noauth
 scripts:
   - type: afterResponse
     code: |-

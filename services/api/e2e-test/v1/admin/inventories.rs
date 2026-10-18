@@ -12,24 +12,24 @@ async fn inventories_auth_validation_and_unconfigured_shopify() {
     let fixture = fixture().await;
     let client = client().await;
     let (configured, upstream) = client_with_upstream_script(vec![], "http").await;
-    assert_report_auth(&configured, "/v1/inventories/1").await;
+    assert_report_auth(&configured, "/v1/admin/inventories/1").await;
     for role in [AdminRole::Admin, AdminRole::SuperAdmin] {
         for uri in [
-            "/v1/inventories/bad",
-            "/v1/inventories/0",
-            "/v1/inventories/000",
-            "/v1/inventories/-1",
-            "/v1/inventories/1.5",
-            "/v1/inventories/1?page_size=0",
-            "/v1/inventories/1?page_size=251",
-            "/v1/inventories/1?page_size=-1",
-            "/v1/inventories/1?page_size=abc",
-            "/v1/inventories/1?page_size=65536",
-            "/v1/inventories/1?page_size=1&page_size=2",
-            "/v1/inventories/1?cursor=",
-            "/v1/inventories/1?cursor=%20",
-            "/v1/inventories/1?cursor=a&cursor=b",
-            "/v1/inventories/1?unexpected=x",
+            "/v1/admin/inventories/bad",
+            "/v1/admin/inventories/0",
+            "/v1/admin/inventories/000",
+            "/v1/admin/inventories/-1",
+            "/v1/admin/inventories/1.5",
+            "/v1/admin/inventories/1?page_size=0",
+            "/v1/admin/inventories/1?page_size=251",
+            "/v1/admin/inventories/1?page_size=-1",
+            "/v1/admin/inventories/1?page_size=abc",
+            "/v1/admin/inventories/1?page_size=65536",
+            "/v1/admin/inventories/1?page_size=1&page_size=2",
+            "/v1/admin/inventories/1?cursor=",
+            "/v1/admin/inventories/1?cursor=%20",
+            "/v1/admin/inventories/1?cursor=a&cursor=b",
+            "/v1/admin/inventories/1?unexpected=x",
         ] {
             let response = configured
                 .send(authed("GET", uri, fixture.root_id(), role))
@@ -42,7 +42,8 @@ async fn inventories_auth_validation_and_unconfigured_shopify() {
             )
             .await;
         }
-        assert_report_unavailable(&client, "/v1/inventories/1", fixture.root_id(), role).await;
+        assert_report_unavailable(&client, "/v1/admin/inventories/1", fixture.root_id(), role)
+            .await;
     }
     assert!(upstream.requests().is_empty());
 }
@@ -75,7 +76,7 @@ async fn inventory_dependency_failures_return_safe_errors_over_tcp() {
     let response = client
         .send(authed(
             "GET",
-            "/v1/inventories/1",
+            "/v1/admin/inventories/1",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -97,7 +98,7 @@ async fn assert_inventory_failure(admin_id: i64, products: bool, failure: &'stat
     let response = client
         .send(authed(
             "GET",
-            "/v1/inventories/1",
+            "/v1/admin/inventories/1",
             admin_id,
             AdminRole::Admin,
         ))
@@ -138,7 +139,7 @@ async fn inventories_invalid_shopify_configuration_returns_503() {
     let client = crate::common::client_with_shopify("invalid-url").await;
     assert_report_unavailable(
         &client,
-        "/v1/inventories/1",
+        "/v1/admin/inventories/1",
         fixture.root_id(),
         AdminRole::Admin,
     )
@@ -162,6 +163,9 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
             }
         }
         "ProductsWithVariants" => {
+            let query = request["query"].as_str().unwrap();
+            assert!(query.contains("sortKey: INVENTORY_TOTAL"));
+            assert!(query.contains("reverse: true"));
             assert_eq!(v["search"], "status:active");
             assert_eq!(
                 v["first"],
@@ -239,7 +243,12 @@ async fn inventory_pages_use_real_tcp() {
             .await;
     for role in [AdminRole::Admin, AdminRole::SuperAdmin] {
         let response = client
-            .send(authed("GET", "/v1/inventories/1", fixture.root_id(), role))
+            .send(authed(
+                "GET",
+                "/v1/admin/inventories/1",
+                fixture.root_id(),
+                role,
+            ))
             .await
             .unwrap();
         assert_eq!(response.status(), 200);
@@ -259,7 +268,7 @@ async fn inventory_pages_use_real_tcp() {
         let response = client
             .send(authed(
                 "GET",
-                "/v1/inventories/1?page_size=50&cursor=products-2",
+                "/v1/admin/inventories/1?page_size=50&cursor=products-2",
                 fixture.root_id(),
                 role,
             ))
@@ -277,7 +286,7 @@ async fn inventory_pages_use_real_tcp() {
     let response = client
         .send(authed(
             "GET",
-            "/v1/inventories/994",
+            "/v1/admin/inventories/994",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -289,9 +298,9 @@ async fn inventory_pages_use_real_tcp() {
         json!({"products":[],"page_info":{"has_next_page":true,"end_cursor":"empty-next"}})
     );
     for uri in [
-        "/v1/inventories/994?cursor=empty-next",
-        "/v1/inventories/995",
-        "/v1/inventories/993?page_size=7&cursor=abc%2B%2F%3D",
+        "/v1/admin/inventories/994?cursor=empty-next",
+        "/v1/admin/inventories/995",
+        "/v1/admin/inventories/993?page_size=7&cursor=abc%2B%2F%3D",
     ] {
         let response = client
             .send(authed("GET", uri, fixture.root_id(), AdminRole::Admin))
@@ -307,7 +316,7 @@ async fn inventory_pages_use_real_tcp() {
         let response = client
             .send(authed(
                 "GET",
-                &format!("/v1/inventories/{id}"),
+                &format!("/v1/admin/inventories/{id}"),
                 fixture.root_id(),
                 AdminRole::Admin,
             ))

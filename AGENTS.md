@@ -29,7 +29,7 @@ These rules apply to the entire repository.
 - Replace production providers with controlled test services, preserving real application routing, middleware, validation and service logic. Stubbed database/client calls, in-process routers and directly invoked handlers do not replace connection coverage or HTTP E2E tests.
 - Use the existing `services/api/e2e-test/` suite registered by the API Cargo manifest. Keep endpoint tests in their owning route modules; put only shared fixtures/HTTP utilities in `common.rs`. Do not introduce an alternative E2E location. Preserve the existing Docker Compose setup for real-database integration tests.
 - For real-database integration tests, use the database configured by Docker Compose. Create uniquely identifiable fixtures and clean up only records owned by the test; do not create or drop a database per test or reset shared data.
-- Keep API `just test` to native `cargo test`, Compose up, `cargo api-e2e`, and Compose down with volumes removed, including on failure. Keep E2E environment defaults and local API startup/readiness/process teardown inside the existing test harness. Share the Compose database during a run and delete its volume afterward.
+- Keep API `just test` to Compose up, native `cargo test`, `cargo api-e2e`, and Compose down with volumes removed, including on failure. Run library tests once with PostgreSQL ready; do not ignore database-dependent tests. Keep E2E environment defaults and local API startup/readiness/process teardown inside the existing test harness. Share the Compose database during a run and delete its volume afterward.
 
 ## Rust module boundaries and layout
 

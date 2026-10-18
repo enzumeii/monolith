@@ -12,16 +12,20 @@ async fn orders_auth_validation_and_unconfigured_shopify() {
     let fixture = fixture().await;
     let client = client().await;
     let (configured, upstream) = client_with_upstream_script(vec![], "http").await;
-    assert_report_auth(&configured, "/v1/orders/report?tags=report").await;
+    assert_report_auth(&configured, "/v1/admin/orders/report?tags=report").await;
     for role in [AdminRole::Admin, AdminRole::SuperAdmin] {
         for uri in [
-            "/v1/orders/report",
-            "/v1/orders/report?tags=",
-            "/v1/orders/report?tags=%20",
-            "/v1/orders/report?tags=report&page_size=1",
-            "/v1/orders/report?tags=report&cursor=next",
-            "/v1/orders/report?tags=report&unknown=x",
-            "/v1/orders/report?tags=report&tags=other",
+            "/v1/admin/orders/report",
+            "/v1/admin/orders/report?tags=",
+            "/v1/admin/orders/report?tags=%20",
+            "/v1/admin/orders/report?tags=,",
+            "/v1/admin/orders/report?tags=SHIPPING,",
+            "/v1/admin/orders/report?tags=,SHIPPING",
+            "/v1/admin/orders/report?tags=SHIPPING,%20,TEST",
+            "/v1/admin/orders/report?tags=report&page_size=1",
+            "/v1/admin/orders/report?tags=report&cursor=next",
+            "/v1/admin/orders/report?tags=report&unknown=x",
+            "/v1/admin/orders/report?tags=report&tags=other",
         ] {
             let response = configured
                 .send(authed("GET", uri, fixture.root_id(), role))
@@ -36,7 +40,7 @@ async fn orders_auth_validation_and_unconfigured_shopify() {
         }
         assert_report_unavailable(
             &client,
-            "/v1/orders/report?tags=report",
+            "/v1/admin/orders/report?tags=report",
             fixture.root_id(),
             role,
         )
@@ -69,7 +73,7 @@ async fn order_dependency_failures_return_safe_errors_over_tcp() {
     let response = client
         .send(authed(
             "GET",
-            "/v1/orders/report?tags=report",
+            "/v1/admin/orders/report?tags=report",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -95,7 +99,7 @@ async fn assert_order_failure(admin_id: i64, later: bool, failure: &'static str)
     let response = client
         .send(authed(
             "GET",
-            "/v1/orders/report?tags=report",
+            "/v1/admin/orders/report?tags=report",
             admin_id,
             AdminRole::Admin,
         ))
@@ -128,7 +132,7 @@ async fn orders_invalid_shopify_configuration_returns_503() {
     let client = crate::common::client_with_shopify("invalid-url").await;
     assert_report_unavailable(
         &client,
-        "/v1/orders/report?tags=report",
+        "/v1/admin/orders/report?tags=report",
         fixture.root_id(),
         AdminRole::Admin,
     )
@@ -156,7 +160,7 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
                 v["search"] == "tag:\"empty\""
                     || v["search"] == "tag:\"report\""
                     || v["search"] == "tag:\"too-many\""
-                    || v["search"] == r#"tag:"a\:b,c d""#
+                    || v["search"] == r#"tag:"a\:b" AND tag:"c d""#
             );
             if v["search"] == "tag:\"too-many\"" {
                 json!({"orders":page(vec![json!({"id":"gid://shopify/Order/1","number":1,"tags":[],"email":null,"phone":null,"currentTotalPriceSet":{"shopMoney":{"amount":"1","currencyCode":"USD"}},"lineItems":page(vec![report_line(1,"0.1","USD");250],Some("more"))})],None)})
@@ -200,6 +204,53 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
 }
 
 #[tokio::test]
+async fn comma_separated_tags_require_all_tags_across_every_order_page() {
+    let fixture = fixture().await;
+    let order = |quantity| {
+        json!({
+            "id":"gid://shopify/Order/1","number":1,"tags":["SHIPPING","TEST"],"email":null,"phone":null,
+            "currentTotalPriceSet":{"shopMoney":{"amount":"1","currencyCode":"USD"}},
+            "lineItems":page(vec![report_line(quantity,"0.1","USD")],None)
+        })
+    };
+    let (client, upstream) = client_with_upstream_script(
+        vec![
+            json!({"orders":page(vec![order(2)],Some("next"))}),
+            json!({"orders":page(vec![order(3)],None)}),
+        ],
+        "http",
+    )
+    .await;
+    let response = client
+        .send(authed(
+            "GET",
+            "/v1/admin/orders/report?tags=%20SHIPPING%20,%20TEST%20",
+            fixture.root_id(),
+            AdminRole::Admin,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body = body_json(response).await;
+    assert_eq!(body["products"].as_array().unwrap().len(), 1);
+    assert_eq!(body["products"][0]["quantity"], 5);
+    assert_eq!(body["products"][0]["total_selling_price"], 0.5);
+    let requests = upstream.requests();
+    assert_eq!(requests.len(), 2);
+    for (index, request) in requests.iter().enumerate() {
+        assert_eq!(request["operationName"], "OrdersByTag");
+        assert_eq!(
+            request["variables"],
+            json!({
+                "first":250,
+                "after":if index == 0 { None } else { Some("next") },
+                "search":"tag:\"SHIPPING\" AND tag:\"TEST\""
+            })
+        );
+    }
+}
+
+#[tokio::test]
 async fn complete_order_reports_use_real_tcp() {
     let fixture = fixture().await;
     let (client, _upstream) =
@@ -208,7 +259,7 @@ async fn complete_order_reports_use_real_tcp() {
     let response = client
         .send(authed(
             "GET",
-            "/v1/orders/report?tags=report",
+            "/v1/admin/orders/report?tags=report",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -230,7 +281,7 @@ async fn complete_order_reports_use_real_tcp() {
     let response = client
         .send(authed(
             "GET",
-            "/v1/orders/report?tags=too-many",
+            "/v1/admin/orders/report?tags=too-many",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -241,7 +292,7 @@ async fn complete_order_reports_use_real_tcp() {
     let response = client
         .send(authed(
             "GET",
-            "/v1/orders/report?tags=a%3Ab%2Cc%20d",
+            "/v1/admin/orders/report?tags=a%3Ab%2Cc%20d",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -252,7 +303,7 @@ async fn complete_order_reports_use_real_tcp() {
     let response = client
         .send(authed(
             "GET",
-            "/v1/orders/report?tags=empty",
+            "/v1/admin/orders/report?tags=empty",
             fixture.root_id(),
             AdminRole::Admin,
         ))

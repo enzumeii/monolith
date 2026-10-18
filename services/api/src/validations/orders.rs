@@ -5,7 +5,7 @@ use domain::dto::OrderReportQuery;
 
 pub fn extract_order_query(
     query: Result<Query<OrderReportQuery>, QueryRejection>,
-) -> Result<String, AppError> {
+) -> Result<Vec<String>, AppError> {
     let invalid = || {
         AppError::new(
             StatusCode::BAD_REQUEST,
@@ -13,10 +13,15 @@ pub fn extract_order_query(
         )
     };
     let Query(query) = query.map_err(|_| invalid())?;
-    if query.tags.trim().is_empty() {
+    let tags: Vec<String> = query
+        .tags
+        .split(',')
+        .map(|tag| tag.trim().to_owned())
+        .collect();
+    if tags.iter().any(String::is_empty) {
         return Err(invalid());
     }
-    Ok(query.tags)
+    Ok(tags)
 }
 
 #[cfg(test)]

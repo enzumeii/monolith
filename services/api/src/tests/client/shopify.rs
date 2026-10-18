@@ -227,10 +227,11 @@ async fn proxy_returns_one_parent_page_without_following_root_or_child_cursors()
 }
 
 #[tokio::test]
-async fn tag_lookup_escapes_one_literal_instead_of_accepting_search_syntax() {
-    for (tag, search) in [
-        ("shipping", r#"tag:"shipping""#),
-        (r#"a"b\c:(d)"#, r#"tag:"a\"b\\c\:\(d\)""#),
+async fn tag_lookup_escapes_each_literal_and_requires_every_tag() {
+    for (tags, search) in [
+        (vec!["shipping"], r#"tag:"shipping""#),
+        (vec![r#"a"b\c:(d)"#], r#"tag:"a\"b\\c\:\(d\)""#),
+        (vec!["SHIPPING", "TEST"], r#"tag:"SHIPPING" AND tag:"TEST""#),
     ] {
         let f = Fixture::new(vec![Reply::json(
             json!({"data":{"orders":page(vec![],None)}}),
@@ -238,7 +239,12 @@ async fn tag_lookup_escapes_one_literal_instead_of_accepting_search_syntax() {
         .await;
         assert!(
             client(&f)
-                .orders_by_tag(&OrdersByTagRequest { tag: tag.into() }, &request_page())
+                .orders_by_tag(
+                    &OrdersByTagRequest {
+                        tags: tags.into_iter().map(str::to_owned).collect()
+                    },
+                    &request_page()
+                )
                 .await
                 .unwrap()
                 .nodes
@@ -267,7 +273,12 @@ async fn proxy_preserves_typed_upstream_failures() {
     ] {
         let f = Fixture::new(vec![reply]).await;
         let error = client(&f)
-            .orders_by_tag(&OrdersByTagRequest { tag: "tag".into() }, &request_page())
+            .orders_by_tag(
+                &OrdersByTagRequest {
+                    tags: vec!["tag".into()],
+                },
+                &request_page(),
+            )
             .await
             .err()
             .unwrap();
@@ -392,10 +403,15 @@ async fn invalid_client_inputs_are_rejected_before_network() {
     let c = client(&f);
     let p = request_page();
     for error in [
-        c.orders_by_tag(&OrdersByTagRequest { tag: " ".into() }, &p)
-            .await
-            .err()
-            .unwrap(),
+        c.orders_by_tag(
+            &OrdersByTagRequest {
+                tags: vec![" ".into()],
+            },
+            &p,
+        )
+        .await
+        .err()
+        .unwrap(),
         c.sales_order_lines(&OrderLinesRequest {
             order_id: id("Location", 1),
         })
@@ -447,7 +463,7 @@ async fn call_root_proxy(
             let p = c
                 .orders_by_tag(
                     &OrdersByTagRequest {
-                        tag: "shipping".into(),
+                        tags: vec!["shipping".into()],
                     },
                     page,
                 )

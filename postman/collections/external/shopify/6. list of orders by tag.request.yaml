@@ -65,7 +65,7 @@ query: |
   }
 variables: |
   {
-    "search": "tag:\"shipping\"",
+    "search": "tag:\"SHIPPING\" AND tag:\"TEST\"",
     "after": null,
     "first": 250
   }

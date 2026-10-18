@@ -1,7 +1,7 @@
 [alias]
-# Run Docker-dependent API retention and TCP endpoint tests.
+# Run TCP endpoint tests.
 # The E2E harness starts its own local API; Compose PostgreSQL must be ready.
-api-e2e = "test --locked -p api --lib --test e2e -- --include-ignored"
+api-e2e = "test --locked -p api --test e2e"
 
 [env]
 # sqlx macros use the committed .sqlx cache; no live DB needed to compile.

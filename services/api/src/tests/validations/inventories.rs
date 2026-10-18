@@ -3,7 +3,9 @@ use super::*;
 use axum::http::Uri;
 
 fn extract(id: &str, query: &str) -> Result<(ShopifyId, PageRequest), AppError> {
-    let uri: Uri = format!("/v1/inventories/{id}?{query}").parse().unwrap();
+    let uri: Uri = format!("/v1/admin/inventories/{id}?{query}")
+        .parse()
+        .unwrap();
     extract_inventory_request(Ok(Path(id.into())), Query::try_from_uri(&uri))
 }
 #[test]

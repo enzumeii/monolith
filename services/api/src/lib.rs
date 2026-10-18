@@ -2,6 +2,7 @@ pub mod client;
 pub mod config;
 pub mod error;
 pub(crate) mod handlers;
+pub mod logging;
 pub(crate) mod middleware;
 pub(crate) mod models;
 pub use models::shopify as shopify_models;

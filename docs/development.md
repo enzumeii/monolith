@@ -51,10 +51,10 @@ Run recipes from the package directory.
 
 | API verification mode | Dependencies and scope |
 | --- | --- |
-| `cargo test --locked -p api --lib` | Native library tests and loopback transport fixtures; no Docker or Shopify credentials |
-| `just test` | Native Cargo tests, Compose PostgreSQL, `cargo api-e2e`, and Compose down with volumes removed even on failure |
+| `cargo test --locked -p api --lib` | Library tests and loopback transport fixtures; configured Docker PostgreSQL must be ready; no Shopify credentials |
+| `just test` | Compose PostgreSQL, native Cargo tests once, `cargo api-e2e` for TCP endpoint tests only, and Compose down with volumes removed even on failure |
 | `just check` | Formatting and strict Clippy on all API targets |
-| API E2E | Existing `e2e-test/healthz.rs` and `e2e-test/v1/{auth,admins,inventories,orders}.rs`; real TCP endpoints |
+| API E2E | Existing `e2e-test/healthz.rs` and `e2e-test/v1/{auth,admins}.rs and e2e-test/v1/admin/{inventories,orders}.rs`; real TCP endpoints |
 | Shared harness | `e2e-test/common.rs` owns temporary TOML, local API child, readiness, and teardown |
 | Fixtures | Unique owned records; shared Compose database during a run; cleanup only test-owned data |
 | Unit layout | `src/tests/` mirrors implementation paths; test-gated child modules preserve private access |
@@ -70,7 +70,7 @@ Handlers pass AppState to report services; services resolve the shared state.sho
 | --- | --- |
 | Product listing | products_with_variants(request, page): location/statuses; one product page with fixed250 variants and completeness metadata |
 | Payment lookup | orders_by_payment(request, page): Shopify payment ID; external references may require separate mapping |
-| Tag lookup | orders_by_tag(request, page): literal tag; one order page including fixed250 report lines |
+| Tag lookup | orders_by_tag(request, page): literal tags combined with AND; one order page including fixed250 report lines |
 | Date-range headers | sold_variants_in_range(request, page): timestamps with offsets and exclusive end; statuses/test/cancellation remain available |
 | Order lines | sales_order_lines(request): order ID only; bounded250 lines and hasNextPage metadata |
 | Tag replacement | replace_order_tags(request): complete replacement list; empty list clears; inspect userErrors and optional order |
@@ -124,11 +124,11 @@ Inventory returns one caller-selected product page with active inventory levels;
 
 | Request | Input / result |
 | --- | --- |
-| `GET /v1/inventories/{inventory_id}?page_size=50&cursor=abc` | Numeric Shopify location ID; page_size defaults50, range1–250, counts root products; cursor forwards unchanged to Shopify. Returns products and page_info (has_next_page/end_cursor) |
+| `GET /v1/admin/inventories/{inventory_id}?page_size=50&cursor=abc` | Numeric Shopify location ID; page_size defaults50, range1–250, counts root products; cursor forwards unchanged to Shopify. Returns products and page_info (has_next_page/end_cursor) |
 | Inventory rows | ACTIVE products and active inventory levels at the location; zero/negative on_hand retained. A product can produce multiple variant rows; no local row slicing |
-| Inventory continuation | One upstream product page per API call, even if every row filters out. Follow returned cursor when has_next_page is true, including empty pages |
+| Inventory continuation | Products ordered by total inventory descending across all locations; fixed250 variants per product, no variant traversal. One upstream product page per API call, even if every row filters out at the requested location. Follow returned cursor when has_next_page is true, including empty pages; restart pagination after changing the ordering |
 | Missing inventory location | HTTP404 with {"error":"Shopify location not found"}; no catalog query is sent after a failed location lookup |
-| `GET /v1/orders/report?tags=TAG` | One literal tag; root batches250; merge compatible SKU/price/currency rows across every matching order page. Returns products only; page_size/cursor rejected400 |
+| `GET /v1/admin/orders/report?tags=TAG` | Comma-separated literal tags, trimmed and combined with AND; empty entries rejected400; root batches250; merge compatible SKU/price/currency rows across every matching order page. Returns products only; page_size/cursor rejected400 |
 | Credentials | Existing ADMIN/SUPER_ADMIN bearer or cookie credentials; Shopify URL in TOML and SHOPIFY_ACCESS_TOKEN environment secret |
 | Postman | Internal inventories first/continuation and orders report requests use location_id and order_tag variables; replace the synthetic abc cursor with the returned end_cursor |
 | Verification | API just test includes real TCP report routes with Docker PostgreSQL and the approved synthetic Shopify upstream; live store verification remains manual |

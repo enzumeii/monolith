@@ -287,7 +287,7 @@ mod logging_tests {
             .with_max_level_hint(LevelFilter::DEBUG);
             let layer = tracing_subscriber::fmt::layer()
                 .with_ansi(false)
-                .without_time()
+                .event_format(crate::logging::SourceFormat)
                 .with_writer(|| Capture)
                 .with_filter(filter);
             tracing_subscriber::registry().with(layer).init();
@@ -377,7 +377,7 @@ mod logging_tests {
                     );
                     assert!(!log.contains("private-payload"), "{log}");
                     assert!(!log.contains("private-extension"), "{log}");
-                    assert!(log.contains("status=503"), "{log}");
+                    assert!(log.contains("[503]"), "{log}");
                     assert!(
                         log.contains("client_origin=\"api::client::shopify\""),
                         "{log}"
@@ -388,11 +388,55 @@ mod logging_tests {
     }
 
     #[test]
+    fn failure_prefix_uses_original_location_and_status_without_duplicate_fields() {
+        for status in [
+            StatusCode::UNAUTHORIZED,
+            StatusCode::BAD_REQUEST,
+            StatusCode::NOT_FOUND,
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ] {
+            let mut expected = String::new();
+            let log = capture("info", || {
+                let error = AppError::new(status, "private message");
+                let (level, message) = if status.is_client_error() {
+                    ("WARN", "API request rejected")
+                } else {
+                    ("ERROR", "API operation failed")
+                };
+                expected = format!(
+                    "{level} {}: [{}] {message} operation=\"HTTP request\"",
+                    error.location(),
+                    status.as_u16()
+                );
+                let response = error.into_response();
+                assert_eq!(response.status(), status);
+            });
+            assert!(log.contains(&expected), "{log}");
+            assert_eq!(log.lines().count(), 1);
+            for excluded in ["api::error:", "origin=", "status=", "private message"] {
+                assert!(!log.contains(excluded), "{log}");
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_events_retain_default_format_and_span_context() {
+        let log = capture("info", || {
+            let span = tracing::info_span!("request", request_id = 42);
+            let _entered = span.enter();
+            tracing::info!(count = 3, "ordinary event");
+        });
+        assert!(log.contains("request{request_id=42}"), "{log}");
+        assert!(log.contains("api::error::tests::logging_tests:"), "{log}");
+        assert!(log.contains("ordinary event count=3"), "{log}");
+    }
+
+    #[test]
     fn info_logs_one_summary_without_diagnostics() {
         let mut expected_origin = String::new();
         let log = capture("info", || {
             let error = AppError::from(anyhow::anyhow!("private-password-value"));
-            expected_origin = format!("origin={}", error.location());
+            expected_origin = format!("{}:", error.location());
             assert!(!format!("{error:?}").contains("private-password-value"));
             assert!(!format!("{error:?}").contains(error.location().file()));
             let response = error.context("capture regression").into_response();
@@ -444,10 +488,7 @@ mod logging_tests {
             let response = error.context("login request").into_response();
             assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
         });
-        assert!(
-            log.contains("origin=services/api/src/utils/password.rs:"),
-            "{log}"
-        );
+        assert!(log.contains("services/api/src/utils/password.rs:"), "{log}");
         assert!(!log.contains("unused-password"));
         assert!(!log.contains("malformed"));
     }
@@ -457,7 +498,7 @@ mod logging_tests {
         let mut expected_origin = String::new();
         let log = capture("info,api=debug", || {
             let error = AppError::from(sqlx::Error::RowNotFound).context("retention query");
-            expected_origin = format!("origin={}", error.location());
+            expected_origin = format!("{}:", error.location());
             log_background_error("refresh token retention", &error);
         });
         assert_eq!(
@@ -489,7 +530,7 @@ mod logging_tests {
             assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
         });
         assert!(
-            log.contains("origin=services/api/src/repositories/admin.rs:"),
+            log.contains("services/api/src/repositories/admin.rs:"),
             "{log}"
         );
         assert!(log.contains("PoolClosed"), "{log}");
@@ -505,7 +546,7 @@ mod logging_tests {
             assert_eq!(response.headers()["www-authenticate"], "Bearer");
         });
         assert!(
-            log.contains("origin=services/api/src/middleware/token.rs:"),
+            log.contains("services/api/src/middleware/token.rs:"),
             "{log}"
         );
         assert!(log.contains("InvalidToken"), "{log}");
@@ -548,15 +589,11 @@ mod logging_tests {
         let log = capture("info", || {
             let _ = error.into_response();
         });
-        assert!(
-            log.contains("origin=services/api/src/services/auth.rs:"),
-            "{log}"
-        );
+        assert!(log.contains("services/api/src/services/auth.rs:"), "{log}");
         assert!(!log.contains("unused-token"), "{log}");
     }
 
     #[test]
-    #[ignore = "requires the configured Docker PostgreSQL; run just test"]
     fn username_conflict_keeps_postgres_diagnostics_and_generic_response() {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -769,7 +806,7 @@ mod logging_tests {
                         client
                             .orders_by_tag(
                                 &OrdersByTagRequest {
-                                    tag: "private-upstream-value".into(),
+                                    tags: vec!["private-upstream-value".into()],
                                 },
                                 &crate::shopify_models::PageRequest {
                                     first: 10,

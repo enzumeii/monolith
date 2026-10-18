@@ -117,7 +117,7 @@ fn requests_own_validation_and_preserve_literal_values() {
 fn search_requests_preserve_literals_and_validate_ranges() {
     assert_eq!(
         OrdersByTagRequest {
-            tag: " shipping ".into()
+            tags: vec![" shipping ".into()]
         }
         .variables(&PageRequest {
             first: 10,
@@ -139,12 +139,14 @@ fn search_requests_preserve_literals_and_validate_ranges() {
     );
     for blank in ["", " \t "] {
         assert!(
-            OrdersByTagRequest { tag: blank.into() }
-                .variables(&PageRequest {
-                    first: 10,
-                    after: None
-                })
-                .is_err()
+            OrdersByTagRequest {
+                tags: vec![blank.into()]
+            }
+            .variables(&PageRequest {
+                first: 10,
+                after: None
+            })
+            .is_err()
         );
         assert!(
             OrdersByPaymentRequest {

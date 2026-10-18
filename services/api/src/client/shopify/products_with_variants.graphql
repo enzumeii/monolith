@@ -4,7 +4,13 @@ query ProductsWithVariants(
   $search: String
   $after: String
 ) {
-  products(first: $first, after: $after, query: $search, sortKey: CREATED_AT) {
+  products(
+    first: $first
+    after: $after
+    query: $search
+    sortKey: INVENTORY_TOTAL
+    reverse: true
+  ) {
     nodes {
       id
       title
