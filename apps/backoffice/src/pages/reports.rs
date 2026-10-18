@@ -1,11 +1,14 @@
 mod csv;
 mod data;
+mod export;
+mod save;
 mod table;
 
 use crate::{api, components::ErrorMessage, session};
 use data::{CursorHistory, collect_inventory};
 use dioxus::prelude::*;
 use domain::dto::{InventoryPageInfo, InventoryQuery, ProductReportRow};
+use save::SaveReport;
 use table::{ReportSkeleton, ReportTable};
 
 #[derive(Clone, Copy, PartialEq)]
@@ -103,16 +106,10 @@ pub fn Reports() -> Element {
             if let Some(data) = data {
                 div { class: "toolbar report-actions",
                     p { role: "status", "{data.products.len()} rows" }
-                    button { class: "ghost", onclick: {
-                        let contents = csv::encode(&data.products);
-                        let filename = if kind() == ReportKind::Convention { "convention-report.csv" } else { "picklist-report.csv" };
-                        move |_| {
-                            let contents = contents.clone();
-                            spawn(async move {
-                                if let Err(message) = save_csv(contents, filename).await { local_error.set(Some(message)); }
-                            });
-                        }
-                    }, "Save CSV" }
+                    SaveReport {
+                        rows: data.products.clone(),
+                        filename: if kind() == ReportKind::Convention { "convention-report.csv" } else { "picklist-report.csv" },
+                    }
                 }
                 if data.products.is_empty() { p { "No products found." } }
                 ReportTable { rows: data.products.clone() }
@@ -201,31 +198,6 @@ async fn generate(request: ReportRequest) -> api::ApiResult<ReportData> {
             }
         }
     }
-}
-
-async fn save_csv(contents: String, filename: &str) -> Result<(), String> {
-    let mut download = document::eval(
-        r"
-        const [contents, filename] = await dioxus.recv();
-        const url = URL.createObjectURL(new Blob([contents], {type: 'text/csv;charset=utf-8'}));
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-        dioxus.send(true);
-    ",
-    );
-    download
-        .send((contents, filename))
-        .map_err(|_| "Unable to save CSV".to_string())?;
-    download
-        .recv::<bool>()
-        .await
-        .map_err(|_| "Unable to save CSV".to_string())?;
-    Ok(())
 }
 
 fn use_report<Fut: std::future::Future<Output = api::ApiResult<ReportData>> + 'static>(
