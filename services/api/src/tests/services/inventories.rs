@@ -6,6 +6,68 @@ use crate::{
 };
 use serde_json::{Value, json};
 
+#[tokio::test]
+async fn report_transport_timeout_maps_to_504_and_other_transport_errors_to_502() {
+    use crate::client::{ClientError, HttpClient};
+    use axum::response::IntoResponse;
+    use reqwest::{Method, Url, header::HeaderMap};
+    use std::time::Duration;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let stalled = format!("http://{}/private", listener.local_addr().unwrap());
+    for (url, status) in [(stalled.as_str(), 504), ("file:///private", 502)] {
+        let error = HttpClient::new(Duration::from_millis(50))
+            .unwrap()
+            .request_json::<(), serde_json::Value>(
+                Method::GET,
+                Url::parse(url).unwrap(),
+                HeaderMap::new(),
+                None,
+            )
+            .await
+            .unwrap_err();
+        let error = ClientError::Origin {
+            origin: "api::client::shopify",
+            source: Box::new(error),
+        };
+        let response = upstream(error).into_response();
+        assert_eq!(response.status(), status);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            serde_json::json!({"error":"Shopify upstream failure"})
+        );
+    }
+}
+
+#[tokio::test]
+async fn missing_location_identifies_resource() {
+    use axum::response::IntoResponse;
+
+    let f = Fixture::new(vec![Reply::json(json!({"data":{"location":null}}))]).await;
+    let response = inventory_report(
+        &state(&f),
+        id("Location", 999),
+        PageRequest {
+            first: 50,
+            after: None,
+        },
+    )
+    .await
+    .unwrap_err()
+    .into_response();
+    assert_eq!(response.status(), 404);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&body).unwrap(),
+        json!({"error":"Shopify location not found"})
+    );
+    assert_eq!(f.requests().len(), 1);
+}
+
 fn variant(quantity: i64) -> Value {
     json!({
         "id":id("ProductVariant",1),"title":"Large","sku":"GENSTSWOW01","image":null,

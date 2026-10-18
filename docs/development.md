@@ -100,9 +100,9 @@ Inventory returns one caller-selected product page with active inventory levels;
 | Password operations | Argon2 through Tokio `spawn_blocking` |
 | Shutdown | Native Axum graceful shutdown on Ctrl-C/SIGTERM |
 | Refresh retention | Startup/hourly batches, at most 500 rows, skip locked rows |
-| API rejection | Invalid request 400; unauthenticated 401; forbidden 403; missing record 404; duplicate username 409 |
+| API rejection | Invalid request400; unauthenticated401; forbidden403; missing Shopify location404; duplicate username409. Missing admin targets return401 with {"error":"Not authorized"} and WWW-Authenticate: Bearer |
 | Internal failure | Generic public 500; underlying source retained internally |
-| Normal logs | One boundary event with operation, origin, and category |
+| Normal logs | One boundary event with operation, origin and HTTP status; no error messages or causes |
 | DEBUG logs | `RUST_LOG=info,api=debug` enables underlying API causes/context; diagnostic text may contain sensitive values |
 | UI failures | Preserve API status; only 401 triggers restoration; malformed response 502, missing config/coordination 503, stale account state 409 |
 | Initial administration | Intentional superadmin seed migration |
@@ -126,6 +126,7 @@ Inventory returns one caller-selected product page with active inventory levels;
 | `GET /v1/inventories/{inventory_id}?page_size=50&cursor=abc` | Numeric Shopify location ID; page_size defaults50, range1–250, counts root products; cursor forwards unchanged to Shopify. Returns products and page_info (has_next_page/end_cursor) |
 | Inventory rows | ACTIVE products and active inventory levels at the location; zero/negative on_hand retained. A product can produce multiple variant rows; no local row slicing |
 | Inventory continuation | One upstream product page per API call, even if every row filters out. Follow returned cursor when has_next_page is true, including empty pages |
+| Missing inventory location | HTTP404 with {"error":"Shopify location not found"}; no catalog query is sent after a failed location lookup |
 | `GET /v1/orders/report?tags=TAG` | One literal tag; root batches250; merge compatible SKU/price/currency rows across every matching order page. Returns products only; page_size/cursor rejected400 |
 | Credentials | Existing ADMIN/SUPER_ADMIN bearer or cookie credentials; Shopify URL in TOML and SHOPIFY_ACCESS_TOKEN environment secret |
 | Postman | Internal inventories first/continuation and orders report requests use location_id and order_tag variables; replace the synthetic abc cursor with the returned end_cursor |

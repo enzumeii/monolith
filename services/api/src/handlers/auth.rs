@@ -49,7 +49,7 @@ pub async fn refresh(
     } else {
         payload
             .ok_or_else(|| {
-                AppError::BadRequest("Refresh token is required".into())
+                AppError::new(StatusCode::BAD_REQUEST, "Refresh token is required")
                     .at(concat!(module_path!(), "::refresh"))
             })?
             .0
@@ -77,7 +77,7 @@ pub async fn logout(
     } else {
         payload
             .ok_or_else(|| {
-                AppError::BadRequest("Refresh token is required".into())
+                AppError::new(StatusCode::BAD_REQUEST, "Refresh token is required")
                     .at(concat!(module_path!(), "::logout"))
             })?
             .0

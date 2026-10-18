@@ -1,5 +1,6 @@
 use crate::error::AppError;
 use crate::models::AuthenticatedAdmin;
+use axum::http::StatusCode;
 use domain::dto::{AdminRole, CreateAdminRequest, ListAdminsQuery, UpdateAdminRequest};
 
 #[derive(Debug, Clone, Copy)]
@@ -31,8 +32,9 @@ pub fn validate_page(query: &ListAdminsQuery) -> Result<AdminPageRequest, AppErr
     let page = query.page.unwrap_or(1);
     let per_page = query.per_page.unwrap_or(25);
     if page == 0 || per_page == 0 || per_page > 100 {
-        return Err(AppError::BadRequest(
-            "page must be positive and per_page must be between 1 and 100".into(),
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            "page must be positive and per_page must be between 1 and 100",
         )
         .at(concat!(module_path!(), "::validate_page")));
     }
@@ -46,7 +48,11 @@ pub fn validate_page(query: &ListAdminsQuery) -> Result<AdminPageRequest, AppErr
 pub fn validate_update(claims: &AuthenticatedAdmin, target_id: i64) -> Result<(), AppError> {
     let allowed = claims.role == AdminRole::SuperAdmin || claims.id == target_id;
     if !allowed {
-        return Err(AppError::Forbidden.at(concat!(module_path!(), "::validate_update")));
+        return Err(AppError::new(
+            StatusCode::FORBIDDEN,
+            "Your account is forbidden to make this action",
+        )
+        .at(concat!(module_path!(), "::validate_update")));
     }
     Ok(())
 }
@@ -54,7 +60,11 @@ pub fn validate_update(claims: &AuthenticatedAdmin, target_id: i64) -> Result<()
 /// Ensure the caller is not deleting their own account.
 pub fn validate_delete(claims: &AuthenticatedAdmin, target_id: i64) -> Result<(), AppError> {
     if claims.id == target_id {
-        return Err(AppError::Forbidden.at(concat!(module_path!(), "::validate_delete")));
+        return Err(AppError::new(
+            StatusCode::FORBIDDEN,
+            "Your account is forbidden to make this action",
+        )
+        .at(concat!(module_path!(), "::validate_delete")));
     }
     Ok(())
 }
@@ -65,10 +75,11 @@ pub fn validate_create(req: &CreateAdminRequest) -> Result<(), AppError> {
 }
 pub fn validate_update_input(req: &UpdateAdminRequest) -> Result<(), AppError> {
     if req.username.is_none() && req.password.is_none() {
-        return Err(
-            AppError::BadRequest("update must include a username or password".into())
-                .at(concat!(module_path!(), "::validate_update_input")),
-        );
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            "update must include a username or password",
+        )
+        .at(concat!(module_path!(), "::validate_update_input")));
     }
     if let Some(username) = &req.username {
         validate_username(username)?;
@@ -83,8 +94,9 @@ fn validate_username(username: &str) -> Result<(), AppError> {
         || username.trim().is_empty()
         || username != username.trim()
     {
-        return Err(AppError::BadRequest(
-            "username must contain 1–20 characters without surrounding whitespace".into(),
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            "username must contain 1–20 characters without surrounding whitespace",
         )
         .at(concat!(module_path!(), "::validate_username")));
     }
@@ -92,10 +104,11 @@ fn validate_username(username: &str) -> Result<(), AppError> {
 }
 fn validate_password(password: &str) -> Result<(), AppError> {
     if !(12..=128).contains(&password.chars().count()) {
-        return Err(
-            AppError::BadRequest("new password must contain 12–128 characters".into())
-                .at(concat!(module_path!(), "::validate_password")),
-        );
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            "new password must contain 12–128 characters",
+        )
+        .at(concat!(module_path!(), "::validate_password")));
     }
     Ok(())
 }

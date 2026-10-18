@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+use axum::http::StatusCode;
 use serde_json::json;
 fn settings(shopify: &serde_json::Value) -> Settings {
     serde_json::from_value(json!({"client":{"shopify":shopify},"browser":{"public_origin":"http://localhost:8084","insecure_local":true},"server":{"host":"localhost","port":3000},"database":{"url":"unused","max_connections":1,"min_connections":1},"jwt":{"secret":"1111111111111111111111111111111111111111111111111111111111111111"}})).unwrap()
@@ -35,7 +36,11 @@ async fn state_reuses_shopify_client_and_preserves_optional_initialization_failu
             .to_string()
             .contains("invalid Shopify URL")
     );
-    let error = crate::error::AppError::ReportUnavailable(Some(cause));
+    let error = crate::error::AppError::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Shopify report unavailable",
+    )
+    .with_source(cause);
     assert_eq!(
         axum::response::IntoResponse::into_response(error).status(),
         503

@@ -159,7 +159,7 @@ flowchart LR
 
 | Area | Contract |
 | --- | --- |
-| API failures | Sanitized public responses; one WARN/ERROR summary at the handling boundary with operation, category, and innermost origin |
+| API failures | One shared AppError carries status, public message, optional original cause and origin/context metadata. Sanitized responses; one WARN/ERROR summary at the handling boundary with operation, HTTP status and innermost origin |
 | API DEBUG diagnostics | Underlying causes/context are opt-in; conversions do not log |
 | Client failures | Shopify entry-point failures carry origin api::client::shopify through ClientError::Origin, retaining typed causes and lower-level transport/decode origins. Generic unwrapped client errors retain their existing origins. One ERROR at AppError response/background handling; no events during creation/conversion/propagation; safe Display/Debug |
 | Sensitive fields | Configuration Debug redacts secrets; do not log raw requests, upstream bodies, or client error fields |

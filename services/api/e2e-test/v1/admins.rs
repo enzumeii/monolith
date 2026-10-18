@@ -70,20 +70,30 @@ async fn get_returns_the_admin() {
 }
 
 #[tokio::test]
-async fn get_returns_not_found_for_missing() {
+async fn missing_admin_targets_return_not_authorized() {
     let db = common::fixture().await;
-    let response = common::client()
-        .await
-        .send(common::authed(
-            "GET",
-            "/v1/admins/9223372036854775807",
-            db.root_id(),
-            AdminRole::Admin,
-        ))
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let client = common::client().await;
+    for method in ["GET", "PATCH", "DELETE"] {
+        let uri = "/v1/admins/9223372036854775807";
+        let request = if method == "PATCH" {
+            common::authed_json(
+                method,
+                uri,
+                db.root_id(),
+                AdminRole::SuperAdmin,
+                &serde_json::json!({"username":"missing_target"}),
+            )
+        } else {
+            common::authed(method, uri, db.root_id(), AdminRole::SuperAdmin)
+        };
+        let response = client.send(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{method}");
+        assert_eq!(response.headers()["www-authenticate"], "Bearer");
+        assert_eq!(
+            common::body_json(response).await,
+            serde_json::json!({"error":"Not authorized"})
+        );
+    }
 }
 
 #[tokio::test]

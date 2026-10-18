@@ -6,6 +6,7 @@ use axum::extract::{
     Path, Query,
     rejection::{PathRejection, QueryRejection},
 };
+use axum::http::StatusCode;
 use domain::dto::InventoryQuery;
 
 pub fn extract_inventory_request(
@@ -13,8 +14,9 @@ pub fn extract_inventory_request(
     query: Result<Query<InventoryQuery>, QueryRejection>,
 ) -> Result<(ShopifyId, PageRequest), AppError> {
     let invalid = || {
-        AppError::BadRequest(
-            "Expected a location id, page_size between 1 and 250, and a nonblank cursor".into(),
+        AppError::new(
+            StatusCode::BAD_REQUEST,
+            "Expected a location id, page_size between 1 and 250, and a nonblank cursor",
         )
         .at(module_path!())
     };

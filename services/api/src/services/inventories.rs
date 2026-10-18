@@ -5,6 +5,7 @@ use crate::{
     models::shopify::{ListProductsRequest, PageRequest, ProductStatus, ShopifyId},
     state::AppState,
 };
+use axum::http::StatusCode;
 use domain::dto::{InventoryPageInfo, InventoryResponse};
 
 pub async fn inventory_report(
@@ -48,7 +49,9 @@ pub async fn inventory_report(
 
 async fn validate_location(client: &ShopifyClient, id: &ShopifyId) -> Result<(), AppError> {
     if !client.location_exists(id).await.map_err(upstream)? {
-        return Err(AppError::NotFound.at(module_path!()));
+        return Err(
+            AppError::new(StatusCode::NOT_FOUND, "Shopify location not found").at(module_path!()),
+        );
     }
     Ok(())
 }

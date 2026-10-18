@@ -10,7 +10,7 @@ async fn body_json(response: Response) -> serde_json::Value {
 #[tokio::test]
 async fn database_error_hides_internal_detail_behind_generic_message() {
     let sql_error = sqlx::Error::RowNotFound;
-    let response = AppError::Database(sql_error).into_response();
+    let response = AppError::from(sql_error).into_response();
 
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     let body = body_json(response).await;
@@ -21,7 +21,7 @@ async fn database_error_hides_internal_detail_behind_generic_message() {
 #[tokio::test]
 async fn password_hash_error_hides_internal_detail_behind_generic_message() {
     let hash_error = argon2::password_hash::Error::Password;
-    let response = AppError::PasswordHash(hash_error).into_response();
+    let response = AppError::from(hash_error).into_response();
 
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     let body = body_json(response).await;
@@ -32,7 +32,7 @@ async fn password_hash_error_hides_internal_detail_behind_generic_message() {
 async fn token_creation_error_hides_internal_detail_behind_generic_message() {
     let jwt_error: jsonwebtoken::errors::Error =
         jsonwebtoken::errors::ErrorKind::InvalidToken.into();
-    let response = AppError::TokenCreation(jwt_error).into_response();
+    let response = AppError::from(jwt_error).into_response();
 
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     let body = body_json(response).await;
@@ -42,7 +42,7 @@ async fn token_creation_error_hides_internal_detail_behind_generic_message() {
 #[tokio::test]
 async fn internal_error_hides_anyhow_detail_behind_generic_message() {
     let secret_detail = anyhow::anyhow!("database password is topsecret123");
-    let response = AppError::Internal(secret_detail).into_response();
+    let response = AppError::from(secret_detail).into_response();
 
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     let body = body_json(response).await;
@@ -52,7 +52,7 @@ async fn internal_error_hides_anyhow_detail_behind_generic_message() {
 
 #[tokio::test]
 async fn bad_request_surfaces_its_own_message() {
-    let response = AppError::BadRequest("page must be positive".into()).into_response();
+    let response = AppError::new(StatusCode::BAD_REQUEST, "page must be positive").into_response();
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let body = body_json(response).await;
@@ -61,7 +61,9 @@ async fn bad_request_surfaces_its_own_message() {
 
 #[tokio::test]
 async fn invalid_token_response_includes_www_authenticate_header() {
-    let response = AppError::InvalidToken.into_response();
+    let response = AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
+        .with_bearer_challenge()
+        .into_response();
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     assert_eq!(response.headers()["www-authenticate"], "Bearer");
@@ -70,17 +72,93 @@ async fn invalid_token_response_includes_www_authenticate_header() {
 #[tokio::test]
 async fn not_found_and_forbidden_map_to_expected_statuses() {
     assert_eq!(
-        AppError::NotFound.into_response().status(),
+        AppError::new(StatusCode::NOT_FOUND, "Shopify location not found")
+            .into_response()
+            .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        AppError::Forbidden.into_response().status(),
+        AppError::new(
+            StatusCode::FORBIDDEN,
+            "Your account is forbidden to make this action"
+        )
+        .into_response()
+        .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        AppError::InvalidCredentials.into_response().status(),
+        AppError::new(StatusCode::UNAUTHORIZED, "Invalid username or password")
+            .into_response()
+            .status(),
         StatusCode::UNAUTHORIZED
     );
+}
+
+#[tokio::test]
+async fn status_message_and_challenge_are_independent() {
+    for (status, message, challenge) in [
+        (StatusCode::BAD_REQUEST, "Invalid input", false),
+        (
+            StatusCode::UNAUTHORIZED,
+            "Invalid username or password",
+            false,
+        ),
+        (StatusCode::UNAUTHORIZED, "Not authorized", true),
+        (StatusCode::FORBIDDEN, "Permission denied", false),
+        (StatusCode::NOT_FOUND, "Shopify location not found", false),
+        (StatusCode::CONFLICT, "Username already exists", false),
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Shopify report unavailable",
+            false,
+        ),
+        (StatusCode::BAD_GATEWAY, "Shopify upstream failure", false),
+        (
+            StatusCode::GATEWAY_TIMEOUT,
+            "Shopify upstream failure",
+            false,
+        ),
+    ] {
+        let mut error = AppError::new(status, message.to_owned())
+            .with_source(anyhow::anyhow!("private-source"));
+        if challenge {
+            error = error.with_bearer_challenge();
+        }
+        let debug = format!("{error:?}");
+        assert!(!debug.contains(message));
+        assert!(!debug.contains("private-source"));
+        let response = error.into_response();
+        assert_eq!(response.status(), status);
+        assert_eq!(
+            response
+                .headers()
+                .get(WWW_AUTHENTICATE)
+                .map(|value| value.to_str().unwrap()),
+            challenge.then_some("Bearer")
+        );
+        assert_eq!(
+            body_json(response).await,
+            serde_json::json!({"error":message})
+        );
+    }
+}
+
+#[tokio::test]
+async fn unexpected_typed_causes_keep_private_sources() {
+    for error in [
+        AppError::from(config::ConfigError::Message("private-config".into())),
+        AppError::from(sqlx::migrate::MigrateError::VersionMissing(42)),
+        AppError::from(std::io::Error::other("private-io")),
+    ] {
+        assert!(std::error::Error::source(&error).is_some());
+        assert!(error.cause.is_some());
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            body_json(response).await,
+            serde_json::json!({"error":"Internal server error"})
+        );
+    }
 }
 
 mod logging_tests {
@@ -144,10 +222,9 @@ mod logging_tests {
     fn report_failures_keep_private_diagnostics() {
         for filter in ["info", "info,api=debug"] {
             let log = capture(filter, || {
-                let error = AppError::ReportUpstream(crate::client::ClientError::Protocol(
-                    "private-report-cause",
-                ))
-                .at("api::client::shopify");
+                let error = AppError::new(StatusCode::BAD_GATEWAY, "Shopify upstream failure")
+                    .with_source(crate::client::ClientError::Protocol("private-report-cause"))
+                    .at("api::client::shopify");
                 let response = error.into_response();
                 assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
             });
@@ -157,6 +234,66 @@ mod logging_tests {
                 "{log}"
             );
             assert!(log.contains("api::client::shopify"));
+        }
+    }
+
+    #[test]
+    fn wrapped_and_shared_client_causes_keep_diagnostics_without_payloads() {
+        use crate::client::ClientError;
+        use std::sync::Arc;
+
+        for filter in ["info", "info,api=debug"] {
+            for shared in [false, true] {
+                for wrapped in [false, true] {
+                    let log = capture(filter, || {
+                        let source = ClientError::Graphql {
+                            errors: vec![crate::client::GraphqlError {
+                                message: "upstream-diagnostic".into(),
+                                path: vec![],
+                                extensions: std::collections::BTreeMap::from([(
+                                    "private".into(),
+                                    serde_json::json!("private-payload"),
+                                )]),
+                            }],
+                            extensions: serde_json::json!({"private":"private-extension"}),
+                        };
+                        let cause = if shared {
+                            anyhow::Error::new(Arc::new(source))
+                        } else {
+                            anyhow::Error::new(source)
+                        };
+                        let cause = if wrapped {
+                            cause.context("upstream context")
+                        } else {
+                            cause
+                        };
+                        let error = AppError::new(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Shopify report unavailable",
+                        )
+                        .with_source(cause)
+                        .at("api::client::shopify")
+                        .context("report request");
+                        assert_eq!(
+                            error.into_response().status(),
+                            StatusCode::SERVICE_UNAVAILABLE
+                        );
+                    });
+                    assert_eq!(
+                        log.contains("upstream-diagnostic"),
+                        filter.ends_with("debug"),
+                        "{log}"
+                    );
+                    assert_eq!(
+                        log.contains("upstream context"),
+                        wrapped && filter.ends_with("debug"),
+                        "{log}"
+                    );
+                    assert!(!log.contains("private-payload"), "{log}");
+                    assert!(!log.contains("private-extension"), "{log}");
+                    assert!(log.contains("status=503"), "{log}");
+                }
+            }
         }
     }
 
@@ -224,7 +361,7 @@ mod logging_tests {
     #[test]
     fn background_failure_logs_original_database_diagnostic() {
         let log = capture("info,api=debug", || {
-            let error = AppError::Database(sqlx::Error::RowNotFound).context("retention query");
+            let error = AppError::from(sqlx::Error::RowNotFound).context("retention query");
             log_background_error("refresh token retention", &error);
         });
         assert_eq!(
@@ -461,18 +598,18 @@ mod logging_tests {
                     assert!(log.is_empty(), "{log}");
                     let error = converted.unwrap();
                     assert_eq!(error.origin(), Some(origin));
-                    match error.root() {
-                        AppError::Internal(source) => {
-                            let typed = source.downcast_ref::<ClientError>().unwrap();
-                            let original = if let ClientError::Origin { source, .. } = typed {
-                                source.as_ref()
-                            } else {
-                                typed
-                            };
-                            assert_eq!(std::mem::discriminant(original), kind);
-                        }
-                        _ => panic!("client cause lost"),
-                    }
+                    let typed = error
+                        .cause
+                        .as_ref()
+                        .unwrap()
+                        .downcast_ref::<ClientError>()
+                        .unwrap();
+                    let original = if let ClientError::Origin { source, .. } = typed {
+                        source.as_ref()
+                    } else {
+                        typed
+                    };
+                    assert_eq!(std::mem::discriminant(original), kind);
                     let log = capture(filter, || {
                         if background {
                             log_background_error("upstream job", &error);
@@ -625,45 +762,18 @@ async fn upstream_error_converts_with_source_and_safe_public_response() {
     }
     let error = failing_operation().unwrap_err();
     assert_eq!(error.origin(), Some("api::client"));
-    match error.root() {
-        AppError::Internal(source) => assert!(source.downcast_ref::<ClientError>().is_some()),
-        _ => panic!("typed client source not retained"),
-    }
+    assert!(
+        error
+            .cause
+            .as_ref()
+            .unwrap()
+            .downcast_ref::<ClientError>()
+            .is_some()
+    );
     let response = error.into_response();
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(
         body_json(response).await,
         serde_json::json!({"error":"Internal server error"})
     );
-}
-
-#[tokio::test]
-async fn report_transport_timeout_maps_to_504_and_other_transport_errors_to_502() {
-    use crate::client::{ClientError, HttpClient};
-    use reqwest::{Method, Url, header::HeaderMap};
-    use std::time::Duration;
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let stalled = format!("http://{}/private", listener.local_addr().unwrap());
-    for (url, status) in [(stalled.as_str(), 504), ("file:///private", 502)] {
-        let error = HttpClient::new(Duration::from_millis(50))
-            .unwrap()
-            .request_json::<(), serde_json::Value>(
-                Method::GET,
-                Url::parse(url).unwrap(),
-                HeaderMap::new(),
-                None,
-            )
-            .await
-            .unwrap_err();
-        let response = AppError::ReportUpstream(ClientError::Origin {
-            origin: "api::client::shopify",
-            source: Box::new(error),
-        })
-        .into_response();
-        assert_eq!(response.status(), status);
-        assert_eq!(
-            body_json(response).await,
-            serde_json::json!({"error":"Shopify upstream failure"})
-        );
-    }
 }

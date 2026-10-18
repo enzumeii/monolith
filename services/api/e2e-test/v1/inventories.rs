@@ -229,6 +229,9 @@ async fn inventory_pages_use_real_tcp() {
             .unwrap();
         assert_eq!(response.status(), status);
         let body = body_json(response).await;
+        if id == 999 {
+            assert_eq!(body, json!({"error":"Shopify location not found"}));
+        }
         assert!(body.get("products").is_none());
         assert!(!body.to_string().contains("secret"));
     }

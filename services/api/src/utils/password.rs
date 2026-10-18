@@ -17,7 +17,9 @@ pub(crate) async fn hash(password: String) -> Result<String, AppError> {
             .map_err(|error| AppError::from(error).at(concat!(module_path!(), "::hash")))
     })
     .await
-    .map_err(|error| AppError::Internal(error.into()).at(concat!(module_path!(), "::hash")))?
+    .map_err(|error| {
+        AppError::from(anyhow::Error::from(error)).at(concat!(module_path!(), "::hash"))
+    })?
 }
 
 /// Verify a plaintext password against a PHC hash. `true` on match.
@@ -30,7 +32,9 @@ pub(crate) async fn verify(password: String, password_hash: String) -> Result<bo
             .is_ok())
     })
     .await
-    .map_err(|error| AppError::Internal(error.into()).at(concat!(module_path!(), "::verify")))?
+    .map_err(|error| {
+        AppError::from(anyhow::Error::from(error)).at(concat!(module_path!(), "::verify"))
+    })?
 }
 
 #[cfg(test)]
