@@ -69,7 +69,7 @@ jobs:
       - name: Install API formatter
         if: steps.changes.outputs.api == 'true'
         working-directory: services/api
-        run: just setup-formatter
+        run: just setup
 
       - name: api check + test
         if: steps.changes.outputs.api == 'true'

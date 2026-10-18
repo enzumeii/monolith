@@ -12,7 +12,7 @@ Results describe this revision's exercised scope, separately from [architecture]
 | Shared contracts / WASM | 5 domain contracts passed; domain WASM and backoffice native/WASM checks passed |
 | Downstream tests | Backoffice 6 tests passed; client-ui check/test passed with no tests |
 | Postman | All 9 external GraphQL documents match their requests and variable sets; external9/internal-v1(11) lint passed with zero errors/warnings |
-| Formatter behavior | Standalone Biome 2.5.15 checks 9 GraphQL and 12 JSON files. Dirty GraphQL/JSON rejected; write-format corrected both; repeated writes identical. Malformed input rejected unchanged; ignored tool files excluded. SQLx JSON values and GraphQL tokens unchanged; Postman queries synchronized |
+| Formatter behavior | Standalone Biome 2.5.15 checks 9 GraphQL and 12 JSON files. Dirty GraphQL/JSON rejected; write-format corrected both; repeated writes identical. Malformed input rejected unchanged; ignored tool files excluded. SQLx JSON values and GraphQL tokens unchanged; Postman queries synchronized. Existing just fix passed against Docker PostgreSQL, followed by just check |
 | Split-contract regressions | Reproduced inventory overfetch and dropped page_info; inventory returns one page and orders retain full totals. Later-page order overflow/invalid amounts reject the summary |
 | Model cleanup | Removed unreferenced `SalesOrder`; API error encoding and backoffice decoding use shared `ErrorResponse`. Existing error/status/header regressions and the complete API suite passed; frontend native/WASM checks passed |
 | Published-head CI | Confirm separately against the pushed SHA in PR checks |
