@@ -174,7 +174,7 @@ fn search_requests_preserve_literals_and_validate_ranges() {
 }
 
 #[test]
-fn activation_request_validates_resource_kinds_and_sets_explicit_quantities() {
+fn activation_request_validates_resource_kinds_and_omits_quantities() {
     let location = ShopifyId::new("gid://shopify/Location/123").unwrap();
     let order = ShopifyId::new("gid://shopify/Order/456").unwrap();
     let item = ShopifyId::new("gid://shopify/InventoryItem/789").unwrap();
@@ -184,8 +184,6 @@ fn activation_request_validates_resource_kinds_and_sets_explicit_quantities() {
             inventory_item_id: order.clone(),
             location_id: location.clone(),
             idempotency_key: key,
-            on_hand: 5,
-            available: 4,
         }
         .variables()
         .is_err()
@@ -195,8 +193,6 @@ fn activation_request_validates_resource_kinds_and_sets_explicit_quantities() {
             inventory_item_id: item.clone(),
             location_id: order,
             idempotency_key: key,
-            on_hand: 5,
-            available: 4,
         }
         .variables()
         .is_err()
@@ -205,14 +201,12 @@ fn activation_request_validates_resource_kinds_and_sets_explicit_quantities() {
         inventory_item_id: item,
         location_id: location,
         idempotency_key: key,
-        on_hand: 5,
-        available: 4,
     }
     .variables()
     .unwrap();
     assert_eq!(variables["idempotencyKey"], key.to_string());
-    assert_eq!(variables["available"], 4);
-    assert_eq!(variables["onHand"], 5);
+    assert!(variables.get("available").is_none());
+    assert!(variables.get("onHand").is_none());
 }
 
 #[test]

@@ -6,29 +6,21 @@ use crate::{
         ActivateInventoryRequest, InventoryActivationItem, InventoryDiscoveryRequest, PageRequest,
         ShopifyId,
     },
-    services::common::upstream,
+    services::{
+        common::{shopify_client, upstream},
+        pagination::for_each_page,
+    },
     state::AppState,
 };
 use axum::http::StatusCode;
 use domain::dto::{InventoryEnableError, InventoryEnableResponse};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 pub async fn enable_inventory(
     state: &AppState,
     location_id: ShopifyId,
 ) -> Result<InventoryEnableResponse, AppError> {
-    let unavailable = || {
-        AppError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Shopify inventory activation unavailable",
-        )
-    };
-    let client = state
-        .shopify
-        .as_ref()
-        .map_err(|error| unavailable().with_source(error.clone()))?
-        .as_deref()
-        .ok_or_else(unavailable)?;
+    let client = shopify_client(state, "Shopify inventory activation unavailable")?;
     validate_location(client, &location_id).await?;
     let items = discover(client, &location_id).await?;
     let mut result = InventoryEnableResponse {
@@ -67,54 +59,40 @@ async fn discover(
     let request = InventoryDiscoveryRequest {
         location_id: location.clone(),
     };
-    let mut page_request = PageRequest {
-        first: 250,
-        after: None,
-    };
-    let mut cursors = HashSet::new();
     let mut seen = HashMap::new();
     let mut items = Vec::new();
-    loop {
-        let page = client
-            .find_inventory_to_activate(&request, &page_request)
-            .await
-            .map_err(|error| upstream(error))?
-            .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Shopify location not found"))?;
-        page.page_info
-            .validate_after(page_request.after.as_deref())
-            .map_err(|error| upstream(error))?;
-        for candidate in page.nodes {
-            if let Some(previous) = seen.get(&candidate.item.id) {
-                if previous != &candidate {
-                    return Err(upstream(ClientError::new(ClientErrorKind::Protocol(
-                        "conflicting inventory discovery entries",
-                    ))));
-                }
-                continue;
-            }
-            if let Some(item) = candidate
-                .activation_item()
+    for_each_page(
+        async |after| {
+            client
+                .find_inventory_to_activate(&request, &PageRequest { first: 250, after })
+                .await
                 .map_err(|error| upstream(error))?
-            {
-                items.push(item);
+                .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Shopify location not found"))
+        },
+        |candidates| {
+            for candidate in candidates {
+                if let Some(previous) = seen.get(&candidate.item.id) {
+                    if previous != &candidate {
+                        return Err(upstream(ClientError::new(ClientErrorKind::Protocol(
+                            "conflicting inventory discovery entries",
+                        ))));
+                    }
+                    continue;
+                }
+                if let Some(item) = candidate
+                    .activation_item()
+                    .map_err(|error| upstream(error))?
+                {
+                    items.push(item);
+                }
+                seen.insert(candidate.item.id.clone(), candidate);
             }
-            seen.insert(candidate.item.id.clone(), candidate);
-        }
-        if !page.page_info.has_next_page {
-            return Ok(items);
-        }
-        let next = page.page_info.end_cursor.ok_or_else(|| {
-            upstream(ClientError::new(ClientErrorKind::Protocol(
-                "next cursor is missing",
-            )))
-        })?;
-        if !cursors.insert(next.clone()) {
-            return Err(upstream(ClientError::new(ClientErrorKind::Protocol(
-                "pagination cursor did not progress",
-            ))));
-        }
-        page_request.after = Some(next);
-    }
+            Ok(())
+        },
+        |error| upstream(error),
+    )
+    .await?;
+    Ok(items)
 }
 
 async fn activate(
@@ -126,8 +104,6 @@ async fn activate(
         inventory_item_id: item.inventory_item_id.clone(),
         location_id: location.clone(),
         idempotency_key: uuid::Uuid::new_v4(),
-        on_hand: item.on_hand,
-        available: item.available,
     };
     let activation = client
         .activate_existing_inventory(&input)

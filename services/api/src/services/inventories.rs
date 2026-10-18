@@ -16,7 +16,7 @@ pub async fn inventory_report(
     location_id: ShopifyId,
     page: PageRequest,
 ) -> Result<InventoryResponse, AppError> {
-    let client = shopify_client(state)?;
+    let client = shopify_client(state, "Shopify report unavailable")?;
     validate_location(client, &location_id).await?;
     let request = ListProductsRequest {
         location_id,

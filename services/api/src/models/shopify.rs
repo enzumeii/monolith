@@ -110,8 +110,6 @@ pub struct ActivateInventoryRequest {
     pub inventory_item_id: ShopifyId,
     pub location_id: ShopifyId,
     pub idempotency_key: Uuid,
-    pub on_hand: i32,
-    pub available: i32,
 }
 
 impl ListProductsRequest {
@@ -196,7 +194,7 @@ impl ActivateInventoryRequest {
         self.inventory_item_id.require_kind("InventoryItem")?;
         self.location_id.require_kind("Location")?;
         Ok(
-            json!({"inventoryItemId": self.inventory_item_id, "locationId": self.location_id, "idempotencyKey": self.idempotency_key, "onHand": self.on_hand, "available": self.available}),
+            json!({"inventoryItemId": self.inventory_item_id, "locationId": self.location_id, "idempotencyKey": self.idempotency_key}),
         )
     }
 }

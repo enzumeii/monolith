@@ -1,6 +1,6 @@
 $kind: http-request
 description: |-
-  Activate every tracked inactive inventory item with on_hand > 0 at the numeric Shopify location_id. Uses inherited ADMIN or SUPER_ADMIN credentials. No body or query parameters. Discovers all pages before writing, preserves discovered on_hand/available explicitly, and counts each variant inventory item independently. Stock can change between discovery and activation.
+  Activate every tracked inactive inventory item with on_hand > 0 at the numeric Shopify location_id. Uses inherited ADMIN or SUPER_ADMIN credentials. No body or query parameters. Discovers all pages before writing, sends no onHand/available mutation arguments, and counts each variant inventory item independently. Provider quantity behavior with omitted inputs remains unverified.
   Success 200: {"total":2,"success":2,"failed":0}
   Empty 200: {"total":0,"success":0,"failed":0}
   Partial 200: {"total":2,"success":1,"failed":1,"errors":[{"product_id":42,"reason":"Inventory activation rejected"}]}

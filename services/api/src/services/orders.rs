@@ -18,7 +18,7 @@ pub async fn order_report(
     state: &AppState,
     tags: Vec<String>,
 ) -> Result<OrderReportResponse, AppError> {
-    let client = shopify_client(state)?;
+    let client = shopify_client(state, "Shopify report unavailable")?;
     let request = OrdersByTagRequest { tags };
     let mut rows = Vec::new();
     let mut by_sku = HashMap::new();
@@ -36,6 +36,7 @@ pub async fn order_report(
             }
             Ok(())
         },
+        std::convert::identity,
     )
     .await
     .map_err(|error| upstream(error))?;

@@ -430,8 +430,8 @@ async fn enable_inventory_collects_all_pages_then_activates_each_unique_eligible
             request["variables"]["locationId"],
             "gid://shopify/Location/1"
         );
-        assert_eq!(request["variables"]["onHand"], 5);
-        assert_eq!(request["variables"]["available"], 4);
+        assert!(request["variables"].get("onHand").is_none());
+        assert!(request["variables"].get("available").is_none());
         uuid::Uuid::parse_str(request["variables"]["idempotencyKey"].as_str().unwrap()).unwrap();
     }
     assert_ne!(
@@ -755,13 +755,10 @@ async fn enable_inventory_invalid_discovery_data_fails_before_any_activation() {
         discovery(vec![], Some("a")),
     ]);
     for field in [
-        "missing_quantity",
         "missing_on_hand",
-        "overflow_available",
         "zero_item",
         "zero_variant",
         "duplicate_quantity",
-        "overflow_quantity",
         "bad_product",
         "overflow_product",
         "bad_item",
@@ -769,16 +766,13 @@ async fn enable_inventory_invalid_discovery_data_fails_before_any_activation() {
         let mut bad = activation_candidate(2, 43, false, true, 5);
         match field {
             "missing_on_hand" => bad["quantities"] = json!([{"name":"available","quantity":4}]),
-            "overflow_available" => bad["quantities"][1]["quantity"] = json!(i64::MAX),
             "zero_item" => bad["item"]["id"] = json!("gid://shopify/InventoryItem/0"),
             "zero_variant" => {
                 bad["item"]["variant"]["id"] = json!("gid://shopify/ProductVariant/0")
             }
-            "missing_quantity" => bad["quantities"] = json!([{"name":"on_hand","quantity":5}]),
             "duplicate_quantity" => {
                 bad["quantities"] = json!([{"name":"on_hand","quantity":5},{"name":"on_hand","quantity":6},{"name":"available","quantity":4}])
             }
-            "overflow_quantity" => bad["quantities"][0]["quantity"] = json!(i64::MAX),
             "bad_product" => {
                 bad["item"]["variant"]["product"]["id"] = json!("gid://shopify/Location/42")
             }
@@ -1019,7 +1013,7 @@ async fn enable_inventory_connection_loss_is_safe_at_every_stage() {
 }
 
 #[tokio::test]
-async fn enable_inventory_throttle_retry_preserves_quantities_and_uuid_then_succeeds() {
+async fn enable_inventory_throttle_retry_omits_quantities_and_preserves_uuid() {
     let fixture = fixture().await;
     let (client, upstream) = enable_wire_server(vec![
         Some(json!({"data":location_found()})),
@@ -1045,6 +1039,51 @@ async fn enable_inventory_throttle_retry_preserves_quantities_and_uuid_then_succ
     let requests = upstream.requests.lock().unwrap();
     assert_eq!(requests.len(), 4);
     assert_eq!(requests[2], requests[3]);
-    assert_eq!(requests[2]["variables"]["onHand"], 5);
-    assert_eq!(requests[2]["variables"]["available"], 4);
+    assert!(requests[2]["variables"].get("onHand").is_none());
+    assert!(requests[2]["variables"].get("available").is_none());
+}
+
+#[tokio::test]
+async fn enable_inventory_does_not_require_or_write_available_quantities() {
+    let fixture = fixture().await;
+    for quantities in [
+        json!([{"name":"on_hand","quantity":5}]),
+        json!([{"name":"on_hand","quantity":5},{"name":"available","quantity":i64::MAX}]),
+        json!([{"name":"on_hand","quantity":i64::MAX}]),
+    ] {
+        let mut item = activation_candidate(1, 42, false, true, 5);
+        item["quantities"] = quantities;
+        let (client, upstream) = client_with_upstream_script(
+            vec![
+                location_found(),
+                discovery(vec![item], None),
+                activation_success(),
+            ],
+            "http",
+        )
+        .await;
+        let response = client
+            .send(authed(
+                "POST",
+                ENABLE_URI,
+                fixture.root_id(),
+                AdminRole::Admin,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(
+            body_json(response).await,
+            json!({"total":1,"success":1,"failed":0})
+        );
+        let requests = upstream.requests();
+        assert_eq!(requests.len(), 3);
+        let variables = requests[2]["variables"].as_object().unwrap();
+        assert_eq!(variables.len(), 3);
+        assert!(variables.contains_key("inventoryItemId"));
+        assert!(variables.contains_key("locationId"));
+        assert!(variables.contains_key("idempotencyKey"));
+        let query = requests[2]["query"].as_str().unwrap();
+        assert!(!query.contains("onHand:") && !query.contains("available:"));
+    }
 }

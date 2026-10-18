@@ -129,8 +129,6 @@ async fn mutations_return_raw_user_errors_and_optional_outputs_without_replay() 
             inventory_item_id: id("InventoryItem", 1),
             location_id: id("Location", 1),
             idempotency_key: key,
-            on_hand: 5,
-            available: 4,
         })
         .await
         .unwrap()
@@ -144,12 +142,12 @@ async fn mutations_return_raw_user_errors_and_optional_outputs_without_replay() 
         requests[1].2["variables"]["idempotencyKey"],
         key.to_string()
     );
-    assert_eq!(requests[1].2["variables"]["available"], 4);
-    assert_eq!(requests[1].2["variables"]["onHand"], 5);
+    assert!(requests[1].2["variables"].get("available").is_none());
+    assert!(requests[1].2["variables"].get("onHand").is_none());
 }
 
 #[tokio::test]
-async fn activation_preserves_quantities_and_idempotency_key_on_throttling() {
+async fn activation_omits_quantities_and_preserves_idempotency_key_on_throttling() {
     let f=Fixture::new(vec![Reply::status(429),Reply::json(json!({"data":{"inventoryActivate":{
         "inventoryLevel":{"id":"level-1","isActive":true,"quantities":[{"name":"available","quantity":1},{"name":"on_hand","quantity":1}]},"userErrors":[]
     }}}))]).await;
@@ -159,8 +157,6 @@ async fn activation_preserves_quantities_and_idempotency_key_on_throttling() {
             inventory_item_id: id("InventoryItem", 1),
             location_id: id("Location", 1),
             idempotency_key: key,
-            on_hand: 5,
-            available: 4,
         })
         .await
         .unwrap()
@@ -176,12 +172,20 @@ async fn activation_preserves_quantities_and_idempotency_key_on_throttling() {
     );
     assert_eq!(requests[0].2, requests[1].2);
     assert!(
-        requests[0].2["query"]
+        !requests[0].2["query"]
             .as_str()
             .unwrap()
             .contains("available:")
     );
-    assert!(requests[0].2["query"].as_str().unwrap().contains("onHand:"));
+    assert!(!requests[0].2["query"].as_str().unwrap().contains("onHand:"));
+    for (_, _, request) in requests {
+        let variables = request["variables"].as_object().unwrap();
+        assert_eq!(variables.len(), 3);
+        assert!(variables.get("onHand").is_none());
+        assert!(variables.get("available").is_none());
+        let query = request["query"].as_str().unwrap();
+        assert!(!query.contains("$onHand") && !query.contains("$available"));
+    }
 }
 
 #[tokio::test]

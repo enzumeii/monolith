@@ -4,8 +4,6 @@ use crate::client::{ClientError, ClientErrorKind};
 pub(crate) struct InventoryActivationItem {
     pub inventory_item_id: ShopifyId,
     pub product_id: u64,
-    pub on_hand: i32,
-    pub available: i32,
 }
 
 impl InventoryActivationCandidate {
@@ -23,12 +21,10 @@ impl InventoryActivationCandidate {
         Ok(Some(InventoryActivationItem {
             inventory_item_id: self.item.id.clone(),
             product_id,
-            on_hand,
-            available: self.quantity("available")?,
         }))
     }
 
-    fn quantity(&self, name: &str) -> Result<i32, ClientError> {
+    fn quantity(&self, name: &str) -> Result<i64, ClientError> {
         let mut quantities = self
             .quantities
             .iter()
@@ -38,7 +34,7 @@ impl InventoryActivationCandidate {
         if quantities.next().is_some() {
             return Err(invalid());
         }
-        i32::try_from(quantity.quantity).map_err(|_| invalid())
+        Ok(quantity.quantity)
     }
 }
 
