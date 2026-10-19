@@ -7,9 +7,20 @@ use crate::{api, components::ErrorMessage, route::TriggerPending, session};
 pub fn Triggers() -> Element {
     let TriggerPending(mut pending) = use_context();
     let mut location_id = use_signal(String::new);
-    let mut response = use_signal(|| None::<InventoryEnableResponse>);
     let mut error = use_signal(|| None::<String>);
+    let mut action = use_trigger(location_id, error, pending, |location: String| async move {
+        session::with_session(|| api::inventories::enable_inventory(&location)).await
+    });
     use_drop(move || pending.set(false));
+    let value = action.value().and_then(Result::ok);
+    let outcome = value.as_ref().map(|value| value.read());
+    let failure = error().or_else(|| {
+        outcome
+            .as_deref()
+            .and_then(|result| result.as_ref().err())
+            .map(ToString::to_string)
+    });
+    let result = outcome.as_deref().and_then(|result| result.as_ref().ok());
 
     rsx! {
         main { class: "page triggers-page", aria_busy: pending(),
@@ -18,7 +29,7 @@ pub fn Triggers() -> Element {
                 onsubmit: move |event| {
                     event.prevent_default();
                     if pending() { return; }
-                    response.set(None);
+                    action.reset();
                     error.set(None);
                     let location = location_id();
                     if !api::valid_location_id(&location) {
@@ -26,14 +37,7 @@ pub fn Triggers() -> Element {
                         return;
                     }
                     pending.set(true);
-                    spawn(async move {
-                        match session::with_session(|| api::inventories::enable_inventory(&location)).await {
-                            Ok(result) => response.set(Some(result)),
-                            Err(failure) => error.set(Some(failure.to_string())),
-                        }
-                        pending.set(false);
-                        document::eval("requestAnimationFrame(() => document.getElementById('run-trigger')?.focus());");
-                    });
+                    action.call(location);
                 },
                 label { r#for: "trigger-action", "Action" }
                 select { id: "trigger-action", disabled: pending(),
@@ -45,8 +49,8 @@ pub fn Triggers() -> Element {
                 }
                 button { id: "run-trigger", class: "primary", r#type: "submit", disabled: pending(), "Run trigger" }
             }
-            ErrorMessage { message: error() }
-            if let Some(result) = response.read().as_ref() {
+            ErrorMessage { message: failure }
+            if let Some(result) = result {
                 section { class: "panel trigger-result", aria_label: "Trigger result", aria_live: "polite",
                     h3 {
                         if result.failed > 0 { "Completed with errors" }
@@ -74,3 +78,51 @@ pub fn Triggers() -> Element {
         }
     }
 }
+
+type TriggerAction = Action<(String,), api::ApiResult<InventoryEnableResponse>>;
+
+fn use_trigger<
+    Fut: std::future::Future<Output = api::ApiResult<InventoryEnableResponse>> + 'static,
+>(
+    mut location_id: Signal<String>,
+    mut error: Signal<Option<String>>,
+    mut pending: Signal<bool>,
+    load: impl FnMut(String) -> Fut + 'static,
+) -> TriggerAction {
+    let load = use_callback(load);
+    let mut action = use_action(move |location: String| {
+        let future = load.call(location);
+        async move {
+            let result = future.await;
+            pending.set(false);
+            document::eval(
+                "requestAnimationFrame(() => document.getElementById('run-trigger')?.focus());",
+            );
+            Ok::<_, api::ApiError>(result)
+        }
+    });
+    let mut owner = use_signal(|| {
+        session::SESSION
+            .peek()
+            .as_ref()
+            .map(|viewer| (viewer.admin_id, viewer.role))
+    });
+    use_effect(move || {
+        let current = session::SESSION
+            .read()
+            .as_ref()
+            .map(|viewer| (viewer.admin_id, viewer.role));
+        if current != *owner.peek() {
+            owner.set(current);
+            action.reset();
+            location_id.set(String::new());
+            error.set(None);
+            pending.set(false);
+        }
+    });
+    action
+}
+
+#[cfg(test)]
+#[path = "../tests/pages/triggers.rs"]
+mod tests;
