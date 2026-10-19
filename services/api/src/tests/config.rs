@@ -298,6 +298,40 @@ fn resend_configuration_needs_only_the_api_key() {
 }
 
 #[test]
+fn paypal_credentials_are_centralized_and_non_secrets_remain_file_based() {
+    let file_config: PaypalConfig = Config::builder()
+        .add_source(File::with_name("application"))
+        .build()
+        .unwrap()
+        .get("client.paypal")
+        .unwrap();
+    let settings = temp_env::with_vars(
+        [
+            ("DATABASE_URL", Some("postgres://unused")),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
+            ("PAYPAL_CLIENT_ID", Some("private-paypal-id")),
+            ("PAYPAL_CLIENT_SECRET", Some("private-paypal-secret")),
+            ("PAYPAL_BASE_URL", Some("invalid-env-url")),
+            ("PAYPAL_TIMEOUT_SECS", Some("invalid-env-timeout")),
+        ],
+        Settings::new,
+    )
+    .unwrap();
+    let paypal = settings.client.unwrap().paypal.unwrap();
+    assert_eq!(paypal.client_id.as_deref(), Some("private-paypal-id"));
+    assert_eq!(
+        paypal.client_secret.as_deref(),
+        Some("private-paypal-secret")
+    );
+    assert_eq!(paypal.base_url, file_config.base_url);
+    assert_eq!(paypal.timeout_secs, file_config.timeout_secs);
+    assert!(!format!("{paypal:?}").contains("private-paypal"));
+}
+
+#[test]
 fn stripe_key_comes_from_central_configuration() {
     let settings = temp_env::with_vars(
         [

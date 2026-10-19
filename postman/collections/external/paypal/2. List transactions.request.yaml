@@ -1,0 +1,19 @@
+$kind: http-request
+description: ""
+url: "{{paypal}}/v1/reporting/transactions?start_date=2026-10-01T00:00:00Z&end_date=2026-10-02T00:00:00Z&fields=all&page_size=500&page=1"
+method: GET
+queryParams:
+  start_date: 2026-10-01T00:00:00Z
+  end_date: 2026-10-02T00:00:00Z
+  fields: all
+  page_size: "500"
+  page: "1"
+order: 2000
+auth:
+  type: inherit
+  credentials:
+    id: 5daed635-8af6-4e64-9242-a4be048bc73a
+scripts:
+  - type: afterResponse
+    code: ""
+    language: text/javascript

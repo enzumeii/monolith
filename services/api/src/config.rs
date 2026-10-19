@@ -28,9 +28,24 @@ pub struct BrowserConfig {
 }
 #[derive(Debug, Deserialize, Clone)]
 pub struct ClientConfig {
+    pub paypal: Option<PaypalConfig>,
     pub shopify: Option<ShopifyConfig>,
     pub resend: Option<ResendConfig>,
     pub stripe: Option<StripeConfig>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct PaypalConfig {
+    pub base_url: String,
+    pub timeout_secs: u64,
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
+}
+
+impl std::fmt::Debug for PaypalConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PaypalConfig { credentials: [REDACTED], .. }")
+    }
 }
 
 #[derive(Deserialize, Clone)]
@@ -138,6 +153,12 @@ impl Settings {
         }
         if let Ok(resend_api_key) = env::var("RESEND_API_KEY") {
             builder = builder.set_override("client.resend.api_key", resend_api_key)?;
+        }
+        if let Ok(client_id) = env::var("PAYPAL_CLIENT_ID") {
+            builder = builder.set_override("client.paypal.client_id", client_id)?;
+        }
+        if let Ok(client_secret) = env::var("PAYPAL_CLIENT_SECRET") {
+            builder = builder.set_override("client.paypal.client_secret", client_secret)?;
         }
         if let Ok(key) = env::var("STRIPE_SECRET_KEY") {
             builder = builder.set_override("client.stripe.secret_key", key)?;

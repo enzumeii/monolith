@@ -12,8 +12,12 @@ public_origin = ""
 insecure_local = true
 
 [client.shopify]
-timeout_secs = 3
 admin_api_url = "https://enzumeii.myshopify.com/admin/api/2026-10/graphql.json"
+timeout_secs = 3
+
+[client.paypal]
+base_url = "https://api-m.paypal.com"
+timeout_secs = 3
 
 [client.stripe]
 base_url = "https://api.stripe.com/v1/"

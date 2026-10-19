@@ -4,5 +4,5 @@ auth:
     type: bearer
     name: Bearer Token
     credentials:
-      token: "{{resend_api_key}}"
+      token: "{{vault:resend_api_key}}"
 order: 2000

@@ -8,7 +8,7 @@ export DPRINT_CACHE_DIR := justfile_directory() / ".tools/cache"
 default:
     @just --list
 
-# Install pinned dprint, cache plugins, scaffold .env and add missing optional provider key placeholders.
+# Install pinned dprint, cache plugins, scaffold .env and add missing optional client credential placeholders.
 setup:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -21,19 +21,21 @@ setup:
         'DATABASE_URL=postgres://user:pass@127.0.0.1:5432/core' \
         'SHOPIFY_ACCESS_TOKEN=' \
         'RESEND_API_KEY=' \
+        'PAYPAL_CLIENT_ID=' \
+        'PAYPAL_CLIENT_SECRET=' \
         'STRIPE_SECRET_KEY=' \
         "JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" > .env
       echo '  Generated a random signing key in .env; keep it private.'
     else
       echo '→ .env already exists, preserving its values.'
     fi
-    if ! grep -Eq '^[[:space:]]*(export[[:space:]]+)?RESEND_API_KEY[[:space:]]*=' .env; then
-      printf '\nRESEND_API_KEY=\n' >> .env
-    fi
-    if ! grep -Eq '^[[:space:]]*(export[[:space:]]+)?STRIPE_SECRET_KEY[[:space:]]*=' .env; then
-      printf '\nSTRIPE_SECRET_KEY=\n' >> .env
-    fi
+    for key in RESEND_API_KEY PAYPAL_CLIENT_ID PAYPAL_CLIENT_SECRET STRIPE_SECRET_KEY; do
+      if ! grep -Eq "^[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=" .env; then
+        printf '\n%s=\n' "$key" >> .env
+      fi
+    done
     printf '%s\n' 'Optional Stripe client: set STRIPE_SECRET_KEY in .env before reading Stripe data.'
+    printf '%s\n' 'Optional PayPal reporting: set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET in .env; select the PayPal base URL in application.toml.'
     printf '%s\n' 'Optional Resend client: set RESEND_API_KEY in .env to your Resend API key before sending email.'
     printf '%s\n' 'Optional Shopify client: set SHOPIFY_ACCESS_TOKEN in .env and client.shopify.admin_api_url in application.toml.'
 

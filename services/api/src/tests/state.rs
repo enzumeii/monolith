@@ -132,6 +132,56 @@ async fn resend_sdk_initialization_panics_are_retained_as_optional_errors() {
 }
 
 #[tokio::test]
+async fn paypal_state_is_optional_shared_and_retains_invalid_configuration() {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://fixture:fixture@localhost/fixture")
+        .unwrap();
+    let absent = app_state(pool.clone(), settings(&json!(null))).unwrap();
+    assert!(absent.paypal.unwrap().is_none());
+    for (id, secret, valid) in [
+        (None, None, false),
+        (Some(""), Some(""), true),
+        (Some(" "), Some(" "), true),
+        (Some("id"), None, false),
+        (None, Some("secret"), false),
+        (Some("id"), Some("secret"), true),
+    ] {
+        let mut settings = settings(&json!(null));
+        settings.client.as_mut().unwrap().paypal = Some(crate::config::PaypalConfig {
+            base_url: "https://api-m.sandbox.paypal.com/".into(),
+            timeout_secs: 10,
+            client_id: id.map(str::to_owned),
+            client_secret: secret.map(str::to_owned),
+        });
+        let state = app_state(pool.clone(), settings).unwrap();
+        if valid {
+            assert!(Arc::ptr_eq(
+                state.paypal.as_ref().unwrap().as_ref().unwrap(),
+                state.clone().paypal.as_ref().unwrap().as_ref().unwrap()
+            ));
+        } else {
+            let error = state
+                .paypal
+                .err()
+                .expect("missing credentials must retain constructor error");
+            assert!(matches!(
+                error.kind(),
+                crate::client::ClientErrorKind::InvalidInput(_)
+            ));
+            assert!(error.location().file().ends_with("client/paypal.rs"));
+        }
+    }
+    let mut settings = settings(&json!(null));
+    settings.client.as_mut().unwrap().paypal = Some(crate::config::PaypalConfig {
+        base_url: "invalid".into(),
+        timeout_secs: 10,
+        client_id: Some("id".into()),
+        client_secret: Some("secret".into()),
+    });
+    assert!(app_state(pool, settings).unwrap().paypal.is_err());
+}
+
+#[tokio::test]
 async fn stripe_state_shares_client_and_preserves_optional_errors() {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://fixture:fixture@localhost/fixture")

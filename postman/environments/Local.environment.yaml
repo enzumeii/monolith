@@ -2,15 +2,11 @@ name: Local
 values:
   - key: server
     value: 'localhost:3000'
-  - key: refresh_token
-    secret: true
-  - key: access_token
-    secret: true
   - key: shopify
     value: 'https://enzumeii.myshopify.com/admin/api/2026-10'
   - key: resend
-    value: ''
-  - key: resend_api_key
-    value: ''
+    value: 'https://api.resend.com'
+  - key: paypal
+    value: 'https://api-m.paypal.com'
   - key: stripe
     value: 'https://api.stripe.com/v1'

@@ -1,5 +1,8 @@
 use crate::{
-    client::{ClientError, resend::ResendClient, shopify::ShopifyClient, stripe::StripeClient},
+    client::{
+        ClientError, paypal::PaypalClient, resend::ResendClient, shopify::ShopifyClient,
+        stripe::StripeClient,
+    },
     config::Settings,
 };
 use sqlx::PgPool;
@@ -9,6 +12,7 @@ use std::sync::Arc;
 pub struct AppState {
     pub pool: PgPool,
     pub shopify: Result<Option<Arc<ShopifyClient>>, Arc<ClientError>>,
+    pub paypal: Result<Option<Arc<PaypalClient>>, Arc<ClientError>>,
     pub resend: Result<Option<Arc<ResendClient>>, Arc<ClientError>>,
     pub stripe: Result<Option<Arc<StripeClient>>, Arc<ClientError>>,
     pub jwt_key: Arc<Vec<u8>>,
@@ -27,6 +31,10 @@ pub fn app_state(pool: PgPool, settings: Settings) -> Result<AppState, config::C
         resend: optional_client(
             clients.and_then(|client| client.resend.as_ref()),
             ResendClient::new,
+        ),
+        paypal: optional_client(
+            clients.and_then(|client| client.paypal.as_ref()),
+            PaypalClient::new,
         ),
         stripe: optional_client(
             clients.and_then(|client| client.stripe.as_ref()),

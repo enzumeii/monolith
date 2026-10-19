@@ -1,17 +1,21 @@
 $kind: http-request
 url: "{{server}}/v1/auth/logout"
-method: GET
+method: POST
+body:
+  type: json
+  content: |-
+    {
+        "refresh_token" : "{{vault:refresh_token}}"
+    }
 auth:
-  type: bearer
+  type: inherit
   credentials:
-    token: "{{access_token}}"
+    id: d5d9db9c-ad63-479d-af2c-22b521036d9d
 scripts:
   - type: afterResponse
     code: |-
-      // 1. Parse the JSON response body
-      const responseData = pm.response.json();
-      // 2. Set the environment variable
-      pm.environment.set("access_token", "");
-      pm.environment.set("refresh_token", "");
+      // 2. Set the vault variable
+      pm.vault.set("access_token", "");
+      pm.vault.set("refresh_token", "");
     language: text/javascript
 order: 3000
