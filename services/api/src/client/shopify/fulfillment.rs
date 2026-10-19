@@ -17,9 +17,9 @@ impl ShopifyClient {
         id: &str,
     ) -> Result<crate::models::fulfillment::ReshipOrderData, ClientError> {
         self.execute(
-            "ReshipOrder",
-            include_str!("reship_order.graphql"),
-            json!({"id":id}),
+            "SalesOrderLines",
+            include_str!("sales_order_lines.graphql"),
+            json!({"id":id,"includeLines":false,"includeContact":true}),
         )
         .await
     }

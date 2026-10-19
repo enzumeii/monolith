@@ -52,6 +52,7 @@ pub async fn labels(state: &AppState) -> Result<ShippingLabels, AppError> {
             orders.extend(page);
             Ok(())
         },
+        std::convert::identity,
     )
     .await
     .map_err(|error| upstream(error))?;

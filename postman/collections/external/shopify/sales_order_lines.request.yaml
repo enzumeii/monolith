@@ -1,10 +1,17 @@
 $kind: graphql-request
 url: "{{shopify}}/graphql.json"
+description: 'Shared exact order-ID query. Defaults includeLines=true and includeContact=false preserve sales-report lines. For reship contact lookup set includeLines=false and includeContact=true: returns only id, number and email. Use a test-store order ID and local vault credentials. This is a read-only query; the internal reship endpoint separately tags and sends email.'
 query: |
-  query SalesOrderLines($id: ID!) {
+  query SalesOrderLines(
+    $id: ID!
+    $includeLines: Boolean! = true
+    $includeContact: Boolean! = false
+  ) {
     order(id: $id) {
       id
-      lineItems(first: 250) {
+      number @include(if: $includeContact)
+      email @include(if: $includeContact)
+      lineItems(first: 250) @include(if: $includeLines) {
         nodes {
           id
           title
@@ -34,7 +41,9 @@ query: |
   }
 variables: |
   {
-    "id": "gid://shopify/Order/123"
+    "id": "gid://shopify/Order/123",
+    "includeLines": true,
+    "includeContact": false
   }
 settings: {}
 schema:

@@ -606,7 +606,7 @@ async fn fulfillment_workflow_auth_and_optional_dependency_over_tcp() {
             assert_report_error(
                 client.send(request).await.unwrap(),
                 503,
-                "Shopify report unavailable",
+                "Shopify client unavailable",
             )
             .await;
         }
@@ -994,7 +994,7 @@ async fn fulfillment_workflow_invalid_configuration_stays_unavailable() {
         assert_report_error(
             client.send(request).await.unwrap(),
             503,
-            "Shopify report unavailable",
+            "Shopify client unavailable",
         )
         .await;
     }
@@ -1422,10 +1422,10 @@ async fn reship_sends_reference_notice_after_tagging_and_each_explicit_post() {
         assert_eq!(body_json(response).await, json!({"success":true}));
         let calls = upstream.requests();
         assert_eq!(calls.len(), (index + 1) * 2);
-        assert_eq!(calls[index * 2]["operationName"], "ReshipOrder");
+        assert_eq!(calls[index * 2]["operationName"], "SalesOrderLines");
         assert_eq!(
             calls[index * 2]["variables"],
-            json!({"id":"gid://shopify/Order/42"})
+            json!({"id":"gid://shopify/Order/42","includeLines":false,"includeContact":true})
         );
         assert_eq!(calls[index * 2 + 1]["operationName"], "AddOrderTags");
         assert_eq!(
@@ -1599,13 +1599,13 @@ async fn reship_optional_clients_and_settings_fail_before_lookup() {
             None,
             Some("re_e2e-fixture"),
             Some(1),
-            "Shopify report unavailable",
+            "Shopify client unavailable",
         ),
         (
             Some("invalid-url"),
             Some("re_e2e-fixture"),
             Some(1),
-            "Shopify report unavailable",
+            "Shopify client unavailable",
         ),
         (
             Some(url.as_str()),
