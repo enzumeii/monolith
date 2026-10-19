@@ -2,17 +2,11 @@ name: Prod
 values:
   - key: server
     value: ''
-  - key: refresh_token
-    value: ''
-  - key: access_token
-    value: ''
   - key: shopify
     value: 'https://enzumeii.myshopify.com/admin/api/2026-10'
   - key: resend
-    value: ''
+    value: 'https://api.resend.com'
   - key: paypal
     value: 'https://api-m.paypal.com'
-  - key: paypal_access_token
-    value: ''
   - key: stripe
     value: 'https://api.stripe.com/v1'

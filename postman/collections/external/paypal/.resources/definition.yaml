@@ -4,4 +4,4 @@ auth:
     type: bearer
     name: Bearer Token
     credentials:
-      token: "{{paypal_access_token}}"
+      token: "{{vault:paypal_access_token}}"

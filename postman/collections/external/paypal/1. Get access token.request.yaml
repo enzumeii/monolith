@@ -16,11 +16,11 @@ scripts:
   - type: afterResponse
     code: |
       pm.test("Token issued", function () {
-        pm.response.to.have.status(200);
-        const token = pm.response.json();
-        pm.expect(token.access_token).to.be.a("string").and.not.empty;
-        pm.expect(token.token_type.toLowerCase()).to.equal("bearer");
-        pm.expect(token.expires_in).to.be.above(0);
-        pm.environment.set("paypal_access_token", token.access_token);
+      	pm.response.to.have.status(200);
+      	const token = pm.response.json();
+      	pm.expect(token.access_token).to.be.a("string").and.not.empty;
+      	pm.expect(token.token_type.toLowerCase()).to.equal("bearer");
+      	pm.expect(token.expires_in).to.be.above(0);
+      	pm.vault.set("paypal_access_token", token.access_token);
       });
     language: text/javascript
