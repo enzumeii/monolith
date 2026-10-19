@@ -31,22 +31,8 @@ impl StripeClient {
             ClientError::new(ClientErrorKind::InvalidInput("invalid Stripe secret key"))
         })?;
         auth.set_sensitive(true);
-        let mut base_url = Url::parse(&config.base_url)
+        let base_url = Url::parse(&config.base_url)
             .map_err(|_| ClientError::new(ClientErrorKind::InvalidInput("invalid Stripe URL")))?;
-        if !matches!(base_url.scheme(), "http" | "https")
-            || base_url.host_str().is_none()
-            || !base_url.username().is_empty()
-            || base_url.password().is_some()
-            || base_url.query().is_some()
-            || base_url.fragment().is_some()
-        {
-            return Err(ClientError::new(ClientErrorKind::InvalidInput(
-                "invalid Stripe URL",
-            )));
-        }
-        if !base_url.path().ends_with('/') {
-            base_url.set_path(&format!("{}/", base_url.path()));
-        }
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, auth);
         Ok(Self {

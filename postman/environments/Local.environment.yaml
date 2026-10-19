@@ -20,15 +20,3 @@ values:
   - key: stripe_secret_key
     value: ''
     type: secret
-  - key: stripe_start
-    value: '1704067200'
-  - key: stripe_end
-    value: '1706745599'
-  - key: stripe_cursor
-    value: ''
-  - key: stripe_payout_id
-    value: 'po_example'
-  - key: stripe_charge_id
-    value: 'ch_example'
-  - key: stripe_refund_id
-    value: 're_example'

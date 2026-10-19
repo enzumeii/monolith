@@ -1,7 +1,7 @@
 $kind: http-request
 name: List balance transactions
-description: 'Read Stripe data. Required variables: stripe (base URL), stripe_secret_key (set locally), and the ID or Unix date filter variables shown below. List endpoints accept limit 1..100 and optional starting_after; enable the cursor parameter only for later pages. Success: 200 with data and has_more for lists or an object with id for retrieval. Amounts remain integer minor units and dates Unix seconds. Safe examples: {"data":[],"has_more":false}; errors use {"error":{"type":"invalid_request_error","message":"No such object"}} for 400/401/404/429 or 5xx. Use controlled servers for automated checks.'
-url: '{{stripe}}/balance_transactions?payout={{stripe_payout_id}}&limit=100'
+description: 'Read Stripe data. Required shared variables: stripe (base URL) and stripe_secret_key (set locally). Edit request-specific IDs and Unix date filters directly in this request. List endpoints accept limit 1..100 and optional starting_after; enable the cursor parameter only for later pages. Success: 200 with data and has_more for lists or an object with id for retrieval. Amounts remain integer minor units and dates Unix seconds. Safe examples: {"data":[],"has_more":false}; errors use {"error":{"type":"invalid_request_error","message":"No such object"}} for 400/401/404/429 or 5xx. Use controlled servers for automated checks.'
+url: '{{stripe}}/balance_transactions?payout=po_example&limit=100'
 method: GET
 order: 2000
 auth:
@@ -11,11 +11,11 @@ auth:
       value: '{{stripe_secret_key}}'
 queryParams:
   - key: 'payout'
-    value: '{{stripe_payout_id}}'
+    value: 'po_example'
   - key: 'limit'
     value: '100'
   - key: 'starting_after'
-    value: '{{stripe_cursor}}'
+    value: 'txn_example'
     disabled: true
 scripts:
   - type: afterResponse

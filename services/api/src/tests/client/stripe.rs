@@ -143,14 +143,15 @@ fn validates_configuration_and_redacts_secret() {
     cfg.timeout_secs = 0;
     assert!(StripeClient::new(&cfg).is_err());
     cfg.timeout_secs = 1;
+    cfg.base_url = "invalid".into();
+    assert!(StripeClient::new(&cfg).is_err());
     for url in [
-        "invalid",
         "ftp://example.com/",
         "https://user:pass@example.com/",
         "https://example.com/?q=x",
     ] {
         cfg.base_url = url.into();
-        assert!(StripeClient::new(&cfg).is_err());
+        assert!(StripeClient::new(&cfg).is_ok());
     }
 }
 
@@ -213,4 +214,22 @@ async fn decodes_populated_nested_fields_and_explicit_payout_status() {
     let refund = c.get_refund("re_full").await.unwrap();
     assert_eq!(refund.payment_intent.as_deref(), Some("pi_full"));
     assert_eq!(refund.reason.as_deref(), Some("requested_by_customer"));
+}
+
+#[tokio::test]
+async fn request_paths_preserve_base_with_or_without_trailing_slash() {
+    for path in ["/v1", "/v1/"] {
+        let fixture = Fixture::new(vec![Reply::json(json!({"data":[],"has_more":false})), Reply::json(json!({"id":"re_one","amount":1,"created":1,"currency":"usd","payment_intent":null,"reason":null}))]).await;
+        let c = StripeClient::new(&StripeConfig {
+            base_url: fixture.url.join(path).unwrap().to_string(),
+            timeout_secs: 1,
+            secret_key: Some("fixture".into()),
+        })
+        .unwrap();
+        c.list_payouts(1, 2, None, 1, None).await.unwrap();
+        c.get_refund("re_one").await.unwrap();
+        let requests = fixture.requests();
+        assert!(requests[0].0.starts_with("/v1/payouts?"));
+        assert_eq!(requests[1].0, "/v1/refunds/re_one");
+    }
 }
