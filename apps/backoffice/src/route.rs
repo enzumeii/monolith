@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 
-use crate::pages::{Admins, Home, Navbar, NotFound, Profile, Reports};
+use crate::{
+    components::NavLayout,
+    pages::{Admins, Home, NotFound, Profile, Reports, Triggers},
+};
 
 #[derive(Clone, Debug, PartialEq, Routable)]
 pub enum Route {
@@ -11,16 +14,10 @@ pub enum Route {
     Admins {},
     #[route("/reports")]
     Reports {},
+    #[route("/triggers")]
+    Triggers {},
     #[route("/profile")]
     Profile {},
     #[route("/:..segments")]
     NotFound { segments: Vec<String> },
-}
-
-#[component]
-fn NavLayout() -> Element {
-    rsx! {
-        Navbar {}
-        Outlet::<Route> {}
-    }
 }

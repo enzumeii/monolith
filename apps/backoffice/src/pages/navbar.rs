@@ -28,6 +28,7 @@ pub fn Navbar() -> Element {
                     Link { class: "tab", to: Route::Admins {}, "Admin List" }
                 }
                 Link { class: "tab", to: Route::Reports {}, "Reports" }
+                Link { class: "tab", to: Route::Triggers {}, "Triggers" }
                 Link { class: "tab", to: Route::Profile {}, "Profile" }
             }
             div { class: "topbar-actions",
