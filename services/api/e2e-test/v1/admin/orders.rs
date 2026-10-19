@@ -1930,3 +1930,188 @@ async fn review_connection_faults_stop_at_every_workflow_operation() {
         }
     }
 }
+
+#[tokio::test]
+async fn fulfillment_location_batches_combine_same_location_across_pages() {
+    let fixture = fixture().await;
+    for split_pages in [false, true] {
+        let mut first = fulfillable_order(split_pages.then_some("next"));
+        let mut second = fulfillable_order(None);
+        let second_node = &mut second["order"]["fulfillmentOrders"]["nodes"][0];
+        second_node["id"] = json!("gid://shopify/FulfillmentOrder/17");
+        second_node["lineItems"]["nodes"][0]["id"] =
+            json!("gid://shopify/FulfillmentOrderLineItem/18");
+        let mut replies = if split_pages {
+            vec![first, second]
+        } else {
+            first["order"]["fulfillmentOrders"]["nodes"]
+                .as_array_mut()
+                .unwrap()
+                .push(second_node.clone());
+            vec![first]
+        };
+        let reads = replies.len();
+        replies.extend([
+            json!({"fulfillmentCreate":{"fulfillment":{"id":"gid://shopify/Fulfillment/10"},"userErrors":[]}}),
+            tags_result(true, 42),
+        ]);
+        let (client, upstream) = client_with_upstream_script(replies, "http").await;
+        let response = client
+            .send(fulfill_request(
+                "42",
+                r#"{"courier":"BEST","tracking_number":"VP123"}"#,
+                fixture.root_id(),
+                AdminRole::Admin,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200, "split_pages={split_pages}");
+        assert_eq!(
+            body_json(response).await,
+            json!({"success":true,"tracking_url":"https://www.aftership.com/track/800bestex/VP123"})
+        );
+        let requests = upstream.requests();
+        assert_eq!(requests.len(), reads + 2);
+        let input = &requests[reads]["variables"]["fulfillment"];
+        assert_eq!(requests[reads]["operationName"], "CreateFulfillment");
+        assert_eq!(input["notifyCustomer"], true);
+        assert_eq!(
+            input["trackingInfo"],
+            json!({"company":"Other","number":"VP123","url":"https://www.aftership.com/track/800bestex/VP123"})
+        );
+        assert_eq!(
+            input["lineItemsByFulfillmentOrder"],
+            json!([
+                {"fulfillmentOrderId":"gid://shopify/FulfillmentOrder/7","fulfillmentOrderLineItems":[{"id":"gid://shopify/FulfillmentOrderLineItem/8","quantity":2}]},
+                {"fulfillmentOrderId":"gid://shopify/FulfillmentOrder/17","fulfillmentOrderLineItems":[{"id":"gid://shopify/FulfillmentOrderLineItem/18","quantity":2}]},
+            ])
+        );
+        assert_eq!(requests[reads + 1]["operationName"], "RemoveOrderTags");
+        assert_eq!(
+            requests[reads + 1]["variables"]["tags"],
+            json!(["SHIPPING"])
+        );
+    }
+}
+
+#[tokio::test]
+async fn fulfillment_location_batches_limit_outer_orders_to_250() {
+    let fixture = fixture().await;
+    let mut first = fulfillable_order(Some("next"));
+    let template = first["order"]["fulfillmentOrders"]["nodes"][0].clone();
+    let nodes: Vec<_> = (1..=251).map(|id| {
+        let mut node = template.clone();
+        node["id"] = json!(format!("gid://shopify/FulfillmentOrder/{id}"));
+        node["lineItems"] = page(vec![json!({"id":format!("gid://shopify/FulfillmentOrderLineItem/{id}"),"remainingQuantity":1})], None);
+        node
+    }).collect();
+    first["order"]["fulfillmentOrders"]["nodes"] = json!(&nodes[..250]);
+    let mut second = fulfillable_order(None);
+    second["order"]["fulfillmentOrders"]["nodes"] = json!(&nodes[250..]);
+    let created = json!({"fulfillmentCreate":{"fulfillment":{"id":"gid://shopify/Fulfillment/10"},"userErrors":[]}});
+    let (client, upstream) = client_with_upstream_script(
+        vec![
+            first,
+            second,
+            created.clone(),
+            created,
+            tags_result(true, 42),
+        ],
+        "http",
+    )
+    .await;
+    let response = client
+        .send(fulfill_request(
+            "42",
+            r#"{"courier":"BEST","tracking_number":"VP123"}"#,
+            fixture.root_id(),
+            AdminRole::Admin,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let requests = upstream.requests();
+    assert_eq!(requests.len(), 5);
+    assert_eq!(requests[1]["variables"]["after"], "next");
+    let mut seen = std::collections::HashSet::new();
+    for (index, size) in [(2, 250), (3, 1)] {
+        assert_eq!(requests[index]["operationName"], "CreateFulfillment");
+        let input = &requests[index]["variables"]["fulfillment"];
+        assert_eq!(input["notifyCustomer"], true);
+        let orders = input["lineItemsByFulfillmentOrder"].as_array().unwrap();
+        assert_eq!(orders.len(), size);
+        for order in orders {
+            assert!(seen.insert(order["fulfillmentOrderId"].as_str().unwrap()));
+            let lines = order["fulfillmentOrderLineItems"].as_array().unwrap();
+            assert_eq!(lines.len(), 1);
+            assert_eq!(lines[0]["quantity"], 1);
+        }
+    }
+    assert_eq!(seen.len(), 251);
+    assert_eq!(requests[4]["operationName"], "RemoveOrderTags");
+}
+
+#[tokio::test]
+async fn fulfillment_location_batches_keep_oversized_order_chunks_distinct() {
+    let fixture = fixture().await;
+    let mut order = fulfillable_order(None);
+    let mut small = order["order"]["fulfillmentOrders"]["nodes"][0].clone();
+    small["id"] = json!("gid://shopify/FulfillmentOrder/17");
+    small["lineItems"] = page(
+        vec![json!({"id":"gid://shopify/FulfillmentOrderLineItem/300","remainingQuantity":3})],
+        None,
+    );
+    order["order"]["fulfillmentOrders"]["nodes"][0]["lineItems"] = page((1..=250).map(|id| json!({"id":format!("gid://shopify/FulfillmentOrderLineItem/{id}"),"remainingQuantity":1})).collect(), Some("line"));
+    order["order"]["fulfillmentOrders"]["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(small);
+    let next = json!({"fulfillmentOrder":{"id":"gid://shopify/FulfillmentOrder/7","lineItems":page(vec![json!({"id":"gid://shopify/FulfillmentOrderLineItem/251","remainingQuantity":2})],None)}});
+    let created = json!({"fulfillmentCreate":{"fulfillment":{"id":"gid://shopify/Fulfillment/10"},"userErrors":[]}});
+    let (client, upstream) = client_with_upstream_script(
+        vec![order, next, created.clone(), created, tags_result(true, 42)],
+        "http",
+    )
+    .await;
+    let response = client
+        .send(fulfill_request(
+            "42",
+            r#"{"courier":"BEST","tracking_number":"VP123"}"#,
+            fixture.root_id(),
+            AdminRole::Admin,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let requests = upstream.requests();
+    assert_eq!(requests.len(), 5);
+    assert_eq!(requests[1]["operationName"], "FulfillmentOrderItems");
+    let first = requests[2]["variables"]["fulfillment"]["lineItemsByFulfillmentOrder"]
+        .as_array()
+        .unwrap();
+    let second = requests[3]["variables"]["fulfillment"]["lineItemsByFulfillmentOrder"]
+        .as_array()
+        .unwrap();
+    assert_eq!(first.len(), 2);
+    assert_eq!(second.len(), 1);
+    assert_eq!(
+        first[0]["fulfillmentOrderId"],
+        "gid://shopify/FulfillmentOrder/7"
+    );
+    assert_eq!(
+        first[0]["fulfillmentOrderLineItems"]
+            .as_array()
+            .unwrap()
+            .len(),
+        250
+    );
+    assert_eq!(
+        first[1],
+        json!({"fulfillmentOrderId":"gid://shopify/FulfillmentOrder/17","fulfillmentOrderLineItems":[{"id":"gid://shopify/FulfillmentOrderLineItem/300","quantity":3}]})
+    );
+    assert_eq!(
+        second[0],
+        json!({"fulfillmentOrderId":"gid://shopify/FulfillmentOrder/7","fulfillmentOrderLineItems":[{"id":"gid://shopify/FulfillmentOrderLineItem/251","quantity":2}]})
+    );
+    assert_eq!(requests[4]["operationName"], "RemoveOrderTags");
+}

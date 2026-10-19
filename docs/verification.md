@@ -117,3 +117,13 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitl
 | Local verification | Strict API `just check` and complete `just test` passed134 library tests and56 TCP E2E tests; Compose teardown completed. Workspace formatting/diff checks passed |
 | Postman and review | Changed YAML parses; internal13 requests lint with0 errors/warnings. Independent read-only review found no actionable issues |
 | Limits | Final-head hosted CI is recorded in the PR; no live Shopify calls or deployment |
+
+## ENZ-14 fulfillment location batching review fix (2026-10-19)
+
+| Check | Evidence |
+| --- | --- |
+| Red/green | Three new real-TCP regressions failed before the service change and passed afterward: same-location orders on one or separate pages share one creation;251 orders batch250+1; a251-line order plus a small order preserves distinct line chunks without duplicate order IDs |
+| API | Strict API just check passed. Complete just test passed152 native and90 real-TCP tests with zero ignored; Compose PostgreSQL teardown completed |
+| Preserved behavior | Existing separate-location, remaining-quantity, tracking, later-failure, tag-order, label/list/report and reship scenarios passed. SHIPPING is removed only after all required creations succeed |
+| Postman | Internal18 and external19 requests lint with zero errors/warnings. All18 Shopify GraphQL query/variable pairs match; existing fulfillment example now shows two same-location orders |
+| Limits | Controlled Shopify/Resend HTTP services and Compose PostgreSQL only; no live provider calls or mailbox-delivery proof. Required overflow batches can create multiple fulfillments/notifications. Existing partial-side-effect and ambiguous-timeout limits remain |

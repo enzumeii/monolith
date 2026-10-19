@@ -22,7 +22,7 @@ pub async fn fulfill(
     let mut after = None;
     let mut cursors = HashSet::new();
     let mut seen = HashSet::new();
-    let mut locations: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    let mut locations: BTreeMap<String, Vec<Vec<Value>>> = BTreeMap::new();
     loop {
         let result = client
             .fulfillment_orders(&id, after.clone())
@@ -78,10 +78,12 @@ pub async fn fulfill(
                 .ok_or_else(|| protocol("fulfillment location missing"))?;
             resource_number(&location.id, "Location").map_err(|error| upstream(error))?;
             let items = fulfillment_lines(lines)?;
-            for chunk in items.chunks(250) {
-                locations
-                    .entry(location.id.clone())
-                    .or_default()
+            let batches = locations.entry(location.id).or_default();
+            for (index, chunk) in items.chunks(250).enumerate() {
+                if batches.len() <= index {
+                    batches.push(Vec::new());
+                }
+                batches[index]
                     .push(json!({"fulfillmentOrderId":order.id,"fulfillmentOrderLineItems":chunk}));
             }
         }
@@ -99,13 +101,7 @@ pub async fn fulfill(
             "Order has no remaining fulfillable items",
         ));
     }
-    let (company, url) = tracking(&request.tracking_number)?;
-    for lines in locations.into_values() {
-        for line in lines {
-            let created=client.create_fulfillment(json!({"notifyCustomer":true,"trackingInfo":{"company":company,"number":request.tracking_number,"url":url},"lineItemsByFulfillmentOrder":[line]})).await.map_err(|error|upstream(error))?;
-            resource_number(&created, "Fulfillment").map_err(|error| upstream(error))?;
-        }
-    }
+    let url = create_fulfillments(client, locations, &request).await?;
     let updated = client
         .remove_order_tags(&id, &["SHIPPING"])
         .await
@@ -116,6 +112,34 @@ pub async fn fulfill(
         tracking_url: url,
     })
 }
+async fn create_fulfillments(
+    client: &crate::client::shopify::ShopifyClient,
+    locations: BTreeMap<String, Vec<Vec<Value>>>,
+    request: &FulfillOrderRequest,
+) -> Result<String, AppError> {
+    let (company, url) = tracking(&request.tracking_number)?;
+    for batches in locations.into_values() {
+        for batch in batches {
+            for orders in batch.chunks(250) {
+                let created = client
+                    .create_fulfillment(json!({
+                        "notifyCustomer": true,
+                        "trackingInfo": {
+                            "company": company,
+                            "number": request.tracking_number,
+                            "url": url,
+                        },
+                        "lineItemsByFulfillmentOrder": orders,
+                    }))
+                    .await
+                    .map_err(|error| upstream(error))?;
+                resource_number(&created, "Fulfillment").map_err(|error| upstream(error))?;
+            }
+        }
+    }
+    Ok(url)
+}
+
 fn fulfillment_lines(
     lines: Vec<crate::models::fulfillment::FulfillmentLine>,
 ) -> Result<Vec<Value>, AppError> {
