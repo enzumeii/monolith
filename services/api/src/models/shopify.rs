@@ -72,6 +72,12 @@ impl ShopifyId {
             .is_some_and(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
     }
 }
+impl AsRef<str> for ShopifyId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ProductStatus {
@@ -580,6 +586,155 @@ impl<T> Connection<T> {
 
 mod inventory;
 pub(crate) use inventory::InventoryActivationItem;
+
+#[derive(Deserialize)]
+pub(crate) struct ReshipOrder {
+    pub id: String,
+    pub number: i64,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub email: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct OrdersPage<T> {
+    pub orders: Connection<T>,
+}
+#[derive(Deserialize)]
+pub(crate) struct OrderSummary {
+    pub id: String,
+    pub number: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ShippingOrder {
+    pub id: String,
+    pub email: Option<String>,
+    #[serde(default, deserialize_with = "ShippingOrder::deserialize_weight")]
+    pub total_weight: Option<u64>,
+    pub shipping_address: Option<ShippingAddress>,
+    pub shipping_lines: Nodes<ShippingLine>,
+    pub line_items: Nodes<ShippingItem>,
+}
+#[derive(Deserialize)]
+pub(crate) struct ShippingLine {
+    pub code: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ShippingItem {
+    pub title: String,
+    pub sku: Option<String>,
+    pub quantity: u64,
+    pub original_unit_price_set: MoneyBag,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ShippingAddress {
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub name: Option<String>,
+    pub address1: Option<String>,
+    pub address2: Option<String>,
+    pub city: Option<String>,
+    pub province_code: Option<String>,
+    pub zip: Option<String>,
+    pub country: Option<String>,
+    pub country_code_v2: Option<String>,
+    pub phone: Option<String>,
+}
+#[derive(Deserialize)]
+pub(crate) struct OrderData {
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub order: Option<FulfillmentOrderHeader>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FulfillmentOrderHeader {
+    pub fulfillment_orders: Connection<FulfillmentOrder>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FulfillmentOrder {
+    pub id: String,
+    pub status: String,
+    pub supported_actions: Vec<SupportedAction>,
+    pub line_items: Nodes<FulfillmentLine>,
+}
+#[derive(Deserialize)]
+pub(crate) struct SupportedAction {
+    pub action: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FulfillmentLine {
+    pub id: String,
+    pub remaining_quantity: u64,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TagData {
+    pub tags_add: Option<TagResult>,
+    pub tags_remove: Option<TagResult>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TagResult {
+    pub node: Option<ResourceReference>,
+    pub user_errors: Vec<MutationUserError>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CreateData {
+    pub fulfillment_create: CreateResult,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CreateResult {
+    pub fulfillment: Option<ResourceReference>,
+    pub user_errors: Vec<MutationUserError>,
+}
+
+impl TagResult {
+    pub fn into_id(self) -> Result<String, ClientError> {
+        if !self.user_errors.is_empty() {
+            return Err(ClientError::new(ClientErrorKind::Mutation {
+                errors: self.user_errors,
+            }));
+        }
+        self.node
+            .map(|node| node.id.as_ref().to_owned())
+            .ok_or_else(|| ClientError::new(ClientErrorKind::Protocol("mutation result missing")))
+    }
+}
+impl CreateResult {
+    pub fn into_id(self) -> Result<String, ClientError> {
+        TagResult {
+            node: self.fulfillment,
+            user_errors: self.user_errors,
+        }
+        .into_id()
+    }
+}
+
+impl ShippingOrder {
+    fn deserialize_weight<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<u64>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Weight {
+            Integer(u64),
+            Text(String),
+        }
+        Option::<Weight>::deserialize(deserializer)?
+            .map(|weight| match weight {
+                Weight::Integer(value) => Ok(value),
+                Weight::Text(value) => value.parse().map_err(serde::de::Error::custom),
+            })
+            .transpose()
+    }
+}
 
 #[cfg(test)]
 #[path = "../tests/models/shopify.rs"]

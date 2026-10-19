@@ -1,4 +1,4 @@
-use crate::models::fulfillment::{
+use crate::models::shopify::{
     CreateData, OrderData, OrderSummary, OrdersPage, ShippingOrder, TagData,
 };
 use crate::{
@@ -176,8 +176,8 @@ impl ShopifyClient {
     pub(crate) async fn get_order_by_order_number(
         &self,
         number: u16,
-    ) -> Result<Option<crate::models::fulfillment::ReshipOrder>, ClientError> {
-        let data: OrdersPage<crate::models::fulfillment::ReshipOrder> = self.execute("ListOrders", include_str!("shopify/list_orders.graphql"), json!({"first":1,"after":null,"search":format!("name:{number}"),"includeContact":true})).await?;
+    ) -> Result<Option<crate::models::shopify::ReshipOrder>, ClientError> {
+        let data: OrdersPage<crate::models::shopify::ReshipOrder> = self.execute("ListOrders", include_str!("shopify/list_orders.graphql"), json!({"first":1,"after":null,"search":format!("name:{number}"),"includeContact":true})).await?;
         Ok(data.orders.nodes.into_iter().next())
     }
 
@@ -205,7 +205,7 @@ impl ShopifyClient {
     }
     pub(crate) async fn fulfillment_orders(
         &self,
-        id: &str,
+        id: &ShopifyId,
         after: Option<String>,
     ) -> Result<OrderData, ClientError> {
         self.execute(

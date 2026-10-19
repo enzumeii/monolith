@@ -57,7 +57,21 @@ fn fulfillment_reuses_shopify_id_bounds_without_changing_the_request_contract() 
         );
         assert_eq!(result.is_ok(), valid, "{id}");
         if let Ok((gid, _)) = result {
-            assert_eq!(gid, format!("gid://shopify/Order/{id}"));
+            assert_eq!(gid.as_ref(), format!("gid://shopify/Order/{id}"));
         }
+    }
+}
+
+#[test]
+fn listing_cursor_can_be_omitted_and_preserves_a_provided_cursor() {
+    for (query, cursor) in [
+        ("", None),
+        ("page_size=1", None),
+        ("cursor=next", Some("next")),
+    ] {
+        let uri: Uri = format!("/v1/admin/orders?{query}").parse().unwrap();
+        let (_, page) = extract_list_query(Query::try_from_uri(&uri)).unwrap();
+        assert_eq!(page.after.as_deref(), cursor);
+        assert_eq!(page.first, if query == "page_size=1" { 1 } else { 50 });
     }
 }

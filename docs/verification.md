@@ -169,3 +169,21 @@ Earlier sections record historical behavior and test runs; this section supersed
 | Postman execution | Saved reship and shipping-label HTTP requests ran against the real local API with controlled Shopify/Resend servers; observed lookup → email → tag. Local GraphQL request execution requires Postman login and was unavailable; no live-provider compatibility claim |
 | Independent review | No remaining code correctness findings; corrected the stale inventory-alias documentation |
 | Real-TCP API | Full API recipe passed all91 E2E tests with Docker PostgreSQL and controlled Shopify/Resend HTTP services; Compose teardown completed; zero ignored |
+
+## Additional ENZ-14 comments (2026-10-20)
+
+| Contract | Verification scope |
+| --- | --- |
+| Currency-independent declaration | New unit regression failed on the THB guard and passed after removing both currency checks. Covers THB/USD/EUR, price summed once, Tip exclusion, stock price/quantity distinction, minimum100 and existing invalid/nonfinite/overflow rejection |
+| Listing cursor | Omitted cursor remains accepted and forwards after:null; explicit cursor and default/page-size behavior preserved; validation wording now says optional |
+| Typed fulfillment | ShopifyId retained from extractor through service and fulfillment-order client; standard AsRef borrowing supports the existing tag boundary; invalid numeric ID and u64-boundary coverage retained |
+| Model ownership | Provider DTOs and selected-field tests consolidated into Shopify models; duplicate resource envelope replaced by existing ResourceReference; serde hooks and root/nested metadata contracts preserved |
+| Limits | Controlled providers only; no actual FX rates, live Shopify writes or customer emails. Postman GraphQL execution still requires login; static parity and Rust TCP checks cover its transport contracts |
+
+| Check | Result |
+| --- | --- |
+| Full API recipe | 192 native tests and92 real-TCP tests passed, zero failed/ignored; Compose PostgreSQL teardown completed |
+| Final query/model checks | Required nested shopMoney currency selection retained for MoneyBag; new cross-file query contract failed on omission and passed after restoration. All13 consolidated model tests and the focused non-THB TCP scenario passed against the final query |
+| Saved HTTP requests | Listing and shipping-label requests ran against the rebuilt real local API and a controlled Shopify server; both passed |
+| Static contracts | API formatting/strict lint and both Postman collection lints passed; all14 GraphQL documents match request text and variable sets |
+| Review | Independent final review reports no remaining findings; shared DTO/backoffice code unchanged from the prior verified round |

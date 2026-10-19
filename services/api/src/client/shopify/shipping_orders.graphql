@@ -9,7 +9,6 @@ query ShippingOrders($first: Int!, $after: String, $search: String!) {
     nodes {
       id
       email
-      currencyCode
       totalWeight
       shippingAddress {
         firstName

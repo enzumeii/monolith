@@ -13,7 +13,6 @@ query: |
       nodes {
         id
         email
-        currencyCode
         totalWeight
         shippingAddress {
           firstName

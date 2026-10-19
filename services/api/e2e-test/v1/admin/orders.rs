@@ -359,7 +359,7 @@ async fn fulfillment_workflow_routes_have_real_tcp_contracts() {
 }
 
 fn shipping_order(id: u64, country: &str, method: &str) -> Value {
-    json!({"id":format!("gid://shopify/Order/{id}"),"email":"customer@example.test","currencyCode":"THB","totalWeight":2000,
+    json!({"id":format!("gid://shopify/Order/{id}"),"email":"customer@example.test","totalWeight":2000,
         "shippingAddress":{"firstName":"Jane","lastName":"Doe","name":"Jane Doe","address1":"1 Test St","address2":null,"city":"Test City","provinceCode":"TS","zip":"00123","country":"Test Country","countryCodeV2":country,"phone":"+66 (123) 456"},
         "shippingLines":{"nodes":vec![json!({"code":method})]},
         "lineItems":{"nodes":vec![json!({"title":"Keychain","sku":"ABCKEY000001","quantity":3,"originalUnitPriceSet":{"shopMoney":{"amount":"30","currencyCode":"THB"}}})]}})
@@ -479,8 +479,7 @@ fn fulfill_request(
 async fn fulfillment_workflow_validation_rejects_before_business_calls() {
     let fixture = fixture().await;
     let (client, upstream) = client_with_upstream_script(vec![], "http").await;
-    let message =
-        "Expected tag, a valid fulfillment, page_size between 1 and 250, and a nonblank cursor";
+    let message = "Expected tag, a valid fulfillment, page_size between 1 and 250, and an optional nonblank cursor";
     for query in [
         "?tag=",
         "?tag=%20",
@@ -1993,6 +1992,7 @@ async fn review_plan_listing_without_tag_uses_an_empty_search() {
         .unwrap();
     assert_eq!(response.status(), 200);
     assert_eq!(upstream.requests()[0]["variables"]["search"], "");
+    assert!(upstream.requests()[0]["variables"]["after"].is_null());
 }
 
 #[tokio::test]
@@ -2021,5 +2021,45 @@ async fn reship_uses_one_filtered_query_for_boundary_order_numbers() {
         );
         assert_eq!(calls[1]["operationName"], "EditOrderTags");
         assert_eq!(mail.requests().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn shipping_declaration_markup_accepts_any_selected_price_currency() {
+    for (currency, amount, want) in [
+        ("USD", "30", 150.0),
+        ("EUR", "1", 100.0),
+        ("THB", "30", 150.0),
+    ] {
+        let mut order = shipping_order(1, "US", "USPS");
+        order["lineItems"]["nodes"][0]["originalUnitPriceSet"]["shopMoney"] =
+            json!({"amount":amount,"currencyCode":currency});
+        let (client, upstream) = client_with_upstream_script(
+            vec![
+                json!({"orders":page(vec![order],None)}),
+                tags_result(false, 1),
+                tags_result(true, 1),
+            ],
+            "http",
+        )
+        .await;
+        let response = client
+            .send(authed(
+                "POST",
+                "/v1/admin/orders/shipping_label",
+                1,
+                AdminRole::Admin,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(
+            body_json(response).await["fastship"][0]["declared_value"],
+            want
+        );
+        let calls = upstream.requests();
+        assert_eq!(calls.len(), 3);
+        assert_eq!(calls[1]["variables"]["add"], true);
+        assert_eq!(calls[2]["variables"]["add"], false);
     }
 }

@@ -1,7 +1,7 @@
 use crate::{
     client::{ClientError, ClientErrorKind},
     error::AppError,
-    models::fulfillment::{ShippingAddress, ShippingItem, ShippingOrder},
+    models::shopify::{ShippingAddress, ShippingItem, ShippingOrder},
 };
 use axum::http::StatusCode;
 use domain::dto::orders::Courier;
@@ -71,8 +71,7 @@ impl Parcel {
             required(address.phone.as_deref(), "Order shipping phone missing")?;
             required(address.zip.as_deref(), "Order shipping postcode missing")?;
         }
-        let (quantity, price, category) =
-            declaration(order.line_items.nodes, &order.currency_code)?;
+        let (quantity, price, category) = declaration(order.line_items.nodes)?;
         let weight = if select_courier(&method) == Some(Courier::Best) {
             0
         } else {
@@ -97,16 +96,7 @@ impl Parcel {
     }
 }
 
-pub(super) fn declaration(
-    items: Vec<ShippingItem>,
-    currency: &str,
-) -> Result<(u64, Number, String), AppError> {
-    if currency != "THB" {
-        return Err(AppError::new(
-            StatusCode::CONFLICT,
-            "Shipping declarations require THB orders",
-        ));
-    }
+pub(super) fn declaration(items: Vec<ShippingItem>) -> Result<(u64, Number, String), AppError> {
     let mut quantity = 0u64;
     let mut price = 0.0;
     let mut category = (0, "Stickers");
@@ -128,9 +118,6 @@ pub(super) fn declaration(
                 .ok_or_else(|| invalid("Shipping quantity overflow"))?;
         }
         let money = item.original_unit_price_set.shop_money;
-        if money.currency_code != "THB" {
-            return Err(invalid("Shipping line currency differs from THB"));
-        }
         let amount = money
             .amount
             .parse::<f64>()

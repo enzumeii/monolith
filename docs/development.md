@@ -164,3 +164,5 @@ Report queries require product, inventory, location and order access; reading un
 | Fulfillment workload | One selling location, at most 250 order items; completed/cancelled fulfillment orders are skipped; one creation precedes SHIPPING removal |
 | Shipping workload | ShippingOrders combines item and shipping-method reads, each fixed250 without child cursors; root orders still paginate. Extra shipping-label query parameters are ignored |
 | Provider tooling | ListOrders defaults to no email projection; set includeContact=true for merchant lookup. EditOrderTags selects add=true or false and preserves unrelated tags |
+| Listing cursor | Optional: omission forwards after:null. Supplied cursors must be nonblank; the literal string null is an opaque string, not a JSON null |
+| Shipping declaration | Apply the legacy mock rule to any selected price currency: max(sum of non-Tip prices ×5,100). Stock quantities are excluded; stock prices remain included |

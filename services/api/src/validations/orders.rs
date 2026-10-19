@@ -31,7 +31,7 @@ pub fn extract_list_query(
     let invalid = || {
         AppError::new(
             StatusCode::BAD_REQUEST,
-            "Expected tag, a valid fulfillment, page_size between 1 and 250, and a nonblank cursor",
+            "Expected tag, a valid fulfillment, page_size between 1 and 250, and an optional nonblank cursor",
         )
     };
     let Query(query) = query.map_err(|_| invalid())?;
@@ -77,7 +77,13 @@ pub fn extract_fulfill_request(
         axum::Json<domain::dto::orders::FulfillOrderRequest>,
         axum::extract::rejection::JsonRejection,
     >,
-) -> Result<(String, domain::dto::orders::FulfillOrderRequest), AppError> {
+) -> Result<
+    (
+        crate::models::shopify::ShopifyId,
+        domain::dto::orders::FulfillOrderRequest,
+    ),
+    AppError,
+> {
     let invalid = || {
         AppError::new(
             StatusCode::BAD_REQUEST,
@@ -85,10 +91,9 @@ pub fn extract_fulfill_request(
         )
     };
     let axum::extract::Path(id) = path.map_err(|_| invalid())?;
-    let id = format!("gid://shopify/Order/{id}");
-    crate::models::shopify::ShopifyId::new(id.clone())
-        .and_then(|id| id.number("Order"))
+    let id = crate::models::shopify::ShopifyId::new(format!("gid://shopify/Order/{id}"))
         .map_err(|_| invalid())?;
+    id.number("Order").map_err(|_| invalid())?;
     let axum::Json(body) = body.map_err(|_| invalid())?;
     if matches!(body.tracking_number.as_str(), "." | "..")
         || body.tracking_number.is_empty()

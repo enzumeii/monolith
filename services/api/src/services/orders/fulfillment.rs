@@ -16,7 +16,7 @@ use std::collections::HashSet;
 
 pub async fn fulfill(
     state: &AppState,
-    id: String,
+    id: ShopifyId,
     request: FulfillOrderRequest,
 ) -> Result<FulfillOrderResponse, AppError> {
     let client = shopify_client(state)?;
@@ -92,7 +92,7 @@ pub async fn fulfill(
         .and_then(|id| id.number("Fulfillment"))
         .map_err(upstream)?;
     client
-        .edit_order_tags(&id, &["SHIPPING"], TagAction::Remove)
+        .edit_order_tags(id.as_ref(), &["SHIPPING"], TagAction::Remove)
         .await
         .map_err(upstream)?;
     Ok(FulfillOrderResponse {
@@ -101,7 +101,7 @@ pub async fn fulfill(
     })
 }
 fn fulfillment_lines(
-    lines: Vec<crate::models::fulfillment::FulfillmentLine>,
+    lines: Vec<crate::models::shopify::FulfillmentLine>,
 ) -> Result<Vec<Value>, AppError> {
     let mut items = Vec::new();
     let mut ids = HashSet::new();

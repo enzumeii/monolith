@@ -316,3 +316,43 @@ fn fulfillment_resource_kinds_share_checked_shopify_numeric_extraction() {
         }
     }
 }
+
+#[test]
+fn shipping_weight_accepts_shopify_unsigned_integer_strings() {
+    let order:ShippingOrder=serde_json::from_value(json!({"id":"gid://shopify/Order/1","email":null,"totalWeight":"2000","shippingAddress":null,"shippingLines":{"nodes":[]},"lineItems":{"nodes":[]}})).expect("valid fixture");
+    assert_eq!(order.total_weight, Some(2000));
+}
+#[test]
+fn resource_identity_rejects_wrong_kind_zero_and_overflow() {
+    for id in [
+        "gid://shopify/Order/0",
+        "gid://shopify/Product/1",
+        "gid://shopify/Order/-1",
+        "gid://shopify/Order/18446744073709551616",
+    ] {
+        assert!(
+            crate::models::shopify::ShopifyId::new(id)
+                .and_then(|id| id.number("Order"))
+                .is_err()
+        );
+    }
+    assert_eq!(
+        crate::models::shopify::ShopifyId::new("gid://shopify/Order/42")
+            .and_then(|id| id.number("Order"))
+            .expect("valid fixture"),
+        42
+    );
+}
+
+#[test]
+fn shipping_query_keeps_required_money_fields_after_removing_order_currency() {
+    let query = include_str!("../../client/shopify/shipping_orders.graphql")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(query.contains("shopMoney { amount currencyCode }"));
+    let money: MoneyBag =
+        serde_json::from_value(json!({"shopMoney":{"amount":"30","currencyCode":"USD"}}))
+            .expect("query-selected price");
+    assert_eq!(money.shop_money.currency_code, "USD");
+}

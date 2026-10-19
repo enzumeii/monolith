@@ -6,7 +6,7 @@ use crate::{
     client::shopify::TagAction,
     config::ShippingSender,
     error::AppError,
-    models::{fulfillment::ShippingOrder, shopify::ShopifyId},
+    models::shopify::{ShippingOrder, ShopifyId},
     state::AppState,
 };
 use axum::http::StatusCode;
