@@ -23,3 +23,6 @@ web = ["dioxus/web"]
 [dev-dependencies]
 futures.workspace = true
 zip = { version = "9.0", default-features = false, features = ["deflate"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
