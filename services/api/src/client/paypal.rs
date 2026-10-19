@@ -2,10 +2,10 @@ use super::{ClientError, ClientErrorKind, HttpClient};
 use crate::{config::PaypalConfig, models::paypal::TransactionPage};
 use chrono::{DateTime, SecondsFormat, Utc};
 use reqwest::{
-    Url,
+    RequestBuilder, Url,
     header::{AUTHORIZATION, HeaderValue},
 };
-use serde::Deserialize;
+use serde::{Deserialize, de::DeserializeOwned};
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::Instant};
 
@@ -33,29 +33,8 @@ impl PaypalClient {
     pub fn new(config: &PaypalConfig) -> Result<Self, ClientError> {
         let base_url = Url::parse(&config.base_url)
             .map_err(|_| ClientError::new(ClientErrorKind::InvalidInput("invalid PayPal URL")))?;
-        let loopback = matches!(
-            base_url.host_str(),
-            Some("localhost" | "127.0.0.1" | "[::1]")
-        );
-        if base_url.host_str().is_none()
-            || !(base_url.scheme() == "https" || (base_url.scheme() == "http" && loopback))
-            || !base_url.username().is_empty()
-            || base_url.password().is_some()
-            || base_url.query().is_some()
-            || base_url.fragment().is_some()
-            || base_url.path() != "/"
-        {
-            return Err(ClientError::new(ClientErrorKind::InvalidInput(
-                "invalid PayPal URL",
-            )));
-        }
         let client_id = credential(config.client_id.as_deref())?;
         let client_secret = credential(config.client_secret.as_deref())?;
-        if client_id.contains(':') {
-            return Err(ClientError::new(ClientErrorKind::InvalidInput(
-                "invalid PayPal client ID",
-            )));
-        }
         Ok(Self {
             http: HttpClient::new(Duration::from_secs(config.timeout_secs))?,
             base_url,
@@ -72,16 +51,6 @@ impl PaypalClient {
         page_size: u16,
         page: u32,
     ) -> Result<TransactionPage, ClientError> {
-        if start > end
-            || end.signed_duration_since(start) > chrono::Duration::days(31)
-            || !(1..=500).contains(&page_size)
-            || page == 0
-            || page > 2_147_483_647
-        {
-            return Err(ClientError::new(ClientErrorKind::InvalidInput(
-                "invalid PayPal transaction search range or page",
-            )));
-        }
         let mut url = self
             .base_url
             .join("v1/reporting/transactions")
@@ -96,44 +65,48 @@ impl PaypalClient {
             ("page_size", page_size.to_string()),
             ("page", page.to_string()),
         ]);
-        let token = self.access_token(None).await?;
-        let response = self.transactions_page(url.clone(), &token).await;
-        let response = match response {
-            Err(error) if matches!(error.kind(), ClientErrorKind::Http { status: 401, .. }) => {
-                let renewed = self.access_token(Some(&token)).await?;
-                self.transactions_page(url, &renewed).await?
-            }
-            other => other?,
-        };
-        if response.page != page
-            || (response.total_items > 0
-                && (response.total_pages < page || response.transaction_details.is_empty()))
-            || (response.total_items == 0
-                && (!response.transaction_details.is_empty() || response.total_pages > 1))
-            || response.transaction_details.len() > usize::from(page_size)
-        {
-            return Err(ClientError::new(ClientErrorKind::Protocol(
-                "invalid PayPal pagination metadata",
-            )));
-        }
-        Ok(response)
+        self.bearer_request(|| self.http.inner.get(url.clone()))
+            .await
     }
 
-    async fn transactions_page(
+    async fn basic_auth_request<R: DeserializeOwned>(
         &self,
-        url: Url,
-        token: &AccessToken,
-    ) -> Result<TransactionPage, ClientError> {
+        request: RequestBuilder,
+    ) -> Result<R, ClientError> {
         self.http
             .execute(
-                self.http
-                    .inner
-                    .get(url)
-                    .header(AUTHORIZATION, token.authorization.clone()),
+                request.basic_auth(&self.client_id, Some(&self.client_secret)),
                 |status| status.as_u16() == 429,
                 |_| false,
             )
             .await
+    }
+
+    async fn bearer_request<R: DeserializeOwned>(
+        &self,
+        make_request: impl Fn() -> RequestBuilder,
+    ) -> Result<R, ClientError> {
+        let mut token = self.access_token(None).await?;
+        let mut renewed = false;
+        loop {
+            let response = self
+                .http
+                .execute(
+                    make_request().header(AUTHORIZATION, token.authorization.clone()),
+                    |status| status.as_u16() == 429,
+                    |_| false,
+                )
+                .await;
+            if !renewed
+                && let Err(error) = &response
+                && matches!(error.kind(), ClientErrorKind::Http { status: 401, .. })
+            {
+                token = self.access_token(Some(&token)).await?;
+                renewed = true;
+                continue;
+            }
+            return response;
+        }
     }
 
     async fn access_token(
@@ -154,15 +127,11 @@ impl PaypalClient {
             .map_err(|_| ClientError::new(ClientErrorKind::InvalidInput("invalid PayPal URL")))?;
         let requested_at = Instant::now();
         let response: TokenResponse = self
-            .http
-            .execute(
+            .basic_auth_request(
                 self.http
                     .inner
                     .post(url)
-                    .basic_auth(&self.client_id, Some(&self.client_secret))
                     .form(&[("grant_type", "client_credentials")]),
-                |status| status.as_u16() == 429,
-                |_| false,
             )
             .await?;
         if response.access_token.trim().is_empty()
@@ -195,14 +164,11 @@ impl PaypalClient {
 }
 
 fn credential(value: Option<&str>) -> Result<String, ClientError> {
-    value
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_owned)
-        .ok_or_else(|| {
-            ClientError::new(ClientErrorKind::InvalidInput(
-                "PayPal credentials are missing",
-            ))
-        })
+    value.map(str::to_owned).ok_or_else(|| {
+        ClientError::new(ClientErrorKind::InvalidInput(
+            "PayPal credentials are missing",
+        ))
+    })
 }
 
 #[cfg(test)]

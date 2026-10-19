@@ -185,11 +185,9 @@ async fn rate_limit_uses_shared_bounded_retry_budget() {
     assert_eq!(f.requests().len(), 5);
 }
 #[tokio::test]
-async fn invalid_inputs_do_not_contact_provider() {
-    let f = Fixture::new(vec![]).await;
-    let client = PaypalClient::new(&config(&f)).unwrap();
+async fn transaction_inputs_are_forwarded_and_provider_rejections_propagate() {
     let (start, end) = dates();
-    for (a, b, size, page) in [
+    for (a, b, size, page_number) in [
         (start, end, 0, 1),
         (start, end, 501, 1),
         (start, end, 1, 0),
@@ -197,17 +195,55 @@ async fn invalid_inputs_do_not_contact_provider() {
         (end, start, 500, 1),
         (start, start + chrono::Duration::days(32), 500, 1),
     ] {
+        let f = Fixture::new(vec![token("fixture-token"), Reply::status(400)]).await;
+        let client = PaypalClient::new(&config(&f)).unwrap();
+        let error = client
+            .get_transactions(a, b, size, page_number)
+            .await
+            .unwrap_err();
         assert!(matches!(
-            client
-                .get_transactions(a, b, size, page)
-                .await
-                .unwrap_err()
-                .kind(),
-            ClientErrorKind::InvalidInput(_)
+            error.kind(),
+            ClientErrorKind::Http { status: 400, .. }
         ));
+        let requests = f.requests();
+        assert_eq!(requests.len(), 2);
+        let url = f.url.join(&requests[1].0).unwrap();
+        let query: std::collections::BTreeMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(query["page_size"], size.to_string());
+        assert_eq!(query["page"], page_number.to_string());
+        if a == end {
+            assert_eq!(query["start_date"], "2026-10-02T00:00:00Z");
+        }
+        if b == start {
+            assert_eq!(query["end_date"], "2026-10-01T00:00:00Z");
+        }
+        if b > end {
+            assert_eq!(query["end_date"], "2026-11-02T00:00:00Z");
+        }
+        safe(&error);
     }
-    assert_eq!(f.requests(), []);
 }
+
+#[tokio::test]
+async fn decoded_page_metadata_is_returned_without_local_consistency_checks() {
+    for body in [
+        json!({"transaction_details":[],"page":2,"total_items":1,"total_pages":1}),
+        json!({"transaction_details":[],"page":1,"total_items":10,"total_pages":0}),
+        json!({"transaction_details":[],"page":1,"total_items":0,"total_pages":2}),
+    ] {
+        let f = Fixture::new(vec![token("fixture-token"), Reply::json(body.clone())]).await;
+        let response = report(&PaypalClient::new(&config(&f)).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(u64::from(response.page), body["page"].as_u64().unwrap());
+        assert_eq!(response.total_items, body["total_items"].as_u64().unwrap());
+        assert_eq!(
+            u64::from(response.total_pages),
+            body["total_pages"].as_u64().unwrap()
+        );
+    }
+}
+
 #[tokio::test]
 async fn unusable_token_responses_are_errors_and_never_leak_payloads() {
     for body in [
@@ -226,10 +262,9 @@ async fn unusable_token_responses_are_errors_and_never_leak_payloads() {
     }
 }
 #[tokio::test]
-async fn malformed_reports_and_wrong_page_metadata_are_rejected() {
+async fn malformed_reports_are_rejected_by_typed_decoding() {
     for body in [
         json!({}),
-        json!({"transaction_details":[],"page":2,"total_items":1,"total_pages":1}),
         json!({"transaction_details":[{"transaction_info":{}}],"page":1,"total_items":1,"total_pages":1}),
     ] {
         let f = Fixture::new(vec![token("fixture-token"), Reply::json(body)]).await;
@@ -279,30 +314,63 @@ async fn timeout_is_a_transport_error() {
     safe(&error);
 }
 #[tokio::test]
-async fn construction_rejects_invalid_settings() {
+async fn construction_keeps_only_required_parsing_presence_and_transport_failures() {
     let f = Fixture::new(vec![]).await;
-    for url in [
-        "invalid",
-        "http://example.com/",
-        "https://user:secret@example.com/",
-        "https://example.com/?token=private",
-        "https://example.com/#private",
-    ] {
-        let mut cfg = config(&f);
-        cfg.base_url = url.into();
-        assert!(PaypalClient::new(&cfg).is_err());
-    }
-    for key in [None, Some(""), Some(" ")] {
-        let mut cfg = config(&f);
-        cfg.client_id = key.map(str::to_owned);
-        assert!(PaypalClient::new(&cfg).is_err());
-        let mut cfg = config(&f);
-        cfg.client_secret = key.map(str::to_owned);
-        assert!(PaypalClient::new(&cfg).is_err());
-    }
+    let mut cfg = config(&f);
+    cfg.base_url = "invalid".into();
+    assert!(PaypalClient::new(&cfg).is_err());
+    let mut cfg = config(&f);
+    cfg.client_id = None;
+    assert!(PaypalClient::new(&cfg).is_err());
+    let mut cfg = config(&f);
+    cfg.client_secret = None;
+    assert!(PaypalClient::new(&cfg).is_err());
     let mut cfg = config(&f);
     cfg.timeout_secs = 0;
     assert!(PaypalClient::new(&cfg).is_err());
+}
+
+#[tokio::test]
+async fn construction_trusts_syntactically_valid_url_configuration() {
+    let f = Fixture::new(vec![]).await;
+    for url in [
+        "http://example.test/",
+        "https://user:secret@example.test/",
+        "https://example.test/custom/",
+        "https://example.test/?configuration=value",
+        "https://example.test/#configured-fragment",
+    ] {
+        let mut cfg = config(&f);
+        cfg.base_url = url.into();
+        assert!(PaypalClient::new(&cfg).is_ok());
+    }
+    assert_eq!(f.requests(), []);
+}
+
+#[tokio::test]
+async fn configured_credential_contents_are_forwarded_to_basic_auth() {
+    for (id, secret, expected) in [
+        ("", "", "Basic Og=="),
+        (" ", " ", "Basic IDog"),
+        (
+            "fixture:id",
+            "fixture-secret",
+            "Basic Zml4dHVyZTppZDpmaXh0dXJlLXNlY3JldA==",
+        ),
+    ] {
+        let f = Fixture::new(vec![Reply::status(401)]).await;
+        let mut cfg = config(&f);
+        cfg.client_id = Some(id.into());
+        cfg.client_secret = Some(secret.into());
+        let error = report(&PaypalClient::new(&cfg).unwrap()).await.unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            ClientErrorKind::Http { status: 401, .. }
+        ));
+        let requests = f.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].1["authorization"], expected);
+    }
 }
 
 #[tokio::test]
