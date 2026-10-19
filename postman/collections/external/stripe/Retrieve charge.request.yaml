@@ -1,0 +1,17 @@
+$kind: http-request
+description: ""
+url: "{{stripe}}/charges/:charge_id"
+method: GET
+pathVariables:
+  - key: charge_id
+    value: ch_3OZxoTFaTfIlKPqw0n6Fq8dm
+    description: ""
+order: 3000
+auth:
+  type: inherit
+  credentials:
+    id: 44bc4504-b8a5-4b4d-b887-d7458a64aaf2
+scripts:
+  - type: afterResponse
+    code: ""
+    language: text/javascript

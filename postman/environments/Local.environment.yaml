@@ -14,3 +14,5 @@ values:
     value: 'https://api-m.paypal.com'
   - key: paypal_access_token
     value: ''
+  - key: stripe
+    value: 'https://api.stripe.com/v1'

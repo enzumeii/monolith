@@ -330,3 +330,24 @@ fn paypal_credentials_are_centralized_and_non_secrets_remain_file_based() {
     assert_eq!(paypal.timeout_secs, file_config.timeout_secs);
     assert!(!format!("{paypal:?}").contains("private-paypal"));
 }
+
+#[test]
+fn stripe_key_comes_from_central_configuration() {
+    let settings = temp_env::with_vars(
+        [
+            ("DATABASE_URL", Some("postgres://unused")),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
+            ("STRIPE_SECRET_KEY", Some("sk_test_private")),
+        ],
+        Settings::new,
+    )
+    .unwrap();
+    let stripe = settings.client.unwrap().stripe.unwrap();
+    assert_eq!(stripe.secret_key.as_deref(), Some("sk_test_private"));
+    assert_eq!(stripe.base_url, "https://api.stripe.com/v1/");
+    assert_eq!(stripe.timeout_secs, 3);
+    assert!(!format!("{stripe:?}").contains("sk_test_private"));
+}

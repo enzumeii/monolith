@@ -18,3 +18,7 @@ timeout_secs = 3
 [client.paypal]
 base_url = "https://api-m.paypal.com"
 timeout_secs = 3
+
+[client.stripe]
+base_url = "https://api.stripe.com/v1/"
+timeout_secs = 3
