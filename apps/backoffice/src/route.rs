@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::pages::{Admins, Home, Navbar, NotFound, Profile};
+use crate::pages::{Admins, Home, Navbar, NotFound, Profile, Reports};
 
 #[derive(Clone, Debug, PartialEq, Routable)]
 pub enum Route {
@@ -9,6 +9,8 @@ pub enum Route {
     Home {},
     #[route("/admins")]
     Admins {},
+    #[route("/reports")]
+    Reports {},
     #[route("/profile")]
     Profile {},
     #[route("/:..segments")]

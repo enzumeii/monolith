@@ -13,3 +13,6 @@ pub use home::Home;
 pub use login::Login;
 pub use navbar::Navbar;
 pub use profile::Profile;
+
+mod reports;
+pub use reports::Reports;
