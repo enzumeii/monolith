@@ -10,13 +10,7 @@ values:
     value: 'https://enzumeii.myshopify.com/admin/api/2026-10'
   - key: resend
     value: ''
-
   - key: resend_api_key
-    value: ""
-    type: secret
-
+    value: ''
   - key: stripe
     value: 'https://api.stripe.com/v1'
-  - key: stripe_secret_key
-    value: ''
-    type: secret

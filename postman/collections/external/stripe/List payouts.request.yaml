@@ -1,28 +1,25 @@
 $kind: http-request
-name: List payouts
-description: 'Read Stripe data. Required shared variables: stripe (base URL) and stripe_secret_key (set locally). Edit request-specific IDs and Unix date filters directly in this request. List endpoints accept limit 1..100 and optional starting_after; enable the cursor parameter only for later pages. Success: 200 with data and has_more for lists or an object with id for retrieval. Amounts remain integer minor units and dates Unix seconds. Safe examples: {"data":[],"has_more":false}; errors use {"error":{"type":"invalid_request_error","message":"No such object"}} for 400/401/404/429 or 5xx. Use controlled servers for automated checks.'
-url: '{{stripe}}/payouts?arrival_date[gte]=1704067200&arrival_date[lte]=1706745599&status=paid&limit=100'
+description: ""
+url: "{{stripe}}/payouts?arrival_date[gte]=1704067200&arrival_date[lte]=1706745599&status=paid&limit=100"
 method: GET
 order: 1000
 auth:
-  type: bearer
+  type: inherit
   credentials:
-    - key: token
-      value: '{{stripe_secret_key}}'
+    id: 44bc4504-b8a5-4b4d-b887-d7458a64aaf2
 queryParams:
-  - key: 'arrival_date[gte]'
-    value: '1704067200'
-  - key: 'arrival_date[lte]'
-    value: '1706745599'
-  - key: 'status'
-    value: 'paid'
-  - key: 'limit'
-    value: '100'
-  - key: 'starting_after'
-    value: 'po_example'
+  - key: arrival_date[gte]
+    value: "1704067200"
+  - key: arrival_date[lte]
+    value: "1706745599"
+  - key: status
+    value: paid
+  - key: limit
+    value: "100"
+  - key: starting_after
+    value: po_example
     disabled: true
 scripts:
   - type: afterResponse
+    code: ""
     language: text/javascript
-    code: |
-      pm.test("Stripe response", function () { pm.response.to.have.status(200); const body = pm.response.json(); pm.expect(body.data).to.be.an("array"); pm.expect(body.has_more).to.be.a("boolean"); });

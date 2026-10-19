@@ -1,16 +1,17 @@
 $kind: http-request
-name: Retrieve refund
-description: 'Read Stripe data. Required shared variables: stripe (base URL) and stripe_secret_key (set locally). Edit request-specific IDs and Unix date filters directly in this request. List endpoints accept limit 1..100 and optional starting_after; enable the cursor parameter only for later pages. Success: 200 with data and has_more for lists or an object with id for retrieval. Amounts remain integer minor units and dates Unix seconds. Safe examples: {"data":[],"has_more":false}; errors use {"error":{"type":"invalid_request_error","message":"No such object"}} for 400/401/404/429 or 5xx. Use controlled servers for automated checks.'
-url: '{{stripe}}/refunds/re_example'
+description: ""
+url: "{{stripe}}/refunds/:refund_id"
 method: GET
+pathVariables:
+  - key: refund_id
+    value: re_3OY3LTFaTfIlKPqw1PqbC6PZ
+    description: ""
 order: 4000
 auth:
-  type: bearer
+  type: inherit
   credentials:
-    - key: token
-      value: '{{stripe_secret_key}}'
+    id: 44bc4504-b8a5-4b4d-b887-d7458a64aaf2
 scripts:
   - type: afterResponse
+    code: ""
     language: text/javascript
-    code: |
-      pm.test("Stripe response", function () { pm.response.to.have.status(200); const body = pm.response.json(); pm.expect(body.id).to.be.a("string"); pm.expect(body.amount).to.be.a("number"); });
