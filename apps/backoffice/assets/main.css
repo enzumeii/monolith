@@ -446,3 +446,9 @@ a:focus-visible {
 .save-report-dialog { width: min(28rem, calc(100vw - 2rem)); }
 .save-report-dialog form { display: flex; flex-direction: column; gap: 0.5rem; }
 .report-save .error { max-width: 28rem; }
+
+.trigger-form { display: grid; gap: 0.75rem; }
+.trigger-form .primary { justify-self: start; }
+.trigger-loading { z-index: 100; touch-action: none; }
+.trigger-loading:focus { outline: none; }
+.trigger-response { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
