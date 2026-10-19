@@ -4,7 +4,7 @@
 
 Run `../../init.sh` to install the CLI packages after installing Rust and Docker.
 
-`just setup` installs pinned dprint with Cargo under `.tools/`, caches its GraphQL/JSON plugins, and creates `.env` when missing. It adds an empty `RESEND_API_KEY` entry if absent; supply your Resend API key there to enable email sending.
+`just setup` installs pinned dprint with Cargo under `.tools/`, caches its GraphQL/JSON plugins, and creates `.env` when missing. It adds empty `RESEND_API_KEY`, `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` entries if absent. Supply optional provider credentials there; PayPal uses the sandbox URL in `application.toml` by default.
 
 ## Run locally
 

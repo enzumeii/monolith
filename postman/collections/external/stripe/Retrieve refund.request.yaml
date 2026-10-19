@@ -1,0 +1,17 @@
+$kind: http-request
+description: ""
+url: "{{stripe}}/refunds/:refund_id"
+method: GET
+pathVariables:
+  - key: refund_id
+    value: re_3OY3LTFaTfIlKPqw1PqbC6PZ
+    description: ""
+order: 4000
+auth:
+  type: inherit
+  credentials:
+    id: 44bc4504-b8a5-4b4d-b887-d7458a64aaf2
+scripts:
+  - type: afterResponse
+    code: ""
+    language: text/javascript

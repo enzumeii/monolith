@@ -1,0 +1,25 @@
+$kind: http-request
+description: ""
+url: "{{stripe}}/payouts?arrival_date[gte]=1704067200&arrival_date[lte]=1706745599&status=paid&limit=100"
+method: GET
+order: 1000
+auth:
+  type: inherit
+  credentials:
+    id: 44bc4504-b8a5-4b4d-b887-d7458a64aaf2
+queryParams:
+  - key: arrival_date[gte]
+    value: "1704067200"
+  - key: arrival_date[lte]
+    value: "1706745599"
+  - key: status
+    value: paid
+  - key: limit
+    value: "100"
+  - key: starting_after
+    value: po_example
+    disabled: true
+scripts:
+  - type: afterResponse
+    code: ""
+    language: text/javascript

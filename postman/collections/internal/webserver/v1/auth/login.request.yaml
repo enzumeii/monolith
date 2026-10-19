@@ -17,7 +17,7 @@ scripts:
       // 1. Parse the JSON response body
       const responseData = pm.response.json();
       // 2. Set the environment variable
-      pm.environment.set("access_token", responseData.access_token);
-      pm.environment.set("refresh_token", responseData.refresh_token);
+      pm.vault.set("access_token", responseData.access_token);
+      pm.vault.set("refresh_token", responseData.refresh_token);
     language: text/javascript
 order: 1000

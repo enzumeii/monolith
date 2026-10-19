@@ -1,0 +1,26 @@
+$kind: http-request
+description: ""
+url: "{{stripe}}/balance_transactions?payout=po_1OcEUxFaTfIlKPqwiNJ5vVCY&limit=100"
+method: GET
+order: 2000
+auth:
+  type: inherit
+  credentials:
+    id: 44bc4504-b8a5-4b4d-b887-d7458a64aaf2
+queryParams:
+  - key: payout
+    value: po_1OcEUxFaTfIlKPqwiNJ5vVCY
+    disabled: false
+    description: ""
+  - key: limit
+    value: "100"
+    disabled: false
+    description: ""
+  - key: starting_after
+    value: txn_example
+    disabled: true
+    description: ""
+scripts:
+  - type: afterResponse
+    code: ""
+    language: text/javascript

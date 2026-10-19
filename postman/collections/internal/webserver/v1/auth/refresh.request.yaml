@@ -5,7 +5,7 @@ body:
   type: json
   content: |-
     {
-        "refresh_token" : "{{refresh_token}}"
+        "refresh_token" : "{{vault:refresh_token}}"
     }
 scripts:
   - type: afterResponse
@@ -13,6 +13,6 @@ scripts:
       // 1. Parse the JSON response body
       const responseData = pm.response.json();
       // 2. Set the environment variable
-      pm.environment.set("access_token", responseData.access_token);
+      pm.vault.set("access_token", responseData.access_token);
     language: text/javascript
 order: 2000

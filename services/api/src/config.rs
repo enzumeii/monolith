@@ -28,8 +28,24 @@ pub struct BrowserConfig {
 }
 #[derive(Debug, Deserialize, Clone)]
 pub struct ClientConfig {
+    pub paypal: Option<PaypalConfig>,
     pub shopify: Option<ShopifyConfig>,
     pub resend: Option<ResendConfig>,
+    pub stripe: Option<StripeConfig>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct PaypalConfig {
+    pub base_url: String,
+    pub timeout_secs: u64,
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
+}
+
+impl std::fmt::Debug for PaypalConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PaypalConfig { credentials: [REDACTED], .. }")
+    }
 }
 
 #[derive(Deserialize, Clone)]
@@ -53,6 +69,18 @@ pub struct ResendConfig {
 impl std::fmt::Debug for ResendConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ResendConfig { api_key: [REDACTED], .. }")
+    }
+}
+
+#[derive(Deserialize, Clone)]
+pub struct StripeConfig {
+    pub base_url: String,
+    pub timeout_secs: u64,
+    pub secret_key: Option<String>,
+}
+impl std::fmt::Debug for StripeConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("StripeConfig { secret_key: [REDACTED], .. }")
     }
 }
 
@@ -161,6 +189,15 @@ impl Settings {
             if let Ok(value) = env::var(format!("SHIPPING_SENDER_{}", field.to_ascii_uppercase())) {
                 builder = builder.set_override(format!("shipping_sender.{field}"), value)?;
             }
+        }
+        if let Ok(client_id) = env::var("PAYPAL_CLIENT_ID") {
+            builder = builder.set_override("client.paypal.client_id", client_id)?;
+        }
+        if let Ok(client_secret) = env::var("PAYPAL_CLIENT_SECRET") {
+            builder = builder.set_override("client.paypal.client_secret", client_secret)?;
+        }
+        if let Ok(key) = env::var("STRIPE_SECRET_KEY") {
+            builder = builder.set_override("client.stripe.secret_key", key)?;
         }
         let settings: Self = builder.build()?.try_deserialize()?;
         settings.validate()?;

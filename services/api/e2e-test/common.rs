@@ -508,6 +508,9 @@ insecure_local = true
             .envs(config.resend_key.map(|key| ("RESEND_API_KEY", key)))
             .envs(config.resend_url.map(|url| ("RESEND_BASE_URL", url)))
             .envs(config.resend_url.map(|_| ("RESEND_RATE_LIMIT", "1000")))
+            .env_remove("PAYPAL_CLIENT_ID")
+            .env_remove("PAYPAL_CLIENT_SECRET")
+            .env_remove("STRIPE_SECRET_KEY")
             .envs(shopify_url.map(|_| ("SHOPIFY_ACCESS_TOKEN", "e2e-fixture-token")))
             .stdin(Stdio::null())
             .stdout(Stdio::from(
