@@ -23,8 +23,7 @@ where
             Some(page) => page,
             None => fetch(after.clone()).await?,
         };
-        page.page_info
-            .validate_after(after.as_deref())
+        page.validate_after(after.as_deref())
             .map_err(&mut pagination_error)?;
         consume(page.nodes)?;
         if !page.page_info.has_next_page {

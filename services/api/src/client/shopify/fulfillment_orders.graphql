@@ -13,10 +13,6 @@ query FulfillmentOrders($id: ID!, $first: Int!, $after: String) {
             id
             remainingQuantity
           }
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
         }
       }
       pageInfo {

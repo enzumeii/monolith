@@ -361,14 +361,14 @@ async fn fulfillment_workflow_routes_have_real_tcp_contracts() {
 fn shipping_order(id: u64, country: &str, method: &str) -> Value {
     json!({"id":format!("gid://shopify/Order/{id}"),"email":"customer@example.test","currencyCode":"THB","totalWeight":2000,
         "shippingAddress":{"firstName":"Jane","lastName":"Doe","name":"Jane Doe","address1":"1 Test St","address2":null,"city":"Test City","provinceCode":"TS","zip":"00123","country":"Test Country","countryCodeV2":country,"phone":"+66 (123) 456"},
-        "shippingLines":page(vec![json!({"code":method})],None),
-        "lineItems":page(vec![json!({"title":"Keychain","sku":"ABCKEY000001","quantity":3,"originalUnitPriceSet":{"shopMoney":{"amount":"30","currencyCode":"THB"}}})],None)})
+        "shippingLines":{"nodes":vec![json!({"code":method})]},
+        "lineItems":{"nodes":vec![json!({"title":"Keychain","sku":"ABCKEY000001","quantity":3,"originalUnitPriceSet":{"shopMoney":{"amount":"30","currencyCode":"THB"}}})]}})
 }
 fn tags_result(remove: bool, id: u64) -> Value {
     json!({if remove {"tagsRemove"} else {"tagsAdd"}:{"node":{"id":format!("gid://shopify/Order/{id}")},"userErrors":[]}})
 }
 fn fulfillable_order(next: Option<&str>) -> Value {
-    json!({"order":{"id":"gid://shopify/Order/42","fulfillmentOrders":page(vec![json!({"id":"gid://shopify/FulfillmentOrder/7","status":"OPEN","supportedActions":[{"action":"CREATE_FULFILLMENT"}],"lineItems":page(vec![json!({"id":"gid://shopify/FulfillmentOrderLineItem/8","remainingQuantity":2}),json!({"id":"gid://shopify/FulfillmentOrderLineItem/9","remainingQuantity":0})],None)})],next)}})
+    json!({"order":{"id":"gid://shopify/Order/42","fulfillmentOrders":page(vec![json!({"id":"gid://shopify/FulfillmentOrder/7","status":"OPEN","supportedActions":[{"action":"CREATE_FULFILLMENT"}],"lineItems":{"nodes":vec![json!({"id":"gid://shopify/FulfillmentOrderLineItem/8","remainingQuantity":2}),json!({"id":"gid://shopify/FulfillmentOrderLineItem/9","remainingQuantity":0})]}})],next)}})
 }
 #[tokio::test]
 async fn shipping_labels_route_preserves_reference_carriers_and_tag_order() {
@@ -557,21 +557,6 @@ async fn fulfillment_workflow_validation_rejects_before_business_calls() {
         .await
         .unwrap();
     assert_report_error(response, 400, message).await;
-    let response = client
-        .send(authed(
-            "POST",
-            "/v1/admin/orders/shipping_label?x=1",
-            fixture.root_id(),
-            AdminRole::Admin,
-        ))
-        .await
-        .unwrap();
-    assert_report_error(
-        response,
-        400,
-        "Shipping labels do not accept query parameters",
-    )
-    .await;
     assert!(upstream.requests().is_empty());
 }
 
@@ -848,30 +833,8 @@ async fn fulfillment_workflow_domain_outcomes_and_mutation_rejections() {
 }
 
 #[tokio::test]
-async fn shipping_labels_pagination_and_nested_completeness_guard_before_mutations() {
+async fn shipping_labels_root_pagination_precedes_mutations() {
     let fixture = fixture().await;
-    for field in ["lineItems", "shippingLines"] {
-        let mut order = shipping_order(1, "US", "USPS");
-        order[field]["pageInfo"] = json!({"hasNextPage":true,"endCursor":null});
-        let (client, upstream) =
-            client_with_upstream_script(vec![json!({"orders":page(vec![order],None)})], "http")
-                .await;
-        assert_report_error(
-            client
-                .send(authed(
-                    "POST",
-                    "/v1/admin/orders/shipping_label",
-                    fixture.root_id(),
-                    AdminRole::Admin,
-                ))
-                .await
-                .unwrap(),
-            502,
-            "Upstream request failed",
-        )
-        .await;
-        assert_eq!(upstream.requests().len(), 1);
-    }
     let (client, upstream) = client_with_upstream_script(
         vec![
             json!({"orders":page(vec![shipping_order(1,"US","USPS")],Some("next"))}),
@@ -1032,15 +995,12 @@ async fn fulfillment_list_default_and_boundary_pages_return_upstream_metadata() 
 }
 
 #[tokio::test]
-async fn fulfillment_nested_truncation_and_unsupported_actions_never_create_fulfillments() {
+async fn fulfillment_unsupported_actions_and_closed_orders_never_create_fulfillments() {
     let fixture = fixture().await;
-    for case in ["nested", "action", "closed"] {
+    for case in ["action", "closed"] {
         let mut order = fulfillable_order(None);
         let node = &mut order["order"]["fulfillmentOrders"]["nodes"][0];
         match case {
-            "nested" => {
-                node["lineItems"]["pageInfo"] = json!({"hasNextPage":true,"endCursor":null})
-            }
             "action" => node["supportedActions"] = json!([]),
             "closed" => node["status"] = json!("CLOSED"),
             _ => unreachable!(),
@@ -1145,51 +1105,6 @@ async fn review_regression_rejects_bad_carrier_contact_and_dot_tracking_before_w
 }
 
 #[tokio::test]
-async fn review_regression_traverses_order_and_fulfillment_lines_before_mutations() {
-    let fixture = fixture().await;
-    let mut order = shipping_order(1, "US", "USPS");
-    order["lineItems"]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"child"});
-    let extra = order["lineItems"]["nodes"][0].clone();
-    let (client, upstream) = client_with_upstream_script(
-        vec![
-            json!({"orders":page(vec![order],None)}),
-            json!({"order":{"id":"gid://shopify/Order/1","lineItems":page(vec![extra],None)}}),
-            tags_result(false, 1),
-            tags_result(true, 1),
-        ],
-        "http",
-    )
-    .await;
-    let response = client
-        .send(authed(
-            "POST",
-            "/v1/admin/orders/shipping_label",
-            fixture.root_id(),
-            AdminRole::Admin,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), 200);
-    assert_eq!(body_json(response).await["fastship"][0]["quantity"], 6);
-    assert_eq!(upstream.requests()[1]["variables"]["after"], "child");
-    let mut order = fulfillable_order(None);
-    order["order"]["fulfillmentOrders"]["nodes"][0]["lineItems"]["pageInfo"] =
-        json!({"hasNextPage":true,"endCursor":"child"});
-    let (client,upstream)=client_with_upstream_script(vec![order,json!({"fulfillmentOrder":{"id":"gid://shopify/FulfillmentOrder/7","lineItems":page(vec![json!({"id":"gid://shopify/FulfillmentOrderLineItem/18","remainingQuantity":3})],None)}}),json!({"fulfillmentCreate":{"fulfillment":{"id":"gid://shopify/Fulfillment/10"},"userErrors":[]}}),tags_result(true,42)],"http").await;
-    let response = client
-        .send(fulfill_request(
-            "42",
-            r#"{"courier":"BEST","tracking_number":"VP123"}"#,
-            fixture.root_id(),
-            AdminRole::Admin,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(response.status(), 200);
-    assert_eq!(upstream.requests()[2]["variables"]["fulfillment"]["lineItemsByFulfillmentOrder"][0]["fulfillmentOrderLineItems"].as_array().unwrap().len(),2);
-}
-
-#[tokio::test]
 async fn review_regression_unknown_shipping_code_never_changes_tags() {
     let fixture = fixture().await;
     let (client, upstream) = client_with_upstream_script(
@@ -1229,90 +1144,50 @@ async fn review_regression_dot_tracking_never_reaches_shopify() {
 }
 
 #[tokio::test]
-async fn review_nested_operations_map_each_dependency_failure_before_writes() {
-    let fixture = fixture().await;
-    for flow in ["items", "methods", "fulfillment"] {
-        for failure in [
-            "http",
-            "graphql",
-            "partial",
-            "malformed",
-            "missing",
-            "shape",
-            "timeout",
-            "throttled",
-        ] {
-            let prefix = if flow == "fulfillment" {
-                let mut order = fulfillable_order(None);
-                order["order"]["fulfillmentOrders"]["nodes"][0]["lineItems"]["pageInfo"] =
-                    json!({"hasNextPage":true,"endCursor":"child"});
-                order
-            } else {
-                let mut order = shipping_order(1, "US", "USPS");
-                let field = if flow == "items" {
-                    "lineItems"
-                } else {
-                    "shippingLines"
-                };
-                order[field]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"child"});
-                json!({"orders":page(vec![order],None)})
-            };
-            let (client, upstream) = client_with_upstream_script(vec![prefix], failure).await;
-            let request = if flow == "fulfillment" {
-                fulfill_request(
-                    "42",
-                    r#"{"courier":"BEST","tracking_number":"VP123"}"#,
-                    fixture.root_id(),
-                    AdminRole::Admin,
-                )
-            } else {
-                authed(
-                    "POST",
-                    "/v1/admin/orders/shipping_label",
-                    fixture.root_id(),
-                    AdminRole::Admin,
-                )
-            };
-            assert_report_error(
-                client.send(request).await.unwrap(),
-                if failure == "timeout" { 504 } else { 502 },
-                "Upstream request failed",
-            )
-            .await;
-            assert_eq!(
-                upstream.requests().len(),
-                if failure == "throttled" { 5 } else { 2 },
-                "{flow} {failure}"
-            );
-        }
-    }
-}
-
-#[tokio::test]
-async fn review_nested_shipping_methods_and_large_fulfillment_arrays_complete() {
+async fn combined_queries_read_250_items_and_shipping_lines_without_continuation() {
     let fixture = fixture().await;
     let mut order = shipping_order(1, "US", "USPS");
-    order["shippingLines"]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"method"});
-    let (client,upstream)=client_with_upstream_script(vec![json!({"orders":page(vec![order],None)}),json!({"order":{"id":"gid://shopify/Order/1","shippingLines":page(vec![json!({"code":"Standard Shipping"})],None)}}),tags_result(false,1),tags_result(true,1)],"http").await;
-    assert_eq!(
-        client
-            .send(authed(
-                "POST",
-                "/v1/admin/orders/shipping_label",
-                fixture.root_id(),
-                AdminRole::Admin
-            ))
-            .await
+    let item = order["lineItems"]["nodes"][0].clone();
+    order["lineItems"] = json!({"nodes":vec![item;250]});
+    order["shippingLines"] = json!({"nodes":vec![json!({"code":"USPS"});250]});
+    let (client, upstream) = client_with_upstream_script(
+        vec![
+            json!({"orders":page(vec![order],None)}),
+            tags_result(false, 1),
+            tags_result(true, 1),
+        ],
+        "http",
+    )
+    .await;
+    let response = client
+        .send(authed(
+            "POST",
+            "/v1/admin/orders/shipping_label?x=1",
+            fixture.root_id(),
+            AdminRole::Admin,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(body_json(response).await["fastship"][0]["quantity"], 750);
+    let calls = upstream.requests();
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[0]["operationName"], "ShippingOrders");
+    assert_eq!(calls[1]["operationName"], "EditOrderTags");
+    assert!(
+        calls[0]["query"]
+            .as_str()
             .unwrap()
-            .status(),
-        200
+            .contains("shippingLines(first: 250)")
     );
-    assert_eq!(
-        upstream.requests()[1]["operationName"],
-        "ShippingOrderMethods"
+    assert!(
+        calls[0]["query"]
+            .as_str()
+            .unwrap()
+            .contains("lineItems(first: 250)")
     );
     let mut order = fulfillable_order(None);
-    order["order"]["fulfillmentOrders"]["nodes"][0]["lineItems"]=page((1..=250).map(|id|json!({"id":format!("gid://shopify/FulfillmentOrderLineItem/{id}"),"remainingQuantity":1})).collect(),None);
+    order["order"]["fulfillmentOrders"]["nodes"][0]["lineItems"] = json!({"nodes":(1..=250).map(|id|json!({"id":format!("gid://shopify/FulfillmentOrderLineItem/{id}"),"remainingQuantity":1})).collect::<Vec<_>>()});
     let (client,upstream)=client_with_upstream_script(vec![order,json!({"fulfillmentCreate":{"fulfillment":{"id":"gid://shopify/Fulfillment/10"},"userErrors":[]}}),tags_result(true,42)],"http").await;
     let response = client
         .send(fulfill_request(
@@ -1342,12 +1217,21 @@ impl Drop for ReshipMailServer {
 }
 impl ReshipMailServer {
     async fn start(mode: &'static str) -> Self {
+        Self::start_with_check(mode, || {}).await
+    }
+    async fn start_with_check(
+        mode: &'static str,
+        before_reply: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
         use axum::http::{HeaderMap, StatusCode};
+        let before_reply = std::sync::Arc::new(before_reply);
         let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let recorded = requests.clone();
         let router = Router::new().route("/emails", axum::routing::post(move |headers: HeaderMap, Json(body): Json<Value>| {
             let recorded = recorded.clone();
+            let before_reply = before_reply.clone();
             async move {
+                before_reply();
                 assert_eq!(headers["authorization"], "Bearer re_e2e-fixture");
                 assert!(!headers.contains_key("idempotency-key"));
                 recorded.lock().unwrap().push(body);
@@ -1393,7 +1277,7 @@ async fn reship_client(shopify_url: &str, mail: &ReshipMailServer) -> crate::com
 }
 
 #[tokio::test]
-async fn reship_sends_reference_notice_after_tagging_and_each_explicit_post() {
+async fn reship_sends_reference_notice_before_tagging_and_each_explicit_post() {
     let (url, upstream) = crate::common::scripted_upstream(
         vec![
             reship_order(),
@@ -1404,7 +1288,13 @@ async fn reship_sends_reference_notice_after_tagging_and_each_explicit_post() {
         "http",
     )
     .await;
-    let mail = ReshipMailServer::start("ok").await;
+    let upstream = std::sync::Arc::new(upstream);
+    let lookup = upstream.clone();
+    let mail = ReshipMailServer::start_with_check("ok", move || {
+        let calls = lookup.requests();
+        assert_eq!(calls.last().unwrap()["operationName"], "ListOrders");
+    })
+    .await;
     let client = reship_client(&url, &mail).await;
     for (index, role) in [AdminRole::Admin, AdminRole::SuperAdmin]
         .into_iter()
@@ -1424,7 +1314,7 @@ async fn reship_sends_reference_notice_after_tagging_and_each_explicit_post() {
         assert_eq!(calls[index * 2]["operationName"], "ListOrders");
         assert_eq!(
             calls[index * 2]["variables"],
-            json!({"first":250,"after":null,"search":"name:1085","includeContact":true})
+            json!({"first":1,"after":null,"search":"name:1085","includeContact":true})
         );
         assert_eq!(calls[index * 2 + 1]["operationName"], "EditOrderTags");
         assert_eq!(
@@ -1663,9 +1553,9 @@ async fn reship_optional_clients_and_settings_fail_before_lookup() {
 }
 
 #[tokio::test]
-async fn reship_each_shopify_operation_failure_stops_before_email() {
+async fn reship_lookup_and_tag_failures_preserve_email_ordering() {
     let mail = ReshipMailServer::start("ok").await;
-    for stage in 0..3 {
+    for stage in 0..2 {
         for failure in [
             "http",
             "graphql",
@@ -1676,15 +1566,12 @@ async fn reship_each_shopify_operation_failure_stops_before_email() {
             "throttled",
             "timeout",
         ] {
-            let prefix = match stage {
-                0 => vec![],
-                1 => {
-                    let mut first = reship_order();
-                    first["orders"]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"next"});
-                    vec![first]
-                }
-                _ => vec![reship_order()],
+            let prefix = if stage == 0 {
+                vec![]
+            } else {
+                vec![reship_order()]
             };
+            let sent_before = mail.requests().len();
             let (url, upstream) = crate::common::scripted_upstream(prefix, failure).await;
             let client = reship_client(&url, &mail).await;
             assert_report_error(
@@ -1698,13 +1585,13 @@ async fn reship_each_shopify_operation_failure_stops_before_email() {
                 usize::from(stage > 0) + if failure == "throttled" { 4 } else { 1 },
                 "{failure} stage={stage}"
             );
+            assert_eq!(mail.requests().len() - sent_before, usize::from(stage > 0));
         }
     }
-    assert!(mail.requests().is_empty());
 }
 
 #[tokio::test]
-async fn reship_unusable_tag_results_stop_before_email() {
+async fn reship_unusable_tag_results_fail_after_email_acceptance() {
     let mail = ReshipMailServer::start("ok").await;
     for data in [
         json!({"tagsAdd":{"node":null,"userErrors":[]}}),
@@ -1713,6 +1600,7 @@ async fn reship_unusable_tag_results_stop_before_email() {
     ] {
         let (url, upstream) =
             crate::common::scripted_upstream(vec![reship_order(), data], "http").await;
+        let sent_before = mail.requests().len();
         let client = reship_client(&url, &mail).await;
         assert_report_error(
             client.send(reship_request()).await.unwrap(),
@@ -1721,12 +1609,12 @@ async fn reship_unusable_tag_results_stop_before_email() {
         )
         .await;
         assert_eq!(upstream.requests().len(), 2);
+        assert_eq!(mail.requests().len() - sent_before, 1);
     }
-    assert!(mail.requests().is_empty());
 }
 
 #[tokio::test]
-async fn reship_email_failures_keep_returned_tag_and_never_retry() {
+async fn reship_email_failures_never_tag_or_retry() {
     for failure in [
         "401",
         "422",
@@ -1738,9 +1626,7 @@ async fn reship_email_failures_keep_returned_tag_and_never_retry() {
         "blank",
         "timeout",
     ] {
-        let (url, upstream) =
-            crate::common::scripted_upstream(vec![reship_order(), tags_result(false, 42)], "http")
-                .await;
+        let (url, upstream) = crate::common::scripted_upstream(vec![reship_order()], "http").await;
         let mail = ReshipMailServer::start(failure).await;
         let client = reship_client(&url, &mail).await;
         let started = std::time::Instant::now();
@@ -1755,8 +1641,8 @@ async fn reship_email_failures_keep_returned_tag_and_never_retry() {
         }
         assert_eq!(mail.requests().len(), 1, "{failure}");
         let calls = upstream.requests();
-        assert_eq!(calls.len(), 2);
-        assert_eq!(calls[1]["operationName"], "EditOrderTags");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["operationName"], "ListOrders");
         let logs = client.logs();
         assert!(logs.contains("API operation failed"));
         for private in [
@@ -1871,11 +1757,9 @@ async fn reship_connection_refusal_and_disconnect_map_at_each_dependency_stage()
             )
             .await;
             assert_eq!(fault.count(), usize::from(later) + usize::from(disconnect));
-            assert!(mail.requests().is_empty());
+            assert_eq!(mail.requests().len(), usize::from(later));
         }
-        let (url, upstream) =
-            crate::common::scripted_upstream(vec![reship_order(), tags_result(false, 42)], "http")
-                .await;
+        let (url, upstream) = crate::common::scripted_upstream(vec![reship_order()], "http").await;
         let fault = OrderFaultServer::start(false, disconnect).await;
         let client = crate::common::client_with_providers(crate::common::ProviderConfig {
             shopify_url: Some(&url),
@@ -1891,7 +1775,7 @@ async fn reship_connection_refusal_and_disconnect_map_at_each_dependency_stage()
         )
         .await;
         assert_eq!(fault.count(), usize::from(disconnect));
-        assert_eq!(upstream.requests().len(), 2);
+        assert_eq!(upstream.requests().len(), 1);
     }
 }
 
@@ -1902,15 +1786,6 @@ async fn review_connection_faults_stop_at_every_workflow_operation() {
         cases.push(("labels", label_prefix(stage)));
         cases.push(("fulfill", fulfillment_prefix(stage)));
     }
-    for field in ["lineItems", "shippingLines"] {
-        let mut order = shipping_order(1, "US", "USPS");
-        order[field]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"child"});
-        cases.push(("labels", vec![json!({"orders":page(vec![order],None)})]));
-    }
-    let mut order = fulfillable_order(None);
-    order["order"]["fulfillmentOrders"]["nodes"][0]["lineItems"]["pageInfo"] =
-        json!({"hasNextPage":true,"endCursor":"child"});
-    cases.push(("fulfill", vec![order]));
     for disconnect in [false, true] {
         for (flow, prefix) in &cases {
             let completed = prefix.len();
@@ -2081,7 +1956,6 @@ async fn review_plan_completed_fulfillment_orders_are_skipped_before_line_reads(
     let mut closed = order["order"]["fulfillmentOrders"]["nodes"][0].clone();
     closed["id"] = json!("gid://shopify/FulfillmentOrder/99");
     closed["status"] = json!("CLOSED");
-    closed["lineItems"]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"unused"});
     order["order"]["fulfillmentOrders"]["nodes"]
         .as_array_mut()
         .unwrap()
@@ -2122,31 +1996,13 @@ async fn review_plan_listing_without_tag_uses_an_empty_search() {
 }
 
 #[tokio::test]
-async fn reship_search_pages_match_exact_number_and_reject_ambiguity_before_writes() {
-    let mail = ReshipMailServer::start("ok").await;
-    for (number, ambiguous, later_failure) in [
-        (1000, false, false),
-        (9999, false, false),
-        (1085, true, false),
-        (1085, false, true),
-    ] {
-        let first = json!({"orders":page(vec![json!({"id":"gid://shopify/Order/7","number":number+1,"email":null})],Some("next"))});
-        let mut replies = vec![first];
-        if !later_failure {
-            let mut nodes = vec![
-                json!({"id":"gid://shopify/Order/42","number":number,"email":"recipient@example.test"}),
-            ];
-            if ambiguous {
-                nodes.push(json!({"id":"gid://shopify/Order/43","number":number,"email":"recipient@example.test"}));
-            }
-            replies.push(json!({"orders":page(nodes,None)}));
-            if !ambiguous {
-                replies.push(tags_result(false, 42));
-            }
-        }
-        let (url, upstream) = crate::common::scripted_upstream(replies, "http").await;
+async fn reship_uses_one_filtered_query_for_boundary_order_numbers() {
+    for number in [1000, 9999] {
+        let data = json!({"orders":page(vec![json!({"id":"gid://shopify/Order/42","number":number,"email":"recipient@example.test"})],Some("unused"))});
+        let (url, upstream) =
+            crate::common::scripted_upstream(vec![data, tags_result(false, 42)], "http").await;
+        let mail = ReshipMailServer::start("ok").await;
         let client = reship_client(&url, &mail).await;
-        let before = mail.requests().len();
         let response = client
             .send(authed(
                 "POST",
@@ -2156,36 +2012,14 @@ async fn reship_search_pages_match_exact_number_and_reject_ambiguity_before_writ
             ))
             .await
             .unwrap();
-        if later_failure {
-            assert_report_error(response, 502, "Upstream request failed").await;
-        } else if ambiguous {
-            assert_report_error(response, 409, "Order number is ambiguous").await;
-        } else {
-            assert_eq!(response.status(), 200);
-        }
+        assert_eq!(response.status(), 200);
         let calls = upstream.requests();
-        assert_eq!(calls[1]["variables"]["after"], "next");
-        assert_eq!(calls.len(), if ambiguous || later_failure { 2 } else { 3 });
+        assert_eq!(calls.len(), 2);
         assert_eq!(
-            mail.requests().len() - before,
-            usize::from(!ambiguous && !later_failure)
+            calls[0]["variables"],
+            json!({"first":1,"after":null,"search":format!("name:{number}"),"includeContact":true})
         );
+        assert_eq!(calls[1]["operationName"], "EditOrderTags");
+        assert_eq!(mail.requests().len(), 1);
     }
-}
-
-#[tokio::test]
-async fn reship_nonmatching_numbers_are_not_found_without_side_effects() {
-    let mail = ReshipMailServer::start("ok").await;
-    for number in [0, -1, 1086] {
-        let (url,upstream)=crate::common::scripted_upstream(vec![json!({"orders":page(vec![json!({"id":"gid://shopify/Order/42","number":number,"email":"recipient@example.test"})],None)})],"http").await;
-        let client = reship_client(&url, &mail).await;
-        assert_report_error(
-            client.send(reship_request()).await.unwrap(),
-            404,
-            "Order not found",
-        )
-        .await;
-        assert_eq!(upstream.requests().len(), 1);
-    }
-    assert!(mail.requests().is_empty());
 }

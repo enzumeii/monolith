@@ -3,7 +3,7 @@ use serde_json::json;
 
 #[test]
 fn shipping_weight_accepts_shopify_unsigned_integer_strings() {
-    let order:ShippingOrder=serde_json::from_value(json!({"id":"gid://shopify/Order/1","email":null,"currencyCode":"THB","totalWeight":"2000","shippingAddress":null,"shippingLines":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}},"lineItems":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}})).expect("valid fixture");
+    let order:ShippingOrder=serde_json::from_value(json!({"id":"gid://shopify/Order/1","email":null,"currencyCode":"THB","totalWeight":"2000","shippingAddress":null,"shippingLines":{"nodes":[]},"lineItems":{"nodes":[]}})).expect("valid fixture");
     assert_eq!(order.total_weight, Some(2000));
 }
 #[test]

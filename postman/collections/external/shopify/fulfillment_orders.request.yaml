@@ -17,10 +17,6 @@ query: |
               id
               remainingQuantity
             }
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
           }
         }
         pageInfo {

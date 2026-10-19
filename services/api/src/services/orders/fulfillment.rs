@@ -51,27 +51,9 @@ pub async fn fulfill(
         if matches!(order.status.as_str(), "CLOSED" | "CANCELLED") {
             continue;
         }
-        let mut lines = Vec::new();
-        for_each_page(
-            Some(order.line_items),
-            async |after| {
-                let result = client.fulfillment_order_items(&order.id, after).await?;
-                result
-                    .fulfillment_order
-                    .map(|next| next.line_items)
-                    .ok_or_else(|| {
-                        ClientError::new(ClientErrorKind::Protocol("fulfillment order disappeared"))
-                    })
-            },
-            |page| {
-                lines.extend(page);
-                Ok(())
-            },
-            std::convert::identity,
-        )
-        .await
-        .map_err(upstream)?;
-        let lines: Vec<_> = lines
+        let lines: Vec<_> = order
+            .line_items
+            .nodes
             .into_iter()
             .filter(|line| line.remaining_quantity > 0)
             .collect();

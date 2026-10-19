@@ -232,9 +232,12 @@ fn page_sizes_and_continuation_metadata_are_validated() {
         (false, None, None, true),
     ] {
         assert_eq!(
-            PageInfo {
-                has_next_page,
-                end_cursor: end_cursor.map(str::to_owned)
+            Connection {
+                nodes: Vec::<()>::new(),
+                page_info: PageInfo {
+                    has_next_page,
+                    end_cursor: end_cursor.map(str::to_owned)
+                }
             }
             .validate_after(after)
             .is_ok(),

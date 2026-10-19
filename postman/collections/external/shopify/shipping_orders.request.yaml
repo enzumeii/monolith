@@ -32,10 +32,6 @@ query: |
           nodes {
             code
           }
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
         }
         lineItems(first: 250) {
           nodes {
@@ -48,10 +44,6 @@ query: |
                 currencyCode
               }
             }
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
           }
         }
       }

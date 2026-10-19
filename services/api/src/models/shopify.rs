@@ -5,16 +5,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PageInfo {
-    pub has_next_page: bool,
-    pub end_cursor: Option<String>,
+pub use domain::dto::PageInfo;
+
+#[derive(Deserialize)]
+pub struct Nodes<T> {
+    pub nodes: Vec<T>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Connection<T> {
     pub nodes: Vec<T>,
+    #[serde(serialize_with = "serialize_page_info")]
     pub page_info: PageInfo,
 }
 
@@ -454,6 +455,17 @@ pub struct OrderLines<T> {
     pub id: ShopifyId,
     pub line_items: Connection<T>,
 }
+fn serialize_page_info<S: serde::Serializer>(
+    page: &PageInfo,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeStruct;
+    let mut fields = serializer.serialize_struct("PageInfo", 2)?;
+    fields.serialize_field("hasNextPage", &page.has_next_page)?;
+    fields.serialize_field("endCursor", &page.end_cursor)?;
+    fields.end()
+}
+
 fn escape_search(value: &str) -> String {
     let mut escaped = String::new();
     for character in value.chars() {
@@ -514,10 +526,11 @@ impl PageRequest {
         Ok(())
     }
 }
-impl PageInfo {
+impl<T> Connection<T> {
     pub fn validate_after(&self, after: Option<&str>) -> Result<(), ClientError> {
-        if self.has_next_page
+        if self.page_info.has_next_page
             && self
+                .page_info
                 .end_cursor
                 .as_deref()
                 .is_none_or(|next| next.trim().is_empty() || Some(next) == after)

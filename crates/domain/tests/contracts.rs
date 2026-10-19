@@ -134,11 +134,10 @@ fn inventory_enable_contract_counts_items_and_omits_empty_errors() {
 #[test]
 fn orders_and_inventory_share_public_pagination_and_reship_returns_acceptance_id() {
     use domain::dto::{
-        InventoryPageInfo,
         orders::{Courier, ListOrdersResponse, ReshipOrderResponse},
         pagination::PageInfo,
     };
-    let page: InventoryPageInfo = PageInfo {
+    let page: PageInfo = PageInfo {
         has_next_page: true,
         end_cursor: Some("opaque".into()),
     };
@@ -171,4 +170,16 @@ fn orders_and_inventory_share_public_pagination_and_reship_returns_acceptance_id
             courier.tag()
         );
     }
+}
+
+#[test]
+fn shared_page_info_accepts_shopify_fields_and_preserves_public_json() {
+    let page: domain::dto::pagination::PageInfo =
+        serde_json::from_value(serde_json::json!({"hasNextPage":true,"endCursor":"next"}))
+            .expect("Shopify page metadata");
+    assert!(page.has_next_page);
+    assert_eq!(
+        serde_json::to_value(page).expect("public metadata"),
+        serde_json::json!({"has_next_page":true,"end_cursor":"next"})
+    );
 }

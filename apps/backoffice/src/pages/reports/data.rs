@@ -1,5 +1,5 @@
 use crate::api::{ApiError, ApiResult};
-use domain::dto::{InventoryPageInfo, InventoryResponse, ProductReportRow};
+use domain::dto::{InventoryResponse, PageInfo, ProductReportRow};
 use std::{collections::HashSet, future::Future};
 
 pub async fn collect_inventory<F, Fut>(mut fetch: F) -> ApiResult<Vec<ProductReportRow>>
@@ -30,7 +30,7 @@ pub struct CursorHistory {
     previous: Vec<Option<String>>,
 }
 impl CursorHistory {
-    pub fn next(&mut self, info: &InventoryPageInfo) -> ApiResult<()> {
+    pub fn next(&mut self, info: &PageInfo) -> ApiResult<()> {
         let next = continuation(info)?;
         if self.current.as_ref() == Some(&next)
             || self
@@ -56,7 +56,7 @@ impl CursorHistory {
         !self.previous.is_empty()
     }
 }
-fn continuation(info: &InventoryPageInfo) -> ApiResult<String> {
+fn continuation(info: &PageInfo) -> ApiResult<String> {
     if !info.has_next_page {
         return Err(incomplete());
     }

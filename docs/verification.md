@@ -145,3 +145,27 @@ Earlier ENZ-14 sections record historical evidence; this section covers the revi
 | Postman | Internal 18 and external 18 requests lint with zero errors/warnings; all 17 Shopify query documents match executable request text and variables parse |
 | Repository skills | New Rust layout skill plus configuration/ownership updates validate; metadata/links and touched test-module placement checked; no agent-behavior improvement claim |
 | Limits | Live Shopify permissions/query cost, carrier acceptance and inbox delivery remain unverified. Multi-location and more-than-250-item fulfillment are outside the supplied business bounds. Published-head CI is recorded separately during delivery |
+
+## ENZ-14 review comment revision (2026-10-20)
+
+Earlier sections record historical behavior and test runs; this section supersedes their lookup, nested-pagination and reship-ordering descriptions.
+
+| Area | Revised contract / verification scope |
+| --- | --- |
+| Shared metadata | One PageInfo type for inventory, orders and Shopify; accepts camelCase provider fields and emits unchanged snake_case public fields; API-owned cursor checks remain on Connection |
+| Bounded children | Existing ShippingOrders and FulfillmentOrders include items directly at first250; shipping methods also first250. Nodes-only fixtures omit unselected pageInfo. Root list pagination remains |
+| Lookup | Existing ListOrders name filter, first1 and contact projection; store naming convention supplies matching, without service scanning or ambiguity checks |
+| Reship order | Lookup and email validation, send once, add RETURNED, then success/email_id. Send errors/timeout prevent tagging; tagging error can follow accepted email. No rollback or automatic send retry |
+| Request validation | Fulfillment IDs reuse ShopifyId; shipping-label query parameters are ignored; four-digit bodyless/queryless reship validation stays intact |
+| Configuration | Resend timeout3 in TOML; just setup is the sole environment scaffold; redundant .env.example removed |
+| Limits | Controlled providers only; no live Shopify mutations, customer emails, carrier acceptance or inbox delivery checks. Item/method counts above250 and multiple selling locations remain outside agreed bounds |
+
+| Verification | Result |
+| --- | --- |
+| Native API | 190 tests passed after preserving Shopify Connection camelCase serialization alongside public snake_case PageInfo |
+| Shared consumers | Domain strict/native/WASM checks and 8 contracts passed; backoffice strict native/WASM checks and 29 native tests passed |
+| Regression evidence | Realistic camelCase metadata and nodes-only fixtures failed before their model changes and passed afterward. Real-TCP ordering test failed with tag-before-email and passed with email-before-tag |
+| Postman static checks | Internal18/external21 requests lint with zero errors or warnings; all14 remaining Shopify documents match executable query text and required variables |
+| Postman execution | Saved reship and shipping-label HTTP requests ran against the real local API with controlled Shopify/Resend servers; observed lookup → email → tag. Local GraphQL request execution requires Postman login and was unavailable; no live-provider compatibility claim |
+| Independent review | No remaining code correctness findings; corrected the stale inventory-alias documentation |
+| Real-TCP API | Full API recipe passed all91 E2E tests with Docker PostgreSQL and controlled Shopify/Resend HTTP services; Compose teardown completed; zero ignored |

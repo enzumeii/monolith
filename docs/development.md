@@ -158,8 +158,9 @@ Report queries require product, inventory, location and order access; reading un
 | --- | --- |
 | Local setup | API `just setup` fills missing/empty SHIPPING_SENDER_* values with synthetic local data, preserving existing nonempty settings and generated secrets on rerun |
 | Sender profile | Supply name, phone, email, address, sub_district, district, province, postcode and country_code through SHIPPING_SENDER_*; replace synthetic setup data before actual shipping use. No private sender profile belongs in TOML |
-| Email deadline | `client.resend.timeout_secs = 10` in TOML; missing/zero retains an optional-client initialization error and affected calls return 503 |
+| Email deadline | `client.resend.timeout_secs = 3` in TOML; missing/zero retains an optional-client initialization error and affected calls return 503 |
 | Order listing | GET `/v1/admin/orders` supports omitted tags, fulfillment-only filters, or comma-separated AND tags; report still requires tags |
-| Reship | POST `/v1/admin/orders/1085/reship`, replacing 1085 with the four-digit merchant order number; no body/query; success returns `success` and provider-accepted `email_id` |
+| Reship | POST `/v1/admin/orders/1085/reship`, replacing 1085 with the four-digit merchant order number; no body/query; one ListOrders name search (first1, includeContact=true); send before RETURNED tagging; success returns `success` and provider-accepted `email_id` after both operations |
 | Fulfillment workload | One selling location, at most 250 order items; completed/cancelled fulfillment orders are skipped; one creation precedes SHIPPING removal |
+| Shipping workload | ShippingOrders combines item and shipping-method reads, each fixed250 without child cursors; root orders still paginate. Extra shipping-label query parameters are ignored |
 | Provider tooling | ListOrders defaults to no email projection; set includeContact=true for merchant lookup. EditOrderTags selects add=true or false and preserves unrelated tags |

@@ -1,5 +1,5 @@
 $kind: graphql-request
-description: "Requires Shopify token in local vault. Synthetic IDs must be replaced with test-store IDs. Returns selected data and pageInfo where applicable. Mutation userErrors, GraphQL errors and missing payloads are failures. Do not run mutations against production during verification."
+description: "Requires Shopify token in local vault. Sample variables match the reship lookup: first=1, name:1085, includeContact=true. For listing, use tag/fulfillment search with includeContact=false and requested page size/cursor. Synthetic IDs must be replaced with test-store IDs. Returns selected data and pageInfo where applicable. Mutation userErrors, GraphQL errors and missing payloads are failures. Do not run mutations against production during verification."
 url: "{{shopify}}/graphql.json"
 query: |
   query ListOrders(
@@ -28,10 +28,10 @@ query: |
   }
 variables: |
   {
-    "first": 50,
+    "first": 1,
     "after": null,
-    "search": "tag:\"SHIPPING\" AND tag:\"FASTSHIP\" AND fulfillment_status:unfulfilled",
-    "includeContact": false
+    "search": "name:1085",
+    "includeContact": true
   }
 settings: {}
 schema:

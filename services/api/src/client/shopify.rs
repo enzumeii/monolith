@@ -173,51 +173,12 @@ impl ShopifyClient {
         .await
     }
 
-    pub(crate) async fn reship_order(
+    pub(crate) async fn get_order_by_order_number(
         &self,
         number: u16,
-        page: &PageRequest,
-    ) -> Result<Connection<crate::models::fulfillment::ReshipOrder>, ClientError> {
-        page.validate()?;
-        let data: OrdersPage<crate::models::fulfillment::ReshipOrder> = self.execute("ListOrders", include_str!("shopify/list_orders.graphql"), json!({"first":page.first,"after":page.after,"search":format!("name:{number}"),"includeContact":true})).await?;
-        Ok(data.orders)
-    }
-
-    pub(crate) async fn shipping_order_items(
-        &self,
-        id: &str,
-        after: Option<String>,
-    ) -> Result<crate::models::fulfillment::ShippingItemsData, ClientError> {
-        self.execute(
-            "ShippingOrderItems",
-            include_str!("shopify/shipping_order_items.graphql"),
-            json!({"id":id,"first":250,"after":after}),
-        )
-        .await
-    }
-    pub(crate) async fn shipping_order_methods(
-        &self,
-        id: &str,
-        after: Option<String>,
-    ) -> Result<crate::models::fulfillment::ShippingMethodsData, ClientError> {
-        self.execute(
-            "ShippingOrderMethods",
-            include_str!("shopify/shipping_order_methods.graphql"),
-            json!({"id":id,"first":250,"after":after}),
-        )
-        .await
-    }
-    pub(crate) async fn fulfillment_order_items(
-        &self,
-        id: &str,
-        after: Option<String>,
-    ) -> Result<crate::models::fulfillment::FulfillmentItemsData, ClientError> {
-        self.execute(
-            "FulfillmentOrderItems",
-            include_str!("shopify/fulfillment_order_items.graphql"),
-            json!({"id":id,"first":250,"after":after}),
-        )
-        .await
+    ) -> Result<Option<crate::models::fulfillment::ReshipOrder>, ClientError> {
+        let data: OrdersPage<crate::models::fulfillment::ReshipOrder> = self.execute("ListOrders", include_str!("shopify/list_orders.graphql"), json!({"first":1,"after":null,"search":format!("name:{number}"),"includeContact":true})).await?;
+        Ok(data.orders.nodes.into_iter().next())
     }
 
     pub(crate) async fn list_orders(

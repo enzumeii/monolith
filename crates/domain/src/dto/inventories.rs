@@ -1,4 +1,4 @@
-use super::ProductReportRow;
+use super::{PageInfo, ProductReportRow};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -8,12 +8,10 @@ pub struct InventoryQuery {
     pub cursor: Option<String>,
 }
 
-pub use super::pagination::PageInfo as InventoryPageInfo;
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InventoryResponse {
     pub products: Vec<ProductReportRow>,
-    pub page_info: InventoryPageInfo,
+    pub page_info: PageInfo,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

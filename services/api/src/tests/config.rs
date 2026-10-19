@@ -433,3 +433,14 @@ fn stripe_key_comes_from_central_configuration() {
     assert_eq!(stripe.timeout_secs, 3);
     assert!(!format!("{stripe:?}").contains("sk_test_private"));
 }
+
+#[test]
+fn checked_in_resend_timeout_is_three_seconds() {
+    let timeout: u64 = Config::builder()
+        .add_source(File::with_name("application"))
+        .build()
+        .unwrap()
+        .get("client.resend.timeout_secs")
+        .unwrap();
+    assert_eq!(timeout, 3);
+}

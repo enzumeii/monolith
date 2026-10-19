@@ -46,10 +46,7 @@ impl Parcel {
         address.phone = address
             .phone
             .map(|phone| phone.chars().filter(char::is_ascii_digit).collect());
-        let lines = order
-            .shipping_lines
-            .into_complete_nodes()
-            .map_err(|error| crate::services::common::upstream(error))?;
+        let lines = order.shipping_lines.nodes;
         let code = lines
             .first()
             .and_then(|line| line.code.as_deref())
@@ -74,13 +71,8 @@ impl Parcel {
             required(address.phone.as_deref(), "Order shipping phone missing")?;
             required(address.zip.as_deref(), "Order shipping postcode missing")?;
         }
-        let (quantity, price, category) = declaration(
-            order
-                .line_items
-                .into_complete_nodes()
-                .map_err(|error| crate::services::common::upstream(error))?,
-            &order.currency_code,
-        )?;
+        let (quantity, price, category) =
+            declaration(order.line_items.nodes, &order.currency_code)?;
         let weight = if select_courier(&method) == Some(Courier::Best) {
             0
         } else {

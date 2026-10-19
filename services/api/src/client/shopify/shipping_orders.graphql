@@ -28,10 +28,6 @@ query ShippingOrders($first: Int!, $after: String, $search: String!) {
         nodes {
           code
         }
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
       }
       lineItems(first: 250) {
         nodes {
@@ -44,10 +40,6 @@ query ShippingOrders($first: Int!, $after: String, $search: String!) {
               currencyCode
             }
           }
-        }
-        pageInfo {
-          hasNextPage
-          endCursor
         }
       }
     }

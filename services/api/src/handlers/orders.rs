@@ -22,7 +22,6 @@ pub async fn list(
 }
 pub async fn shipping_labels(
     State(state): State<AppState>,
-    uri: axum::http::Uri,
 ) -> Result<
     (
         [(axum::http::header::HeaderName, &'static str); 1],
@@ -30,7 +29,6 @@ pub async fn shipping_labels(
     ),
     AppError,
 > {
-    validations::orders::require_no_query(uri.query())?;
     Ok((
         [(axum::http::header::CACHE_CONTROL, "no-store")],
         Json(services::orders::shipping_label::labels(&state).await?),

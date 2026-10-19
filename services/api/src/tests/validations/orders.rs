@@ -35,3 +35,29 @@ fn report_rejects_missing_tags_and_pagination() {
         );
     }
 }
+
+#[test]
+fn fulfillment_reuses_shopify_id_bounds_without_changing_the_request_contract() {
+    use axum::{Json, extract::Path};
+    use domain::dto::orders::{Courier, FulfillOrderRequest};
+    for (id, valid) in [
+        ("0", false),
+        ("-1", false),
+        ("１２", false),
+        ("18446744073709551616", false),
+        ("1", true),
+        ("18446744073709551615", true),
+    ] {
+        let result = extract_fulfill_request(
+            Ok(Path(id.into())),
+            Ok(Json(FulfillOrderRequest {
+                courier: Courier::Best,
+                tracking_number: "VP123".into(),
+            })),
+        );
+        assert_eq!(result.is_ok(), valid, "{id}");
+        if let Ok((gid, _)) = result {
+            assert_eq!(gid, format!("gid://shopify/Order/{id}"));
+        }
+    }
+}

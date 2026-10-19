@@ -59,7 +59,6 @@ pub async fn list(
         .await
         .map_err(|error| upstream(error))?;
     result
-        .page_info
         .validate_after(page.after.as_deref())
         .map_err(|error| upstream(error))?;
     let orders = result
@@ -76,10 +75,7 @@ pub async fn list(
         .map_err(|error| upstream(error))?;
     Ok(ListOrdersResponse {
         orders,
-        page_info: domain::dto::pagination::PageInfo {
-            has_next_page: result.page_info.has_next_page,
-            end_cursor: result.page_info.end_cursor,
-        },
+        page_info: result.page_info,
     })
 }
 

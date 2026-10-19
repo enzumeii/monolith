@@ -1,4 +1,4 @@
-use super::shopify::{Connection, MoneyBag};
+use super::shopify::{Connection, MoneyBag, Nodes};
 use crate::client::{ClientError, ClientErrorKind, MutationUserError};
 use serde::Deserialize;
 
@@ -29,8 +29,8 @@ pub struct ShippingOrder {
     #[serde(default, deserialize_with = "ShippingOrder::deserialize_weight")]
     pub total_weight: Option<u64>,
     pub shipping_address: Option<ShippingAddress>,
-    pub shipping_lines: Connection<ShippingLine>,
-    pub line_items: Connection<ShippingItem>,
+    pub shipping_lines: Nodes<ShippingLine>,
+    pub line_items: Nodes<ShippingItem>,
 }
 #[derive(Deserialize)]
 pub struct ShippingLine {
@@ -75,7 +75,7 @@ pub struct FulfillmentOrder {
     pub id: String,
     pub status: String,
     pub supported_actions: Vec<SupportedAction>,
-    pub line_items: Connection<FulfillmentLine>,
+    pub line_items: Nodes<FulfillmentLine>,
 }
 #[derive(Deserialize)]
 pub struct SupportedAction {
@@ -154,38 +154,6 @@ impl ShippingOrder {
             })
             .transpose()
     }
-}
-
-#[derive(Deserialize)]
-pub struct ShippingItemsData {
-    #[serde(deserialize_with = "Option::deserialize")]
-    pub order: Option<OrderItems>,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OrderItems {
-    pub line_items: Connection<ShippingItem>,
-}
-#[derive(Deserialize)]
-pub struct ShippingMethodsData {
-    #[serde(deserialize_with = "Option::deserialize")]
-    pub order: Option<OrderMethods>,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OrderMethods {
-    pub shipping_lines: Connection<ShippingLine>,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FulfillmentItemsData {
-    #[serde(deserialize_with = "Option::deserialize")]
-    pub fulfillment_order: Option<FulfillmentItems>,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FulfillmentItems {
-    pub line_items: Connection<FulfillmentLine>,
 }
 
 #[cfg(test)]

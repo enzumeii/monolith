@@ -204,9 +204,12 @@ The nested250 bound is the agreed store workload, not a Shopify platform maximum
 | --- | --- |
 | Order listing / reports | `services/orders.rs`; listing tags optional, report tags required |
 | Labels | `services/orders/shipping_label.rs` orchestrates reads and tag transitions; focused carrier children build payloads; `Courier` selects carriers and tag spelling |
-| Fulfillment | One selling location and at most 250 order items; skip completed/cancelled fulfillment orders and zero-remaining lines, create once for all eligible entries, then remove SHIPPING |
-| Reship | Four-digit merchant number resolves through the shared ListOrders query with conditional email; add RETURNED before sending; return accepted `email_id` |
+| Fulfillment | Combined FulfillmentOrders query with fixed250 item nodes and root fulfillment-order pagination; one selling location and at most 250 order items; skip completed/cancelled fulfillment orders and zero-remaining lines, create once for all eligible entries, then remove SHIPPING |
+| Reship | Four-digit merchant number uses one shared ListOrders name search (first1, conditional email); send email before adding RETURNED; return accepted `email_id` after tagging |
 | Provider operations | Shopify operation methods in `client/shopify.rs`; one EditOrderTags document selects additive/removal semantics; shared Resend client owns send timeout |
 | Pagination | One `for_each_page` traversal supports fetched or prefetched initial connections; services own multi-call orchestration |
 | Configuration / templates | Private sender profile from central environment overrides, non-sensitive provider timeouts in TOML; static HTML in `services/api/assets/` |
-| Public metadata | One domain `dto/pagination::PageInfo`; inventory alias preserves consumer source compatibility |
+| Public metadata | One domain `dto/pagination::PageInfo`; inventory, orders and provider models consume it directly; public JSON remains snake_case and provider connections retain camelCase serialization |
+
+| Order workflow bound | ShippingOrders selects items and shipping methods together, each fixed at first250 with nodes-only models; root order pages remain paginated. No separate nested continuation queries |
+| Reship partial effects | Send failure stops before tagging; tag failure can follow accepted email. No automatic email retry or compensation; success means provider acceptance and successful tagging |

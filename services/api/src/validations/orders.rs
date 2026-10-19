@@ -85,12 +85,10 @@ pub fn extract_fulfill_request(
         )
     };
     let axum::extract::Path(id) = path.map_err(|_| invalid())?;
-    if id.is_empty()
-        || !id.bytes().all(|b| b.is_ascii_digit())
-        || id.parse::<u64>().ok().is_none_or(|id| id == 0)
-    {
-        return Err(invalid());
-    }
+    let id = format!("gid://shopify/Order/{id}");
+    crate::models::shopify::ShopifyId::new(id.clone())
+        .and_then(|id| id.number("Order"))
+        .map_err(|_| invalid())?;
     let axum::Json(body) = body.map_err(|_| invalid())?;
     if matches!(body.tracking_number.as_str(), "." | "..")
         || body.tracking_number.is_empty()
@@ -102,17 +100,7 @@ pub fn extract_fulfill_request(
     {
         return Err(invalid());
     }
-    Ok((format!("gid://shopify/Order/{id}"), body))
-}
-
-pub fn require_no_query(query: Option<&str>) -> Result<(), AppError> {
-    if query.is_some_and(|query| !query.is_empty()) {
-        return Err(AppError::new(
-            StatusCode::BAD_REQUEST,
-            "Shipping labels do not accept query parameters",
-        ));
-    }
-    Ok(())
+    Ok((id, body))
 }
 
 pub fn extract_reship_request(
