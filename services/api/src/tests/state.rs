@@ -140,7 +140,8 @@ async fn paypal_state_is_optional_shared_and_retains_invalid_configuration() {
     assert!(absent.paypal.unwrap().is_none());
     for (id, secret, valid) in [
         (None, None, false),
-        (Some(""), Some(""), false),
+        (Some(""), Some(""), true),
+        (Some(" "), Some(" "), true),
         (Some("id"), None, false),
         (None, Some("secret"), false),
         (Some("id"), Some("secret"), true),
@@ -158,13 +159,11 @@ async fn paypal_state_is_optional_shared_and_retains_invalid_configuration() {
                 state.paypal.as_ref().unwrap().as_ref().unwrap(),
                 state.clone().paypal.as_ref().unwrap().as_ref().unwrap()
             ));
-        } else if id.is_none_or(str::is_empty) && secret.is_none_or(str::is_empty) {
-            assert!(state.paypal.unwrap().is_none());
         } else {
             let error = state
                 .paypal
                 .err()
-                .expect("partial credentials must retain constructor error");
+                .expect("missing credentials must retain constructor error");
             assert!(matches!(
                 error.kind(),
                 crate::client::ClientErrorKind::InvalidInput(_)
