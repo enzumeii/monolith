@@ -1,11 +1,15 @@
 use dioxus::prelude::*;
 use domain::dto::InventoryEnableResponse;
 
-use crate::{api, components::ErrorMessage, route::TriggerPending, session};
+use crate::{
+    api,
+    components::{ErrorMessage, LoadingState},
+    session,
+};
 
 #[component]
 pub fn Triggers() -> Element {
-    let TriggerPending(mut pending) = use_context();
+    let LoadingState(mut pending) = use_context();
     let mut location_id = use_signal(String::new);
     let mut error = use_signal(|| None::<String>);
     let mut action = use_trigger(location_id, error, pending, |location: String| async move {
@@ -41,7 +45,7 @@ pub fn Triggers() -> Element {
                 },
                 label { r#for: "trigger-action", "Action" }
                 select { id: "trigger-action", disabled: pending(),
-                    option { value: "product-enablement", "Product enablement" }
+                    option { value: "inventory-enablement", "Inventory enablement" }
                 }
                 label { r#for: "trigger-location", "Location ID" }
                 input { id: "trigger-location", r#type: "text", inputmode: "numeric", required: true, pattern: "[0-9]+", value: location_id(), disabled: pending(),
@@ -54,8 +58,8 @@ pub fn Triggers() -> Element {
                 section { class: "panel trigger-result", aria_label: "Trigger result", aria_live: "polite",
                     h3 {
                         if result.failed > 0 { "Completed with errors" }
-                        else if result.total == 0 { "No products needed enablement" }
-                        else { "Product enablement complete" }
+                        else if result.total == 0 { "No inventory items needed enablement" }
+                        else { "Inventory enablement complete" }
                     }
                     dl { class: "trigger-summary",
                         div { dt { "Processed" } dd { "{result.total}" } }

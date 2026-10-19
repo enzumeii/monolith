@@ -449,8 +449,8 @@ a:focus-visible {
 
 .trigger-form { display: grid; gap: 0.75rem; }
 .trigger-form .primary { justify-self: start; }
-.trigger-loading { z-index: 100; touch-action: none; }
-.trigger-loading:focus { outline: none; }
+.loading-overlay { z-index: 100; touch-action: none; }
+.loading-overlay:focus { outline: none; }
 .trigger-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
 .trigger-summary div { padding: 0.75rem 0.4rem; background: var(--bg); border: 1px solid var(--panel-border); text-align: center; }
 .trigger-summary dt { font-size: 0.8rem; overflow-wrap: anywhere; }

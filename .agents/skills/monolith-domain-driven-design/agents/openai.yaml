@@ -1,0 +1,4 @@
+interface:
+  display_name: "Domain Ownership and Cohesion"
+  short_description: "Keep feature responsibilities in their owning modules"
+  default_prompt: "Use $monolith-domain-driven-design to identify feature ownership and preserve cohesive files and narrow module boundaries."
