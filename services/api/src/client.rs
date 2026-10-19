@@ -5,6 +5,7 @@ use reqwest::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{collections::BTreeMap, fmt, panic::Location, time::Duration};
 
+pub mod paypal;
 pub mod resend;
 pub mod shopify;
 
@@ -139,12 +140,28 @@ impl HttpClient {
         body: Option<&B>,
         should_retry: impl Fn(&R) -> bool,
     ) -> Result<R, ClientError> {
+        let mut request = self.inner.request(method, url).headers(headers);
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+        self.execute(request, reqwest::StatusCode::is_client_error, should_retry)
+            .await
+    }
+
+    async fn execute<R: DeserializeOwned>(
+        &self,
+        request: reqwest::RequestBuilder,
+        retry_status: impl Fn(&reqwest::StatusCode) -> bool,
+        should_retry: impl Fn(&R) -> bool,
+    ) -> Result<R, ClientError> {
+        let request = request.build()?;
         let mut retry = RetryState::default();
         loop {
-            let response = self
-                .send(method.clone(), url.clone(), headers.clone(), body)
-                .await?;
-            if response.status().is_client_error() {
+            let request = request.try_clone().ok_or_else(|| {
+                ClientError::new(ClientErrorKind::InvalidInput("request cannot be retried"))
+            })?;
+            let response = self.inner.execute(request).await?;
+            if retry_status(&response.status()) {
                 let hints = if response.status().as_u16() == 429 {
                     response.headers().clone()
                 } else {
@@ -162,19 +179,6 @@ impl HttpClient {
             }
             return Ok(decoded);
         }
-    }
-    async fn send<B: Serialize>(
-        &self,
-        method: Method,
-        url: Url,
-        headers: HeaderMap,
-        body: Option<&B>,
-    ) -> Result<Response, ClientError> {
-        let mut request = self.inner.request(method, url).headers(headers);
-        if let Some(body) = body {
-            request = request.json(body);
-        }
-        Ok(request.send().await?)
     }
 }
 #[derive(Clone)]

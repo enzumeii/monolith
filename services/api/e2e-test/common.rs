@@ -444,6 +444,8 @@ insecure_local = true
             .env("JWT_SECRET", JWT_SECRET)
             .env_remove("SHOPIFY_ACCESS_TOKEN")
             .env_remove("RESEND_API_KEY")
+            .env_remove("PAYPAL_CLIENT_ID")
+            .env_remove("PAYPAL_CLIENT_SECRET")
             .envs(shopify_url.map(|_| ("SHOPIFY_ACCESS_TOKEN", "e2e-fixture-token")))
             .stdin(Stdio::null())
             .stdout(Stdio::null())

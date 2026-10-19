@@ -296,3 +296,31 @@ fn resend_configuration_needs_only_the_api_key() {
     assert_eq!(config.api_key.as_deref(), Some("fixture-key"));
     assert!(!format!("{config:?}").contains("fixture-key"));
 }
+
+#[test]
+fn paypal_credentials_are_centralized_and_non_secrets_remain_file_based() {
+    let settings = temp_env::with_vars(
+        [
+            ("DATABASE_URL", Some("postgres://unused")),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
+            ("PAYPAL_CLIENT_ID", Some("private-paypal-id")),
+            ("PAYPAL_CLIENT_SECRET", Some("private-paypal-secret")),
+            ("PAYPAL_BASE_URL", Some("invalid-env-url")),
+            ("PAYPAL_TIMEOUT_SECS", Some("invalid-env-timeout")),
+        ],
+        Settings::new,
+    )
+    .unwrap();
+    let paypal = settings.client.unwrap().paypal.unwrap();
+    assert_eq!(paypal.client_id.as_deref(), Some("private-paypal-id"));
+    assert_eq!(
+        paypal.client_secret.as_deref(),
+        Some("private-paypal-secret")
+    );
+    assert_eq!(paypal.base_url, "https://api-m.sandbox.paypal.com/");
+    assert_eq!(paypal.timeout_secs, 10);
+    assert!(!format!("{paypal:?}").contains("private-paypal"));
+}

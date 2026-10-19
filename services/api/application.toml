@@ -14,3 +14,7 @@ insecure_local = true
 [client.shopify]
 timeout_secs = 3
 admin_api_url = "https://enzumeii.myshopify.com/admin/api/2026-10/graphql.json"
+
+[client.paypal]
+base_url = "https://api-m.sandbox.paypal.com/"
+timeout_secs = 10

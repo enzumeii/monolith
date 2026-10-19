@@ -42,6 +42,7 @@ struct FixtureState {
     replies: Arc<Mutex<VecDeque<Reply>>>,
     requests: Arc<Mutex<Vec<Captured>>>,
     methods: Arc<Mutex<Vec<Method>>>,
+    raw_bodies: Arc<Mutex<Vec<Vec<u8>>>>,
 }
 pub(crate) struct Fixture {
     pub url: Url,
@@ -60,12 +61,16 @@ impl Fixture {
             replies: Arc::new(Mutex::new(replies.into())),
             requests: Arc::new(Mutex::new(vec![])),
             methods: Arc::new(Mutex::new(vec![])),
+            raw_bodies: Arc::new(Mutex::new(vec![])),
         };
         let app = Router::new().fallback(respond).with_state(state.clone());
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
         Self { url, state, server }
+    }
+    pub fn raw_bodies(&self) -> Vec<Vec<u8>> {
+        self.state.raw_bodies.lock().unwrap().clone()
     }
     pub fn methods(&self) -> Vec<Method> {
         self.state.methods.lock().unwrap().clone()
@@ -83,6 +88,7 @@ async fn respond(State(state): State<FixtureState>, request: Request<Body>) -> R
     let (parts, body) = request.into_parts();
     state.methods.lock().unwrap().push(parts.method);
     let bytes = to_bytes(body, 1_000_000).await.unwrap();
+    state.raw_bodies.lock().unwrap().push(bytes.to_vec());
     let value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     state
         .requests
@@ -471,4 +477,28 @@ fn tracked_client_conversions_keep_the_source_and_calling_location() {
             .downcast_ref::<reqwest::Error>()
             .is_some()
     );
+}
+
+#[tokio::test]
+async fn serialization_failures_retain_the_original_transport_source_without_sending() {
+    struct InvalidBody;
+    impl serde::Serialize for InvalidBody {
+        fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+            Err(serde::ser::Error::custom("fixture serialization failure"))
+        }
+    }
+    let fixture = Fixture::new(vec![]).await;
+    let error = HttpClient::new(Duration::from_secs(1))
+        .unwrap()
+        .request_json::<_, Value>(
+            Method::POST,
+            fixture.url.clone(),
+            HeaderMap::new(),
+            Some(&InvalidBody),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(error.kind(),ClientErrorKind::Transport {source} if source.is_builder()));
+    assert!(std::error::Error::source(&error).is_some());
+    assert_eq!(fixture.requests(), []);
 }

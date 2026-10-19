@@ -1,0 +1,22 @@
+$kind: http-request
+description: 'Fetch one PayPal transaction page with all field groups. Run Get access token first. Required: paypal, paypal_access_token, paypal_start_date and paypal_end_date (RFC3339 with timezone and seconds; range at most 31 days), paypal_page_size (1..500), paypal_page (1..2147483647). Success: 200 with {"transaction_details":[],"page":1,"total_items":0,"total_pages":0}. Preserve page metadata and advance paypal_page to retrieve further pages. Missing permissions may produce 403; expired tokens 401; invalid dates/page inputs 400; rate limiting 429; provider failures 5xx. Error example: {"name":"INVALID_REQUEST","message":"Invalid request"}. Reporting permission is required, transactions may take three hours to appear, and search covers the previous three years. Never commit account data or tokens.'
+url: '{{paypal}}/v1/reporting/transactions?start_date={{paypal_start_date}}&end_date={{paypal_end_date}}&fields=all&page_size={{paypal_page_size}}&page={{paypal_page}}'
+method: GET
+order: 2000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{paypal_access_token}}'
+scripts:
+  - type: afterResponse
+    code: |
+      pm.test("Transaction page returned", function () {
+        pm.response.to.have.status(200);
+        const page = pm.response.json();
+        pm.expect(page.transaction_details).to.be.an("array");
+        pm.expect(page.page).to.equal(Number(pm.environment.get("paypal_page")));
+        pm.expect(page.total_pages).to.be.at.least(0);
+        pm.expect(page.total_items).to.be.at.least(0);
+      });
+    language: text/javascript

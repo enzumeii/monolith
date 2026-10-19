@@ -8,3 +8,5 @@ pub use auth::{AuthenticatedAdmin, Claims};
 pub mod shopify;
 
 pub(crate) mod products;
+
+pub mod paypal;
