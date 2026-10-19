@@ -446,3 +446,14 @@ a:focus-visible {
 .save-report-dialog { width: min(28rem, calc(100vw - 2rem)); }
 .save-report-dialog form { display: flex; flex-direction: column; gap: 0.5rem; }
 .report-save .error { max-width: 28rem; }
+
+.trigger-form { display: grid; gap: 0.75rem; }
+.trigger-form .primary { justify-self: start; }
+.loading-overlay { z-index: 100; touch-action: none; }
+.loading-overlay:focus { outline: none; }
+.trigger-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
+.trigger-summary div { padding: 0.75rem 0.4rem; background: var(--bg); border: 1px solid var(--panel-border); text-align: center; }
+.trigger-summary dt { font-size: 0.8rem; overflow-wrap: anywhere; }
+.trigger-summary dd { margin: 0.5rem 0 0; font-size: 1.6rem; font-weight: 700; }
+.trigger-errors { padding-left: 1.25rem; overflow-wrap: anywhere; }
+.trigger-errors p { margin-top: 0.25rem; }

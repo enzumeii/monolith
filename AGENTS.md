@@ -11,6 +11,8 @@ These rules apply to the entire repository.
 
 ## Code clarity
 
+- For feature ownership, file cohesion and domain boundaries, use `.agents/skills/monolith-domain-driven-design/SKILL.md`. Keep feature-specific state and UI mechanics out of routing declarations.
+
 - Before adding or replacing implementation code, use `.agents/skills/reuse-existing-code/SKILL.md`: inspect existing helpers and consumers, reuse them directly or minimally enhance them before creating a separate implementation. Record the concrete incompatibility when new code is necessary.
 
 - Make code self-documenting through clear names, small functions, explicit types, and cohesive modules.
