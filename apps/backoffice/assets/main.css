@@ -451,4 +451,9 @@ a:focus-visible {
 .trigger-form .primary { justify-self: start; }
 .trigger-loading { z-index: 100; touch-action: none; }
 .trigger-loading:focus { outline: none; }
-.trigger-response { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.trigger-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
+.trigger-summary div { padding: 0.75rem 0.4rem; background: var(--bg); border: 1px solid var(--panel-border); text-align: center; }
+.trigger-summary dt { font-size: 0.8rem; overflow-wrap: anywhere; }
+.trigger-summary dd { margin: 0.5rem 0 0; font-size: 1.6rem; font-weight: 700; }
+.trigger-errors { padding-left: 1.25rem; overflow-wrap: anywhere; }
+.trigger-errors p { margin-top: 0.25rem; }

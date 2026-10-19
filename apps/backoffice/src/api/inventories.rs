@@ -1,8 +1,9 @@
-use super::{ApiError, ApiResult, RawResponse};
+use super::{ApiError, ApiResult};
+use domain::dto::InventoryEnableResponse;
 use reqwest::{Method, RequestBuilder, StatusCode};
 
-pub async fn enable_inventory(location_id: &str) -> ApiResult<RawResponse> {
-    super::send_raw(enable_request(location_id)?).await
+pub async fn enable_inventory(location_id: &str) -> ApiResult<InventoryEnableResponse> {
+    super::decode(enable_request(location_id)?).await
 }
 
 fn enable_request(location_id: &str) -> ApiResult<RequestBuilder> {

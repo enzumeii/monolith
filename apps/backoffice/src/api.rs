@@ -14,14 +14,12 @@ pub type ApiResult<T> = Result<T, ApiError>;
 pub struct ApiError {
     pub status: u16,
     message: String,
-    pub response: Option<RawResponse>,
 }
 impl ApiError {
     pub fn new(status: StatusCode, message: impl Into<String>) -> Self {
         Self {
             status: status.as_u16(),
             message: message.into(),
-            response: None,
         }
     }
 }
@@ -47,44 +45,11 @@ fn request(method: Method, path: &str) -> ApiResult<RequestBuilder> {
     let request = request.fetch_credentials_include();
     Ok(request)
 }
-#[derive(Debug, Clone, PartialEq)]
-pub struct RawResponse {
-    pub status: u16,
-    pub body: String,
-}
-
-async fn send_response(request: RequestBuilder) -> ApiResult<Response> {
-    request
+async fn send(request: RequestBuilder) -> ApiResult<Response> {
+    let response = request
         .send()
         .await
-        .map_err(|_| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "API unavailable"))
-}
-
-async fn send_raw(request: RequestBuilder) -> ApiResult<RawResponse> {
-    let response = send_response(request).await?;
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|_| ApiError::new(StatusCode::BAD_GATEWAY, "Unable to read API response"))?;
-    let response = RawResponse {
-        status: status.as_u16(),
-        body,
-    };
-    if status.is_success() {
-        return Ok(response);
-    }
-    let message = serde_json::from_str::<ErrorResponse>(&response.body)
-        .map_or_else(|_| "Request failed".into(), |body| body.error);
-    Err(ApiError {
-        status: status.as_u16(),
-        message,
-        response: Some(response),
-    })
-}
-
-async fn send(request: RequestBuilder) -> ApiResult<Response> {
-    let response = send_response(request).await?;
+        .map_err(|_| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "API unavailable"))?;
     if response.status().is_success() {
         return Ok(response);
     }
@@ -93,11 +58,7 @@ async fn send(request: RequestBuilder) -> ApiResult<Response> {
         .json::<ErrorResponse>()
         .await
         .map_or_else(|_| "Request failed".into(), |body| body.error);
-    Err(ApiError {
-        status,
-        message,
-        response: None,
-    })
+    Err(ApiError { status, message })
 }
 
 async fn decode<T: DeserializeOwned>(request: RequestBuilder) -> ApiResult<T> {
