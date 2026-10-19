@@ -6,6 +6,7 @@ pub mod logging;
 pub(crate) mod middleware;
 pub(crate) mod models;
 pub use models::shopify as shopify_models;
+pub use models::stripe as stripe_models;
 pub mod repositories;
 pub mod routes;
 pub(crate) mod services;

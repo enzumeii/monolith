@@ -296,3 +296,24 @@ fn resend_configuration_needs_only_the_api_key() {
     assert_eq!(config.api_key.as_deref(), Some("fixture-key"));
     assert!(!format!("{config:?}").contains("fixture-key"));
 }
+
+#[test]
+fn stripe_key_comes_from_central_configuration() {
+    let settings = temp_env::with_vars(
+        [
+            ("DATABASE_URL", Some("postgres://unused")),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
+            ("STRIPE_SECRET_KEY", Some("sk_test_private")),
+        ],
+        Settings::new,
+    )
+    .unwrap();
+    let stripe = settings.client.unwrap().stripe.unwrap();
+    assert_eq!(stripe.secret_key.as_deref(), Some("sk_test_private"));
+    assert_eq!(stripe.base_url, "https://api.stripe.com/v1/");
+    assert_eq!(stripe.timeout_secs, 3);
+    assert!(!format!("{stripe:?}").contains("sk_test_private"));
+}

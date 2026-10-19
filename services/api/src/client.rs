@@ -7,6 +7,7 @@ use std::{collections::BTreeMap, fmt, panic::Location, time::Duration};
 
 pub mod resend;
 pub mod shopify;
+pub mod stripe;
 
 pub struct ClientError {
     kind: ClientErrorKind,
@@ -310,3 +311,7 @@ async fn decode<D: DeserializeOwned>(response: Response) -> Result<D, ClientErro
 #[cfg(test)]
 #[path = "tests/client.rs"]
 pub(crate) mod tests;
+
+#[cfg(test)]
+#[path = "tests/client/stripe.rs"]
+mod stripe_tests;

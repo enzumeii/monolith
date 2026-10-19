@@ -1,0 +1,16 @@
+$kind: http-request
+name: Retrieve charge
+description: 'Read Stripe data. Required variables: stripe (base URL), stripe_secret_key (set locally), and the ID or Unix date filter variables shown below. List endpoints accept limit 1..100 and optional starting_after; enable the cursor parameter only for later pages. Success: 200 with data and has_more for lists or an object with id for retrieval. Amounts remain integer minor units and dates Unix seconds. Safe examples: {"data":[],"has_more":false}; errors use {"error":{"type":"invalid_request_error","message":"No such object"}} for 400/401/404/429 or 5xx. Use controlled servers for automated checks.'
+url: '{{stripe}}/charges/{{stripe_charge_id}}'
+method: GET
+order: 3000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{stripe_secret_key}}'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |
+      pm.test("Stripe response", function () { pm.response.to.have.status(200); const body = pm.response.json(); pm.expect(body.id).to.be.a("string"); pm.expect(body.amount_captured).to.be.a("number"); });

@@ -30,6 +30,7 @@ pub struct BrowserConfig {
 pub struct ClientConfig {
     pub shopify: Option<ShopifyConfig>,
     pub resend: Option<ResendConfig>,
+    pub stripe: Option<StripeConfig>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -52,6 +53,18 @@ pub struct ResendConfig {
 impl std::fmt::Debug for ResendConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ResendConfig { api_key: [REDACTED], .. }")
+    }
+}
+
+#[derive(Deserialize, Clone)]
+pub struct StripeConfig {
+    pub base_url: String,
+    pub timeout_secs: u64,
+    pub secret_key: Option<String>,
+}
+impl std::fmt::Debug for StripeConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("StripeConfig { secret_key: [REDACTED], .. }")
     }
 }
 
@@ -125,6 +138,9 @@ impl Settings {
         }
         if let Ok(resend_api_key) = env::var("RESEND_API_KEY") {
             builder = builder.set_override("client.resend.api_key", resend_api_key)?;
+        }
+        if let Ok(key) = env::var("STRIPE_SECRET_KEY") {
+            builder = builder.set_override("client.stripe.secret_key", key)?;
         }
         let settings: Self = builder.build()?.try_deserialize()?;
         settings.validate()?;
