@@ -10,26 +10,7 @@ values:
     value: 'https://enzumeii.myshopify.com/admin/api/2026-10'
   - key: resend
     value: ''
-
-  - key: resend_api_key
-    value: ""
-    type: secret
   - key: paypal
-    value: 'https://api-m.sandbox.paypal.com'
-  - key: paypal_client_id
-    value: ''
-    type: secret
-  - key: paypal_client_secret
-    value: ''
-    type: secret
+    value: 'https://api-m.paypal.com'
   - key: paypal_access_token
     value: ''
-    type: secret
-  - key: paypal_start_date
-    value: '2026-10-01T00:00:00Z'
-  - key: paypal_end_date
-    value: '2026-10-02T00:00:00Z'
-  - key: paypal_page_size
-    value: '500'
-  - key: paypal_page
-    value: '1'

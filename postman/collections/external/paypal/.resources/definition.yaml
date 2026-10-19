@@ -1,0 +1,7 @@
+$kind: collection
+auth:
+  - id: 5daed635-8af6-4e64-9242-a4be048bc73a
+    type: bearer
+    name: Bearer Token
+    credentials:
+      token: "{{paypal_access_token}}"

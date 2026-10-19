@@ -1,21 +1,17 @@
 $kind: http-request
-description: 'Exchange paypal_client_id and paypal_client_secret for a bearer token. Required: paypal base URL (without trailing slash) and locally supplied secret variables. Uses HTTP Basic authentication and a URL-encoded form. Success: 200 with {"access_token":"fixture-token","token_type":"Bearer","expires_in":3600}. Invalid credentials: 401 with {"error":"invalid_client","error_description":"Client Authentication failed"}; also handle 429 and 5xx. Saves the token to the local secret environment variable paypal_access_token. Use a controlled server for automated tests; live reporting requires account permissions.'
-url: '{{paypal}}/v1/oauth2/token'
+description: ""
+url: "{{paypal}}/v1/oauth2/token"
 method: POST
 order: 1000
-headers:
-  - key: Content-Type
-    value: application/x-www-form-urlencoded
 body:
-  type: text
-  content: grant_type=client_credentials
+  type: urlencoded
+  content:
+    grant_type: client_credentials
 auth:
   type: basic
   credentials:
-    - key: username
-      value: '{{paypal_client_id}}'
-    - key: password
-      value: '{{paypal_client_secret}}'
+    username: "{{vault:paypal_client_id}}"
+    password: "{{vault:paypal_client_secret}}"
 scripts:
   - type: afterResponse
     code: |

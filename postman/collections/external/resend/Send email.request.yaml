@@ -1,19 +1,17 @@
 $kind: http-request
 description: 'Send an HTML email through Resend. Required: resend (API base URL) and resend_api_key (set locally; never commit a real key). The sender domain must be verified. Uses the API helper default sender shipping@enzumeii.com and the provider test recipient delivered@resend.dev. Success: 200 with {"id":"example-email-id"}. Failures include 401 invalid key, 422 validation rejection, 429 rate limit and 5xx provider failure; expect a provider error body such as {"statusCode":422,"name":"validation_error","message":"Invalid request"}. Running against the live provider submits an email; use a controlled local server for automated checks.'
-url: '{{resend}}/emails'
+url: "{{resend}}/emails"
 method: POST
 body:
   type: json
   content: '{"from":"shipping@enzumeii.com","to":["delivered@resend.dev"],"subject":"Hello World","html":"<p>Congrats on sending your <strong>first email</strong>!</p>"}'
 order: 1000
 headers:
-  - key: Content-Type
-    value: application/json
+  Content-Type: application/json
 auth:
-  type: bearer
+  type: inherit
   credentials:
-    - key: token
-      value: '{{resend_api_key}}'
+    id: 608caec8-6769-4f5b-8ff2-a1bbf8e70e96
 scripts:
   - type: afterResponse
     code: pm.test("Email accepted", function () { pm.response.to.have.status(200); pm.expect(pm.response.json().id).to.be.a("string").and.not.empty; });
