@@ -18,9 +18,7 @@ pub async fn list(
     query: Result<Query<domain::dto::orders::ListOrdersQuery>, QueryRejection>,
 ) -> Result<Json<domain::dto::orders::ListOrdersResponse>, AppError> {
     let (search, page) = validations::orders::extract_list_query(query)?;
-    Ok(Json(
-        services::orders::workflow::list(&state, search, page).await?,
-    ))
+    Ok(Json(services::orders::list(&state, search, page).await?))
 }
 pub async fn shipping_labels(
     State(state): State<AppState>,
@@ -35,7 +33,7 @@ pub async fn shipping_labels(
     validations::orders::require_no_query(uri.query())?;
     Ok((
         [(axum::http::header::CACHE_CONTROL, "no-store")],
-        Json(services::orders::workflow::labels(&state).await?),
+        Json(services::orders::shipping_label::labels(&state).await?),
     ))
 }
 pub async fn fulfill(

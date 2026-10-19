@@ -150,3 +150,16 @@ Report queries require product, inventory, location and order access; reading un
 | Discovery failures | No writes before full discovery: malformed input400, missing location404, unavailable client503, upstream502/timeout504 |
 | Provider permission | Shopify write_inventory and permission to activate inventory; one activation enables one variant at one location |
 | Manual tooling | Postman inventories/enable uses inherited credentials and location_id; it mutates store inventory when run against a live store |
+
+
+## Order fulfillment configuration and contracts
+
+| Area | Usage |
+| --- | --- |
+| Local setup | API `just setup` fills missing/empty SHIPPING_SENDER_* values with synthetic local data, preserving existing nonempty settings and generated secrets on rerun |
+| Sender profile | Supply name, phone, email, address, sub_district, district, province, postcode and country_code through SHIPPING_SENDER_*; replace synthetic setup data before actual shipping use. No private sender profile belongs in TOML |
+| Email deadline | `client.resend.timeout_secs = 10` in TOML; missing/zero retains an optional-client initialization error and affected calls return 503 |
+| Order listing | GET `/v1/admin/orders` supports omitted tags, fulfillment-only filters, or comma-separated AND tags; report still requires tags |
+| Reship | POST `/v1/admin/orders/1085/reship`, replacing 1085 with the four-digit merchant order number; no body/query; success returns `success` and provider-accepted `email_id` |
+| Fulfillment workload | One selling location, at most 250 order items; completed/cancelled fulfillment orders are skipped; one creation precedes SHIPPING removal |
+| Provider tooling | ListOrders defaults to no email projection; set includeContact=true for merchant lookup. EditOrderTags selects add=true or false and preserves unrelated tags |

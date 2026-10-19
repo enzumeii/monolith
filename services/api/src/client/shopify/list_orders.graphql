@@ -1,4 +1,9 @@
-query ListOrders($first: Int!, $after: String, $search: String!) {
+query ListOrders(
+  $first: Int!
+  $after: String
+  $search: String!
+  $includeContact: Boolean! = false
+) {
   orders(
     first: $first
     after: $after
@@ -9,6 +14,7 @@ query ListOrders($first: Int!, $after: String, $search: String!) {
     nodes {
       id
       number
+      email @include(if: $includeContact)
     }
     pageInfo {
       hasNextPage

@@ -46,6 +46,7 @@ impl std::fmt::Debug for ShopifyConfig {
 
 #[derive(Deserialize, Clone)]
 pub struct ResendConfig {
+    pub timeout_secs: Option<u64>,
     pub api_key: Option<String>,
 }
 
@@ -58,7 +59,6 @@ impl std::fmt::Debug for ResendConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
     pub shipping_sender: Option<ShippingSender>,
-    pub reship: Option<ReshipSettings>,
     pub client: Option<ClientConfig>,
     pub browser: BrowserConfig,
     pub server: ServerConfig,
@@ -82,6 +82,25 @@ impl JwtSettings {
 impl Settings {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.jwt.key()?;
+        if let Some(sender) = &self.shipping_sender
+            && [
+                &sender.name,
+                &sender.phone,
+                &sender.email,
+                &sender.address,
+                &sender.sub_district,
+                &sender.district,
+                &sender.province,
+                &sender.postcode,
+                &sender.country_code,
+            ]
+            .iter()
+            .any(|value| value.trim().is_empty())
+        {
+            return Err(ConfigError::Message(
+                "Shipping sender profile is incomplete".into(),
+            ));
+        }
         let origin: axum::http::Uri = self
             .browser
             .public_origin
@@ -128,6 +147,21 @@ impl Settings {
         if let Ok(resend_api_key) = env::var("RESEND_API_KEY") {
             builder = builder.set_override("client.resend.api_key", resend_api_key)?;
         }
+        for field in [
+            "name",
+            "phone",
+            "email",
+            "address",
+            "sub_district",
+            "district",
+            "province",
+            "postcode",
+            "country_code",
+        ] {
+            if let Ok(value) = env::var(format!("SHIPPING_SENDER_{}", field.to_ascii_uppercase())) {
+                builder = builder.set_override(format!("shipping_sender.{field}"), value)?;
+            }
+        }
         let settings: Self = builder.build()?.try_deserialize()?;
         settings.validate()?;
         Ok(settings)
@@ -150,11 +184,7 @@ impl std::fmt::Debug for JwtSettings {
     }
 }
 
-#[cfg(test)]
-#[path = "tests/config.rs"]
-mod tests;
-
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct ShippingSender {
     pub name: String,
     pub phone: String,
@@ -167,7 +197,12 @@ pub struct ShippingSender {
     pub country_code: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-pub struct ReshipSettings {
-    pub email_timeout_secs: u64,
+impl std::fmt::Debug for ShippingSender {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ShippingSender { [REDACTED] }")
+    }
 }
+
+#[cfg(test)]
+#[path = "tests/config.rs"]
+mod tests;

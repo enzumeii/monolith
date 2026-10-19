@@ -196,3 +196,17 @@ The nested250 bound is the agreed store workload, not a Shopify platform maximum
 | Shared Shopify client | One GraphQL operation per call; activate each variant inventory item using item/location IDs and stable retry UUID, without quantity arguments |
 | Outcome DTO | Per-item total/success/failed and optional errors with numeric product_id; partial mutation failures continue; discovery failures return ordinary API errors before writes |
 | Consistency limit | No upstream snapshot or rollback; timeouts can leave activation outcome unconfirmed. No quantity arguments are sent; live provider defaults are unverified |
+
+
+## Order fulfillment ownership
+
+| Responsibility | Owner / contract |
+| --- | --- |
+| Order listing / reports | `services/orders.rs`; listing tags optional, report tags required |
+| Labels | `services/orders/shipping_label.rs` orchestrates reads and tag transitions; focused carrier children build payloads; `Courier` selects carriers and tag spelling |
+| Fulfillment | One selling location and at most 250 order items; skip completed/cancelled fulfillment orders and zero-remaining lines, create once for all eligible entries, then remove SHIPPING |
+| Reship | Four-digit merchant number resolves through the shared ListOrders query with conditional email; add RETURNED before sending; return accepted `email_id` |
+| Provider operations | Shopify operation methods in `client/shopify.rs`; one EditOrderTags document selects additive/removal semantics; shared Resend client owns send timeout |
+| Pagination | One `for_each_page` traversal supports fetched or prefetched initial connections; services own multi-call orchestration |
+| Configuration / templates | Private sender profile from central environment overrides, non-sensitive provider timeouts in TOML; static HTML in `services/api/assets/` |
+| Public metadata | One domain `dto/pagination::PageInfo`; inventory alias preserves consumer source compatibility |

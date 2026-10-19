@@ -2,7 +2,12 @@ $kind: graphql-request
 description: "Requires Shopify token in local vault. Synthetic IDs must be replaced with test-store IDs. Returns selected data and pageInfo where applicable. Mutation userErrors, GraphQL errors and missing payloads are failures. Do not run mutations against production during verification."
 url: "{{shopify}}/graphql.json"
 query: |
-  query ListOrders($first: Int!, $after: String, $search: String!) {
+  query ListOrders(
+    $first: Int!
+    $after: String
+    $search: String!
+    $includeContact: Boolean! = false
+  ) {
     orders(
       first: $first
       after: $after
@@ -13,6 +18,7 @@ query: |
       nodes {
         id
         number
+        email @include(if: $includeContact)
       }
       pageInfo {
         hasNextPage
@@ -24,7 +30,8 @@ variables: |
   {
     "first": 50,
     "after": null,
-    "search": "tag:\"SHIPPING\" AND tag:\"FASTSHIP\" AND fulfillment_status:unfulfilled"
+    "search": "tag:\"SHIPPING\" AND tag:\"FASTSHIP\" AND fulfillment_status:unfulfilled",
+    "includeContact": false
   }
 settings: {}
 schema:

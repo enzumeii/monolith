@@ -1,20 +1,30 @@
+use super::common::*;
 use super::*;
+use crate::models::fulfillment::ShippingItem;
+use serde_json::Number;
 use serde_json::json;
 
 #[test]
 fn country_redirects_precede_method_aliases() {
     for (country, method, want) in [
-        ("US", "No tracking", "FASTSHIP"),
-        ("TH", "USPS", "BEST"),
-        ("DE", "Tracking number", "FASTSHIP"),
-        ("DE", "Standard Shipping", "THAI_POST"),
-        ("SG", "TELEPORT AIRASIA : TRACKING & FAST", "TELEPORT"),
-        ("AU", "[NEW] Tax cleared shipping", "FASTSHIP"),
-        ("CA", "Best express", "BEST"),
-        ("SG", "Standard Shipping", "THAI_POST"),
-        ("JP", "Tracking number", "THAI_POST"),
+        ("US", "No tracking", Courier::Fastship),
+        ("TH", "USPS", Courier::Best),
+        ("DE", "Tracking number", Courier::Fastship),
+        ("DE", "Standard Shipping", Courier::ThaiPost),
+        (
+            "SG",
+            "TELEPORT AIRASIA : TRACKING & FAST",
+            Courier::Teleport,
+        ),
+        ("AU", "[NEW] Tax cleared shipping", Courier::Fastship),
+        ("CA", "Best express", Courier::Best),
+        ("SG", "Standard Shipping", Courier::ThaiPost),
+        ("JP", "Tracking number", Courier::ThaiPost),
     ] {
-        assert_eq!(select_courier(&normalize_method(method, country)), want);
+        assert_eq!(
+            select_courier(&normalize_method(method, country)),
+            Some(want)
+        );
     }
 }
 #[test]
@@ -52,11 +62,15 @@ fn japanese_kanji_uses_japanese_readings_and_other_addresses_transliterate() {
 }
 #[test]
 fn best_labels_preserve_reference_zero_weight_without_requiring_order_weight() {
-    let order:ShippingOrder=serde_json::from_value(json!({"id":"gid://shopify/Order/1","email":null,"currencyCode":"THB","totalWeight":null,"shippingAddress":{"firstName":"A","lastName":"B","name":"A B","address1":"1 Main","address2":null,"city":"Bangkok","provinceCode":null,"zip":"00123","country":"Thailand","countryCodeV2":"TH","phone":"123"},"shippingLines":{"nodes":[{"code":"Standard Shipping"}],"pageInfo":{"hasNextPage":false,"endCursor":null}},"lineItems":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}})).expect("valid fixture");
+    let raw = json!({"id":"gid://shopify/Order/1","email":null,"currencyCode":"THB","totalWeight":null,"shippingAddress":{"firstName":"A","lastName":"B","name":"A B","address1":"1 Main","address2":null,"city":"Bangkok","provinceCode":null,"zip":"00123","country":"Thailand","countryCodeV2":"TH","phone":"123"},"shippingLines":{"nodes":[{"code":"Standard Shipping"}],"pageInfo":{"hasNextPage":false,"endCursor":null}},"lineItems":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}});
+    let parcel = Parcel::from_order(serde_json::from_value(raw.clone()).expect("valid fixture"))
+        .expect("valid parcel");
+    assert_eq!(parcel.email, "shipping@enzumeii.com");
+    let order: ShippingOrder = serde_json::from_value(raw).expect("valid fixture");
     let mut labels = ShippingLabels::default();
     assert_eq!(
         append_label(order, None, &mut labels).expect("valid fixture"),
-        "BEST"
+        Courier::Best
     );
     assert_eq!(labels.best[0].weight, 0);
 }

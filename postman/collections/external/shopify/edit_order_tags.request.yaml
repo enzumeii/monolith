@@ -1,0 +1,37 @@
+$kind: graphql-request
+description: "Set add=true to add tags or false to remove tags, preserving unrelated tags. Requires Shopify token in local vault. Synthetic IDs must be replaced with test-store IDs. Returns selected data and pageInfo where applicable. Mutation userErrors, GraphQL errors and missing payloads are failures. Do not run mutations against production during verification."
+url: "{{shopify}}/graphql.json"
+query: |
+  mutation EditOrderTags($id: ID!, $tags: [String!]!, $add: Boolean!) {
+    tagsAdd(id: $id, tags: $tags) @include(if: $add) {
+      node {
+        id
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+    tagsRemove(id: $id, tags: $tags) @skip(if: $add) {
+      node {
+        id
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+variables: |
+  {
+    "id": "gid://shopify/Order/123",
+    "tags": [
+      "SHIPPING",
+      "FASTSHIP"
+    ],
+    "add": true
+  }
+settings: {}
+schema:
+  source: auto
+order: 3300

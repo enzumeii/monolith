@@ -1,70 +1,74 @@
-use super::{
-    super::common::{resend_client, shopify_client, upstream},
-    workflow::ensure_same_order,
+use super::super::{
+    common::{resend_client, shopify_client, upstream},
+    pagination::for_each_page,
 };
 use crate::{
-    client::{ClientError, ClientErrorKind},
+    client::shopify::TagAction,
     error::AppError,
+    models::{fulfillment::ReshipOrder, shopify::PageRequest},
     state::AppState,
 };
 use axum::http::StatusCode;
 use domain::dto::orders::ReshipOrderResponse;
-use std::time::Duration;
 
-pub async fn reship(state: &AppState, id: String) -> Result<ReshipOrderResponse, AppError> {
+pub async fn reship(state: &AppState, number: u16) -> Result<ReshipOrderResponse, AppError> {
     let shopify = shopify_client(state)?;
     let resend = resend_client(state)?;
-    let timeout = state
-        .settings
-        .reship
-        .as_ref()
-        .filter(|settings| settings.email_timeout_secs > 0)
-        .ok_or_else(|| {
-            AppError::new(StatusCode::SERVICE_UNAVAILABLE, "Reship email unavailable")
-        })?;
-    let order = shopify
-        .reship_order(&id)
-        .await
-        .map_err(|error| upstream(error))?
-        .order
-        .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Order not found"))?;
-    ensure_same_order(&id, &order.id).map_err(|error| upstream(error))?;
-    if order.number <= 0 {
-        return Err(upstream(ClientError::new(ClientErrorKind::Protocol(
-            "invalid order number",
-        ))));
-    }
+    let mut found: Option<ReshipOrder> = None;
+    for_each_page(
+        None,
+        async |after| {
+            shopify
+                .reship_order(number, &PageRequest { first: 250, after })
+                .await
+                .map_err(upstream)
+        },
+        |orders| {
+            for order in orders {
+                if order.number != i64::from(number) {
+                    continue;
+                }
+                if found
+                    .as_ref()
+                    .is_some_and(|previous| previous.id != order.id)
+                {
+                    return Err(AppError::new(
+                        StatusCode::CONFLICT,
+                        "Order number is ambiguous",
+                    ));
+                }
+                found = Some(order);
+            }
+            Ok(())
+        },
+        upstream,
+    )
+    .await?;
+    let order = found.ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Order not found"))?;
     let email = order
         .email
         .as_deref()
         .filter(|email| !email.trim().is_empty())
         .ok_or_else(|| AppError::new(StatusCode::CONFLICT, "Order email missing"))?;
-    let tagged = shopify
-        .add_order_tags(&id, &["RETURNED"])
+    shopify
+        .edit_order_tags(&order.id, &["RETURNED"], TagAction::Add)
         .await
-        .map_err(|error| upstream(error))?;
-    ensure_same_order(&id, &tagged).map_err(|error| upstream(error))?;
+        .map_err(upstream)?;
     let (subject, html) = notice(order.number);
-    let email_id = tokio::time::timeout(
-        Duration::from_secs(timeout.email_timeout_secs),
-        resend.send_email(None, &[email], &subject, &html),
-    )
-    .await
-    .map_err(|error| {
-        AppError::new(StatusCode::GATEWAY_TIMEOUT, "Upstream request failed").with_source(error)
-    })?
-    .map_err(|error| upstream(error))?;
-    if email_id.as_ref().trim().is_empty() {
-        return Err(upstream(ClientError::new(ClientErrorKind::Protocol(
-            "email result missing",
-        ))));
-    }
-    Ok(ReshipOrderResponse { success: true })
+    let email_id = resend
+        .send_email(None, &[email], &subject, &html)
+        .await
+        .map_err(upstream)?;
+    Ok(ReshipOrderResponse {
+        success: true,
+        email_id: email_id.as_ref().to_owned(),
+    })
 }
 
 fn notice(number: i64) -> (String, String) {
     (
         format!("[ENZUMEII] Urgent : Reshipping your returned package order #{number}"),
-        include_str!("reship_notice.html").replace("{order_no}", &number.to_string()),
+        include_str!("../../../assets/reship_notice.html")
+            .replace("{order_no}", &number.to_string()),
     )
 }

@@ -130,3 +130,45 @@ fn inventory_enable_contract_counts_items_and_omits_empty_errors() {
         );
     }
 }
+
+#[test]
+fn orders_and_inventory_share_public_pagination_and_reship_returns_acceptance_id() {
+    use domain::dto::{
+        InventoryPageInfo,
+        orders::{Courier, ListOrdersResponse, ReshipOrderResponse},
+        pagination::PageInfo,
+    };
+    let page: InventoryPageInfo = PageInfo {
+        has_next_page: true,
+        end_cursor: Some("opaque".into()),
+    };
+    let value = serde_json::to_value(ListOrdersResponse {
+        orders: vec![],
+        page_info: page,
+    })
+    .expect("serialize page");
+    assert_eq!(
+        value,
+        serde_json::json!({"orders":[],"page_info":{"has_next_page":true,"end_cursor":"opaque"}})
+    );
+    let accepted = serde_json::to_value(ReshipOrderResponse {
+        success: true,
+        email_id: "provider-id".into(),
+    })
+    .expect("serialize acceptance");
+    assert_eq!(
+        accepted,
+        serde_json::json!({"success":true,"email_id":"provider-id"})
+    );
+    for courier in [
+        Courier::Fastship,
+        Courier::ThaiPost,
+        Courier::Best,
+        Courier::Teleport,
+    ] {
+        assert_eq!(
+            serde_json::to_value(courier).expect("serialize courier"),
+            courier.tag()
+        );
+    }
+}

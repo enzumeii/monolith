@@ -8,11 +8,7 @@ pub struct InventoryQuery {
     pub cursor: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct InventoryPageInfo {
-    pub has_next_page: bool,
-    pub end_cursor: Option<String>,
-}
+pub use super::pagination::PageInfo as InventoryPageInfo;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InventoryResponse {

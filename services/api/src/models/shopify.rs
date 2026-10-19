@@ -31,6 +31,9 @@ impl ShopifyId {
             "ProductVariant",
             "InventoryItem",
             "Order",
+            "FulfillmentOrder",
+            "FulfillmentOrderLineItem",
+            "Fulfillment",
         ]
         .iter()
         .any(|kind| id.is_kind(kind))
@@ -50,6 +53,17 @@ impl ShopifyId {
                 "wrong Shopify resource ID kind",
             )))
         }
+    }
+    pub(crate) fn number(&self, kind: &str) -> Result<u64, ClientError> {
+        self.require_kind(kind)?;
+        self.0
+            .rsplit('/')
+            .next()
+            .and_then(|number| number.parse().ok())
+            .filter(|number| *number > 0)
+            .ok_or_else(|| {
+                ClientError::new(ClientErrorKind::Protocol("invalid Shopify resource ID"))
+            })
     }
     fn is_kind(&self, kind: &str) -> bool {
         self.0
@@ -430,10 +444,6 @@ pub struct Activation {
     pub inventory_level: Option<InventoryLevel>,
     pub user_errors: Vec<MutationUserError>,
 }
-#[cfg(test)]
-#[path = "../tests/models/shopify.rs"]
-mod tests;
-
 #[derive(Deserialize)]
 pub struct OrderLinesData<T> {
     pub order: Option<OrderLines<T>>,
@@ -557,3 +567,7 @@ impl<T> Connection<T> {
 
 mod inventory;
 pub(crate) use inventory::InventoryActivationItem;
+
+#[cfg(test)]
+#[path = "../tests/models/shopify.rs"]
+mod tests;

@@ -14,10 +14,16 @@ fn resource_identity_rejects_wrong_kind_zero_and_overflow() {
         "gid://shopify/Order/-1",
         "gid://shopify/Order/18446744073709551616",
     ] {
-        assert!(resource_number(id, "Order").is_err());
+        assert!(
+            crate::models::shopify::ShopifyId::new(id)
+                .and_then(|id| id.number("Order"))
+                .is_err()
+        );
     }
     assert_eq!(
-        resource_number("gid://shopify/Order/42", "Order").expect("valid fixture"),
+        crate::models::shopify::ShopifyId::new("gid://shopify/Order/42")
+            .and_then(|id| id.number("Order"))
+            .expect("valid fixture"),
         42
     );
 }

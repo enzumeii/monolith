@@ -15,7 +15,7 @@ pub struct OrderReportResponse {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ListOrdersQuery {
-    pub tag: String,
+    pub tag: Option<String>,
     pub fulfillment: Option<FulfillmentStatus>,
     pub page_size: Option<u16>,
     pub cursor: Option<String>,
@@ -39,15 +39,9 @@ pub struct OrderSummary {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct OrderPageInfo {
-    pub has_next_page: bool,
-    pub end_cursor: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
 pub struct ListOrdersResponse {
     pub orders: Vec<OrderSummary>,
-    pub page_info: OrderPageInfo,
+    pub page_info: super::pagination::PageInfo,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -57,6 +51,18 @@ pub enum Courier {
     ThaiPost,
     Best,
     Teleport,
+}
+
+impl Courier {
+    #[must_use]
+    pub fn tag(self) -> &'static str {
+        match self {
+            Self::Fastship => "FASTSHIP",
+            Self::ThaiPost => "THAI_POST",
+            Self::Best => "BEST",
+            Self::Teleport => "TELEPORT",
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -183,4 +189,5 @@ pub struct TeleportLabel {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ReshipOrderResponse {
     pub success: bool,
+    pub email_id: String,
 }

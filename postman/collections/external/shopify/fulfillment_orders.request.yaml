@@ -9,11 +9,6 @@ query: |
         nodes {
           id
           status
-          assignedLocation {
-            location {
-              id
-            }
-          }
           supportedActions {
             action
           }

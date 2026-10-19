@@ -53,7 +53,7 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitl
 | Browser/deployment | No new rendered browser E2E, production deployment or merge |
 | Coverage percentage | Not measured |
 
-## ENZ-14 order fulfillment
+## ENZ-14 order fulfillment (historical pre-remediation evidence)
 
 | Area | Verification |
 | --- | --- |
@@ -127,3 +127,21 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitl
 | Preserved behavior | Existing separate-location, remaining-quantity, tracking, later-failure, tag-order, label/list/report and reship scenarios passed. SHIPPING is removed only after all required creations succeed |
 | Postman | Internal18 and external19 requests lint with zero errors/warnings. All18 Shopify GraphQL query/variable pairs match; existing fulfillment example now shows two same-location orders |
 | Limits | Controlled Shopify/Resend HTTP services and Compose PostgreSQL only; no live provider calls or mailbox-delivery proof. Required overflow batches can create multiple fulfillments/notifications. Existing partial-side-effect and ambiguous-timeout limits remain |
+
+
+## ENZ-14 review remediation — local verification (2026-10-20)
+
+Earlier ENZ-14 sections record historical evidence; this section covers the revised single-location contract.
+
+| Check | Result / scope |
+| --- | --- |
+| API | `just check` passed; complete `just test` passed 157 native and 94 real-TCP tests, zero ignored; owned Compose PostgreSQL removed afterward |
+| Reship | Four-digit merchant lookup reuses ListOrders with conditional email, selects exact number across pages, rejects ambiguity before writes, preserves missing-email guard, tags before one send, returns `email_id` |
+| Failure paths | Controlled Shopify/Resend HTTP services exercise initial/later-page reads, tag/send errors, connection loss and deadlines; no live customer email or provider mutations |
+| Fulfillment | One selling location and at most 250 order items; one combined creation, 250-line/entry boundaries, completed-order skipping before extra line reads, stop before SHIPPING removal on failure |
+| Sender configuration | Central environment loading and redaction; synthetic fixtures; setup preserves existing nonempty and duplicate keys, fills empty/missing fields, and remains idempotent |
+| Review regressions | Duplicate-key overwrite and old label fallback mailbox reproduced failing, then passed after fixes; fallback now shipping@enzumeii.com |
+| Shared consumers | Domain 7 contract tests; backoffice 29 native tests; domain/backoffice configured WASM checks and all module strict checks passed; client test target builds with no tests |
+| Postman | Internal 18 and external 18 requests lint with zero errors/warnings; all 17 Shopify query documents match executable request text and variables parse |
+| Repository skills | New Rust layout skill plus configuration/ownership updates validate; metadata/links and touched test-module placement checked; no agent-behavior improvement claim |
+| Limits | Live Shopify permissions/query cost, carrier acceptance and inbox delivery remain unverified. Multi-location and more-than-250-item fulfillment are outside the supplied business bounds. Published-head CI is recorded separately during delivery |

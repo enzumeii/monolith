@@ -32,11 +32,11 @@ pub(super) fn resend_client(
         .resend
         .as_ref()
         .map_err(|error| {
-            AppError::new(StatusCode::SERVICE_UNAVAILABLE, "Reship email unavailable")
+            AppError::new(StatusCode::SERVICE_UNAVAILABLE, "Resend client unavailable")
                 .with_source(error.clone())
         })?
         .as_deref()
-        .ok_or_else(|| AppError::new(StatusCode::SERVICE_UNAVAILABLE, "Reship email unavailable"))
+        .ok_or_else(|| AppError::new(StatusCode::SERVICE_UNAVAILABLE, "Resend client unavailable"))
 }
 
 #[track_caller]

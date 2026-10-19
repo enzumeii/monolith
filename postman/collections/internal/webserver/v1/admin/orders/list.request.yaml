@@ -1,5 +1,5 @@
 $kind: http-request
-description: 'List one order page; tag is comma-separated AND tags. page_size: 1..250 (default 50); cursor is opaque. Returns orders [{id,number}] and page_info {has_next_page,end_cursor}. Invalid input 400; auth 401; unavailable 503; upstream 502/timeout 504. Inherits bearer access_token.'
+description: 'List one order page; tag is optional; omit it to list without a tag filter. Supplied comma-separated tags use AND. page_size: 1..250 (default 50); cursor is opaque. Returns orders [{id,number}] and page_info {has_next_page,end_cursor}. Invalid input 400; auth 401; unavailable 503; upstream 502/timeout 504. Inherits bearer access_token.'
 url: '{{server}}/v1/admin/orders?tag=SHIPPING,FASTSHIP&fulfillment=UNFULFILLED&page_size=50'
 method: GET
 queryParams:

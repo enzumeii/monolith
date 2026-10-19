@@ -1,13 +1,7 @@
-query SalesOrderLines(
-  $id: ID!
-  $includeLines: Boolean! = true
-  $includeContact: Boolean! = false
-) {
+query SalesOrderLines($id: ID!) {
   order(id: $id) {
     id
-    number @include(if: $includeContact)
-    email @include(if: $includeContact)
-    lineItems(first: 250) @include(if: $includeLines) {
+    lineItems(first: 250) {
       nodes {
         id
         title

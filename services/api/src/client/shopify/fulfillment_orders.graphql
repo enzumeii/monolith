@@ -5,11 +5,6 @@ query FulfillmentOrders($id: ID!, $first: Int!, $after: String) {
       nodes {
         id
         status
-        assignedLocation {
-          location {
-            id
-          }
-        }
         supportedActions {
           action
         }

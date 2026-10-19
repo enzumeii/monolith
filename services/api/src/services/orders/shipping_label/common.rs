@@ -1,53 +1,25 @@
 use crate::{
     client::{ClientError, ClientErrorKind},
-    config::ShippingSender,
     error::AppError,
     models::fulfillment::{ShippingAddress, ShippingItem, ShippingOrder},
 };
 use axum::http::StatusCode;
-use domain::dto::orders::{BestLabel, FastshipLabel, ShippingLabels, TeleportLabel, ThaiPostLabel};
+use domain::dto::orders::Courier;
 use serde_json::Number;
 
-struct Parcel {
-    address: ShippingAddress,
-    country_code: String,
-    email: String,
-    weight: u64,
-    quantity: u64,
-    price: Number,
-    category: String,
-    method: String,
-}
-
-pub(super) fn append_label(
-    order: ShippingOrder,
-    sender: Option<&ShippingSender>,
-    labels: &mut ShippingLabels,
-) -> Result<&'static str, AppError> {
-    let parcel = Parcel::from_order(order)?;
-    let courier = select_courier(&parcel.method);
-    match courier {
-        "FASTSHIP" => labels.fastship.push(parcel.fastship()),
-        "THAI_POST" => labels.thaipost.push(parcel.thaipost(sender.ok_or_else(|| {
-            AppError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Shipping sender unavailable",
-            )
-        })?)),
-        "BEST" => labels.best.push(parcel.best()),
-        "TELEPORT" => labels.teleport.push(parcel.teleport()?),
-        _ => {
-            return Err(AppError::new(
-                StatusCode::CONFLICT,
-                "Order has no supported shipping method",
-            ));
-        }
-    }
-    Ok(courier)
+pub(super) struct Parcel {
+    pub(super) address: ShippingAddress,
+    pub(super) country_code: String,
+    pub(super) email: String,
+    pub(super) weight: u64,
+    pub(super) quantity: u64,
+    pub(super) price: Number,
+    pub(super) category: String,
+    pub(super) method: String,
 }
 
 impl Parcel {
-    fn from_order(order: ShippingOrder) -> Result<Self, AppError> {
+    pub(super) fn from_order(order: ShippingOrder) -> Result<Self, AppError> {
         let mut address = order
             .shipping_address
             .ok_or_else(|| invalid("Order shipping address missing"))?;
@@ -77,7 +49,7 @@ impl Parcel {
         let lines = order
             .shipping_lines
             .into_complete_nodes()
-            .map_err(|error| super::super::common::upstream(error))?;
+            .map_err(|error| crate::services::common::upstream(error))?;
         let code = lines
             .first()
             .and_then(|line| line.code.as_deref())
@@ -95,7 +67,10 @@ impl Parcel {
             ));
         }
         let method = normalize_method(code, &country_code);
-        if matches!(select_courier(&method), "BEST" | "TELEPORT") {
+        if matches!(
+            select_courier(&method),
+            Some(Courier::Best | Courier::Teleport)
+        ) {
             required(address.phone.as_deref(), "Order shipping phone missing")?;
             required(address.zip.as_deref(), "Order shipping postcode missing")?;
         }
@@ -103,10 +78,10 @@ impl Parcel {
             order
                 .line_items
                 .into_complete_nodes()
-                .map_err(|error| super::super::common::upstream(error))?,
+                .map_err(|error| crate::services::common::upstream(error))?,
             &order.currency_code,
         )?;
-        let weight = if select_courier(&method) == "BEST" {
+        let weight = if select_courier(&method) == Some(Courier::Best) {
             0
         } else {
             order
@@ -120,7 +95,7 @@ impl Parcel {
             email: order
                 .email
                 .filter(|email| !email.trim().is_empty())
-                .unwrap_or_else(|| "automated.enzumeii@gmail.com".into()),
+                .unwrap_or_else(|| "shipping@enzumeii.com".into()),
             weight,
             quantity,
             price,
@@ -128,151 +103,9 @@ impl Parcel {
             method,
         })
     }
-    fn fastship(self) -> FastshipLabel {
-        let a = self.address;
-        FastshipLabel {
-            firstname: a.first_name.unwrap_or_default(),
-            lastname: a.last_name.unwrap_or_default(),
-            email: self.email,
-            phone: a.phone.unwrap_or_default(),
-            address_1: a.address1.unwrap_or_default(),
-            address_2: a.address2.unwrap_or_default(),
-            city: a.city.unwrap_or_default(),
-            state: a
-                .province_code
-                .unwrap_or_else(|| a.country.clone().unwrap_or_default()),
-            postcode: a.zip.unwrap_or_default(),
-            country: a.country.unwrap_or_default(),
-            width: 0,
-            height: 0,
-            length: 0,
-            weight: self.weight,
-            category: self.category,
-            quantity: self.quantity,
-            declared_value: self.price,
-            ioss: String::new(),
-            note: String::new(),
-            shipping_option: String::new(),
-            reference_id: String::new(),
-            incoterm: if self.country_code == "US" {
-                "DDU".into()
-            } else {
-                String::new()
-            },
-        }
-    }
-    fn thaipost(self, s: &ShippingSender) -> ThaiPostLabel {
-        let service_id = if self.weight >= 2000 {
-            3278
-        } else if matches!(
-            self.method.as_str(),
-            "Tracking number" | "USPS(tracking&fast)" | "Fastship(tracking&fast)"
-        ) {
-            358_702
-        } else {
-            358_701
-        };
-        let address = joined_address(&self.address);
-        let a = self.address;
-        ThaiPostLabel {
-            country_code: self.country_code,
-            weight: self.weight,
-            service_id,
-            category: "Merchandise".into(),
-            sender_name: s.name.clone(),
-            sender_phone: s.phone.clone(),
-            sender_email: s.email.clone(),
-            sender_address: s.address.clone(),
-            sender_sub_district: s.sub_district.clone(),
-            sender_district: s.district.clone(),
-            sender_province: s.province.clone(),
-            sender_postcode: s.postcode.clone(),
-            sender_country_code: s.country_code.clone(),
-            receiver_name: a.name.unwrap_or_default(),
-            receiver_phone: a.phone.unwrap_or_default(),
-            receiver_email: self.email,
-            receiver_address: address,
-            receiver_state: a.province_code.unwrap_or_default(),
-            receiver_city: a.city.unwrap_or_default(),
-            receiver_postcode: a.zip.unwrap_or_else(|| "0".into()),
-            currency: "THB".into(),
-            item_description: self.category,
-            quantity: self.quantity,
-            price: self.price,
-            origin: "TH".into(),
-            ioss: String::new(),
-            order_id: String::new(),
-            insurance: String::new(),
-            hs_code: "3926400000".into(),
-        }
-    }
-    fn best(self) -> BestLabel {
-        let address = format!(
-            "{}, {}, {}, {}, {}",
-            joined_address(&self.address),
-            self.address.city.as_deref().unwrap_or_default(),
-            self.address.province_code.as_deref().unwrap_or_default(),
-            self.address.country.as_deref().unwrap_or_default(),
-            self.address.zip.as_deref().unwrap_or_default()
-        );
-        BestLabel {
-            name: self.address.name.unwrap_or_default(),
-            phone: self.address.phone.unwrap_or_default(),
-            zip_code: self.address.zip.unwrap_or_default(),
-            address,
-            category: self.category,
-            cod_amount: String::new(),
-            insured_amount: 0,
-            waybill_number: String::new(),
-            note: String::new(),
-            parcel_id: String::new(),
-            weight: 0,
-        }
-    }
-    fn teleport(self) -> Result<TeleportLabel, AppError> {
-        let address = joined_address(&self.address);
-        let weight = self
-            .weight
-            .to_string()
-            .parse::<f64>()
-            .map_err(|_| invalid("Invalid shipping weight"))?
-            / 1000.0;
-        let weight = Number::from_f64(weight).ok_or_else(|| invalid("Invalid shipping weight"))?;
-        let a = self.address;
-        Ok(TeleportLabel {
-            name: a.name.unwrap_or_default(),
-            email: self.email,
-            phone: a.phone.unwrap_or_default(),
-            address,
-            state: a
-                .province_code
-                .unwrap_or_else(|| a.country.unwrap_or_default()),
-            city: a.city.unwrap_or_default(),
-            postal_code: a.zip.unwrap_or_default(),
-            weight,
-            is_multi_piece: if self.quantity > 1 {
-                "Multi Piece Shippment".into()
-            } else {
-                "Single Piece Shippment".into()
-            },
-            quantity: self.quantity,
-            commodity_value: self.price,
-            package: "Polymailer".into(),
-            length: 13,
-            width: 15,
-            height: 4,
-            commodity: String::new(),
-            commodity_description: String::new(),
-            commodity_currency: "THB".into(),
-            delivery_instructions: "Please call customer before delivery".into(),
-            tracking_number: String::new(),
-            reference: String::new(),
-            destination_geo: String::new(),
-        })
-    }
 }
 
-fn declaration(
+pub(super) fn declaration(
     items: Vec<ShippingItem>,
     currency: &str,
 ) -> Result<(u64, Number, String), AppError> {
@@ -342,7 +175,7 @@ fn category_for_sku(sku: &str) -> (u8, &'static str) {
         _ => (0, "Stickers"),
     }
 }
-fn normalize_method(code: &str, country: &str) -> String {
+pub(super) fn normalize_method(code: &str, country: &str) -> String {
     let code = match country {
         "US" => "USPS(tracking&fast)",
         "TH" => "Best Express",
@@ -365,17 +198,17 @@ fn normalize_method(code: &str, country: &str) -> String {
     }
     .into()
 }
-fn select_courier(method: &str) -> &'static str {
+pub(super) fn select_courier(method: &str) -> Option<Courier> {
     match method {
-        "Fastship(tracking&fast)" | "USPS(tracking&fast)" => "FASTSHIP",
-        "Best Express" => "BEST",
-        "TELEPORT AIRASIA : TRACKING & FAST" => "TELEPORT",
+        "Fastship(tracking&fast)" | "USPS(tracking&fast)" => Some(Courier::Fastship),
+        "Best Express" => Some(Courier::Best),
+        "TELEPORT AIRASIA : TRACKING & FAST" => Some(Courier::Teleport),
         "Tracking number" | "custom" | "No tracking" | "Headquarter" | "Standard Shipping"
-        | "Reship" => "THAI_POST",
-        _ => "UNKNOWN",
+        | "Reship" => Some(Courier::ThaiPost),
+        _ => None,
     }
 }
-fn romanize(value: &str, country: &str) -> String {
+pub(super) fn romanize(value: &str, country: &str) -> String {
     let value = if country == "JP"
         && value
             .chars()
@@ -387,7 +220,7 @@ fn romanize(value: &str, country: &str) -> String {
     };
     deunicode::deunicode(&value).trim().replace('\'', "")
 }
-fn joined_address(a: &ShippingAddress) -> String {
+pub(super) fn joined_address(a: &ShippingAddress) -> String {
     format!(
         "{} {}",
         a.address1.as_deref().unwrap_or_default(),
@@ -399,15 +232,11 @@ fn required<'a>(value: Option<&'a str>, message: &'static str) -> Result<&'a str
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| invalid(message))
 }
-fn invalid(message: &'static str) -> AppError {
+pub(super) fn invalid(message: &'static str) -> AppError {
     AppError::new(StatusCode::BAD_GATEWAY, message).with_source(ClientError::new(
         ClientErrorKind::Protocol("invalid shipping data"),
     ))
 }
-
-#[cfg(test)]
-#[path = "../../tests/services/orders/shipping.rs"]
-mod tests;
 
 fn known_method(code: &str) -> bool {
     matches!(

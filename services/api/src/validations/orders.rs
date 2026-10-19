@@ -24,10 +24,6 @@ pub fn extract_order_query(
     Ok(tags)
 }
 
-#[cfg(test)]
-#[path = "../tests/validations/orders.rs"]
-mod tests;
-
 pub fn extract_list_query(
     query: Result<Query<domain::dto::orders::ListOrdersQuery>, QueryRejection>,
 ) -> Result<(String, crate::models::shopify::PageRequest), AppError> {
@@ -39,18 +35,24 @@ pub fn extract_list_query(
         )
     };
     let Query(query) = query.map_err(|_| invalid())?;
-    let tags: Vec<String> = query
+    let request = query
         .tag
-        .split(',')
-        .map(|tag| tag.trim().to_owned())
-        .collect();
-    let request = crate::models::shopify::OrdersByTagRequest { tags };
+        .map(|tag| crate::models::shopify::OrdersByTagRequest {
+            tags: tag.split(',').map(|tag| tag.trim().to_owned()).collect(),
+        });
     let page = crate::models::shopify::PageRequest {
         first: query.page_size.unwrap_or(50),
         after: query.cursor,
     };
-    let variables = request.variables(&page).map_err(|_| invalid())?;
-    let mut search = variables["search"].as_str().ok_or_else(invalid)?.to_owned();
+    page.validate().map_err(|_| invalid())?;
+    let mut search = if let Some(request) = request {
+        request.variables(&page).map_err(|_| invalid())?["search"]
+            .as_str()
+            .ok_or_else(invalid)?
+            .to_owned()
+    } else {
+        String::new()
+    };
     if let Some(status) = query.fulfillment {
         let status = match status {
             FulfillmentStatus::Unfulfilled => "unfulfilled",
@@ -60,7 +62,10 @@ pub fn extract_list_query(
             FulfillmentStatus::Shipped => "shipped",
             FulfillmentStatus::Any => "any",
         };
-        search.push_str(" AND fulfillment_status:");
+        if !search.is_empty() {
+            search.push_str(" AND ");
+        }
+        search.push_str("fulfillment_status:");
         search.push_str(status);
     }
     Ok((search, page))
@@ -114,21 +119,28 @@ pub fn extract_reship_request(
     path: Result<axum::extract::Path<String>, axum::extract::rejection::PathRejection>,
     query: Option<&str>,
     body: Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
-) -> Result<String, AppError> {
+) -> Result<u16, AppError> {
     let invalid = || {
         AppError::new(
             StatusCode::BAD_REQUEST,
-            "Expected a positive order id without query parameters or a request body",
+            "Expected a four-digit order number (1000-9999) without query parameters or a request body",
         )
     };
     let axum::extract::Path(id) = path.map_err(|_| invalid())?;
     if query.is_some_and(|query| !query.is_empty())
         || !body.map_err(|_| invalid())?.is_empty()
-        || id.is_empty()
+        || id.len() != 4
         || !id.bytes().all(|b| b.is_ascii_digit())
-        || id.parse::<u64>().ok().is_none_or(|id| id == 0)
+        || id
+            .parse::<u16>()
+            .ok()
+            .is_none_or(|number| !(1000..=9999).contains(&number))
     {
         return Err(invalid());
     }
-    Ok(format!("gid://shopify/Order/{id}"))
+    id.parse().map_err(|_| invalid())
 }
+
+#[cfg(test)]
+#[path = "../tests/validations/orders.rs"]
+mod tests;

@@ -453,9 +453,9 @@ async fn start_api(config: ProviderConfig<'_>) -> Arc<TestApi> {
     let shopify = shopify_url
         .map(|url| format!("\n[client.shopify]\nadmin_api_url = {url:?}\ntimeout_secs = 3\n"))
         .unwrap_or_default();
-    let reship = config
+    let resend = config
         .email_timeout_secs
-        .map(|secs| format!("\n[reship]\nemail_timeout_secs = {secs}\n"))
+        .map(|secs| format!("\n[client.resend]\ntimeout_secs = {secs}\n"))
         .unwrap_or_default();
     let directory = std::env::temp_dir().join(format!("monolith-api-e2e-{}", Uuid::new_v4()));
     std::fs::create_dir(&directory).expect("create owned E2E configuration directory");
@@ -478,17 +478,7 @@ min_connections = 1
 public_origin = "http://127.0.0.1:8084"
 insecure_local = true
 {shopify}
-{reship}
-[shipping_sender]
-name = "Nanmanas Tandavanitj"
-phone = "0989473856"
-email = "automated.enzumeii@gmail.com"
-address = "41/229 Diamond City Nuanchan 23"
-sub_district = "Nuanchan"
-district = "Buengkhum"
-province = "Bangkok"
-postcode = "10230"
-country_code = "TH"
+{resend}
 "#
         ),
     )
@@ -499,6 +489,17 @@ country_code = "TH"
             .env("DATABASE_URL", database_url())
             .env("JWT_SECRET", JWT_SECRET)
             .env("RUST_LOG", "info")
+            .envs([
+                ("SHIPPING_SENDER_NAME", "Synthetic Sender"),
+                ("SHIPPING_SENDER_PHONE", "0000000000"),
+                ("SHIPPING_SENDER_EMAIL", "sender@example.test"),
+                ("SHIPPING_SENDER_ADDRESS", "123 Synthetic Street"),
+                ("SHIPPING_SENDER_SUB_DISTRICT", "Synthetic Subdistrict"),
+                ("SHIPPING_SENDER_DISTRICT", "Synthetic District"),
+                ("SHIPPING_SENDER_PROVINCE", "Synthetic Province"),
+                ("SHIPPING_SENDER_POSTCODE", "10100"),
+                ("SHIPPING_SENDER_COUNTRY_CODE", "TH"),
+            ])
             .env_remove("SHOPIFY_ACCESS_TOKEN")
             .env_remove("RESEND_API_KEY")
             .env_remove("RESEND_BASE_URL")

@@ -57,6 +57,7 @@ async fn resend_state_reuses_client_and_retains_missing_or_empty_key_errors() {
     for key in [None, Some(""), Some(" "), Some("fixture-key")] {
         let mut settings = settings(&json!(null));
         settings.client.as_mut().unwrap().resend = Some(crate::config::ResendConfig {
+            timeout_secs: Some(10),
             api_key: key.map(str::to_owned),
         });
         let state = app_state(pool.clone(), settings).unwrap();
@@ -118,6 +119,7 @@ async fn resend_sdk_initialization_panics_are_retained_as_optional_errors() {
         .unwrap();
     let mut settings = settings(&json!(null));
     settings.client.as_mut().unwrap().resend = Some(crate::config::ResendConfig {
+        timeout_secs: Some(10),
         api_key: Some("fixture-key".into()),
     });
     let state = app_state(pool, settings).unwrap();

@@ -3,12 +3,6 @@ use crate::client::{ClientError, ClientErrorKind, MutationUserError};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
-pub struct ReshipOrderData {
-    #[serde(deserialize_with = "Option::deserialize")]
-    pub order: Option<ReshipOrder>,
-}
-
-#[derive(Deserialize)]
 pub struct ReshipOrder {
     pub id: String,
     pub number: i64,
@@ -32,7 +26,7 @@ pub struct ShippingOrder {
     pub id: String,
     pub email: Option<String>,
     pub currency_code: String,
-    #[serde(default, deserialize_with = "deserialize_weight")]
+    #[serde(default, deserialize_with = "ShippingOrder::deserialize_weight")]
     pub total_weight: Option<u64>,
     pub shipping_address: Option<ShippingAddress>,
     pub shipping_lines: Connection<ShippingLine>,
@@ -73,7 +67,6 @@ pub struct OrderData {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FulfillmentOrderHeader {
-    pub id: String,
     pub fulfillment_orders: Connection<FulfillmentOrder>,
 }
 #[derive(Deserialize)]
@@ -81,17 +74,12 @@ pub struct FulfillmentOrderHeader {
 pub struct FulfillmentOrder {
     pub id: String,
     pub status: String,
-    pub assigned_location: AssignedLocation,
     pub supported_actions: Vec<SupportedAction>,
     pub line_items: Connection<FulfillmentLine>,
 }
 #[derive(Deserialize)]
 pub struct SupportedAction {
     pub action: String,
-}
-#[derive(Deserialize)]
-pub struct AssignedLocation {
-    pub location: Option<Location>,
 }
 #[derive(Deserialize)]
 pub struct Location {
@@ -106,8 +94,8 @@ pub struct FulfillmentLine {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TagData {
-    #[serde(alias = "tagsRemove")]
-    pub tags_add: TagResult,
+    pub tags_add: Option<TagResult>,
+    pub tags_remove: Option<TagResult>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -127,44 +115,45 @@ pub struct CreateResult {
     pub user_errors: Vec<MutationUserError>,
 }
 
-pub fn resource_number(id: &str, kind: &str) -> Result<u64, ClientError> {
-    id.strip_prefix(&format!("gid://shopify/{kind}/"))
-        .filter(|value| !value.is_empty() && value.bytes().all(|c| c.is_ascii_digit()))
-        .and_then(|value| value.parse().ok())
-        .filter(|value| *value > 0)
-        .ok_or_else(|| ClientError::new(ClientErrorKind::Protocol("invalid Shopify resource ID")))
+impl TagResult {
+    pub fn into_id(self) -> Result<String, ClientError> {
+        if !self.user_errors.is_empty() {
+            return Err(ClientError::new(ClientErrorKind::Mutation {
+                errors: self.user_errors,
+            }));
+        }
+        self.node
+            .map(|node| node.id)
+            .ok_or_else(|| ClientError::new(ClientErrorKind::Protocol("mutation result missing")))
+    }
+}
+impl CreateResult {
+    pub fn into_id(self) -> Result<String, ClientError> {
+        TagResult {
+            node: self.fulfillment,
+            user_errors: self.user_errors,
+        }
+        .into_id()
+    }
 }
 
-pub fn mutation_result(
-    errors: Vec<MutationUserError>,
-    node: Option<Location>,
-) -> Result<String, ClientError> {
-    if !errors.is_empty() {
-        return Err(ClientError::new(ClientErrorKind::Mutation { errors }));
+impl ShippingOrder {
+    fn deserialize_weight<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<u64>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Weight {
+            Integer(u64),
+            Text(String),
+        }
+        Option::<Weight>::deserialize(deserializer)?
+            .map(|weight| match weight {
+                Weight::Integer(value) => Ok(value),
+                Weight::Text(value) => value.parse().map_err(serde::de::Error::custom),
+            })
+            .transpose()
     }
-    node.map(|node| node.id)
-        .ok_or_else(|| ClientError::new(ClientErrorKind::Protocol("mutation result missing")))
-}
-
-#[cfg(test)]
-#[path = "../tests/models/fulfillment.rs"]
-mod tests;
-
-fn deserialize_weight<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<u64>, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Weight {
-        Integer(u64),
-        Text(String),
-    }
-    Option::<Weight>::deserialize(deserializer)?
-        .map(|weight| match weight {
-            Weight::Integer(value) => Ok(value),
-            Weight::Text(value) => value.parse().map_err(serde::de::Error::custom),
-        })
-        .transpose()
 }
 
 #[derive(Deserialize)]
@@ -175,7 +164,6 @@ pub struct ShippingItemsData {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrderItems {
-    pub id: String,
     pub line_items: Connection<ShippingItem>,
 }
 #[derive(Deserialize)]
@@ -186,7 +174,6 @@ pub struct ShippingMethodsData {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrderMethods {
-    pub id: String,
     pub shipping_lines: Connection<ShippingLine>,
 }
 #[derive(Deserialize)]
@@ -198,6 +185,9 @@ pub struct FulfillmentItemsData {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FulfillmentItems {
-    pub id: String,
     pub line_items: Connection<FulfillmentLine>,
 }
+
+#[cfg(test)]
+#[path = "../tests/models/fulfillment.rs"]
+mod tests;

@@ -15,16 +15,5 @@ insecure_local = true
 timeout_secs = 3
 admin_api_url = "https://enzumeii.myshopify.com/admin/api/2026-10/graphql.json"
 
-[shipping_sender]
-name = "Nanmanas Tandavanitj"
-phone = "0989473856"
-email = "automated.enzumeii@gmail.com"
-address = "41/229 Diamond City Nuanchan 23"
-sub_district = "Nuanchan"
-district = "Buengkhum"
-province = "Bangkok"
-postcode = "10230"
-country_code = "TH"
-
-[reship]
-email_timeout_secs = 10
+[client.resend]
+timeout_secs = 10

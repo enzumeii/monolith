@@ -405,11 +405,8 @@ async fn bounded_sales_lines_accept_only_order_id() {
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].2["variables"], json!({"id":id("Order",1)}));
     let query = requests[0].2["query"].as_str().unwrap();
-    assert!(query.contains("$includeLines: Boolean! = true"));
-    assert!(query.contains("$includeContact: Boolean! = false"));
-    assert!(query.contains("lineItems(first: 250) @include(if: $includeLines)"));
-    assert!(query.contains("number @include(if: $includeContact)"));
-    assert!(query.contains("email @include(if: $includeContact)"));
+    assert!(query.contains("lineItems(first: 250)"));
+    assert!(!query.contains("includeContact"));
     assert!(
         requests[0].2["query"]
             .as_str()

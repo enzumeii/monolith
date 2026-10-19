@@ -1,3 +1,6 @@
+use crate::models::fulfillment::{
+    CreateData, OrderData, OrderSummary, OrdersPage, ShippingOrder, TagData,
+};
 use crate::{
     client::{ClientError, ClientErrorKind, GraphqlClient, GraphqlRequest, HttpClient},
     config::ShopifyConfig,
@@ -15,7 +18,12 @@ use reqwest::{
     header::{HeaderMap, HeaderValue},
 };
 use serde::de::DeserializeOwned;
-use serde_json::Value;
+use serde_json::{Value, json};
+
+pub(crate) enum TagAction {
+    Add,
+    Remove,
+}
 use std::time::Duration;
 pub struct ShopifyClient {
     graphql: GraphqlClient,
@@ -164,6 +172,118 @@ impl ShopifyClient {
         )
         .await
     }
+
+    pub(crate) async fn reship_order(
+        &self,
+        number: u16,
+        page: &PageRequest,
+    ) -> Result<Connection<crate::models::fulfillment::ReshipOrder>, ClientError> {
+        page.validate()?;
+        let data: OrdersPage<crate::models::fulfillment::ReshipOrder> = self.execute("ListOrders", include_str!("shopify/list_orders.graphql"), json!({"first":page.first,"after":page.after,"search":format!("name:{number}"),"includeContact":true})).await?;
+        Ok(data.orders)
+    }
+
+    pub(crate) async fn shipping_order_items(
+        &self,
+        id: &str,
+        after: Option<String>,
+    ) -> Result<crate::models::fulfillment::ShippingItemsData, ClientError> {
+        self.execute(
+            "ShippingOrderItems",
+            include_str!("shopify/shipping_order_items.graphql"),
+            json!({"id":id,"first":250,"after":after}),
+        )
+        .await
+    }
+    pub(crate) async fn shipping_order_methods(
+        &self,
+        id: &str,
+        after: Option<String>,
+    ) -> Result<crate::models::fulfillment::ShippingMethodsData, ClientError> {
+        self.execute(
+            "ShippingOrderMethods",
+            include_str!("shopify/shipping_order_methods.graphql"),
+            json!({"id":id,"first":250,"after":after}),
+        )
+        .await
+    }
+    pub(crate) async fn fulfillment_order_items(
+        &self,
+        id: &str,
+        after: Option<String>,
+    ) -> Result<crate::models::fulfillment::FulfillmentItemsData, ClientError> {
+        self.execute(
+            "FulfillmentOrderItems",
+            include_str!("shopify/fulfillment_order_items.graphql"),
+            json!({"id":id,"first":250,"after":after}),
+        )
+        .await
+    }
+
+    pub(crate) async fn list_orders(
+        &self,
+        search: &str,
+        page: &PageRequest,
+    ) -> Result<Connection<OrderSummary>, ClientError> {
+        page.validate()?;
+        let data: OrdersPage<OrderSummary> = self
+            .execute(
+                "ListOrders",
+                include_str!("shopify/list_orders.graphql"),
+                json!({"first":page.first,"after":page.after,"search":search}),
+            )
+            .await?;
+        Ok(data.orders)
+    }
+    pub(crate) async fn shipping_orders(
+        &self,
+        after: Option<String>,
+    ) -> Result<Connection<ShippingOrder>, ClientError> {
+        let data: OrdersPage<ShippingOrder> = self.execute("ShippingOrders",include_str!("shopify/shipping_orders.graphql"),json!({"first":250,"after":after,"search":"status:open AND financial_status:paid AND fulfillment_status:unfulfilled AND tag:\"PACKING\""})).await?;
+        Ok(data.orders)
+    }
+    pub(crate) async fn fulfillment_orders(
+        &self,
+        id: &str,
+        after: Option<String>,
+    ) -> Result<OrderData, ClientError> {
+        self.execute(
+            "FulfillmentOrders",
+            include_str!("shopify/fulfillment_orders.graphql"),
+            json!({"id":id,"first":250,"after":after}),
+        )
+        .await
+    }
+    pub(crate) async fn edit_order_tags(
+        &self,
+        id: &str,
+        tags: &[&str],
+        action: TagAction,
+    ) -> Result<String, ClientError> {
+        let add = matches!(action, TagAction::Add);
+        let data: TagData = self
+            .execute(
+                "EditOrderTags",
+                include_str!("shopify/edit_order_tags.graphql"),
+                json!({"id":id,"tags":tags,"add":add}),
+            )
+            .await?;
+        let result = if add { data.tags_add } else { data.tags_remove };
+        result
+            .ok_or_else(|| ClientError::new(ClientErrorKind::Protocol("mutation result missing")))?
+            .into_id()
+    }
+    pub(crate) async fn create_fulfillment(&self, input: Value) -> Result<String, ClientError> {
+        let data: CreateData = self
+            .execute(
+                "CreateFulfillment",
+                include_str!("shopify/create_fulfillment.graphql"),
+                json!({"fulfillment":input}),
+            )
+            .await?;
+        data.fulfillment_create.into_id()
+    }
+
     async fn execute<D: DeserializeOwned>(
         &self,
         operation_name: &str,
@@ -185,5 +305,3 @@ impl ShopifyClient {
 #[cfg(test)]
 #[path = "../tests/client/shopify.rs"]
 mod tests;
-
-mod fulfillment;

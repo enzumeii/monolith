@@ -287,3 +287,29 @@ fn activation_candidates_reject_zero_and_overflowed_resource_ids() {
         );
     }
 }
+
+#[test]
+fn fulfillment_resource_kinds_share_checked_shopify_numeric_extraction() {
+    for kind in [
+        "Order",
+        "FulfillmentOrder",
+        "FulfillmentOrderLineItem",
+        "Fulfillment",
+    ] {
+        assert_eq!(
+            ShopifyId::new(format!("gid://shopify/{kind}/42"))
+                .expect("valid ID")
+                .number(kind)
+                .expect("numeric ID"),
+            42
+        );
+        for value in ["0", "18446744073709551616"] {
+            assert!(
+                ShopifyId::new(format!("gid://shopify/{kind}/{value}"))
+                    .expect("valid lexical ID")
+                    .number(kind)
+                    .is_err()
+            );
+        }
+    }
+}

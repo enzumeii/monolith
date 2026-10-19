@@ -11,6 +11,7 @@ async fn root_pages_reject_missing_empty_repeated_and_cyclic_cursors() {
     ] {
         let mut iter = cursors.into_iter();
         let result = for_each_page(
+            None,
             |_| {
                 let cursor = iter.next().unwrap();
                 async move {
@@ -35,6 +36,7 @@ async fn consumes_each_root_page_before_fetching_the_next() {
     let consumed = std::sync::Mutex::new(Vec::new());
     let mut count = 0;
     for_each_page(
+        None,
         |after| {
             count += 1;
             let n = count;
@@ -64,6 +66,7 @@ async fn consumes_each_root_page_before_fetching_the_next() {
 async fn consumer_failure_stops_before_the_next_fetch() {
     let mut count = 0;
     let result = for_each_page(
+        None,
         |_| {
             count += 1;
             async {
@@ -94,6 +97,7 @@ async fn mapped_pagination_errors_do_not_become_internal_server_errors() {
     use axum::{http::StatusCode, response::IntoResponse};
     for failure in ["cursor", "fetch", "consume"] {
         let error = for_each_page(
+            None,
             |_| async move {
                 if failure == "fetch" {
                     return Err(AppError::new(
@@ -133,4 +137,58 @@ async fn mapped_pagination_errors_do_not_become_internal_server_errors() {
             }
         );
     }
+}
+
+#[tokio::test]
+async fn prefetched_pages_use_the_same_cursor_and_consumer_rules() {
+    for continuing in [false, true] {
+        let initial = Connection {
+            nodes: vec![1],
+            page_info: PageInfo {
+                has_next_page: continuing,
+                end_cursor: continuing.then(|| "next".into()),
+            },
+        };
+        let mut calls = 0;
+        let mut collected = Vec::new();
+        for_each_page(
+            Some(initial),
+            |after| {
+                calls += 1;
+                assert_eq!(after.as_deref(), Some("next"));
+                async {
+                    Ok(Connection {
+                        nodes: vec![2],
+                        page_info: PageInfo {
+                            has_next_page: false,
+                            end_cursor: None,
+                        },
+                    })
+                }
+            },
+            |nodes| {
+                collected.extend(nodes);
+                Ok(())
+            },
+            std::convert::identity,
+        )
+        .await
+        .unwrap();
+        assert_eq!(calls, usize::from(continuing));
+        assert_eq!(collected, if continuing { vec![1, 2] } else { vec![1] });
+    }
+    let result = for_each_page(
+        Some(Connection {
+            nodes: vec![1],
+            page_info: PageInfo {
+                has_next_page: true,
+                end_cursor: None,
+            },
+        }),
+        |_| async { panic!("invalid initial cursor must not fetch") },
+        |_| Ok(()),
+        std::convert::identity,
+    )
+    .await;
+    assert!(result.is_err());
 }

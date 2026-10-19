@@ -44,11 +44,11 @@ These rules apply to the entire repository.
 - Keep backoffice shared HTTP construction/decoding/errors in `src/api.rs`, with endpoint calls in `src/api/{auth,admins}.rs`.
 - Keep API cookie transport/origin checks in `middleware/cookies.rs` and bearer/JWT authentication/role checks in `middleware/token.rs`. Login/refresh/logout transactions remain in `services/auth.rs`.
 - Keep local UI/API URLs on the same hostname (`localhost` in the checked-in application TOML files); exact Origin checks and SameSite cookies require consistent host spelling. E2E keeps its own configured loopback origin.
-- Keep non-secret application settings in `application.toml`; supply secrets, credentials and tokens through environment variables. Load typed settings through the existing generic `config.rs` reader. E2E writes an owned temporary `application.toml` for its local API and deletes it during teardown.
+- Keep non-sensitive application settings in `application.toml`; supply secrets, credentials, tokens and private personal contact/address data through environment variables. Load typed settings through the existing generic `config.rs` reader. E2E writes an owned temporary `application.toml` for its local API and deletes it during teardown.
 - Backoffice public settings belong in one published `application.toml` and one typed `config.rs` reader. Load settings once at startup before rendering application pages or making API calls. Never put secrets in the frontend configuration.
 - When deployment configuration is implemented, select `application.local.toml` or `application.prod.toml` and publish it as `application.toml`; retain the single runtime reader. This split is currently planned, not implemented.
 - Put exported functions before private helpers, including within inherent impl blocks.
-- Put unit tests in each crate's `src/tests/` directory, mirroring implementation module paths. Use test-gated child-module declarations to preserve private access.
+- Put unit tests in each crate's `src/tests/` directory, mirroring implementation module paths. Use test-gated child-module declarations to preserve private access, and put those declarations after all production items at the bottom of the owning file. Use `.agents/skills/monolith-rust-file-layout/SKILL.md` for item ordering and test-module placement.
 - Keep transaction boundaries in services and SQL queries in repositories.
 
 ## Preserve agreed behavior
@@ -67,5 +67,5 @@ These rules apply to the entire repository.
 
 - For internal API endpoints and external HTTP/GraphQL dependencies, use `.agents/skills/monolith-api-postman/SKILL.md`; keep matching Postman requests synchronized in the same change.
 - For reusable runtime dependencies, use `.agents/skills/monolith-dependency-injection/SKILL.md`; construct clients once in AppState and inject shared instances.
-- For application settings and configuration readers, use `.agents/skills/monolith-configuration/SKILL.md`; keep non-secret settings in TOML and secrets/tokens in environment variables.
+- For application settings and configuration readers, use `.agents/skills/monolith-configuration/SKILL.md`; keep non-sensitive settings in TOML and sensitive values, including private sender profiles, in environment variables.
 - For API errors and diagnostics, use `.agents/skills/monolith-error-handling/SKILL.md`; reuse generic errors with descriptive safe messages, appropriate HTTP status codes and preserved source diagnostics.

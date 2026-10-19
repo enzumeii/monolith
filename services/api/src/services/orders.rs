@@ -11,7 +11,10 @@ use crate::{
     },
     state::AppState,
 };
-use domain::dto::OrderReportResponse;
+use domain::dto::{
+    OrderReportResponse,
+    orders::{ListOrdersResponse, OrderSummary},
+};
 use std::collections::HashMap;
 
 pub async fn order_report(
@@ -23,6 +26,7 @@ pub async fn order_report(
     let mut rows = Vec::new();
     let mut by_sku = HashMap::new();
     for_each_page(
+        None,
         async |after| {
             client
                 .orders_by_tag(&request, &PageRequest { first: 250, after })
@@ -42,6 +46,40 @@ pub async fn order_report(
     .map_err(|error| upstream(error))?;
     Ok(OrderReportResponse {
         products: rows.into_iter().map(ReportRow::into_dto).collect(),
+    })
+}
+
+pub async fn list(
+    state: &AppState,
+    search: String,
+    page: PageRequest,
+) -> Result<ListOrdersResponse, AppError> {
+    let result = shopify_client(state)?
+        .list_orders(&search, &page)
+        .await
+        .map_err(|error| upstream(error))?;
+    result
+        .page_info
+        .validate_after(page.after.as_deref())
+        .map_err(|error| upstream(error))?;
+    let orders = result
+        .nodes
+        .into_iter()
+        .map(|order| {
+            Ok(OrderSummary {
+                id: crate::models::shopify::ShopifyId::new(order.id)
+                    .and_then(|id| id.number("Order"))?,
+                number: order.number,
+            })
+        })
+        .collect::<Result<Vec<_>, ClientError>>()
+        .map_err(|error| upstream(error))?;
+    Ok(ListOrdersResponse {
+        orders,
+        page_info: domain::dto::pagination::PageInfo {
+            has_next_page: result.page_info.has_next_page,
+            end_cursor: result.page_info.end_cursor,
+        },
     })
 }
 
@@ -67,12 +105,11 @@ fn merge(
     }
 }
 
+pub mod fulfillment;
+pub mod shipping_label;
+
+pub mod reship;
+
 #[cfg(test)]
 #[path = "../tests/services/orders.rs"]
 mod tests;
-
-pub mod fulfillment;
-mod shipping;
-pub mod workflow;
-
-pub mod reship;

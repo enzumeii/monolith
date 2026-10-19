@@ -7,10 +7,10 @@ response:
   body:
     type: json
     content: |-
-      {"success":true}
+      {"success":true,"email_id":"fixture-email-id"}
   headers:
     - key: content-type
       value: application/json
 request:
-  url: '{{server}}/v1/admin/orders/{{order_id}}/reship'
+  url: '{{server}}/v1/admin/orders/1085/reship'
   method: POST

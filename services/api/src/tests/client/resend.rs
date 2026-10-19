@@ -12,6 +12,7 @@ use std::error::Error;
 
 fn client(fixture: &Fixture) -> ResendClient {
     ResendClient {
+        timeout: std::time::Duration::from_secs(10),
         inner: Resend::with_config(
             resend_rs::ConfigBuilder::new("re_private-fixture")
                 .base_url(fixture.url.join("/").unwrap())
@@ -141,6 +142,7 @@ fn missing_or_empty_api_keys_are_rejected() {
     for key in [None, Some(""), Some(" ")] {
         assert!(
             ResendClient::new(&ResendConfig {
+                timeout_secs: Some(10),
                 api_key: key.map(str::to_owned)
             })
             .is_err()
@@ -152,5 +154,19 @@ fn assert_safe(error: &ClientError) {
     let rendered = format!("{error} {error:?}");
     for secret in ["re_private-fixture", "private-recipient", "private email"] {
         assert!(!rendered.contains(secret));
+    }
+}
+
+#[test]
+fn missing_or_zero_deadlines_are_retained_as_client_initialization_errors() {
+    for timeout_secs in [None, Some(0)] {
+        let result = ResendClient::new(&ResendConfig {
+            api_key: Some("fixture-key".into()),
+            timeout_secs,
+        });
+        assert!(matches!(
+            result.err().unwrap().kind(),
+            ClientErrorKind::InvalidInput("Resend timeout is missing or zero")
+        ));
     }
 }

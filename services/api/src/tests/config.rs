@@ -310,7 +310,7 @@ fn resend_settings_follow_file_and_secret_override_precedence() {
 }
 
 #[test]
-fn resend_configuration_needs_only_the_api_key() {
+fn resend_configuration_retains_missing_deadline_for_optional_client_validation() {
     let config: ResendConfig = config::Config::builder()
         .add_source(config::File::from_str(
             "api_key = 'fixture-key'",
@@ -322,4 +322,59 @@ fn resend_configuration_needs_only_the_api_key() {
         .unwrap();
     assert_eq!(config.api_key.as_deref(), Some("fixture-key"));
     assert!(!format!("{config:?}").contains("fixture-key"));
+}
+
+#[test]
+fn review_plan_sender_environment_is_centralized_and_redacted() {
+    let settings = temp_env::with_vars(
+        [
+            ("DATABASE_URL", Some("postgres://unused")),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
+            ("SHIPPING_SENDER_NAME", Some("Synthetic Sender")),
+            ("SHIPPING_SENDER_PHONE", Some("0000000000")),
+            ("SHIPPING_SENDER_EMAIL", Some("sender@example.test")),
+            ("SHIPPING_SENDER_ADDRESS", Some("123 Synthetic Street")),
+            ("SHIPPING_SENDER_SUB_DISTRICT", Some("Test Subdistrict")),
+            ("SHIPPING_SENDER_DISTRICT", Some("Test District")),
+            ("SHIPPING_SENDER_PROVINCE", Some("Test Province")),
+            ("SHIPPING_SENDER_POSTCODE", Some("10100")),
+            ("SHIPPING_SENDER_COUNTRY_CODE", Some("TH")),
+        ],
+        Settings::new,
+    )
+    .unwrap();
+    let sender = settings.shipping_sender.unwrap();
+    assert_eq!(sender.name, "Synthetic Sender");
+    assert_eq!(sender.address, "123 Synthetic Street");
+    assert!(!format!("{sender:?}").contains("Synthetic"));
+}
+
+#[test]
+fn explicitly_configured_empty_sender_fields_are_invalid() {
+    let mut settings = temp_env::with_vars(
+        [
+            ("DATABASE_URL", Some("postgres://unused")),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
+        ],
+        Settings::new,
+    )
+    .unwrap();
+    settings.shipping_sender = Some(ShippingSender {
+        name: " ".into(),
+        phone: "0000000000".into(),
+        email: "sender@example.test".into(),
+        address: "Synthetic".into(),
+        sub_district: "Synthetic".into(),
+        district: "Synthetic".into(),
+        province: "Synthetic".into(),
+        postcode: "10100".into(),
+        country_code: "TH".into(),
+    });
+    assert!(settings.validate().is_err());
 }
