@@ -177,7 +177,7 @@ impl ShopifyClient {
         &self,
         number: u16,
     ) -> Result<Option<crate::models::shopify::ReshipOrder>, ClientError> {
-        let data: OrdersPage<crate::models::shopify::ReshipOrder> = self.execute("ListOrders", include_str!("shopify/list_orders.graphql"), json!({"first":1,"after":null,"search":format!("name:{number}"),"includeContact":true})).await?;
+        let data: OrdersPage<crate::models::shopify::ReshipOrder> = self.execute("ListOrders", include_str!("shopify/list_orders.graphql"), json!({"first":1,"after":null,"search":format!("name:{number}"),"includeContact":true,"includeTags":false})).await?;
         Ok(data.orders.nodes.into_iter().next())
     }
 
@@ -191,10 +191,24 @@ impl ShopifyClient {
             .execute(
                 "ListOrders",
                 include_str!("shopify/list_orders.graphql"),
-                json!({"first":page.first,"after":page.after,"search":search}),
+                json!({"first":page.first,"after":page.after,"search":search,"includeContact":true,"includeTags":false}),
             )
             .await?;
         Ok(data.orders)
+    }
+    pub(crate) async fn order_tags(
+        &self,
+        id: &ShopifyId,
+    ) -> Result<Option<crate::models::shopify::OrderTags>, ClientError> {
+        let number = id.number("Order")?;
+        let data: OrdersPage<crate::models::shopify::OrderTags> = self
+            .execute(
+                "ListOrders",
+                include_str!("shopify/list_orders.graphql"),
+                json!({"first":1,"after":null,"search":format!("id:{number}"),"includeContact":false,"includeTags":true}),
+            )
+            .await?;
+        Ok(data.orders.nodes.into_iter().next())
     }
     pub(crate) async fn shipping_orders(
         &self,

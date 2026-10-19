@@ -75,3 +75,17 @@ fn listing_cursor_can_be_omitted_and_preserves_a_provided_cursor() {
         assert_eq!(page.first, if query == "page_size=1" { 1 } else { 50 });
     }
 }
+
+#[test]
+fn listing_accepts_the_reported_tag_and_fulfillment_query() {
+    let uri: Uri = "/v1/admin/orders?tag=shipping&fulfillment=UNFULFILLED&page_size=1"
+        .parse()
+        .unwrap();
+    let (search, page) = extract_list_query(Query::try_from_uri(&uri)).unwrap();
+    assert_eq!(
+        search,
+        "tag:\"shipping\" AND fulfillment_status:unfulfilled"
+    );
+    assert_eq!(page.first, 1);
+    assert!(page.after.is_none());
+}

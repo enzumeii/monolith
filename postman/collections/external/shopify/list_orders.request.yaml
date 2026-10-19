@@ -1,12 +1,13 @@
 $kind: graphql-request
-description: "Requires Shopify token in local vault. Sample variables match the reship lookup: first=1, name:1085, includeContact=true. For listing, use tag/fulfillment search with includeContact=false and requested page size/cursor. Synthetic IDs must be replaced with test-store IDs. Returns selected data and pageInfo where applicable. Mutation userErrors, GraphQL errors and missing payloads are failures. Do not run mutations against production during verification."
+description: "Requires Shopify token in local vault. Sample variables match the reship lookup: first=1, name:1085, includeContact=true. For listing, use tag/fulfillment search with includeContact=true, includeTags=false and requested page size/cursor to return order email/customer firstName/lastName and shippingAddress.countryCodeV2. Tag reads reuse id:42 with includeContact=false and includeTags=true. Supply both Boolean flags explicitly; provider defaults are not relied on. Synthetic IDs must be replaced with test-store IDs. Returns selected data and pageInfo where applicable. Mutation userErrors, GraphQL errors and missing payloads are failures. Do not run mutations against production during verification."
 url: "{{shopify}}/graphql.json"
 query: |
   query ListOrders(
     $first: Int!
     $after: String
     $search: String!
-    $includeContact: Boolean! = false
+    $includeContact: Boolean!
+    $includeTags: Boolean!
   ) {
     orders(
       first: $first
@@ -18,6 +19,15 @@ query: |
       nodes {
         id
         number
+        name @include(if: $includeTags)
+        tags @include(if: $includeTags)
+        customer @include(if: $includeContact) {
+          firstName
+          lastName
+        }
+        shippingAddress @include(if: $includeContact) {
+          countryCodeV2
+        }
         email @include(if: $includeContact)
       }
       pageInfo {
@@ -31,7 +41,8 @@ variables: |
     "first": 1,
     "after": null,
     "search": "name:1085",
-    "includeContact": true
+    "includeContact": true,
+    "includeTags": false
   }
 settings: {}
 schema:

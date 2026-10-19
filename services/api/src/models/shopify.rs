@@ -603,6 +603,33 @@ pub(crate) struct OrdersPage<T> {
 pub(crate) struct OrderSummary {
     pub id: String,
     pub number: i64,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub email: Option<String>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub customer: Option<CustomerName>,
+    #[serde(rename = "shippingAddress", deserialize_with = "Option::deserialize")]
+    pub shipping_address: Option<Address>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CustomerName {
+    #[serde(deserialize_with = "Option::deserialize")]
+    first_name: Option<String>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    last_name: Option<String>,
+}
+impl CustomerName {
+    pub(crate) fn full_name(&self) -> Option<String> {
+        let name = [self.first_name.as_deref(), self.last_name.as_deref()]
+            .into_iter()
+            .flatten()
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        (!name.is_empty()).then_some(name)
+    }
 }
 
 #[derive(Deserialize)]

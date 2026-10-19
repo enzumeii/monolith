@@ -36,6 +36,9 @@ pub enum FulfillmentStatus {
 pub struct OrderSummary {
     pub id: u64,
     pub number: i64,
+    pub full_name: Option<String>,
+    pub email: Option<String>,
+    pub shipping_country_code: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -191,3 +194,7 @@ pub struct ReshipOrderResponse {
     pub success: bool,
     pub email_id: String,
 }
+
+#[cfg(test)]
+#[path = "../tests/dto/orders.rs"]
+mod tests;

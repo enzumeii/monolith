@@ -69,6 +69,11 @@ pub async fn list(
                 id: crate::models::shopify::ShopifyId::new(order.id)
                     .and_then(|id| id.number("Order"))?,
                 number: order.number,
+                full_name: order.customer.and_then(|customer| customer.full_name()),
+                email: order.email,
+                shipping_country_code: order
+                    .shipping_address
+                    .and_then(|address| address.country_code_v2),
             })
         })
         .collect::<Result<Vec<_>, ClientError>>()
@@ -77,6 +82,62 @@ pub async fn list(
         orders,
         page_info: result.page_info,
     })
+}
+
+pub(super) async fn edit_order_tags(
+    client: &crate::client::shopify::ShopifyClient,
+    id: &str,
+    tags: &[&str],
+    action: crate::client::shopify::TagAction,
+) -> Result<(), AppError> {
+    use crate::{
+        client::{ClientErrorKind, shopify::TagAction},
+        models::shopify::ShopifyId,
+    };
+    let id = ShopifyId::new(id.to_owned()).map_err(|error| upstream(error))?;
+    let stored = client
+        .order_tags(&id)
+        .await
+        .map_err(|error| upstream(error))?
+        .ok_or_else(|| {
+            AppError::new(axum::http::StatusCode::NOT_FOUND, "Shopify order not found")
+        })?;
+    if stored.id.as_ref() != id.as_ref() {
+        return Err(upstream(ClientError::new(ClientErrorKind::Protocol(
+            "tag lookup returned a different order",
+        ))));
+    }
+    let mut edits: Vec<&str> = Vec::new();
+    match action {
+        TagAction::Add => {
+            for tag in tags {
+                if !stored
+                    .tags
+                    .iter()
+                    .any(|stored| stored.eq_ignore_ascii_case(tag))
+                    && !edits.iter().any(|added| added.eq_ignore_ascii_case(tag))
+                {
+                    edits.push(tag);
+                }
+            }
+        }
+        TagAction::Remove => {
+            edits.extend(
+                stored
+                    .tags
+                    .iter()
+                    .filter(|stored| tags.iter().any(|tag| stored.eq_ignore_ascii_case(tag)))
+                    .map(String::as_str),
+            );
+        }
+    }
+    if !edits.is_empty() {
+        client
+            .edit_order_tags(id.as_ref(), &edits, action)
+            .await
+            .map_err(|error| upstream(error))?;
+    }
+    Ok(())
 }
 
 fn merge(

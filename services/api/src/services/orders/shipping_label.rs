@@ -44,14 +44,8 @@ pub async fn labels(state: &AppState) -> Result<ShippingLabels, AppError> {
         tags.push((id, courier));
     }
     for (id, courier) in tags {
-        client
-            .edit_order_tags(&id, &["SHIPPING", courier.tag()], TagAction::Add)
-            .await
-            .map_err(upstream)?;
-        client
-            .edit_order_tags(&id, &["PACKING"], TagAction::Remove)
-            .await
-            .map_err(upstream)?;
+        super::edit_order_tags(client, &id, &["SHIPPING", courier.tag()], TagAction::Add).await?;
+        super::edit_order_tags(client, &id, &["PACKING"], TagAction::Remove).await?;
     }
     Ok(labels)
 }

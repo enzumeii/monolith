@@ -21,10 +21,7 @@ pub async fn reship(state: &AppState, number: u16) -> Result<ReshipOrderResponse
         .send_email(None, &[email], &subject, &html)
         .await
         .map_err(|error| upstream(error))?;
-    shopify
-        .edit_order_tags(&order.id, &["RETURNED"], TagAction::Add)
-        .await
-        .map_err(|error| upstream(error))?;
+    super::edit_order_tags(shopify, &order.id, &["RETURNED"], TagAction::Add).await?;
     Ok(ReshipOrderResponse {
         success: true,
         email_id: email_id.as_ref().to_owned(),

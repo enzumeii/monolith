@@ -91,10 +91,7 @@ pub async fn fulfill(
     ShopifyId::new(created)
         .and_then(|id| id.number("Fulfillment"))
         .map_err(upstream)?;
-    client
-        .edit_order_tags(id.as_ref(), &["SHIPPING"], TagAction::Remove)
-        .await
-        .map_err(upstream)?;
+    super::edit_order_tags(client, id.as_ref(), &["SHIPPING"], TagAction::Remove).await?;
     Ok(FulfillOrderResponse {
         success: true,
         tracking_url: url,

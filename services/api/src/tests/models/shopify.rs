@@ -356,3 +356,25 @@ fn shipping_query_keeps_required_money_fields_after_removing_order_currency() {
             .expect("query-selected price");
     assert_eq!(money.shop_money.currency_code, "USD");
 }
+
+#[test]
+fn listing_contact_projection_accepts_null_but_rejects_missing_selected_fields() {
+    for value in [
+        json!({"id":"gid://shopify/Order/42","number":1085,"shippingAddress":null,"email":null,"customer":null}),
+        json!({"id":"gid://shopify/Order/42","number":1085,"shippingAddress":null,"email":"order@example.test","customer":{"firstName":null,"lastName":null}}),
+    ] {
+        assert!(serde_json::from_value::<OrderSummary>(value).is_ok());
+    }
+    for value in [
+        json!({"id":"gid://shopify/Order/42","number":1085,"shippingAddress":null,"customer":null}),
+        json!({"id":"gid://shopify/Order/42","number":1085,"shippingAddress":null,"email":null}),
+        json!({"id":"gid://shopify/Order/42","number":1085,"shippingAddress":null,"email":null,"customer":{"lastName":null}}),
+        json!({"id":"gid://shopify/Order/42","number":1085,"shippingAddress":null,"email":null,"customer":{"firstName":null}}),
+        json!({"id":"gid://shopify/Order/42","number":1085,"shippingAddress":null,"email":123,"customer":null}),
+    ] {
+        assert!(
+            serde_json::from_value::<OrderSummary>(value.clone()).is_err(),
+            "{value}"
+        );
+    }
+}

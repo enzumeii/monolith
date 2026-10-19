@@ -1,5 +1,5 @@
 $kind: graphql-request
-description: "Set add=true to add tags or false to remove tags, preserving unrelated tags. Requires Shopify token in local vault. Synthetic IDs must be replaced with test-store IDs. Returns selected data and pageInfo where applicable. Mutation userErrors, GraphQL errors and missing payloads are failures. Do not run mutations against production during verification."
+description: "Low-level Shopify tagsAdd/tagsRemove mutation. The application first reads current tags through ListOrders with includeTags=true, skips additions already present ignoring ASCII case, and removes matching stored spellings. Supply exact stored tags here for removal; this provider request does not perform the service orchestration. Unrelated tags are preserved."
 url: "{{shopify}}/graphql.json"
 query: |
   mutation EditOrderTags($id: ID!, $tags: [String!]!, $add: Boolean!) {

@@ -187,3 +187,21 @@ Earlier sections record historical behavior and test runs; this section supersed
 | Saved HTTP requests | Listing and shipping-label requests ran against the rebuilt real local API and a controlled Shopify server; both passed |
 | Static contracts | API formatting/strict lint and both Postman collection lints passed; all14 GraphQL documents match request text and variable sets |
 | Review | Independent final review reports no remaining findings; shared DTO/backoffice code unchanged from the prior verified round |
+
+
+## ENZ-14 review follow-up (2026-10-20)
+
+| Area | Verified result |
+| --- | --- |
+| API checks | Rust/GraphQL formatting and strict all-target Clippy passed |
+| API tests | 200 native tests and 97 real-TCP endpoint tests passed; Compose PostgreSQL was removed with its volume afterwards |
+| Domain | One DTO unit test and eight integration contract tests passed; formatting, strict Clippy and WASM compilation passed |
+| Listing response | id/number plus nullable full_name, order contact email and shipping_country_code; trimmed profile names, partial/Unicode/blank names, guest/null contacts, present/null shipping address/country and unchanged pagination |
+| Listing projection | Explicit includeContact/includeTags flags; missing selected contact/root address fields and malformed selected values return safe502; no extra customer query |
+| Tag edits | Stored spelling used for case-insensitive removals; existing additions and no-op edits skip mutations; unrelated tags preserved; each new read/mutation failure stage covered over TCP |
+| Effect ordering | Label transitions, fulfillment-before-SHIPPING-removal and accepted-email-before-RETURNED operations retained, including later failure and connection-loss cases |
+| Provider contract | Separate read-only Shopify2026-10 diagnostic reproduced omitted includeContact INVALID_VARIABLE and accepted the same search with an explicit Boolean; filter syntax unchanged |
+| Postman | Internal18/external21 requests lint clean; all14 GraphQL query texts and variable sets match; saved listing and shipping-label HTTP requests passed against the real local API and controlled Shopify server |
+| Review | Independent static review found no remaining actionable issues |
+
+Endpoint tests use controlled Shopify/Resend servers and real PostgreSQL connections. The new contact/country projection and tag transitions were verified with controlled providers; no live mutations ran. Postman CLI GraphQL execution requires login and was not completed; its request passed lint/parity checks and the application query ran through the TCP tests. Published-head CI is confirmed separately after push.
