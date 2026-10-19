@@ -1,10 +1,18 @@
 $kind: http-request
-description: 'List one order page; tag is optional; omit it to list without a tag filter. Supplied comma-separated tags use AND. page_size: 1..250 (default 50); cursor is optional and opaque; omit it for after:null. A supplied cursor must be nonblank. Returns orders [{id,number}] and page_info {has_next_page,end_cursor}. Invalid input 400; auth 401; unavailable 503; upstream 502/timeout 504. Inherits bearer access_token.'
-url: '{{server}}/v1/admin/orders?tag=SHIPPING,FASTSHIP&fulfillment=UNFULFILLED&page_size=50'
+description: "List one order page; tag is optional; omit it to list without a tag filter. Supplied comma-separated tags use AND. page_size: 1..250 (default 50); cursor is opaque. Returns orders [{id,number}] and page_info {has_next_page,end_cursor}. Invalid input 400; auth 401; unavailable 503; upstream 502/timeout 504. Inherits bearer access_token."
+url: "{{server}}/v1/admin/orders?tag=test&fulfillment=unfulfilled&page_size=1"
 method: GET
 queryParams:
-  tag: SHIPPING,FASTSHIP
-  fulfillment: UNFULFILLED
-  page_size: '50'
+  - key: tag
+    value: test
+    disabled: false
+    description: ""
+  - key: fulfillment
+    value: unfulfilled
+    disabled: false
+    description: ""
+  - key: page_size
+    value: "1"
+    disabled: false
+    description: ""
 order: 2000
-examples: ./.resources/list.resources/examples
