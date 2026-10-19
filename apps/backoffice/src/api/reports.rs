@@ -8,7 +8,7 @@ pub async fn get_picklist_report(tags: &str) -> ApiResult<OrderReportResponse> {
     super::decode(picklist_request(tags)?).await
 }
 fn inventory_request(id: &str, mut query: InventoryQuery) -> ApiResult<RequestBuilder> {
-    if id.is_empty() || !id.bytes().all(|c| c.is_ascii_digit()) || id.bytes().all(|c| c == b'0') {
+    if !super::valid_location_id(id) {
         return Err(super::ApiError::new(
             reqwest::StatusCode::BAD_REQUEST,
             "Enter a positive numeric inventory ID",

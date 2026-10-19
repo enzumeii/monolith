@@ -1,5 +1,6 @@
 pub mod admins;
 pub mod auth;
+pub mod inventories;
 pub mod reports;
 pub use admins::{create_admin, delete_admin, list_admins, update_admin};
 pub use auth::{login, logout, refresh_session};
@@ -21,6 +22,10 @@ impl ApiError {
             message: message.into(),
         }
     }
+}
+
+pub(crate) fn valid_location_id(id: &str) -> bool {
+    !id.is_empty() && id.bytes().all(|c| c.is_ascii_digit()) && !id.bytes().all(|c| c == b'0')
 }
 
 impl std::error::Error for ApiError {}
@@ -55,6 +60,7 @@ async fn send(request: RequestBuilder) -> ApiResult<Response> {
         .map_or_else(|_| "Request failed".into(), |body| body.error);
     Err(ApiError { status, message })
 }
+
 async fn decode<T: DeserializeOwned>(request: RequestBuilder) -> ApiResult<T> {
     send(request)
         .await?
