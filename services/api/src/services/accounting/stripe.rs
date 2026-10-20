@@ -114,8 +114,13 @@ async fn reference(
             .get_refund(source)
             .await
             .map_err(|error| upstream(error))?;
+        let payment_reference = balance
+            .description
+            .as_deref()
+            .and_then(payment_session_id)
+            .unwrap_or(refund.id);
         return Ok((
-            refund.id,
+            payment_reference,
             refund.created,
             balance.description.clone().unwrap_or_default(),
             refund.currency,
@@ -187,7 +192,7 @@ fn payment_session_id(description: &str) -> Option<String> {
     let marker = "gid://shopify/PaymentSession/";
     let start = description.find(marker)? + marker.len();
     let id = description[start..]
-        .split(|character: char| !character.is_ascii_digit())
+        .split(|character: char| character == ')' || character.is_whitespace())
         .next()?;
     (!id.is_empty()).then(|| id.to_owned())
 }

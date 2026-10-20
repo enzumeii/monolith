@@ -38,12 +38,20 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
                 let order = &mut body["data"]["orders"]["nodes"][0];
                 let sale = &mut order["transactions"][0];
                 sale["gateway"] = json!("Stripe Card Payments");
-                sale["paymentId"] = json!("ch_123");
+                sale["paymentId"] = json!("session_12345");
                 sale["receiptJson"] = Value::Null;
                 let refund = &mut order["refunds"][0]["transactions"]["nodes"][0];
                 refund["gateway"] = json!("Stripe Card Payments");
-                refund["paymentId"] = json!("re_123");
+                refund["paymentId"] = json!("session_12345");
                 refund["receiptJson"] = Value::Null;
+            }
+        }
+        if card_gateway {
+            if let Reply::Json(ref mut body) = steps[1].reply {
+                body["data"][0]["description"] =
+                    json!("Paid (gid://shopify/PaymentSession/session_12345)");
+                body["data"][1]["description"] =
+                    json!("REFUND FOR CHARGE (gid://shopify/PaymentSession/session_12345)");
             }
         }
         let expected_calls = steps.len();
@@ -65,9 +73,19 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
             usize::from(stripe) * 2 + usize::from(paypal) * 2
         );
         if stripe {
+            let sale_reference = if card_gateway {
+                "session_12345"
+            } else {
+                "ch_123"
+            };
+            let refund_reference = if card_gateway {
+                "session_12345"
+            } else {
+                "re_123"
+            };
             let sale = rows
                 .iter()
-                .find(|row| row["payment_reference"] == "ch_123")
+                .find(|row| row["payment_reference"] == sale_reference && row["type"] == "SALE")
                 .unwrap();
             assert_eq!(sale["gross_paid"], 3600.0);
             assert_eq!(sale["net_paid"], 3480.0);
@@ -78,7 +96,7 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
             assert_eq!(sale["customer_name"], "Buyer");
             let refund = rows
                 .iter()
-                .find(|row| row["payment_reference"] == "re_123")
+                .find(|row| row["payment_reference"] == refund_reference && row["type"] == "REFUND")
                 .unwrap();
             assert_eq!(refund["type"], "REFUND");
             assert_eq!(refund["gross_paid"], -360.0);
