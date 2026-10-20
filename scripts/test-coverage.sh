@@ -25,7 +25,7 @@ cleanup_report() {
   if [[ $? -ne 0 ]]; then rm -f "$report_dir/lcov.info"; fi
 }
 trap cleanup_report EXIT
-export CARGO_LLVM_COV_TARGET_DIR="$report_dir/build"
+export CARGO_LLVM_COV_TARGET_DIR="${CARGO_LLVM_COV_TARGET_DIR:-$report_dir/build}"
 export CARGO_TARGET_DIR="$CARGO_LLVM_COV_TARGET_DIR"
 coverage_env=$(cargo llvm-cov show-env --sh --remap-path-prefix)
 eval "$coverage_env"

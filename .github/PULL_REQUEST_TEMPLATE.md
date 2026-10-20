@@ -1,6 +1,6 @@
 ## Linear ticket
 
-<!-- Link the Linear issue, for example: [ENZ-26](https://linear.app/wichayutdew/issue/ENZ-26). -->
+<!-- Link the Linear issue, for example: [$ticketId](https://linear.app/wichayutdew/issue/$ticketId). -->
 
 ## Change description
 

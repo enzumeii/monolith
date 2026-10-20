@@ -1,4 +1,4 @@
-const {parseTitle, bumpVersion} = require('./pr-policy.cjs');
+const {parseTitle, parseMessage, bumpVersion} = require('./pr-policy.cjs');
 
 async function publishReleases({github, owner, repo, commits, dryRun = false}) {
   const scope = {owner, repo};
@@ -21,12 +21,19 @@ async function publishReleases({github, owner, repo, commits, dryRun = false}) {
     if (index < 0 || reference.object.type !== 'commit') throw new Error(`Release history conflict: ${previousTag}`);
     remaining = commits.slice(index + 1);
   }
+  const bootstrapNotes = [];
   for (const sha of remaining) {
     const pulls = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {...scope, commit_sha: sha, per_page: 100});
     const merged = pulls.filter(pr => pr.merged_at && pr.base.ref === 'main' && pr.merge_commit_sha === sha);
     if (merged.length !== 1) throw new Error(`Expected one merged main PR for ${sha}, found ${merged.length}`);
     const pr = merged[0];
-    version = bumpVersion(version, parseTitle(pr.title).bump);
+    parseTitle(pr.title);
+    const message = (await github.rest.repos.getCommit({...scope, ref: sha})).data.commit.message;
+    const body = message.split('\n').slice(1).join('\n');
+    const {bump} = parseMessage(`${pr.title}\n${body}`);
+    bootstrapNotes.push(`${pr.title} (${pr.html_url})`);
+    if (!bump) continue;
+    version = bumpVersion(version, bump);
     const tag = `v${version}`;
     const reference = await optional(() => github.rest.git.getRef({...scope, ref: `tags/${tag}`}));
     if (reference && (reference.object.type !== 'commit' || reference.object.sha !== sha)) {
@@ -40,7 +47,7 @@ async function publishReleases({github, owner, repo, commits, dryRun = false}) {
     if (!release && !dryRun) {
       const body = previousTag
         ? (await github.rest.repos.generateReleaseNotes({...scope, tag_name: tag, target_commitish: sha, previous_tag_name: previousTag})).data.body
-        : `Initial release since the CI release baseline.\n\n${pr.title} (${pr.html_url})`;
+        : `Initial release since the CI release baseline.\n\n${bootstrapNotes.join('\n')}`;
       if (!reference) await github.rest.git.createRef({...scope, ref: `refs/tags/${tag}`, sha});
       await github.rest.repos.createRelease({...scope, tag_name: tag, target_commitish: sha, name: tag, body, draft: false, prerelease: false});
     }

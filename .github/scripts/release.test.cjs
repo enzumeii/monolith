@@ -3,9 +3,11 @@ const assert=require('node:assert/strict');
 const {publishReleases}=require('./release.cjs');
 function fixture() {
  const tags=new Map(), releases=new Map();
- const pulls={a:{number:26,title:'ci: finalize',merged_at:'2026-10-20',merge_commit_sha:'a',base:{ref:'main'},html_url:'https://example/26'},b:{number:27,title:'chore: update',merged_at:'2026-10-21',merge_commit_sha:'b',base:{ref:'main'},html_url:'https://example/27'}};
+ const pulls={a:{number:26,title:'fix: retry',merged_at:'2026-10-20',merge_commit_sha:'a',base:{ref:'main'},html_url:'https://example/26'},b:{number:27,title:'feat: add',merged_at:'2026-10-21',merge_commit_sha:'b',base:{ref:'main'},html_url:'https://example/27'}};
  const missing=()=>{throw Object.assign(new Error('Not found'),{status:404});};
+ const messages={};
  const github={rest:{repos:{
+ getCommit:async({ref})=>({data:{commit:{message:messages[ref]||pulls[ref].title}}}),
  listReleases:async()=>({data:[...releases.values()]}),
  listPullRequestsAssociatedWithCommit:async({commit_sha})=>({data:pulls[commit_sha]?[pulls[commit_sha]]:[]}),
  getReleaseByTag:async({tag})=>({data:releases.get(tag)||missing()}),
@@ -15,7 +17,7 @@ function fixture() {
  getRef:async({ref})=>({data:{object:{sha:tags.get(ref)||missing(),type:'commit'}}}),
  createRef:async({ref,sha})=>{tags.set(ref.replace('refs/',''),sha);}
  }},paginate:async(fn,p)=>(await fn(p)).data};
- return {github,tags,releases,pulls};
+ return {github,tags,releases,pulls,messages};
 }
 const run=(f,commits=['a'],dryRun=false)=>publishReleases({github:f.github,owner:'o',repo:'r',commits,dryRun});
 test('initial patch then chore minor, exact target and bounded notes',async()=>{
@@ -48,3 +50,6 @@ test('replay resumes after the latest verified release without rereading old PRs
  f.github.rest.repos.listPullRequestsAssociatedWithCommit=async({commit_sha})=>{if(commit_sha==='a')throw Error('old PR should not be read');return {data:[f.pulls.b]};};
  await run(f,['a','b']);assert.equal(f.releases.get('v0.2.0').target_commitish,'b');
 });
+
+test('chore has no implicit version effect',async()=>{const f=fixture();f.pulls.a.title='chore: update';assert.equal((await run(f)).length,0);assert.equal(f.tags.size,0);});
+test('breaking footer in merge message overrides a chore title',async()=>{const f=fixture();f.pulls.a.title='chore: update';f.messages.a='chore: update\n\nBREAKING CHANGE: format removed';await run(f);assert.equal(f.tags.get('tags/v1.0.0'),'a');});
