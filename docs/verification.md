@@ -2,7 +2,29 @@
 
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
 
-## Checks
+## ENZ-26 — 2026-10-20 / 21
+
+| Local evidence | Result |
+| --- | --- |
+| CI tooling | Root just check passed: actionlint, shellcheck, Bash syntax, 60 Node policy/release/report/helper tests; pinned reference-parser dependency audit reports zero vulnerabilities |
+| Rust checks | After incorporating remote accounting changes: workspace formatting and all four module check recipes passed; corrected nine incoming test-only domain lint errors; all11 domain unit/contract tests passed |
+| API coverage command | 200 native tests + 97 TCP endpoint tests + 2 controlled teardown tests passed; isolated Compose enz26 on port15433 removed with volumes |
+| Backoffice coverage command | 53 native tests and 9 shared-domain tests passed; uninstrumented domain WASM compilation passed |
+| Domain coverage command | 1 native unit and 8 contract tests passed |
+| Client UI coverage command | Builds successfully; no tests currently exist |
+| API LCOV | 53 production files; 3220/3323 executable lines hit; production main.rs has nonzero hits from real TCP child execution |
+| Backoffice LCOV | 34 production files; 734/1501 executable lines hit |
+| Domain LCOV | 2 production files; 7/12 executable lines hit |
+| Client UI LCOV | 1 production file; 0/3 executable lines hit |
+| Report validation | Full four-module sequence with shared target passed at 45f2d1d; all four reports survived later cleans and retained owning-crate production paths; failed runs remove stale reports |
+| Manual command checks | Valid publication title accepted; invalid coverage option rejected with exit2 before tests; each final module coverage command completed |
+| Independent review | Release-token finding fixed with trusted-main trigger; follow-up parser separator/breaking-marker findings reproduced with failing tests then corrected; final 60-test suite passed |
+| Release scope | Controlled GitHub API fixtures cover Conventional Commits type/breaking-footer rules, no-bump types, dry run, retry/checkpoint, target conflicts and partial failure; no live release was created |
+| Hosted evidence | Confirm published head, CI and Codecov uploads separately in PR checks; this table records local evidence only |
+
+The local coverage counts above use pre-accounting-merge source. The branch subsequently incorporated the remote accounting merge; its full suite and coverage are verified by exact-head hosted CI separately. Native line coverage excludes browser/WASM runtime and doctests. The shared default local E2E database had an incompatible migration history from concurrent work; verification used the existing Compose service under an independent project/port without changing migrations or resetting shared data.
+
+## Earlier recorded checks
 
 | Evidence | Result |
 | --- | --- |

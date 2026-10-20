@@ -2,11 +2,14 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    types: [opened, edited, synchronize, reopened]
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,26 +22,37 @@ jobs:
       pull-requests: read
     steps:
       - uses: actions/checkout@v4
-
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: .github/scripts/package-lock.json
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@1.99.0
         with:
-          components: clippy, rustfmt
+          components: clippy, rustfmt, llvm-tools-preview
           targets: wasm32-unknown-unknown
-
-      - name: Workspace formatting
-        run: cargo fmt --all -- --check
-
-      - name: Install just
-        uses: extractions/setup-just@v3
-
-      - name: Cache cargo dependencies
-        uses: Swatinem/rust-cache@v2
+      - uses: extractions/setup-just@v3
+      - uses: Swatinem/rust-cache@v2
         with:
           key: api-tools-${{ hashFiles('services/api/justfile', 'services/api/dprint.json') }}
           cache-directories: services/api/.tools
-
-      # Detect which service changed so we only run its check/test.
+      - name: Install CI tools
+        run: |
+          just setup
+          cargo install --locked cargo-llvm-cov --version 0.9.1
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Workspace formatting and CI tooling
+        run: |
+          cargo fmt --all -- --check
+          just check
+      - name: Validate Conventional Commit PR title
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            require('./.github/scripts/pr-policy.cjs').parseTitle(context.payload.pull_request.title);
       - name: Detect changed services
         uses: dorny/paths-filter@v3
         id: changes
@@ -49,6 +63,7 @@ jobs:
               - 'crates/domain/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - 'rust-toolchain.toml'
               - '.cargo/**'
               - '.github/workflows/ci.yml'
             backoffice:
@@ -56,6 +71,7 @@ jobs:
               - 'crates/domain/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - 'rust-toolchain.toml'
               - '.cargo/**'
               - '.github/workflows/ci.yml'
             client-ui:
@@ -63,31 +79,62 @@ jobs:
               - 'crates/domain/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - 'rust-toolchain.toml'
               - '.cargo/**'
               - '.github/workflows/ci.yml'
-
       - name: Install API formatter
         if: steps.changes.outputs.api == 'true'
         working-directory: services/api
         run: just setup
-
-      - name: api check + test
+      - name: api check
         if: steps.changes.outputs.api == 'true'
         working-directory: services/api
-        run: |
-          just check
-          just test
-
-      - name: backoffice check + test
+        run: just check
+      - name: backoffice check
         if: steps.changes.outputs.backoffice == 'true'
         working-directory: apps/backoffice
-        run: |
-          just check
-          just test
-
-      - name: client-ui check + test
+        run: just check
+      - name: client-ui check
         if: steps.changes.outputs.client-ui == 'true'
         working-directory: apps/client-ui
+        run: just check
+      - name: domain check
+        working-directory: crates/domain
+        run: just check
+      - name: Test and generate per-crate coverage
+        env:
+          CARGO_LLVM_COV_TARGET_DIR: ${{ github.workspace }}/target
         run: |
-          just check
-          just test
+          for module in services/api apps/backoffice apps/client-ui crates/domain; do
+            just --justfile "$module/justfile" test --coverage
+          done
+      - name: Validate report paths and scope
+        run: |
+          for crate in api backoffice client-ui domain; do
+            node .github/scripts/coverage-report.cjs "$crate" "target/coverage/$crate/lcov.info"
+          done
+      - name: Retain coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: target/coverage/*/lcov.info
+          if-no-files-found: error
+      - name: Check Codecov token availability
+        id: codecov
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        run: |
+          if [ -n "$CODECOV_TOKEN" ]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::CODECOV_TOKEN unavailable; reports retained, upload skipped.'
+          fi
+      - name: Upload coverage reports to Codecov
+        if: steps.codecov.outputs.enabled == 'true'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: target/coverage/api/lcov.info,target/coverage/backoffice/lcov.info,target/coverage/client-ui/lcov.info,target/coverage/domain/lcov.info
+          disable_search: true
+          fail_ci_if_error: true

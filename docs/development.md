@@ -166,3 +166,37 @@ Report queries require product, inventory, location and order access; reading un
 | Provider tooling | ListOrders requires explicit includeContact/includeTags Booleans: listing true/false, merchant lookup true/false, tag lookup false/true. EditOrderTags selects add=true or false; services resolve stored casing and skip no-ops. Read/mutation is not atomic against concurrent case-variant inserts; unrelated tags are preserved |
 | Listing cursor | Optional: omission forwards after:null. Supplied cursors must be nonblank; the literal string null is an opaque string, not a JSON null |
 | Shipping declaration | Apply the legacy mock rule to any selected price currency: max(sum of non-Tip prices ×5,100). Stock quantities are excluded; stock prices remain included |
+
+## Coverage and releases
+
+| Command / setting | Behavior |
+| --- | --- |
+| Module `just test` | Existing suite, no coverage tooling required |
+| Module `just test --coverage` | Native tests with an isolated report at repository `target/coverage/<crate>/lcov.info` |
+| API coverage | Includes TCP API child-process execution; graceful termination flushes profiles before bounded forced cleanup |
+| API test isolation | Optional E2E_COMPOSE_PROJECT, E2E_POSTGRES_PORT and E2E_DATABASE_URL allow independent worktrees; defaults remain e2e/5433 |
+| Coverage CI | The existing check job runs all four module suites sequentially, retains four scoped reports, and uploads them together once to Codecov |
+| CODECOV_TOKEN | Add the Codecov repository upload token in GitHub Actions secrets; unavailable secrets skip upload with a visible notice and retain artifacts |
+| Root `just setup` / `just check` | Node 24+; setup installs the pinned Conventional Commits reference parser; check runs Node tests, actionlint 1.7.12 and shellcheck |
+| Coverage build directory | Local runs isolate builds per crate; CI sets CARGO_LLVM_COV_TARGET_DIR to target and reuses builds sequentially |
+| Runtime limits | Native coverage only; WASM compilation remains uninstrumented; browser runtime and doctest coverage are not measured |
+
+| PR title | Version increment |
+| --- | --- |
+| Any type with `!`, for example `feat(api)!: remove field`, or an uppercase `BREAKING CHANGE:` / `BREAKING-CHANGE:` footer in the merged commit | Major, including 0.x → 1.0.0 |
+| `feat: ...` | Minor |
+| `fix: ...` | Patch |
+| Other types, including `chore`, `ci`, `docs` | No implicit version increment |
+
+Titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/), including case-insensitive types, optional scope and a nonempty description after colon-space. CI and releases share the pinned reference parser. Release classification uses the PR title plus the merged commit's body and footers.
+
+| Release rule | Behavior |
+| --- | --- |
+| Initial baseline | Virtual version 0.1.0 at commit 2f9f9101ad5348c327c75c4504a5827975497ada; earlier history is not released |
+| Trigger | pull_request_target closed, merged to main; trusted main code reconciles subsequent first-parent commits in order, including merged fork PRs |
+| Version storage | GitHub vX.Y.Z tags and release notes; Cargo package versions stay unchanged |
+| Concurrency/retry | Serialized releases; deterministic replay catches queued merges, reuses existing matching tags/releases, and finishes a tag-only partial attempt |
+| Conflicts | Invalid titles, direct commits, conflicting targets, or API errors fail visibly; tags are never moved |
+| Changelog | GitHub generated notes bounded by prior tag and merge SHA; bootstrap release links qualifying and preceding unreleased PRs |
+| First live release | Requires a human merge; local fixtures/dry runs do not verify hosted write permissions |
+| Merge blocking | Repository rules must require the CI check names to enforce title validation before merge; workflow code does not change host rules |

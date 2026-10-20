@@ -1,0 +1,7 @@
+{
+  "name": "monolith-ci",
+  "private": true,
+  "dependencies": {
+    "@conventional-commits/parser": "0.4.1"
+  }
+}
