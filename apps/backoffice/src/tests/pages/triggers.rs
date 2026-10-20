@@ -1,10 +1,29 @@
 use super::*;
+use domain::dto::InventoryEnableResponse;
 use futures::{FutureExt, channel::oneshot};
 use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
     rc::Rc,
 };
+
+#[test]
+fn reship_result_title_reflects_the_api_success_flag() {
+    assert_eq!(
+        reship_result_title(&domain::dto::orders::ReshipOrderResponse {
+            success: true,
+            email_id: "email-1".into(),
+        }),
+        "Reship email sent"
+    );
+    assert_eq!(
+        reship_result_title(&domain::dto::orders::ReshipOrderResponse {
+            success: false,
+            email_id: String::new(),
+        }),
+        "Reship email failed"
+    );
+}
 
 type ResponseReceiver = oneshot::Receiver<api::ApiResult<InventoryEnableResponse>>;
 
