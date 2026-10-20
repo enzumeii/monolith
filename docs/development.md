@@ -166,3 +166,37 @@ Report queries require product, inventory, location and order access; reading un
 | Provider tooling | ListOrders requires explicit includeContact/includeTags Booleans: listing true/false, merchant lookup true/false, tag lookup false/true. EditOrderTags selects add=true or false; services resolve stored casing and skip no-ops. Read/mutation is not atomic against concurrent case-variant inserts; unrelated tags are preserved |
 | Listing cursor | Optional: omission forwards after:null. Supplied cursors must be nonblank; the literal string null is an opaque string, not a JSON null |
 | Shipping declaration | Apply the legacy mock rule to any selected price currency: max(sum of non-Tip prices ×5,100). Stock quantities are excluded; stock prices remain included |
+
+## Coverage and releases
+
+| Command / setting | Behavior |
+| --- | --- |
+| Module `just test` | Existing suite, no coverage tooling required |
+| Module `just test --coverage` | Native tests with an isolated report at repository `target/coverage/<crate>/lcov.info` |
+| API coverage | Includes TCP API child-process execution; graceful termination flushes profiles before bounded forced cleanup |
+| API test isolation | Optional E2E_COMPOSE_PROJECT, E2E_POSTGRES_PORT and E2E_DATABASE_URL allow independent worktrees; defaults remain e2e/5433 |
+| Coverage CI | All four module suites run; reports uploaded separately with matching Codecov flags and merged by commit |
+| CODECOV_TOKEN | Add the Codecov repository upload token in GitHub Actions secrets; unavailable secrets skip upload with a visible notice and retain artifacts |
+| Root `just check` | Node script tests, actionlint and shellcheck; install Node 24+, actionlint 1.7.12 and shellcheck before use |
+| Runtime limits | Native coverage only; WASM compilation remains uninstrumented; browser runtime and doctest coverage are not measured |
+
+| PR title | Version increment |
+| --- | --- |
+| Any supported type with `!`, for example `feat(api)!: remove field` | Major, including 0.x → 1.0.0 |
+| `feat: ...`, `chore: ...` | Minor |
+| `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `revert` | Patch |
+
+Titles require a nonempty description; optional scope accepts letters, digits, underscores, dots, slashes and hyphens. The same parser validates titles in CI and calculates releases.
+
+| Release rule | Behavior |
+| --- | --- |
+| Initial baseline | Virtual version 0.1.0 at commit 2f9f9101ad5348c327c75c4504a5827975497ada; earlier history is not released |
+| Trigger | PR merged to main; trusted main code reconciles subsequent first-parent commits in order |
+| Version storage | GitHub vX.Y.Z tags and release notes; Cargo package versions stay unchanged |
+| Concurrency/retry | Serialized releases; deterministic replay catches queued merges, reuses existing matching tags/releases, and finishes a tag-only partial attempt |
+| Conflicts | Invalid titles, direct commits, conflicting targets, or API errors fail visibly; tags are never moved |
+| Changelog | GitHub generated notes bounded by prior tag and merge SHA; bootstrap release links its PR |
+| First live release | Requires a human merge; local fixtures/dry runs do not verify hosted write permissions |
+| Merge blocking | Repository rules must require the CI check names to enforce title validation before merge; workflow code does not change host rules |
+
+Codecov supports [merging reports](https://docs.codecov.com/docs/merging-reports) from the same commit; [flags](https://docs.codecov.com/docs/flags) retain per-crate views. Upload one crate's file under its own flag, rather than assigning every flag to a combined report.

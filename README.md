@@ -1,5 +1,7 @@
 # Monolith
 
+[![codecov](https://codecov.io/gh/enzumeii/monolith/graph/badge.svg?token=oVPc8gRQLl)](https://codecov.io/gh/enzumeii/monolith)
+
 ## Prerequisites
 
 Install Rust and Docker, then run the prerequisite CLI installer from the repository root:
