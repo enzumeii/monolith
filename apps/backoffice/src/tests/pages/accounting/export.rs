@@ -186,3 +186,76 @@ fn items_preserve_all_fields_in_backend_order() {
         [] as [std::vec::Vec<std::string::String>; 0]
     );
 }
+
+#[test]
+fn archive_contains_transaction_and_item_csv_files() {
+    use std::io::{Cursor, Read};
+    let rows = [
+        transaction(AccountingGateway::Stripe, AccountingKind::Sale, "st_sale"),
+        transaction(
+            AccountingGateway::Paypal,
+            AccountingKind::Refund,
+            "pp_refund",
+        ),
+    ];
+    let transactions = transaction_table(&rows, "");
+    let items = TableData {
+        headers: &["quantity", "title", "kind", "sku"],
+        rows: vec![
+            vec![
+                "2".into(),
+                "商品, \"quoted\"\r\nnext".into(),
+                "SALE".into(),
+                "00042".into(),
+            ],
+            vec![
+                "-1".into(),
+                "Returned item".into(),
+                "REFUND".into(),
+                "00042".into(),
+            ],
+        ],
+    };
+    let bytes = encode_archive(&transactions, &items).expect("report archive");
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("valid ZIP");
+    assert_eq!(archive.len(), 2);
+    let mut transaction_csv = String::new();
+    archive
+        .by_name("transactions.csv")
+        .expect("transactions")
+        .read_to_string(&mut transaction_csv)
+        .expect("UTF-8");
+    assert!(transaction_csv.starts_with("gateway,type,po_number,po_date,transaction_date,"));
+    assert!(
+        transaction_csv.find("st_sale").expect("stripe")
+            < transaction_csv.find("pp_refund").expect("paypal")
+    );
+    let mut item_csv = String::new();
+    archive
+        .by_name("items.csv")
+        .expect("items")
+        .read_to_string(&mut item_csv)
+        .expect("UTF-8");
+    assert_eq!(
+        item_csv,
+        "quantity,title,kind,sku\r\n2,\"商品, \"\"quoted\"\"\r\nnext\",SALE,00042\r\n-1,Returned item,REFUND,00042\r\n"
+    );
+}
+#[test]
+fn archive_includes_header_only_csv_for_an_empty_section() {
+    use std::io::{Cursor, Read};
+    let empty_transactions = transaction_table([], "");
+    let empty_items = item_table(&[]);
+    let bytes = encode_archive(&empty_transactions, &empty_items).expect("empty archive");
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("ZIP");
+    let mut csv = String::new();
+    archive
+        .by_name("items.csv")
+        .expect("items entry")
+        .read_to_string(&mut csv)
+        .expect("CSV");
+    assert_eq!(
+        csv,
+        "quantity,price,currency,title,variant,category,sku,kind,transaction_date,shopify_order_id,payment_reference\r\n"
+    );
+}

@@ -11,6 +11,6 @@ pub use form::{ErrorMessage, FormField};
 pub(crate) use loading::{LoadingOverlay, LoadingState};
 pub(crate) use nav_layout::NavLayout;
 
-pub(crate) use report_table::{DataTable, DownloadTable, TableData};
+pub(crate) use report_table::{DataTable, DownloadFile, DownloadTable, TableData};
 
 pub const SITE_LOGO: Asset = asset!("/assets/logo.png");

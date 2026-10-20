@@ -256,3 +256,13 @@ Endpoint tests use controlled Shopify/Resend servers and real PostgreSQL connect
 | Downloads | Actual downloaded accounting CSV parsed as 3 rows and 20 columns; Stripe then PayPal order, null cells, negative refund, full u64 ID and Unicode/quote/newline text verified. Existing Orders Best XLSX download remained valid and retained leading-zero strings without formula cells |
 | Presentation | Dark desktop 1440px and mobile 390px layouts checked; navigation wraps and table overflow stays inside focusable regions. Light presentation checked through a fixture-only stylesheet preview disabling the dark media block; OS color preference was not changed |
 | Limits | No live provider/production data, deployment, or backend changes. Existing API TCP E2E/Postman suites were not rerun for this frontend change. Browser fixtures and downloaded files are excluded from Git. Exact pushed-head CI is confirmed separately after publication |
+
+
+## ENZ-24 consolidated item export (2026-10-21)
+
+| Check | Evidence |
+| --- | --- |
+| User-requested export | Consolidated download is accounting-report.zip containing transactions.csv (20 columns, Stripe then PayPal) and items.csv (11 columns, every backend item including sale/refund rows). Empty sections retain their CSV headers |
+| Verification | Backoffice just check, just test and just build pass: 66 backoffice tests, 11 domain tests and domain WASM check. New archive tests failed before implementation, then passed for both entries, escaped text, refund rows, header-only sections and item-only export eligibility |
+| Browser downloads | Actual ZIP inspected with two transaction rows and two item rows; provider order, SALE/REFUND, signed quantities, Unicode/quotes/newlines, leading-zero SKU and full u64 IDs preserved. Item-only report enables ZIP; entirely empty report disables it. Existing Orders Best XLSX downloaded and inspected after the shared DownloadFile extraction |
+| Limits | Synthetic localhost HTTP responses only. ZIP uses stored entries from the already-locked zip library. Backend calculations and product report CSV/XLSX formats remain unchanged. Exact updated-head CI is confirmed separately |

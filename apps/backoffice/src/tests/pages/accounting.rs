@@ -189,3 +189,37 @@ fn same_principal_refresh_does_not_replay_and_retry_can_repeat_request() {
     pump(&mut dom);
     assert_eq!(h.calls.get(), 2);
 }
+
+#[test]
+fn archive_download_is_enabled_for_either_nonempty_csv() {
+    use dioxus::dioxus_core::{AttributeValue, Mutation};
+    fn app() -> Element {
+        let (transactions, items) = use_context::<(TableData, TableData)>();
+        rsx! { AccountingDownload { transactions, items } }
+    }
+    for (transaction_rows, item_rows, disabled) in
+        [(0, 0, true), (1, 0, false), (0, 1, false), (1, 1, false)]
+    {
+        let table = |count| TableData {
+            headers: &["fixture"],
+            rows: vec![vec!["value".into()]; count],
+        };
+        let mut dom =
+            VirtualDom::new(app).with_root_context((table(transaction_rows), table(item_rows)));
+        let edits = dom.rebuild_to_vec();
+        let actual = edits.edits.iter().any(|edit| {
+            matches!(
+                edit,
+                Mutation::SetAttribute {
+                    name: "disabled",
+                    value: AttributeValue::Bool(true),
+                    ..
+                }
+            )
+        });
+        assert_eq!(
+            actual, disabled,
+            "transactions={transaction_rows}, items={item_rows}"
+        );
+    }
+}

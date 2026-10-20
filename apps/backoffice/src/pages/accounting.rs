@@ -3,14 +3,14 @@ mod export;
 
 use crate::{
     api,
-    components::{DataTable, DownloadTable, ErrorMessage, TableData},
-    pages::reports::{ExportFormat, ReportSkeleton},
+    components::{DataTable, DownloadFile, ErrorMessage, TableData},
+    pages::reports::ReportSkeleton,
     session,
 };
 use data::{ReportRequest, date_range};
 use dioxus::prelude::*;
 use domain::dto::{AccountingReportQuery, AccountingReportResponse};
-use export::{item_table, transaction_table};
+use export::{encode_archive, item_table, transaction_table};
 
 type AccountingAction =
     Action<(ReportRequest,), (ReportRequest, api::ApiResult<AccountingReportResponse>)>;
@@ -98,8 +98,7 @@ pub fn Accounting() -> Element {
                     if let Some(request) = submitted() { report.call(request); }
                 }, "Retry" }
             }
-            DownloadTable { table: csv, filename: "accounting-transactions.csv", sheet_name: "Accounting",
-                format: ExportFormat::Csv, id: "accounting-download", label: "Download consolidated CSV" }
+            AccountingDownload { transactions: csv, items: item_table(data.map_or(&[], |data| data.items.as_slice())) }
             if loading { ReportSkeleton {} }
             if let Some(data) = data {
                 AccountingGroup { name: "Stripe", table: transaction_table(&data.transactions.stripe, "null") }
@@ -160,6 +159,18 @@ fn use_accounting_report<
         }
     });
     action
+}
+
+#[component]
+fn AccountingDownload(transactions: TableData, items: TableData) -> Element {
+    let disabled = transactions.rows.is_empty() && items.rows.is_empty();
+    rsx! {
+        DownloadFile {
+            filename: "accounting-report.zip", mime: "application/zip",
+            id: "accounting-download", label: "Download consolidated ZIP", disabled,
+            encode: move |()| encode_archive(&transactions, &items),
+        }
+    }
 }
 
 #[cfg(test)]

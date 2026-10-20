@@ -42,31 +42,46 @@ pub fn DownloadTable(
     id: String,
     label: String,
 ) -> Element {
+    let disabled = table.rows.is_empty();
+    rsx! {
+        DownloadFile {
+            filename, mime: format.mime(), id, label, disabled,
+            encode: move |()| match format {
+                ExportFormat::Csv => Ok(encode_table(table.headers, &table.rows).into_bytes()),
+                ExportFormat::Xlsx => encode_table_xlsx(table.headers, &table.rows, &sheet_name),
+            },
+        }
+    }
+}
+
+#[component]
+pub fn DownloadFile(
+    filename: String,
+    mime: String,
+    id: String,
+    label: String,
+    disabled: bool,
+    encode: Callback<(), Result<Vec<u8>, String>>,
+) -> Element {
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
     rsx! {
         div { class: "order-download",
-            button { id: "{id}", class: "ghost", disabled: busy() || table.rows.is_empty(),
+            button { id: "{id}", class: "ghost", disabled: busy() || disabled,
                 onclick: {
-                    let table = table.clone();
                     let filename = filename.clone();
-                    let sheet_name = sheet_name.clone();
+                    let mime = mime.clone();
                     let id = id.clone();
                     move |_| {
-                        if busy() || table.rows.is_empty() { return; }
+                        if busy() || disabled { return; }
                         busy.set(true);
                         error.set(None);
-                        let table = table.clone();
                         let filename = filename.clone();
-                        let sheet_name = sheet_name.clone();
+                        let mime = mime.clone();
                         let id = id.clone();
                         spawn(async move {
-                            let bytes = match format {
-                                ExportFormat::Csv => Ok(encode_table(table.headers, &table.rows).into_bytes()),
-                                ExportFormat::Xlsx => encode_table_xlsx(table.headers, &table.rows, &sheet_name),
-                            };
-                            let result = match bytes {
-                                Ok(bytes) => download(bytes, &filename, format, &id).await,
+                            let result = match encode.call(()) {
+                                Ok(bytes) => download(bytes, &filename, &mime, &id).await,
                                 Err(message) => Err(message),
                             };
                             busy.set(false);
