@@ -6,6 +6,7 @@ use crate::{
     services::{common::upstream, pagination::for_each_page},
     validations::accounting::AccountingDateRange,
 };
+use domain::dto::accounting::AccountingTransactions;
 use domain::dto::{AccountingGateway, AccountingItem, AccountingKind, AccountingReportResponse};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -16,7 +17,7 @@ pub(super) async fn enrich(
     range: &AccountingDateRange,
 ) -> Result<AccountingReportResponse, AppError> {
     let mut response = AccountingReportResponse {
-        transactions: Vec::new(),
+        transactions: AccountingTransactions::default(),
         items: Vec::new(),
     };
     if payments.is_empty() {
@@ -93,7 +94,10 @@ pub(super) async fn enrich(
         if let Some(position) = index.get(&key) {
             apply(&mut payment, &orders[*position], &mut response.items)?;
         }
-        response.transactions.push(payment.transaction);
+        match payment.transaction.gateway {
+            AccountingGateway::Stripe => response.transactions.stripe.push(payment.transaction),
+            AccountingGateway::Paypal => response.transactions.paypal.push(payment.transaction),
+        }
     }
     Ok(response)
 }
@@ -175,7 +179,8 @@ fn apply(
     items: &mut Vec<AccountingItem>,
 ) -> Result<(), AppError> {
     let id = order.id.number("Order").map_err(|error| upstream(error))?;
-    let mut shipping = 0.0;
+    let mut shipping_lines = Vec::new();
+    let mut has_shipping_allocation = false;
     let mut adjusted = false;
     let mut include_items = false;
     if payment.transaction.kind == AccountingKind::Refund {
@@ -191,9 +196,14 @@ fn apply(
             if !matched {
                 continue;
             }
-            for line in &refund.refund_shipping_lines.nodes {
-                shipping -= thb(&line.subtotal_amount_set.shop_money, payment)?.abs();
-            }
+            has_shipping_allocation = true;
+            shipping_lines.extend(
+                refund
+                    .refund_shipping_lines
+                    .nodes
+                    .iter()
+                    .map(|line| &line.subtotal_amount_set.shop_money),
+            );
             for line in &refund.refund_line_items.nodes {
                 items.push(item(
                     &line.line_item,
@@ -211,9 +221,14 @@ fn apply(
         adjusted = is_adjusted;
         include_items = has_items;
         if has_shipping {
-            for line in &order.shipping_lines.nodes {
-                shipping += thb(&line.price_set.shop_money, payment)?;
-            }
+            has_shipping_allocation = true;
+            shipping_lines.extend(
+                order
+                    .shipping_lines
+                    .nodes
+                    .iter()
+                    .map(|line| &line.price_set.shop_money),
+            );
         }
     }
     if include_items {
@@ -229,6 +244,17 @@ fn apply(
             ));
         }
     }
+    let shipping = if payment.transaction.gateway == AccountingGateway::Paypal
+        && payment.transaction.shipping_fee.is_some()
+    {
+        payment.transaction.shipping_fee
+    } else if has_shipping_allocation {
+        shipping_total(&shipping_lines, payment)?
+    } else if payment.transaction.gateway == AccountingGateway::Stripe {
+        Some(0.0)
+    } else {
+        None
+    };
     let tx = &mut payment.transaction;
     tx.shopify_order_id = id;
     tx.shopify_order_number = order.number;
@@ -288,19 +314,49 @@ fn sale_details(order: &Order, payment: &Payment) -> Result<(bool, bool, bool), 
     }
 }
 
+fn shipping_total(lines: &[&Money], payment: &Payment) -> Result<Option<f64>, AppError> {
+    let mut total = 0.0;
+    for line in lines {
+        let value = if payment.transaction.gateway == AccountingGateway::Paypal {
+            if !line
+                .currency_code
+                .eq_ignore_ascii_case(&payment.transaction.currency)
+            {
+                return Ok(None);
+            }
+            money(&line.amount)?
+        } else {
+            thb(line, payment)?
+        };
+        total += if payment.transaction.kind == AccountingKind::Refund {
+            -value.abs()
+        } else {
+            value
+        };
+    }
+    if !total.is_finite() {
+        return Err(protocol("invalid shipping amount"));
+    }
+    Ok(Some(total))
+}
+
 fn thb(amount: &Money, payment: &Payment) -> Result<f64, AppError> {
     let value = money(&amount.amount)?;
     if amount.currency_code.eq_ignore_ascii_case("THB") {
         return Ok(value);
     }
+    let rate = payment
+        .transaction
+        .exchange_rate
+        .ok_or_else(|| protocol("Stripe shipping exchange rate missing"))?;
     if !amount.currency_code.eq_ignore_ascii_case(&payment.currency)
         || payment.currency.eq_ignore_ascii_case("THB")
-        || !payment.transaction.exchange_rate.is_finite()
-        || payment.transaction.exchange_rate <= 0.0
+        || !rate.is_finite()
+        || rate <= 0.0
     {
         return Err(protocol("incompatible Shopify shipping currency"));
     }
-    let result = value * payment.transaction.exchange_rate;
+    let result = value * rate;
     if !result.is_finite() {
         return Err(protocol("invalid shipping amount"));
     }

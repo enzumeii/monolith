@@ -79,11 +79,12 @@ async fn collect_payout(
                 },
             );
             transaction.po_number.clone_from(&payout.id);
-            transaction.po_date = iso_utc(payout.arrival_date);
+            transaction.po_date = Some(iso_utc(payout.arrival_date));
             transaction.transaction_date = iso_utc(created);
             transaction.payment_reference = reference;
             transaction.description = description;
-            transaction.exchange_rate = rate;
+            transaction.currency = "THB".into();
+            transaction.exchange_rate = Some(rate);
             transaction.net_paid = net;
             transaction.fee = fee;
             transaction.vat = vat;

@@ -58,12 +58,29 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
         let server = Server::start(steps).await;
         let client = server.client(stripe, paypal).await;
         let response = client
-            .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
+            .send(authed(
+                "GET",
+                &URI.replace("%2B", "+"),
+                fixture.root_id(),
+                AdminRole::Admin,
+            ))
             .await
             .unwrap();
         assert_eq!(response.status(), 200);
         let report = body_json(response).await;
-        let rows = report["transactions"].as_array().unwrap();
+        let stripe_rows = report["transactions"]["stripe"].as_array().unwrap();
+        let paypal_rows = report["transactions"]["paypal"].as_array().unwrap();
+        assert_eq!(stripe_rows.len(), usize::from(stripe) * 2);
+        assert_eq!(paypal_rows.len(), usize::from(paypal) * 6);
+        assert!(
+            stripe_rows
+                .iter()
+                .all(|row| row["gateway"] == "STRIPE" && row["currency"] == "THB")
+        );
+        assert!(paypal_rows.iter().all(|row| row["gateway"] == "PAYPAL"
+            && row["exchange_rate"].is_null()
+            && row["po_date"].is_null()));
+        let rows = stripe_rows.iter().chain(paypal_rows).collect::<Vec<_>>();
         assert_eq!(
             rows.len(),
             usize::from(stripe) * 2 + usize::from(paypal) * 6
@@ -123,13 +140,20 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
                     .count(),
                 2
             );
-            let old_sale = rows
+            let aud = rows
                 .iter()
-                .find(|row| row["payment_reference"] == "usd_sale")
+                .find(|row| row["payment_reference"] == "aud_sale")
                 .unwrap();
-            assert_eq!(old_sale["gross_paid"], 360.0);
-            assert_eq!(old_sale["exchange_rate"], 36.0);
-            assert_eq!(old_sale["po_date"], "2026-10-20T00:00:00+00:00");
+            assert_eq!(aud["currency"], "AUD");
+            assert_eq!(aud["gross_paid"], 53.08);
+            assert_eq!(aud["net_paid"], 50.26);
+            assert_eq!(aud["fee"], 2.82);
+            assert_eq!(aud["shipping_fee"], 10.08);
+            assert_eq!(aud["shopify_order_id"], 0);
+            assert!(
+                rows.iter()
+                    .all(|row| row["payment_reference"] != "usd_sale")
+            );
             assert_eq!(
                 rows.iter()
                     .filter(|row| row["payment_reference"] == "boundary")
@@ -137,7 +161,38 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
                 1
             );
         }
+        for provider in [stripe_rows, paypal_rows] {
+            assert!(provider.windows(2).all(|pair| {
+                let key = |row: &Value| {
+                    (
+                        row["po_date"].is_null(),
+                        row["po_date"]
+                            .as_str()
+                            .map(|s| chrono::DateTime::parse_from_rfc3339(s).unwrap()),
+                        chrono::DateTime::parse_from_rfc3339(
+                            row["transaction_date"].as_str().unwrap(),
+                        )
+                        .unwrap(),
+                    )
+                };
+                key(&pair[0]) <= key(&pair[1])
+            }));
+            for row in provider {
+                let value = |key: &str| row[key].as_f64().unwrap();
+                assert!(
+                    (value("gross_paid") - value("net_paid") - value("fee") - value("vat")).abs()
+                        < 0.000_001
+                );
+            }
+        }
         let items = report["items"].as_array().unwrap();
+        assert!(items.windows(2).all(|pair| {
+            let instant = |row: &Value| {
+                chrono::DateTime::parse_from_rfc3339(row["transaction_date"].as_str().unwrap())
+                    .unwrap()
+            };
+            instant(&pair[0]) <= instant(&pair[1])
+        }));
         assert!(items.iter().all(|item| item["category"] == "KEYCHAIN"));
         assert!(
             items.iter().any(|item| item["kind"] == "REFUND"
@@ -167,7 +222,7 @@ async fn transactions_empty_results_and_both_admin_roles_over_tcp() {
         assert_eq!(response.status(), 200);
         assert_eq!(
             body_json(response).await,
-            json!({"transactions":[],"items":[]})
+            json!({"transactions":{"stripe":[],"paypal":[]},"items":[]})
         );
         assert_eq!(server.finish().await.len(), count);
     }
@@ -482,15 +537,175 @@ async fn transactions_keeps_unmatched_provider_rows_without_unrelated_order_item
         .unwrap();
     assert_eq!(response.status(), 200);
     let report = body_json(response).await;
-    assert_eq!(report["transactions"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        report["transactions"]["stripe"].as_array().unwrap().len(),
+        2
+    );
     assert_eq!(report["items"], json!([]));
     assert!(
-        report["transactions"]
+        report["transactions"]["stripe"]
             .as_array()
             .unwrap()
             .iter()
             .all(|row| row["shopify_order_id"] == 0 && row["shipping_fee"] == 0.0)
     );
+    assert_eq!(server.finish().await.len(), count);
+}
+
+#[tokio::test]
+async fn transactions_raw_and_encoded_plus_return_identical_reports() {
+    let fixture = fixture().await;
+    let mut reports = Vec::new();
+    for uri in [URI.to_owned(), URI.replace("%2B", "+")] {
+        let steps = flow(true, true, true, false);
+        let count = steps.len();
+        let server = Server::start(steps).await;
+        let client = server.client(true, true).await;
+        let response = client
+            .send(authed("GET", &uri, fixture.root_id(), AdminRole::Admin))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        reports.push(body_json(response).await);
+        assert_eq!(server.finish().await.len(), count);
+    }
+    assert_eq!(reports[0], reports[1]);
+}
+
+#[tokio::test]
+async fn transactions_paypal_long_ranges_exhaust_each_window_and_page_without_fx_lookback() {
+    let fixture = fixture().await;
+    let mut steps = vec![Step::json(
+        "/v1/oauth2/token",
+        json!({"access_token":"e2e-token","token_type":"Bearer","expires_in":3600}),
+    )];
+    for (start, end) in [
+        ("2026-09-01T00:00:00Z", "2026-10-02T00:00:00Z"),
+        ("2026-10-02T00:00:00Z", "2026-11-02T00:00:00Z"),
+        ("2026-11-02T00:00:00Z", "2026-11-15T00:00:00Z"),
+    ] {
+        let conversion = detail("conversion", "T0201", start, "USD", "1", None);
+        let mut rows = vec![conversion];
+        if start == "2026-09-01T00:00:00Z" || start == "2026-10-02T00:00:00Z" {
+            let mut boundary = detail(
+                "shared-boundary",
+                "T0006",
+                "2026-10-02T00:00:00Z",
+                "AUD",
+                "53.08",
+                Some("-2.82"),
+            );
+            boundary["transaction_info"]["shipping_amount"] =
+                json!({"currency_code":"AUD","value":"10.08"});
+            rows.push(boundary);
+        }
+        steps.push(report_step(start, end, 1, 2, rows));
+        steps.push(report_step(start, end, 2, 2, vec![]));
+    }
+    let mut orders = Step::json(
+        "/graphql.json",
+        json!({"data":{"orders":page(vec![], None)}}),
+    );
+    orders.search_bounds = Some(("2026-09-01T00:00:00+00:00", "2026-11-15T00:00:00+00:00"));
+    steps.push(orders);
+    let count = steps.len();
+    let server = Server::start(steps).await;
+    let client = server.client(false, true).await;
+    let response = client
+        .send(authed(
+            "GET",
+            "/v1/admin/transactions?date_from=2026-09-01T00:00:00Z&date_to=2026-11-15T00:00:00Z",
+            fixture.root_id(),
+            AdminRole::Admin,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let report = body_json(response).await;
+    let rows = report["transactions"]["paypal"].as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["payment_reference"], "shared-boundary");
+    assert_eq!(rows[0]["gross_paid"], 53.08);
+    assert_eq!(rows[0]["net_paid"], 50.26);
+    assert_eq!(rows[0]["shipping_fee"], 10.08);
+    assert_eq!(report["transactions"]["stripe"], json!([]));
+    assert_eq!(report["items"], json!([]));
+    assert_eq!(server.finish().await.len(), count);
+}
+
+#[tokio::test]
+async fn transactions_paypal_rejects_incompatible_amount_currencies_before_shopify() {
+    let fixture = fixture().await;
+    for field in [
+        "fee_amount",
+        "shipping_amount",
+        "transaction_amount",
+        "overflow",
+    ] {
+        let mut steps = flow(false, true, false, false);
+        steps.truncate(2);
+        if let Reply::Json(ref mut body) = steps[1].reply {
+            let info = &mut body["transaction_details"][2]["transaction_info"];
+            if field == "overflow" {
+                info["transaction_amount"]["value"] = json!("1e308");
+            } else {
+                info[field]["currency_code"] = json!(if field == "transaction_amount" {
+                    "ZZZ"
+                } else {
+                    "USD"
+                });
+            }
+        }
+        let server = Server::start(steps).await;
+        let client = server.client(false, true).await;
+        assert_report_error(
+            client
+                .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
+                .await
+                .unwrap(),
+            502,
+            "Upstream request failed",
+        )
+        .await;
+        assert_eq!(server.finish().await.len(), 2);
+    }
+}
+
+#[tokio::test]
+async fn transactions_paypal_preserves_zero_and_signed_shipping_over_shopify() {
+    let fixture = fixture().await;
+    let mut steps = flow(false, true, false, false);
+    if let Reply::Json(ref mut body) = steps[1].reply {
+        for row in body["transaction_details"].as_array_mut().unwrap() {
+            let info = &mut row["transaction_info"];
+            let shipping = match info["transaction_id"].as_str().unwrap() {
+                "pp_sale" => Some("0"),
+                "pp_refund" => Some("-1.25"),
+                _ => None,
+            };
+            if let Some(value) = shipping {
+                info["shipping_amount"] = json!({"currency_code":"THB", "value":value});
+            }
+        }
+    }
+    let count = steps.len();
+    let server = Server::start(steps).await;
+    let client = server.client(false, true).await;
+    let response = client
+        .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let report = body_json(response).await;
+    let rows = report["transactions"]["paypal"].as_array().unwrap();
+    for (reference, shipping) in [("pp_sale", 0.0), ("pp_refund", -1.25)] {
+        let row = rows
+            .iter()
+            .find(|row| row["payment_reference"] == reference)
+            .unwrap();
+        assert_eq!(row["shopify_order_id"], 124);
+        assert_eq!(row["shipping_fee"], shipping);
+    }
     assert_eq!(server.finish().await.len(), count);
 }
 
@@ -505,7 +720,7 @@ struct Step {
     query: BTreeMap<String, String>,
     reply: Reply,
     cursor: Option<&'static str>,
-    paypal_search: bool,
+    search_bounds: Option<(&'static str, &'static str)>,
 }
 impl Step {
     fn json(path: &'static str, value: Value) -> Self {
@@ -514,7 +729,7 @@ impl Step {
             query: BTreeMap::new(),
             reply: Reply::Json(value),
             cursor: None,
-            paypal_search: false,
+            search_bounds: None,
         }
     }
     fn query(mut self, pairs: &[(&str, &str)]) -> Self {
@@ -598,13 +813,11 @@ impl Server {
                         assert!(compact.contains("priceSet:originalPriceSet"));
                         assert_eq!(input["variables"]["first"], 10);
                         assert_eq!(input["variables"]["after"], json!(step.cursor));
-                        let start = if step.paypal_search {
-                            "2026-09-15T00:00:00+00:00"
-                        } else {
-                            "2026-10-01T00:00:00+07:00"
-                        };
+                        let (start, end) = step
+                            .search_bounds
+                            .unwrap_or(("2026-10-01T00:00:00+07:00", "2026-10-31T23:59:59+07:00"));
                         let expected = format!(
-                            "(created_at:>='{start}' AND created_at:<='2026-10-31T23:59:59+07:00') OR (updated_at:>='{start}' AND updated_at:<='2026-10-31T23:59:59+07:00')"
+                            "(created_at:>='{start}' AND created_at:<='{end}') OR (updated_at:>='{start}' AND updated_at:<='{end}')"
                         );
                         assert_eq!(input["variables"]["search"], expected);
                     }
@@ -733,36 +946,36 @@ fn flow(stripe: bool, paypal: bool, paginated: bool, empty: bool) -> Vec<Step> {
             "/v1/oauth2/token",
             json!({"access_token":"e2e-token","token_type":"Bearer","expires_in":3600}),
         ));
-        let sale = detail(
-            "pp_sale",
+        let mut aud = detail(
+            "aud_sale",
             "T0006",
-            "2026-09-30T20:00:00Z",
-            "THB",
-            "100",
-            Some("-2"),
+            "2026-10-01T18:36:07Z",
+            "AUD",
+            "53.08",
+            Some("-2.82"),
         );
-        let old = detail(
-            "usd_sale",
-            "T0006",
-            "2026-09-15T00:00:00Z",
-            "USD",
-            "10",
-            None,
-        );
-        let boundary = detail(
-            "boundary",
-            "T0006",
-            "2026-10-01T17:00:00Z",
-            "THB",
-            "40",
-            None,
-        );
+        aud["transaction_info"]["shipping_amount"] = json!({"currency_code":"AUD","value":"10.08"});
         let mut first = if empty {
             vec![]
         } else {
             vec![
-                sale,
-                old,
+                detail(
+                    "pp_sale",
+                    "T0006",
+                    "2026-09-30T20:00:00Z",
+                    "THB",
+                    "100",
+                    Some("-2"),
+                ),
+                detail(
+                    "usd_sale",
+                    "T0006",
+                    "2026-09-15T00:00:00Z",
+                    "USD",
+                    "10",
+                    None,
+                ),
+                aud,
                 detail(
                     "same",
                     "T0000",
@@ -781,30 +994,18 @@ fn flow(stripe: bool, paypal: bool, paginated: bool, empty: bool) -> Vec<Step> {
                 ),
             ]
         };
-        if !empty && !paginated {
-            first.push(boundary.clone());
-        }
-        steps.push(report_step(
-            "2026-08-31T17:00:00Z",
-            "2026-10-01T17:00:00Z",
-            1,
-            if paginated && !empty { 2 } else { 1 },
-            first,
-        ));
-        if paginated && !empty {
-            steps.push(report_step(
-                "2026-08-31T17:00:00Z",
-                "2026-10-01T17:00:00Z",
-                2,
-                2,
-                vec![boundary.clone()],
-            ));
-        }
         let second = if empty {
             vec![]
         } else {
             vec![
-                boundary,
+                detail(
+                    "boundary",
+                    "T0006",
+                    "2026-10-01T17:00:00Z",
+                    "THB",
+                    "40",
+                    None,
+                ),
                 detail(
                     "pp_refund",
                     "T1107",
@@ -825,20 +1026,31 @@ fn flow(stripe: bool, paypal: bool, paginated: bool, empty: bool) -> Vec<Step> {
                 detail("usd", "T0201", "2026-10-18T00:00:00Z", "USD", "-100", None),
             ]
         };
+        if !paginated {
+            first.extend(second.clone());
+        }
         steps.push(report_step(
-            "2026-10-01T17:00:00Z",
+            "2026-09-30T17:00:00Z",
             "2026-10-31T16:59:59Z",
             1,
-            1,
-            second,
+            if paginated && !empty { 2 } else { 1 },
+            first,
         ));
+        if paginated && !empty {
+            steps.push(report_step(
+                "2026-09-30T17:00:00Z",
+                "2026-10-31T16:59:59Z",
+                2,
+                2,
+                second,
+            ));
+        }
     }
     if !empty {
-        let mut first = Step::json(
+        let first = Step::json(
             "/graphql.json",
             json!({"data":{"orders":page(if paginated {vec![order(true)]} else {[stripe.then(||order(true)),paypal.then(||order(false))].into_iter().flatten().collect()},if paginated {Some("order-1")} else {None})}}),
         );
-        first.paypal_search = paypal;
         steps.push(first);
         if paginated {
             let mut second = Step::json(
@@ -846,7 +1058,6 @@ fn flow(stripe: bool, paypal: bool, paginated: bool, empty: bool) -> Vec<Step> {
                 json!({"data":{"orders":page(vec![order(true),order(false)],None)}}),
             );
             second.cursor = Some("order-1");
-            second.paypal_search = paypal;
             steps.push(second);
         }
     }

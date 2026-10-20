@@ -9,8 +9,14 @@ pub struct AccountingReportQuery {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AccountingReportResponse {
-    pub transactions: Vec<AccountingTransaction>,
+    pub transactions: AccountingTransactions,
     pub items: Vec<AccountingItem>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+pub struct AccountingTransactions {
+    pub stripe: Vec<AccountingTransaction>,
+    pub paypal: Vec<AccountingTransaction>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -33,7 +39,7 @@ pub struct AccountingTransaction {
     #[serde(rename = "type")]
     pub kind: AccountingKind,
     pub po_number: String,
-    pub po_date: String,
+    pub po_date: Option<String>,
     pub transaction_date: String,
     pub payment_reference: String,
     pub description: String,
@@ -42,12 +48,13 @@ pub struct AccountingTransaction {
     pub customer_name: String,
     pub customer_address: String,
     pub customer_phone: u64,
-    pub exchange_rate: f64,
+    pub currency: String,
+    pub exchange_rate: Option<f64>,
     pub net_paid: f64,
     pub fee: f64,
     pub vat: f64,
     pub gross_paid: f64,
-    pub shipping_fee: f64,
+    pub shipping_fee: Option<f64>,
     pub order_adjusted: bool,
 }
 

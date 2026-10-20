@@ -217,3 +217,16 @@ Endpoint tests use controlled Shopify/Resend servers and real PostgreSQL connect
 | Dependency faults | Real application/client sockets exercise Stripe payout/balance/charge/refund, PayPal OAuth/reporting and Shopify first/later discovery operations. Controlled HTTP rejection, malformed/missing/invalid bodies, disconnect/refusal, timeout, exhausted throttling and GraphQL error/partial-data scenarios assert safe errors and exact call prefixes/counts |
 | Contracts | Workspace formatting, whitespace checks and exact application/Postman GraphQL plus variable parity passed. Postman lint scanned40 requests with zero errors/warnings. Shared DTO/route shape is unchanged |
 | Limits | Controlled provider servers and the existing Docker database were used; no live provider call, production deployment or merge. Live store scopes, requested query cost and gateway-specific receipt stability remain unverified. Requested nested connections retain the documented bounded workload and fail safely when incomplete; discovery has no upstream snapshot isolation |
+
+
+## ENZ-12 native-currency report follow-up (2026-10-20)
+
+| Check | Evidence |
+| --- | --- |
+| PayPal sample | Synthetic fixture preserves AUD53.08 gross, AUD50.26 net, AUD2.82 charged fee and AUD10.08 shipping included in gross. Currency is explicit; exchange_rate and bank po_date are null. No transaction-to-bank FX or payout association is inferred |
+| Date contract | Raw+ and encoded+ offsets pass the same RFC3339 validation and yield identical populated reports/provider requests. PayPal filters inclusive transaction instants without FX lookback; Stripe retains inclusive payout bounds |
+| Wire/order contract | transactions has stripe/paypal arrays, including empty providers. Transactions are stably sorted ascending by payout then transaction instant, null payouts last; accounting items are stably sorted by transaction instant. Different timezone offsets are compared as instants |
+| Monetary cases | Signed charged/returned fees, zero/missing shipping, signed refund shipping, provider shipping precedence, compatible Shopify fallback, mixed-currency rejection and supported currency precision are covered. Unknown PayPal shipping is null; provider-fee VAT is not inferred from merchant tax |
+| Pagination/errors | Existing controlled-provider TCP fault matrices retained. A reportable payment repeated at the shared boundary of two31-day windows is emitted once with unchanged gross/net/shipping; pages reset and exhaust per window |
+| Verification | 222 native API tests and109 real TCP E2E test functions passed, zero failures/ignored; Compose teardown completed. Strict API check, domain3 tests, Postman40 requests with zero errors/warnings, workspace formatting, whitespace and GraphQL/Postman parity passed |
+| Limits | Controlled providers and real Compose PostgreSQL connections, no live-account request or mutation. The supplied payment fields are reproduced using synthetic identifiers without personal data. An all-THB PayPal report and actual bank payout reconciliation require additional authoritative data; consumers must respect per-row currencies. The actual erroneous client response was not supplied, so the separate gross/net mismatch was not independently reproduced |

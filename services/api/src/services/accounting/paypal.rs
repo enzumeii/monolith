@@ -3,7 +3,7 @@ use crate::{
     client::paypal::PaypalClient, error::AppError, models::paypal::TransactionDetail,
     services::common::upstream, validations::accounting::AccountingDateRange,
 };
-use chrono::{DateTime, Duration, FixedOffset, Months, Utc};
+use chrono::{Duration, Utc};
 use domain::dto::{AccountingGateway, AccountingKind};
 use std::collections::HashSet;
 
@@ -11,11 +11,7 @@ pub(super) async fn collect(
     client: &PaypalClient,
     range: &AccountingDateRange,
 ) -> Result<Vec<Payment>, AppError> {
-    let mut start = range
-        .start
-        .checked_sub_months(Months::new(1))
-        .unwrap_or(range.start)
-        .with_timezone(&Utc);
+    let mut start = range.start.with_timezone(&Utc);
     let end = range.end.with_timezone(&Utc);
     let mut details = Vec::new();
     let mut seen = HashSet::new();
@@ -54,9 +50,9 @@ pub(super) async fn collect(
         }
         start = window_end;
     }
-    records(details, range)?
+    records(details, range)
         .into_iter()
-        .map(|(detail, rate, payout_date)| payment(&detail, rate, payout_date))
+        .map(|detail| payment(&detail))
         .collect()
 }
 
@@ -77,83 +73,46 @@ fn identity(detail: &TransactionDetail) -> String {
     .to_string()
 }
 
-fn records(
-    mut details: Vec<TransactionDetail>,
-    range: &AccountingDateRange,
-) -> Result<Vec<(TransactionDetail, f64, DateTime<FixedOffset>)>, AppError> {
-    details.sort_by(|a, b| {
-        b.transaction
-            .transaction_initiation_date
-            .cmp(&a.transaction.transaction_initiation_date)
-    });
-    let mut po_date = None;
-    let mut withdraw_thb = 0.0;
-    let mut withdraw_usd = 0.0;
-    let mut records = Vec::new();
-    for detail in details {
-        let info = &detail.transaction;
-        let event = info.transaction_event_code.as_str();
-        let mut rate = 1.0;
-        let mut record_date = None;
-        match event {
-            "T0400" | "T0403" => po_date = Some(info.transaction_initiation_date),
-            "T0201" => {
-                let value = money(&info.transaction_amount.value)?.abs();
-                if info.transaction_amount.currency_code == "USD" {
-                    withdraw_usd = value;
-                } else {
-                    withdraw_thb = value;
-                }
-            }
-            "T0006" | "T1107" => {
-                if !matches!(
-                    info.transaction_amount.currency_code.as_str(),
-                    "USD" | "SGD"
-                ) {
-                    record_date = Some(info.transaction_initiation_date);
-                } else if let Some(withdrawal_date) = po_date
-                    && withdraw_thb != 0.0
-                    && withdraw_usd != 0.0
-                {
-                    rate = (withdraw_thb / withdraw_usd * 100.0).round() / 100.0;
-                    record_date = Some(withdrawal_date);
-                }
-            }
-            "T0200" => {}
-            _ => record_date = Some(info.transaction_initiation_date),
-        }
-        if let Some(date) = record_date.filter(|date| *date >= range.start && *date <= range.end)
-            && !matches!(event, "T0400" | "T0403" | "T0201" | "T0200")
-        {
-            records.push((detail, rate, date));
-        }
-    }
-    records.sort_by(|a, b| {
-        a.0.transaction
-            .transaction_initiation_date
-            .cmp(&b.0.transaction.transaction_initiation_date)
-    });
-    Ok(records)
+fn records(details: Vec<TransactionDetail>, range: &AccountingDateRange) -> Vec<TransactionDetail> {
+    details
+        .into_iter()
+        .filter(|detail| {
+            let info = &detail.transaction;
+            !matches!(
+                info.transaction_event_code.as_str(),
+                "T0400" | "T0403" | "T0201" | "T0200"
+            ) && info.transaction_initiation_date >= range.start
+                && info.transaction_initiation_date <= range.end
+        })
+        .collect()
 }
 
-fn payment(
-    detail: &TransactionDetail,
-    rate: f64,
-    payout_date: DateTime<FixedOffset>,
-) -> Result<Payment, AppError> {
+fn payment(detail: &TransactionDetail) -> Result<Payment, AppError> {
     let info = &detail.transaction;
-    let gross = money(&info.transaction_amount.value)? * rate;
+    let currency = &info.transaction_amount.currency_code;
+    let factor = precision_factor(currency)?;
+    let gross = rounded(money(&info.transaction_amount.value)?, factor)?;
     let fee = info
         .fee_amount
         .as_ref()
-        .map(|fee| money(&fee.value))
+        .map(|fee| {
+            if fee.currency_code != *currency {
+                return Err(protocol("incompatible PayPal fee currency"));
+            }
+            rounded(-money(&fee.value)?, factor)
+        })
         .transpose()?
-        .unwrap_or_default()
-        .abs()
-        * rate;
-    if !rate.is_finite() || rate <= 0.0 || !gross.is_finite() || !fee.is_finite() {
-        return Err(protocol("invalid PayPal accounting amount"));
-    }
+        .unwrap_or_default();
+    let shipping = info
+        .shipping_amount
+        .as_ref()
+        .map(|shipping| {
+            if shipping.currency_code != *currency {
+                return Err(protocol("incompatible PayPal shipping currency"));
+            }
+            rounded(money(&shipping.value)?, factor)
+        })
+        .transpose()?;
     let mut transaction = empty_transaction(
         AccountingGateway::Paypal,
         if info.transaction_event_code == "T1107" {
@@ -162,7 +121,6 @@ fn payment(
             AccountingKind::Sale
         },
     );
-    transaction.po_date = payout_date.to_rfc3339();
     transaction.transaction_date = info.transaction_initiation_date.to_rfc3339();
     transaction
         .payment_reference
@@ -173,16 +131,38 @@ fn payment(
             .payer
             .as_ref()
             .and_then(|p| p.email_address.as_deref()),
-        &info.transaction_amount.currency_code,
+        currency,
     );
-    transaction.exchange_rate = rate;
-    transaction.net_paid = gross - fee;
+    transaction.currency.clone_from(currency);
+    transaction.net_paid = rounded(gross - fee, factor)?;
     transaction.fee = fee;
     transaction.gross_paid = gross;
+    transaction.shipping_fee = shipping;
     Ok(Payment {
         transaction,
-        currency: info.transaction_amount.currency_code.clone(),
+        currency: currency.clone(),
     })
+}
+
+fn precision_factor(currency: &str) -> Result<f64, AppError> {
+    match currency {
+        "HUF" | "JPY" | "TWD" => Ok(1.0),
+        "BHD" | "IQD" | "JOD" | "KWD" | "LYD" | "OMR" | "TND" => Ok(1000.0),
+        "AUD" | "BRL" | "CAD" | "CHF" | "CNY" | "CZK" | "DKK" | "EUR" | "GBP" | "HKD" | "ILS"
+        | "MYR" | "MXN" | "NOK" | "NZD" | "PHP" | "PLN" | "SEK" | "SGD" | "THB" | "USD" => {
+            Ok(100.0)
+        }
+        _ => Err(protocol("unsupported PayPal accounting currency")),
+    }
+}
+
+fn rounded(value: f64, factor: f64) -> Result<f64, AppError> {
+    let result = (value * factor).round() / factor;
+    if result.is_finite() {
+        Ok(result)
+    } else {
+        Err(protocol("invalid PayPal accounting amount"))
+    }
 }
 
 fn paypal_description(event: &str, email: Option<&str>, currency: &str) -> String {

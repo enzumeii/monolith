@@ -49,7 +49,7 @@ fn sales_ship_once_and_use_the_receipt_reference() {
     let mut payment = payment(AccountingGateway::Stripe, AccountingKind::Sale, "ch_1");
     let mut items = Vec::new();
     apply(&mut payment, &order(), &mut items).unwrap();
-    assert_eq!(payment.transaction.shipping_fee, 180.0);
+    assert_eq!(payment.transaction.shipping_fee, Some(180.0));
     assert_eq!(payment.transaction.shopify_order_id, 1);
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].price, 95.0);
@@ -99,7 +99,7 @@ fn refund_connection_controls_shipping_and_item_allocation() {
     let mut payment = payment(AccountingGateway::Stripe, AccountingKind::Refund, "re_1");
     let mut items = Vec::new();
     apply(&mut payment, &order, &mut items).unwrap();
-    assert_eq!(payment.transaction.shipping_fee, -36.0);
+    assert_eq!(payment.transaction.shipping_fee, Some(-36.0));
     assert_eq!(items[0].quantity, -1);
     assert_eq!(items[0].price, -10.0);
     for path in [
@@ -132,7 +132,48 @@ fn partial_payment_items_and_shipping_are_allocated_once() {
     apply(&mut first, &order, &mut items).unwrap();
     apply(&mut second, &order, &mut items).unwrap();
     assert!(first.transaction.order_adjusted);
-    assert_eq!(first.transaction.shipping_fee, 180.0);
-    assert_eq!(second.transaction.shipping_fee, 0.0);
+    assert_eq!(first.transaction.shipping_fee, Some(180.0));
+    assert_eq!(second.transaction.shipping_fee, Some(0.0));
     assert_eq!(items.len(), 1);
+}
+
+#[test]
+fn paypal_shipping_prefers_provider_and_never_uses_another_currency() {
+    let mut value = order_value();
+    value["transactions"][0] = transaction("paypal", "SALE", json!({"transaction_id":"pp_1"}));
+    let mut row = payment(AccountingGateway::Paypal, AccountingKind::Sale, "pp_1");
+    row.transaction.currency = "AUD".into();
+    row.transaction.exchange_rate = None;
+    row.transaction.shipping_fee = Some(10.08);
+    apply(
+        &mut row,
+        &serde_json::from_value(value.clone()).unwrap(),
+        &mut Vec::new(),
+    )
+    .unwrap();
+    assert_eq!(row.transaction.shipping_fee, Some(10.08));
+    row.transaction.shipping_fee = Some(0.0);
+    apply(
+        &mut row,
+        &serde_json::from_value(value.clone()).unwrap(),
+        &mut Vec::new(),
+    )
+    .unwrap();
+    assert_eq!(row.transaction.shipping_fee, Some(0.0));
+    row.transaction.shipping_fee = None;
+    apply(
+        &mut row,
+        &serde_json::from_value(value.clone()).unwrap(),
+        &mut Vec::new(),
+    )
+    .unwrap();
+    assert_eq!(row.transaction.shipping_fee, None);
+    value["shippingLines"]["nodes"][0]["priceSet"]["shopMoney"]["currencyCode"] = json!("AUD");
+    apply(
+        &mut row,
+        &serde_json::from_value(value).unwrap(),
+        &mut Vec::new(),
+    )
+    .unwrap();
+    assert_eq!(row.transaction.shipping_fee, Some(5.0));
 }
