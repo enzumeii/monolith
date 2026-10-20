@@ -37,10 +37,14 @@ pub fn Orders() -> Element {
     let mut submitted = use_signal(|| None::<OrderView>);
     let mut tracking_numbers = use_signal(HashMap::<u64, String>::new);
     let LoadingState(mut overlay_pending) = use_context();
-    let mut report = use_order_report(submitted, |view| async move {
-        session::with_session(|| generate(view)).await
-    });
     let mut fulfillment = use_fulfillment_action(overlay_pending);
+    let mut report = use_order_report(
+        submitted,
+        tracking_numbers,
+        fulfillment,
+        overlay_pending,
+        |view| async move { session::with_session(|| generate(view)).await },
+    );
     let loading = submitted.read().is_some() && report.pending();
     let value = report.value().and_then(Result::ok);
     let result = value.as_ref().map(|value| value.read());
@@ -130,7 +134,10 @@ pub fn Orders() -> Element {
 }
 
 fn use_order_report<Fut: std::future::Future<Output = ApiResult<OrderData>> + 'static>(
-    submitted: Signal<Option<OrderView>>,
+    mut submitted: Signal<Option<OrderView>>,
+    mut tracking_numbers: Signal<HashMap<u64, String>>,
+    mut fulfillment: Action<(FulfillmentRequest,), ApiResult<Vec<FulfillmentResult>>>,
+    mut overlay_pending: Signal<bool>,
     load: impl FnMut(OrderView) -> Fut + 'static,
 ) -> Action<(OrderView,), (OrderView, ApiResult<OrderData>)> {
     let load = use_callback(load);
@@ -145,12 +152,33 @@ fn use_order_report<Fut: std::future::Future<Output = ApiResult<OrderData>> + 's
             action.reset();
         }
     });
+    let mut owner = use_signal(|| {
+        session::SESSION
+            .peek()
+            .as_ref()
+            .map(|viewer| (viewer.admin_id, viewer.role))
+    });
+    use_effect(move || {
+        let current = session::SESSION
+            .read()
+            .as_ref()
+            .map(|viewer| (viewer.admin_id, viewer.role));
+        if current != *owner.peek() {
+            owner.set(current);
+            submitted.set(None);
+            tracking_numbers.write().clear();
+            action.reset();
+            fulfillment.reset();
+            overlay_pending.set(false);
+        }
+    });
     action
 }
 
 fn use_fulfillment_action(
     mut overlay_pending: Signal<bool>,
 ) -> Action<(FulfillmentRequest,), ApiResult<Vec<FulfillmentResult>>> {
+    use_drop(move || overlay_pending.set(false));
     use_action(move |request: FulfillmentRequest| {
         let future = session::with_session(|| {
             fulfill_selected(
@@ -367,3 +395,7 @@ fn DownloadTable(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/pages/orders.rs"]
+mod tests;
