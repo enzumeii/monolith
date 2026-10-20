@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+concurrency:
+  group: main-releases
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Check out trusted main and full release history
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Publish releases for unreleased merged PRs
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const {execFileSync} = require('node:child_process');
+            const baseline = '2f9f9101ad5348c327c75c4504a5827975497ada';
+            execFileSync('git', ['merge-base', '--is-ancestor', baseline, 'HEAD']);
+            const commits = execFileSync('git', ['rev-list', '--first-parent', '--reverse', baseline + '..HEAD'], {encoding: 'utf8'}).trim().split('\n').filter(Boolean);
+            const {publishReleases} = require('./.github/scripts/release.cjs');
+            const result = await publishReleases({github, ...context.repo, commits});
+            core.info(JSON.stringify(result));
