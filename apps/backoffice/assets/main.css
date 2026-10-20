@@ -97,6 +97,8 @@ a {
 
 .tabs {
     display: flex;
+    flex-wrap: wrap;
+    min-width: 0;
     gap: 0.5rem;
     flex: 1;
 }
@@ -491,3 +493,7 @@ a:focus-visible {
 .trigger-summary dd { margin: 0.5rem 0 0; font-size: 1.6rem; font-weight: 700; }
 .trigger-errors { padding-left: 1.25rem; overflow-wrap: anywhere; }
 .trigger-errors p { margin-top: 0.25rem; }
+
+.accounting-group { max-width: none; margin-top: 1.5rem; }
+.accounting-page input[type="datetime-local"] { min-width: 0; width: 100%; }
+.accounting-page td { white-space: pre-wrap; min-width: 10ch; }

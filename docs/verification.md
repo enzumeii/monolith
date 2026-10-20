@@ -243,3 +243,16 @@ Endpoint tests use controlled Shopify/Resend servers and real PostgreSQL connect
 | Postman | Committed snapshot:40 requests scanned with zero errors/warnings. The user's local transaction-request edits and generated folder metadata were preserved byte-for-byte and excluded from staging |
 | Repository guidance | monolith-protocol-enums passes skill structural validation. Independent baseline and guided scenarios both preserve unknown identities/error policy and keep customer memo free text; the strict-status negative control remains rejecting. Baseline was already correct, so no behavioral improvement is claimed |
 | Review and limits | Independent scoped review found no actionable findings. No live provider requests, production deployment or merge. Exact pushed-head CI and native thread replies are confirmed separately after publication |
+
+
+## ENZ-24 admin accounting page (2026-10-21)
+
+| Check | Evidence |
+| --- | --- |
+| Local checks | Backoffice just check passed native and WASM strict lint/formatting. Just test passed 63 backoffice tests and 11 domain unit/contract tests, plus the domain WASM check. Just build produced the browser bundle |
+| Accounting contract | All 20 transaction fields and all 11 item fields are projected without recalculation. Unit tests cover date validation/seconds/+07:00, query encoding, nulls, signed refunds, exact large integer IDs, mixed currencies and CSV escaping/order |
+| Lifecycle | Controlled Dioxus action tests cover idle, submit/retry, filter invalidation, cancellation/late responses after logout or principal changes, and same-principal refresh without replay |
+| Browser | Real localhost UI and synthetic HTTP fixture responses verified separate Stripe (2), PayPal (1) and Items (1) tables, safe provider error/retry, all empty states, invalid ranges, cleared results after edits, and disabled export during loading/error/empty results |
+| Downloads | Actual downloaded accounting CSV parsed as 3 rows and 20 columns; Stripe then PayPal order, null cells, negative refund, full u64 ID and Unicode/quote/newline text verified. Existing Orders Best XLSX download remained valid and retained leading-zero strings without formula cells |
+| Presentation | Dark desktop 1440px and mobile 390px layouts checked; navigation wraps and table overflow stays inside focusable regions. Light presentation checked through a fixture-only stylesheet preview disabling the dark media block; OS color preference was not changed |
+| Limits | No live provider/production data, deployment, or backend changes. Existing API TCP E2E/Postman suites were not rerun for this frontend change. Browser fixtures and downloaded files are excluded from Git. Exact pushed-head CI is confirmed separately after publication |
