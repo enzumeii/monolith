@@ -52,13 +52,25 @@ pub fn encode_report(rows: &[ProductReportRow], format: ExportFormat) -> Result<
     if format == ExportFormat::Csv {
         return Ok(csv::encode(rows).into_bytes());
     }
+    let rows = rows
+        .iter()
+        .map(|row| csv::cells(row).into())
+        .collect::<Vec<_>>();
+    encode_table_xlsx(&csv::HEADERS, &rows, "Reports")
+}
+
+pub fn encode_table_xlsx(
+    headers: &[&str],
+    rows: &[Vec<String>],
+    worksheet_name: &str,
+) -> Result<Vec<u8>, String> {
     validate_row_count(rows.len())?;
     let mut workbook = Workbook::new();
     let sheet = workbook.add_worksheet();
     sheet
-        .set_name("Reports")
+        .set_name(worksheet_name)
         .map_err(|error| error.to_string())?;
-    for (column, header) in csv::HEADERS.iter().enumerate() {
+    for (column, header) in headers.iter().enumerate() {
         sheet
             .write_string(
                 0,
@@ -69,7 +81,7 @@ pub fn encode_report(rows: &[ProductReportRow], format: ExportFormat) -> Result<
     }
     for (row_index, row) in rows.iter().enumerate() {
         let row_index = u32::try_from(row_index + 1).map_err(|error| error.to_string())?;
-        for (column, value) in csv::cells(row).iter().enumerate() {
+        for (column, value) in row.iter().enumerate() {
             if !value.is_empty() {
                 sheet
                     .write_string(
@@ -94,7 +106,7 @@ fn valid_name(name: &str) -> Result<(), String> {
 }
 fn validate_row_count(count: usize) -> Result<(), String> {
     if count > 1_048_575 {
-        return Err("XLSX supports at most 1,048,575 report rows plus the header".into());
+        return Err("XLSX supports at most 1,048,575 rows plus the header".into());
     }
     Ok(())
 }

@@ -5,6 +5,7 @@ mod error;
 mod home;
 mod login;
 mod navbar;
+mod orders;
 mod profile;
 
 pub use admin::Admins;
@@ -12,9 +13,10 @@ pub use error::NotFound;
 pub use home::Home;
 pub use login::Login;
 pub use navbar::Navbar;
+pub use orders::Orders;
 pub use profile::Profile;
 
-mod reports;
+pub(crate) mod reports;
 pub use reports::Reports;
 
 mod triggers;

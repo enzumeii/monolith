@@ -174,7 +174,7 @@ async fn finish_picker(
     }
 }
 
-async fn download(
+pub(crate) async fn download(
     bytes: Vec<u8>,
     filename: &str,
     format: ExportFormat,

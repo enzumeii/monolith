@@ -15,7 +15,7 @@
 }
 
 :root {
-    color-scheme: light;
+    color-scheme: light dark;
     --bg: #fff8ea;
     --panel: #fffdf6;
     --panel-border: #e5b6a0;
@@ -28,7 +28,38 @@
     --heading: #e13e39;
     --danger: #c12521;
     --danger-hover: #861814;
+    --error-text: #861814;
     --ghost-border: #c12521;
+    --hover-bg: rgba(255, 152, 78, 0.16);
+    --error-bg: #fff0e8;
+    --modal-overlay-bg: rgba(96, 26, 22, 0.55);
+    --table-heading-bg: rgba(255, 217, 101, 0.35);
+    --table-row-hover-bg: rgba(255, 152, 78, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        color-scheme: dark;
+        --bg: #1d2228;
+        --panel: #272d34;
+        --panel-border: #46505b;
+        --text: #edf2f6;
+        --muted: #b6c0ca;
+        --primary: #ff9d4d;
+        --primary-hover: #ffb86f;
+        --primary-text: #3c1c08;
+        --accent: #343b43;
+        --heading: #ff9d4d;
+        --danger: #bd3937;
+        --danger-hover: #ad302e;
+        --error-text: #ff938c;
+        --ghost-border: #ff9d4d;
+        --hover-bg: rgba(255, 157, 77, 0.18);
+        --error-bg: #3b2424;
+        --modal-overlay-bg: rgba(4, 8, 12, 0.72);
+        --table-heading-bg: rgba(255, 157, 77, 0.18);
+        --table-row-hover-bg: rgba(255, 157, 77, 0.1);
+    }
 }
 
 * {
@@ -77,7 +108,7 @@ a {
 }
 
 .tab:hover {
-    background: rgba(255, 152, 78, 0.16);
+    background: var(--hover-bg);
     color: var(--text);
 }
 
@@ -248,7 +279,7 @@ button.ghost {
 }
 
 button.ghost:hover:not(:disabled) {
-    background: rgba(255, 152, 78, 0.16);
+    background: var(--hover-bg);
 }
 
 button.logout {
@@ -299,8 +330,8 @@ button.logout {
 
 /* ---- Feedback ---- */
 .error {
-    color: var(--danger-hover);
-    background: #fff0e8;
+    color: var(--error-text);
+    background: var(--error-bg);
     border: 1px solid var(--heading);
     border-radius: 0;
     padding: 0.5rem 0.7rem;
@@ -311,7 +342,7 @@ button.logout {
 .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(96, 26, 22, 0.55);
+    background: var(--modal-overlay-bg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -368,11 +399,11 @@ a:focus-visible {
 }
 
 .admins-table thead {
-    background: rgba(255, 217, 101, 0.35);
+    background: var(--table-heading-bg);
 }
 
 .admins-table tbody tr:hover {
-    background: rgba(255, 152, 78, 0.08);
+    background: var(--table-row-hover-bg);
 }
 
 @media (max-width: 640px) {
@@ -428,6 +459,9 @@ a:focus-visible {
 }
 
 .reports-page { max-width: 1440px; min-width: 0; }
+.orders-page { min-width: 0; }
+.orders-results { max-width: none; }
+.orders-results input { min-width: 16ch; }
 .report-form { max-width: 480px; }
 .report-scroll { max-width: 100%; overflow-x: auto; }
 .report-scroll:focus-visible { outline: 2px solid var(--heading); outline-offset: 3px; }
