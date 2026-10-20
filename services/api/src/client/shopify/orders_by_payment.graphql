@@ -15,7 +15,9 @@ query OrdersByPayment($first: Int!, $search: String!, $after: String) {
         address1
         address2
         city
+        provinceCode
         zip
+        country
         countryCodeV2
         phone
       }
@@ -36,6 +38,98 @@ query OrdersByPayment($first: Int!, $search: String!, $after: String) {
           shopMoney {
             amount
             currencyCode
+          }
+        }
+        receiptJson
+      }
+      lineItems(first: 250) {
+        nodes {
+          title
+          variantTitle
+          sku
+          quantity
+          originalUnitPriceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+      shippingLines(first: 250) {
+        nodes {
+          priceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+      refunds(first: 250) {
+        transactions {
+          id
+          paymentId
+          gateway
+          kind
+          status
+          processedAt
+          amountSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+          receiptJson
+        }
+        orderAdjustments(first: 250) {
+          nodes {
+            kind
+            amountSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+        refundLineItems(first: 250) {
+          nodes {
+            quantity
+            subtotalSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+            lineItem {
+              title
+              variantTitle
+              sku
+              quantity
+              originalUnitPriceSet {
+                shopMoney {
+                  amount
+                  currencyCode
+                }
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
           }
         }
       }

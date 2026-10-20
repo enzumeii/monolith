@@ -1,9 +1,14 @@
 pub mod admin;
+pub mod accounting;
 pub mod auth;
 pub mod error;
 
 pub use admin::{
     AdminDTO, AdminListResponse, AdminRole, CreateAdminRequest, ListAdminsQuery, UpdateAdminRequest,
+};
+pub use accounting::{
+    AccountingGateway, AccountingItem, AccountingKind, AccountingReportQuery,
+    AccountingReportResponse, AccountingTransaction,
 };
 pub use auth::{LoginRequest, RefreshRequest, SessionResponse, TokenResponse};
 pub use error::ErrorResponse;

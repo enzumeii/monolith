@@ -7,9 +7,14 @@ use uuid::Uuid;
 
 pub use domain::dto::PageInfo;
 
-#[derive(Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Nodes<T> {
     pub nodes: Vec<T>,
+}
+impl<T> Default for Nodes<T> {
+    fn default() -> Self {
+        Self { nodes: Vec::new() }
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -289,7 +294,9 @@ pub struct Address {
     pub address1: Option<String>,
     pub address2: Option<String>,
     pub city: Option<String>,
+    pub province_code: Option<String>,
     pub zip: Option<String>,
+    pub country: Option<String>,
     pub country_code_v2: Option<String>,
     pub phone: Option<String>,
 }
@@ -303,6 +310,7 @@ pub struct OrderTransaction {
     pub status: String,
     pub processed_at: Option<DateTime<FixedOffset>>,
     pub amount_set: MoneyBag,
+    pub receipt_json: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -319,6 +327,63 @@ pub struct Order {
     pub shipping_address: Option<Address>,
     pub current_total_price_set: MoneyBag,
     pub transactions: Vec<OrderTransaction>,
+    #[serde(default)]
+    pub line_items: AccountingConnection<AccountingLineItem>,
+    #[serde(default)]
+    pub shipping_lines: AccountingConnection<AccountingShippingLine>,
+    #[serde(default)]
+    pub refunds: Vec<AccountingRefund>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountingLineItem {
+    pub title: String,
+    pub variant_title: Option<String>,
+    pub sku: Option<Sku>,
+    pub quantity: i64,
+    pub original_unit_price_set: MoneyBag,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountingShippingLine {
+    pub price_set: MoneyBag,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountingRefund {
+    pub transactions: Vec<OrderTransaction>,
+    pub order_adjustments: AccountingConnection<AccountingOrderAdjustment>,
+    pub refund_line_items: AccountingConnection<AccountingRefundLineItem>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountingConnection<T> {
+    pub nodes: Vec<T>,
+    pub page_info: PageInfo,
+}
+impl<T> Default for AccountingConnection<T> {
+    fn default() -> Self {
+        Self {
+            nodes: Vec::new(),
+            page_info: PageInfo {
+                has_next_page: false,
+                end_cursor: None,
+            },
+        }
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountingOrderAdjustment {
+    pub kind: String,
+    pub amount_set: MoneyBag,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountingRefundLineItem {
+    pub quantity: i64,
+    pub subtotal_set: MoneyBag,
+    pub line_item: AccountingLineItem,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

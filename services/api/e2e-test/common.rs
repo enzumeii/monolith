@@ -357,6 +357,79 @@ pub async fn scripted_upstream(
     )
 }
 
+pub async fn client_with_empty_accounting_stripe() -> (TestClient, TestUpstream) {
+    client_with_accounting_scenario("empty").await
+}
+
+pub async fn client_with_accounting_scenario(scenario: &'static str) -> (TestClient, TestUpstream) {
+    use axum::{Json, http::HeaderMap, response::IntoResponse};
+    use serde_json::json;
+
+    let router = axum::Router::new()
+        .route("/payouts", axum::routing::get(move |headers: HeaderMap| async move {
+            assert_eq!(headers["authorization"], "Bearer e2e-fixture-key");
+            if scenario == "stripe_error" {
+                return (axum::http::StatusCode::SERVICE_UNAVAILABLE, "provider failure").into_response();
+            }
+            let data = if matches!(scenario, "populated" | "shopify_error") {
+                json!([{"id":"po_123","arrival_date":1_798_000_000}])
+            } else {
+                json!([])
+            };
+            Json(json!({"data": data, "has_more": false})).into_response()
+        }))
+        .route("/balance_transactions", axum::routing::get(|headers: HeaderMap| async move {
+            assert_eq!(headers["authorization"], "Bearer e2e-fixture-key");
+            Json(json!({"data":[{"amount":20500,"available_on":1_798_000_000,"created":1_798_000_000,"currency":"usd","fee":400,"fee_details":[{"amount":400,"currency":"usd","description":"Stripe fee","type":"stripe_fee","application":null}],"id":"txn_123","net":20100,"object":"balance_transaction","reporting_category":"charge","source":"ch_123","status":"available","type":"charge","exchange_rate":36.0,"description":"Charge"}],"has_more":false}))
+        }))
+        .route("/charges/ch_123", axum::routing::get(|headers: HeaderMap| async move {
+            assert_eq!(headers["authorization"], "Bearer e2e-fixture-key");
+            Json(json!({"id":"ch_123","amount_captured":20500,"amount_refunded":0,"captured":true,"paid":true,"refunded":false,"created":1_798_000_000,"currency":"usd","disputed":false,"metadata":{"customer_email":"buyer@example.test"},"payment_intent":null,"balance_transaction":"txn_123"}))
+        }))
+        .route("/v1/oauth2/token", axum::routing::post(move || async move {
+            if scenario == "paypal_error" {
+                (axum::http::StatusCode::UNAUTHORIZED, "private PayPal failure").into_response()
+            } else {
+                Json(json!({"access_token":"e2e-token","token_type":"Bearer","expires_in":3600})).into_response()
+            }
+        }))
+        .route("/v1/reporting/transactions", axum::routing::get(|| async {
+            Json(json!({"transaction_details":[],"page":1,"total_items":0,"total_pages":1}))
+        }))
+        .route("/graphql.json", axum::routing::post(move |headers: HeaderMap, Json(_request): Json<serde_json::Value>| async move {
+            assert_eq!(headers["x-shopify-access-token"], "e2e-fixture-token");
+            if scenario == "shopify_error" {
+                return (axum::http::StatusCode::SERVICE_UNAVAILABLE, "private Shopify failure").into_response();
+            }
+            let order = json!({
+                "id":"gid://shopify/Order/123","name":"#9876","number":9876,"createdAt":"2026-10-01T00:00:00Z",
+                "displayFinancialStatus":"PAID","displayFulfillmentStatus":"UNFULFILLED","tags":[],"email":"buyer@example.test","phone":"+66 081 234 5678",
+                "shippingAddress":{"name":"Buyer Name","address1":"1 Road","address2":null,"city":"Bangkok","provinceCode":"Bangkok","zip":"10100","country":"Thailand","countryCodeV2":"TH","phone":"+66 081 234 5678"},
+                "currentTotalPriceSet":{"shopMoney":{"amount":"205.00","currencyCode":"USD"}},
+                "transactions":[{"id":"gid://shopify/OrderTransaction/1","paymentId":"ch_123","gateway":"stripe","kind":"CAPTURE","status":"SUCCESS","processedAt":"2026-10-01T00:00:00Z","amountSet":{"shopMoney":{"amount":"205.00","currencyCode":"USD"}},"receiptJson":null}],
+                "lineItems":{"nodes":[{"title":"Keychain","variantTitle":"Blue","sku":"ABCKEY001","quantity":2,"originalUnitPriceSet":{"shopMoney":{"amount":"100.00","currencyCode":"USD"}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}},
+                "shippingLines":{"nodes":[{"priceSet":{"shopMoney":{"amount":"5.00","currencyCode":"USD"}}}],"pageInfo":{"hasNextPage":false,"endCursor":null}},
+                "refunds":[]
+            });
+            Json(json!({"data":{"orders":{"nodes":[order],"pageInfo":{"hasNextPage":false,"endCursor":null}}}})).into_response()
+        }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let graphql = format!("{base}/graphql.json");
+    let paypal_url = (scenario == "paypal_error").then_some(base.as_str());
+    let server = TestUpstream(tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    }));
+    let client = client_with_providers(ProviderConfig {
+        shopify_url: Some(&graphql),
+        paypal_url,
+        stripe_url: Some(&base),
+        ..Default::default()
+    })
+    .await;
+    (client, server)
+}
+
 pub async fn client_with_unreachable_shopify() -> TestClient {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let client = client_with_shopify(&format!(
@@ -420,6 +493,8 @@ pub async fn client_with_shopify(url: &str) -> TestClient {
 #[derive(Default)]
 pub struct ProviderConfig<'a> {
     pub shopify_url: Option<&'a str>,
+    pub paypal_url: Option<&'a str>,
+    pub stripe_url: Option<&'a str>,
     pub resend_url: Option<&'a str>,
     pub resend_key: Option<&'a str>,
     pub email_timeout_secs: Option<u64>,
@@ -453,6 +528,14 @@ async fn start_api(config: ProviderConfig<'_>) -> Arc<TestApi> {
     let shopify = shopify_url
         .map(|url| format!("\n[client.shopify]\nadmin_api_url = {url:?}\ntimeout_secs = 3\n"))
         .unwrap_or_default();
+    let stripe = config
+        .stripe_url
+        .map(|url| format!("\n[client.stripe]\nbase_url = {url:?}\ntimeout_secs = 3\nsecret_key = \"e2e-fixture-key\"\n"))
+        .unwrap_or_default();
+    let paypal = config
+        .paypal_url
+        .map(|url| format!("\n[client.paypal]\nbase_url = {url:?}\ntimeout_secs = 3\n"))
+        .unwrap_or_default();
     let resend = config
         .email_timeout_secs
         .map(|secs| format!("\n[client.resend]\ntimeout_secs = {secs}\n"))
@@ -478,6 +561,8 @@ min_connections = 1
 public_origin = "http://127.0.0.1:8084"
 insecure_local = true
 {shopify}
+{stripe}
+{paypal}
 {resend}
 "#
         ),
@@ -512,6 +597,16 @@ insecure_local = true
             .env_remove("PAYPAL_CLIENT_SECRET")
             .env_remove("STRIPE_SECRET_KEY")
             .envs(shopify_url.map(|_| ("SHOPIFY_ACCESS_TOKEN", "e2e-fixture-token")))
+            .envs(
+                config
+                    .paypal_url
+                    .map(|_| ("PAYPAL_CLIENT_ID", "e2e-fixture-id")),
+            )
+            .envs(
+                config
+                    .paypal_url
+                    .map(|_| ("PAYPAL_CLIENT_SECRET", "e2e-fixture-secret")),
+            )
             .stdin(Stdio::null())
             .stdout(Stdio::from(
                 std::fs::File::create(api.directory.join("api.log")).expect("create owned API log"),
