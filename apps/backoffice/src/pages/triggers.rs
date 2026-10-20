@@ -101,7 +101,7 @@ pub fn Triggers() -> Element {
                     }
                 } else {
                     label { r#for: "trigger-order-number", "Order number" }
-                    input { id: "trigger-order-number", r#type: "text", inputmode: "numeric", required: true, minlength: "4", maxlength: "4", pattern: "[0-9]{4}", value: order_number(), disabled: pending(),
+                    input { id: "trigger-order-number", r#type: "text", inputmode: "numeric", required: true, minlength: "4", maxlength: "4", pattern: "[0-9]{{4}}", value: order_number(), disabled: pending(),
                         oninput: move |event| order_number.set(event.value()),
                     }
                 }

@@ -237,7 +237,37 @@ fn FulfillmentTable(
                         }
                     }
                 }
-                DataTable { table }
+                DataTable { table: table.clone(),
+                    tbody {
+                        for (order, row) in orders.iter().zip(&table.rows) {
+                            {
+                                let id = order.order.id;
+                                let number = order.order.number;
+                                rsx! {
+                                    tr { key: "{id}",
+                                        for (header, value) in table.headers.iter().zip(row) {
+                                            td {
+                                                if *header == "tracking_number" {
+                                                    input {
+                                                        aria_label: "Tracking number for order {number}",
+                                                        r#type: "text",
+                                                        value: "{value}",
+                                                        disabled: pending || results.is_some(),
+                                                        oninput: move |event| {
+                                                            tracking_numbers.write().insert(id, event.value());
+                                                        },
+                                                    }
+                                                } else {
+                                                    "{value}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -271,14 +301,18 @@ fn ShippingLabelTables(labels: ShippingLabels) -> Element {
 }
 
 #[component]
-fn DataTable(table: TableData) -> Element {
+fn DataTable(table: TableData, children: Option<Element>) -> Element {
     rsx! {
         div { class: "report-scroll", tabindex: "0", role: "region", aria_label: "Order report table",
             table { class: "admins-table report-table",
                 thead { tr { for header in table.headers { th { "{header}" } } } }
-                tbody {
-                    for row in &table.rows {
-                        tr { for value in row { td { "{value}" } } }
+                if let Some(children) = children {
+                    {children}
+                } else {
+                    tbody {
+                        for row in &table.rows {
+                            tr { for value in row { td { "{value}" } } }
+                        }
                     }
                 }
             }
