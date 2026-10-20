@@ -74,7 +74,7 @@ pub fn Triggers() -> Element {
                             action.reset();
                             reship.reset();
                             let number = order_number();
-                            if !api::orders::valid_order_number(&number) {
+                            if !valid_order_number(&number) {
                                 error.set(Some("Enter a four-digit order number between 1000 and 9999".into()));
                                 return;
                             }
@@ -105,7 +105,7 @@ pub fn Triggers() -> Element {
                         oninput: move |event| order_number.set(event.value()),
                     }
                 }
-                button { id: "run-trigger", class: "primary", r#type: "submit", disabled: pending(), "Run trigger" }
+                button { id: "run-trigger", class: "primary", r#type: "submit", disabled: pending() || (kind() == TriggerKind::ReshipEmail && !valid_order_number(&order_number())), "Run trigger" }
             }
             ErrorMessage { message: failure }
             if kind() == TriggerKind::InventoryEnablement {
@@ -185,6 +185,14 @@ fn use_trigger<T: 'static, Fut: std::future::Future<Output = api::ApiResult<T>> 
         }
     });
     action
+}
+
+fn valid_order_number(order_number: &str) -> bool {
+    order_number.len() == 4
+        && order_number.bytes().all(|byte| byte.is_ascii_digit())
+        && order_number
+            .parse::<u16>()
+            .is_ok_and(|number| (1000..=9999).contains(&number))
 }
 
 fn reship_result_title(result: &domain::dto::orders::ReshipOrderResponse) -> &'static str {

@@ -66,24 +66,10 @@ fn fulfill_request(
 }
 
 fn reship_request(order_number: &str) -> ApiResult<RequestBuilder> {
-    if !valid_order_number(order_number) {
-        return Err(ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "Enter a four-digit order number between 1000 and 9999",
-        ));
-    }
     super::request(
         Method::POST,
         &format!("/admin/orders/{order_number}/reship"),
     )
-}
-
-pub(crate) fn valid_order_number(order_number: &str) -> bool {
-    order_number.len() == 4
-        && order_number.bytes().all(|byte| byte.is_ascii_digit())
-        && order_number
-            .parse::<u16>()
-            .is_ok_and(|number| (1000..=9999).contains(&number))
 }
 
 #[cfg(test)]

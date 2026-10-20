@@ -208,3 +208,146 @@ fn same_owner_refresh_preserves_pending_and_completed_work_without_replay() {
     });
     assert_eq!(harness.calls.get(), 1);
 }
+
+struct FormEventConverter;
+
+struct TestFormValue(String);
+impl dioxus::html::HasFileData for TestFormValue {
+    fn files(&self) -> Vec<dioxus::html::FileData> {
+        vec![]
+    }
+}
+impl dioxus::html::HasFormData for TestFormValue {
+    fn value(&self) -> String {
+        self.0.clone()
+    }
+    fn valid(&self) -> bool {
+        true
+    }
+    fn values(&self) -> Vec<(String, dioxus::html::FormValue)> {
+        vec![]
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+macro_rules! form_event_converter {
+    (enum Event { $(#[convert = $converter:ident] #[events = [$($(#[$attr:meta])* $name:ident => $raw:ident,)*]] $(#[raw = [$($raw_only:ident),* $(,)?]])? $group:ident($data:ident),)* }) => {
+        impl dioxus::html::HtmlEventConverter for FormEventConverter {
+            $(fn $converter(&self, _event: &dioxus::html::PlatformEventData) -> dioxus::html::$data {
+                form_event_converter!(@data $data, _event)
+            })*
+        }
+    };
+    (@data FormData, $event:ident) => { dioxus::html::FormData::new(TestFormValue($event.downcast::<String>().expect("form value").clone())) };
+    (@data $other:ident, $event:ident) => { panic!("unexpected non-form event: {}", stringify!($other)) };
+}
+dioxus::html::with_html_event_groups!(form_event_converter);
+
+fn triggers_page() -> Element {
+    let pending = use_signal(|| false);
+    use_context_provider(|| LoadingState(pending));
+    rsx! { Triggers {} }
+}
+
+#[test]
+fn reship_run_button_tracks_input_validity_and_inventory_stays_enabled() {
+    use dioxus::dioxus_core::{AttributeValue, ElementId, Mutation, Mutations};
+    fn listener(mutations: &Mutations, name: &str) -> ElementId {
+        mutations
+            .edits
+            .iter()
+            .find_map(|edit| match edit {
+                Mutation::NewEventListener { name: event, id } if event == name => Some(*id),
+                _ => None,
+            })
+            .expect("rendered event listener")
+    }
+    fn button_state(mutations: &Mutations, button: ElementId) -> Option<bool> {
+        mutations
+            .edits
+            .iter()
+            .filter_map(|edit| match edit {
+                Mutation::SetAttribute {
+                    name: "disabled",
+                    value: AttributeValue::Bool(value),
+                    id,
+                    ..
+                } if button == *id => Some(*value),
+                _ => None,
+            })
+            .next_back()
+    }
+    fn form_event(dom: &VirtualDom, name: &str, id: ElementId, value: &str) {
+        use dioxus::html::PlatformEventData;
+        let data = PlatformEventData::new(Box::new(value.to_owned()));
+        dom.runtime().handle_event(
+            name,
+            Event::new(Rc::new(data) as Rc<dyn std::any::Any>, true),
+            id,
+        );
+    }
+    dioxus::html::set_event_converter(Box::new(FormEventConverter));
+    let mut dom = VirtualDom::new(triggers_page);
+    let initial = dom.rebuild_to_vec();
+    let select = listener(&initial, "change");
+    let submit = listener(&initial, "submit");
+    let initial_input = listener(&initial, "input");
+    let button = initial
+        .edits
+        .iter()
+        .find_map(|edit| match edit {
+            Mutation::SetAttribute {
+                name: "disabled",
+                id,
+                ..
+            } if *id != select && *id != initial_input => Some(*id),
+            _ => None,
+        })
+        .expect("Run trigger button");
+    assert_eq!(
+        button_state(&initial, button),
+        Some(false),
+        "inventory behavior stays enabled"
+    );
+    form_event(&dom, "change", select, "reship-email");
+    let changed = dom.render_immediate_to_vec();
+    assert_eq!(
+        button_state(&changed, button),
+        Some(true),
+        "empty reship input disables Run trigger"
+    );
+    let input = listener(&changed, "input");
+    form_event(&dom, "input", input, "1234");
+    let changed = dom.render_immediate_to_vec();
+    assert_eq!(button_state(&changed, button), Some(false));
+    form_event(&dom, "input", input, "999");
+    let changed = dom.render_immediate_to_vec();
+    assert_eq!(button_state(&changed, button), Some(true));
+    form_event(&dom, "submit", submit, "");
+    let changed = dom.render_immediate_to_vec();
+    assert!(changed.edits.iter().any(|edit| matches!(edit, Mutation::CreateTextNode { value, .. } if value.contains("four-digit"))), "invalid direct submit renders validation feedback");
+    form_event(&dom, "change", select, "inventory-enablement");
+    let changed = dom.render_immediate_to_vec();
+    assert_eq!(button_state(&changed, button), Some(false));
+}
+
+#[test]
+fn reship_input_eligibility_matches_four_digit_order_numbers() {
+    for number in [
+        "",
+        "999",
+        "10000",
+        "0000",
+        "0999",
+        "abcd",
+        "12/3",
+        "１２３４",
+        "1234 ",
+    ] {
+        assert!(!valid_order_number(number), "{number:?}");
+    }
+    for number in ["1000", "1234", "9999"] {
+        assert!(valid_order_number(number), "{number:?}");
+    }
+}

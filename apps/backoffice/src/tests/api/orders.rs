@@ -67,12 +67,18 @@ fn action_requests_use_the_existing_admin_order_paths() {
 }
 
 #[test]
-fn reship_request_rejects_order_numbers_outside_the_backend_contract() {
-    for number in ["", "999", "10000", "abcd", "12/3"] {
-        let error = configured(|| reship_request(number).expect_err("invalid order number"));
-        assert_eq!(error.status, 400, "{number:?}");
-    }
-    for number in ["1000", "1234", "9999"] {
-        assert!(valid_order_number(number), "{number:?}");
+fn reship_request_leaves_order_number_validation_to_the_backend() {
+    for number in ["999", "10000", "1000", "1234", "9999"] {
+        let request = configured(|| {
+            reship_request(number)
+                .expect("forwarded request")
+                .build()
+                .expect("built request")
+        });
+        assert_eq!(
+            request.url().path(),
+            format!("/v1/admin/orders/{number}/reship")
+        );
+        assert_eq!(request.method(), reqwest::Method::POST);
     }
 }
