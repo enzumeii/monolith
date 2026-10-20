@@ -2,7 +2,29 @@
 
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
 
-## Checks
+## ENZ-26 — 2026-10-20
+
+| Local evidence | Result |
+| --- | --- |
+| CI tooling | Root just check passed: actionlint, shellcheck, Bash syntax, 46 Node policy/release/report/helper tests |
+| Rust checks | Workspace formatting and all four module check recipes passed, including backoffice native/WASM lint and domain WASM compilation |
+| API coverage command | 200 native tests + 97 TCP endpoint tests + 2 controlled teardown tests passed; isolated Compose enz26 on port15433 removed with volumes |
+| Backoffice coverage command | 53 native tests and 9 shared-domain tests passed; uninstrumented domain WASM compilation passed |
+| Domain coverage command | 1 native unit and 8 contract tests passed |
+| Client UI coverage command | Builds successfully; no tests currently exist |
+| API LCOV | 53 production files; 3220/3323 executable lines hit; production main.rs has nonzero hits from real TCP child execution |
+| Backoffice LCOV | 34 production files; 734/1501 executable lines hit |
+| Domain LCOV | 2 production files; 7/12 executable lines hit |
+| Client UI LCOV | 1 production file; 0/3 executable lines hit |
+| Report validation | All four use repository-relative owning-crate production paths; test/dependency sources excluded; failed runs remove their stale report |
+| Manual command checks | Valid publication title accepted; invalid coverage option rejected with exit2 before tests; each final module coverage command completed |
+| Independent review | One release-token finding fixed with trusted-main pull_request_target closed trigger; workflow checks and script suite passed afterward |
+| Release scope | Controlled GitHub API fixtures cover dry run, bumps, retry/checkpoint, target conflicts, and partial failure; no live release was created |
+| Hosted evidence | Confirm published head, CI and Codecov uploads separately in PR checks; this table records local evidence only |
+
+Native line coverage excludes browser/WASM runtime and doctests. The shared default local E2E database had an incompatible migration history from concurrent work; verification used the existing Compose service under an independent project/port without changing migrations or resetting shared data.
+
+## Earlier recorded checks
 
 | Evidence | Result |
 | --- | --- |
