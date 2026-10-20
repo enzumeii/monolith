@@ -449,7 +449,7 @@ async fn test_api() -> Arc<TestApi> {
     if let Some(api) = shared.upgrade() {
         return api;
     }
-    let api = start_api(ProviderConfig::default(), false).await;
+    let api = start_api(ProviderConfig::default(), None).await;
     *shared = Arc::downgrade(&api);
     api
 }
@@ -462,7 +462,7 @@ pub async fn client_with_shopify(url: &str) -> TestClient {
                 shopify_url: Some(url),
                 ..Default::default()
             },
-            false,
+            None,
         )
         .await,
     }
@@ -484,20 +484,25 @@ pub async fn client_with_providers(config: ProviderConfig<'_>) -> TestClient {
             .timeout(Duration::from_secs(45))
             .build()
             .unwrap(),
-        api: start_api(config, false).await,
+        api: start_api(config, None).await,
     }
 }
 
-pub async fn client_with_scheduler(config: ProviderConfig<'_>) -> TestClient {
+pub async fn client_with_scheduler(
+    config: ProviderConfig<'_>,
+    retry_backoff_secs: u64,
+) -> TestClient {
     TestClient {
         http: reqwest::Client::new(),
-        api: start_api(config, true).await,
+        api: start_api(config, Some(retry_backoff_secs)).await,
     }
 }
 
-async fn start_api(config: ProviderConfig<'_>, scheduler: bool) -> Arc<TestApi> {
+async fn start_api(config: ProviderConfig<'_>, scheduler_backoff: Option<u64>) -> Arc<TestApi> {
     let shopify_url = config.shopify_url;
-    let poll_interval = if scheduler { 1 } else { 3600 };
+    let poll_interval = if scheduler_backoff.is_some() { 1 } else { 3600 };
+    let scheduler_enabled = scheduler_backoff.is_some();
+    let retry_backoff_secs = scheduler_backoff.unwrap_or(1);
     let port = if shopify_url.is_some()
         || config.resend_url.is_some()
         || std::env::var("E2E_API_PORT").is_err()
@@ -545,10 +550,11 @@ port = {port}
 max_connections = 1
 min_connections = 1
 [scheduler]
+enabled = {scheduler_enabled}
 poll_interval_secs = {poll_interval}
 concurrency = 1
 max_generation_attempts = 2
-retry_backoff_secs = 1
+retry_backoff_secs = {retry_backoff_secs}
 lease_secs = 5
 max_payload_bytes = 20971520
 max_email_bytes = 20971520

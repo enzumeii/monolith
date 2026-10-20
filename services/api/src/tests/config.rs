@@ -2,6 +2,27 @@
 use super::*;
 
 #[test]
+fn scheduler_defaults_on_and_can_be_disabled_in_toml() {
+    let default: SchedulerConfig = config::Config::builder()
+        .add_source(config::File::from_str("", config::FileFormat::Toml))
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert!(default.enabled);
+    let disabled: SchedulerConfig = config::Config::builder()
+        .add_source(config::File::from_str(
+            "enabled = false",
+            config::FileFormat::Toml,
+        ))
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert!(!disabled.enabled);
+}
+
+#[test]
 fn new_applies_database_url_and_jwt_secret_overrides() {
     let settings = temp_env::with_vars(
         [

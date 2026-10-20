@@ -114,6 +114,7 @@ impl Default for ReportsConfig {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(default)]
 pub struct SchedulerConfig {
+    pub enabled: bool,
     pub poll_interval_secs: u64,
     pub concurrency: usize,
     pub max_generation_attempts: u32,
@@ -126,6 +127,7 @@ pub struct SchedulerConfig {
 impl Default for SchedulerConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             poll_interval_secs: 10,
             concurrency: 2,
             max_generation_attempts: 5,

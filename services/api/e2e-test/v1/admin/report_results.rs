@@ -20,13 +20,16 @@ async fn accepted_email_is_not_repeated_when_file_publication_retries() {
     )
     .await;
     let mail = ReportMail::start("block-storage").await;
-    let client = crate::common::client_with_scheduler(crate::common::ProviderConfig {
-        shopify_url: Some(&url),
-        resend_url: Some(&mail.url),
-        resend_key: Some("re_e2e-fixture"),
-        email_timeout_secs: Some(10),
-        ..Default::default()
-    })
+    let client = crate::common::client_with_scheduler(
+        crate::common::ProviderConfig {
+            shopify_url: Some(&url),
+            resend_url: Some(&mail.url),
+            resend_key: Some("re_e2e-fixture"),
+            email_timeout_secs: Some(10),
+            ..Default::default()
+        },
+        60,
+    )
     .await;
     *mail.storage.lock().unwrap() = Some(client.reports_directory());
     let configuration = queue_inventory(&fixture, &client, "CSV").await;
@@ -51,7 +54,24 @@ async fn accepted_email_is_not_repeated_when_file_publication_retries() {
     }
     assert!(failed);
     assert_eq!(mail.requests.lock().unwrap().len(), 1);
+    let attempts: i32 =
+        sqlx::query_scalar("SELECT publication_attempts FROM cron_jobs WHERE id=$1")
+            .bind(id)
+            .fetch_one(&fixture.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        attempts, 1,
+        "fixture must retain its second publication attempt"
+    );
     std::fs::remove_file(client.reports_directory().join(id.to_string())).unwrap();
+    sqlx::query(
+        "UPDATE cron_jobs SET next_attempt_at=(CURRENT_TIMESTAMP AT TIME ZONE 'UTC') WHERE id=$1",
+    )
+    .bind(id)
+    .execute(&fixture.pool())
+    .await
+    .unwrap();
     let mut published = None;
     for _ in 0..100 {
         let body = body_json(
@@ -69,7 +89,8 @@ async fn accepted_email_is_not_repeated_when_file_publication_retries() {
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
-    let published = published.unwrap();
+    let published =
+        published.unwrap_or_else(|| panic!("publication retry did not finish: {}", client.logs()));
     let download = get(
         &client,
         published["files"][0]["download_url"].as_str().unwrap(),
@@ -127,13 +148,16 @@ async fn failed_email_is_eagerly_audited_and_reuses_the_generated_files() {
     )
     .await;
     let mail = ReportMail::start("reject").await;
-    let client = crate::common::client_with_scheduler(crate::common::ProviderConfig {
-        shopify_url: Some(&url),
-        resend_url: Some(&mail.url),
-        resend_key: Some("re_e2e-fixture"),
-        email_timeout_secs: Some(10),
-        ..Default::default()
-    })
+    let client = crate::common::client_with_scheduler(
+        crate::common::ProviderConfig {
+            shopify_url: Some(&url),
+            resend_url: Some(&mail.url),
+            resend_key: Some("re_e2e-fixture"),
+            email_timeout_secs: Some(10),
+            ..Default::default()
+        },
+        1,
+    )
     .await;
     let configuration = queue_inventory(&fixture, &client, "CSV").await;
     let audit = wait_audit(&fixture, configuration, "FAILED").await;
@@ -184,13 +208,16 @@ async fn xlsx_attachments_are_saved_unchanged_and_active_email_leases_are_renewe
     )
     .await;
     let mail = ReportMail::start("slow").await;
-    let client = crate::common::client_with_scheduler(crate::common::ProviderConfig {
-        shopify_url: Some(&url),
-        resend_url: Some(&mail.url),
-        resend_key: Some("re_e2e-fixture"),
-        email_timeout_secs: Some(10),
-        ..Default::default()
-    })
+    let client = crate::common::client_with_scheduler(
+        crate::common::ProviderConfig {
+            shopify_url: Some(&url),
+            resend_url: Some(&mail.url),
+            resend_key: Some("re_e2e-fixture"),
+            email_timeout_secs: Some(10),
+            ..Default::default()
+        },
+        1,
+    )
     .await;
     let configuration = queue_inventory(&fixture, &client, "XLSX").await;
     let mut before = None;
@@ -683,7 +710,7 @@ async fn scheduler_dispatches_due_inventory_and_persists_provider_failure() {
     )
     .await;
     let client =
-        crate::common::client_with_scheduler(crate::common::ProviderConfig::default()).await;
+        crate::common::client_with_scheduler(crate::common::ProviderConfig::default(), 1).await;
     let name = format!("{}-worker", fixture.prefix());
     let created = client
         .send(authed_json(
