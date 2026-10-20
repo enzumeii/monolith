@@ -55,7 +55,7 @@ async fn retrieves_balance_transactions_charges_and_refunds_without_money_conver
         .await
         .unwrap();
     assert_eq!(p.data[0].amount, -500);
-    assert_eq!(p.data[0].r#type, "future_type");
+    assert_eq!(p.data[0].r#type.as_str(), "future_type");
     assert!(p.data[0].source.is_none());
     assert_eq!(c.get_charge("ch_one").await.unwrap().amount_captured, 500);
     assert_eq!(c.get_refund("re_one").await.unwrap().created, 4);

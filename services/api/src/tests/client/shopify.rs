@@ -33,7 +33,7 @@ fn order(n: u64) -> Value {
     json!({"id":format!("gid://shopify/Order/{n}"),"name":"#1","number":1,"createdAt":"2026-10-01T00:00:00+07:00",
         "displayFinancialStatus":"PENDING","displayFulfillmentStatus":"UNFULFILLED","tags":[],
         "email":null,"phone":null,"shippingAddress":null,
-        "currentTotalPriceSet":{"shopMoney":money()},"transactions":[]})
+        "currentTotalPriceSet":{"shopMoney":money()},"transactions":[], "lineItems":page(vec![],None), "shippingLines":page(vec![],None), "refunds":[]})
 }
 fn line(n: u64) -> Value {
     json!({"id":format!("line-{n}"),"title":"Shirt","variantTitle":null,"sku":null,"quantity":3,"currentQuantity":1,

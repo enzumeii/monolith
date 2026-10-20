@@ -76,3 +76,45 @@ async fn client_accessor_reuses_state_and_preserves_initialization_errors() {
     }
     assert_eq!(f.requests().len(), 0);
 }
+
+#[tokio::test]
+async fn optional_provider_accessors_reuse_clients_and_retain_errors() {
+    use crate::client::{ClientError, ClientErrorKind, paypal::PaypalClient, stripe::StripeClient};
+    use std::{error::Error, sync::Arc};
+    let f = Fixture::new(vec![]).await;
+    let mut state = state(&f);
+    assert!(super::stripe_client(&state).unwrap().is_none());
+    assert!(super::paypal_client(&state).unwrap().is_none());
+    let stripe_config = serde_json::from_value(
+        json!({"base_url": f.url.as_str(), "secret_key":"fixture", "timeout_secs":3}),
+    )
+    .unwrap();
+    let paypal_config = serde_json::from_value(json!({"base_url": f.url.as_str(), "client_id":"fixture", "client_secret":"fixture", "timeout_secs":3})).unwrap();
+    state.stripe = Ok(Some(Arc::new(StripeClient::new(&stripe_config).unwrap())));
+    state.paypal = Ok(Some(Arc::new(PaypalClient::new(&paypal_config).unwrap())));
+    assert!(std::ptr::eq(
+        super::stripe_client(&state).unwrap().unwrap(),
+        super::stripe_client(&state).unwrap().unwrap()
+    ));
+    assert!(std::ptr::eq(
+        super::paypal_client(&state).unwrap().unwrap(),
+        super::paypal_client(&state).unwrap().unwrap()
+    ));
+    state.stripe = Err(Arc::new(ClientError::new(ClientErrorKind::InvalidInput(
+        "private initialization",
+    ))));
+    state.paypal = Err(Arc::new(ClientError::new(ClientErrorKind::InvalidInput(
+        "private initialization",
+    ))));
+    for error in [
+        super::stripe_client(&state).err().unwrap(),
+        super::paypal_client(&state).err().unwrap(),
+    ] {
+        assert!(error.source().is_some());
+        assert_eq!(
+            axum::response::IntoResponse::into_response(error).status(),
+            503
+        );
+    }
+    assert_eq!(f.requests().len(), 0);
+}

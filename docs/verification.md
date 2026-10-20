@@ -16,13 +16,13 @@ Results describe this revision's exercised scope, separately from [architecture]
 | Backoffice LCOV | 34 production files; 734/1501 executable lines hit |
 | Domain LCOV | 2 production files; 7/12 executable lines hit |
 | Client UI LCOV | 1 production file; 0/3 executable lines hit |
-| Report validation | All four use repository-relative owning-crate production paths; test/dependency sources excluded; failed runs remove their stale report |
+| Report validation | Full four-module sequence with shared target passed at 45f2d1d; all four reports survived later cleans and retained owning-crate production paths; failed runs remove stale reports |
 | Manual command checks | Valid publication title accepted; invalid coverage option rejected with exit2 before tests; each final module coverage command completed |
 | Independent review | Release-token finding fixed with trusted-main trigger; follow-up parser separator/breaking-marker findings reproduced with failing tests then corrected; final 60-test suite passed |
 | Release scope | Controlled GitHub API fixtures cover Conventional Commits type/breaking-footer rules, no-bump types, dry run, retry/checkpoint, target conflicts and partial failure; no live release was created |
 | Hosted evidence | Confirm published head, CI and Codecov uploads separately in PR checks; this table records local evidence only |
 
-Native line coverage excludes browser/WASM runtime and doctests. The shared default local E2E database had an incompatible migration history from concurrent work; verification used the existing Compose service under an independent project/port without changing migrations or resetting shared data.
+The local coverage counts above use pre-accounting-merge source. The branch subsequently incorporated the remote accounting merge; its full suite and coverage are verified by exact-head hosted CI separately. Native line coverage excludes browser/WASM runtime and doctests. The shared default local E2E database had an incompatible migration history from concurrent work; verification used the existing Compose service under an independent project/port without changing migrations or resetting shared data.
 
 ## Earlier recorded checks
 
@@ -227,3 +227,41 @@ Earlier sections record historical behavior and test runs; this section supersed
 | Review | Independent static review found no remaining actionable issues |
 
 Endpoint tests use controlled Shopify/Resend servers and real PostgreSQL connections. The new contact/country projection and tag transitions were verified with controlled providers; no live mutations ran. Postman CLI GraphQL execution requires login and was not completed; its request passed lint/parity checks and the application query ran through the TCP tests. Published-head CI is confirmed separately after push.
+
+## ENZ-12 accounting review remediation (2026-10-20)
+
+| Check | Evidence |
+| --- | --- |
+| API | Strict API formatting/lint passed; 215 native tests and 105 real TCP E2E test functions passed with zero failures/ignored tests. Accounting test functions include operation-by-operation fault matrices. Compose PostgreSQL teardown and volume removal completed |
+| Stripe settlement | THB balance amounts/fees are used once; USD100 settled as THB3600 remains THB3600. Refund signs, native-THB/null-rate behavior, unsupported settlement/fee currencies and missing conversion rates are covered |
+| PayPal | At-most31-day lookback windows, independent page traversal, duplicate overlap removal, distinct same-ID events, withdrawal-rate context and inclusive payout instants across offsets/year boundaries are covered |
+| Shopify matching | Refund transaction/shipping connections and originalPriceSet shipping alias match the documented schema. Created/updated discovery exhausts root pages, deduplicates order IDs and matches legacy receipt references, including the literal Stripe Card Payments gateway. A failing refund-reference regression was corrected; sale/refund TCP fixtures preserve the complete opaque PaymentSession reference. Sale/refund shipping/items, partial allocation, unmatched rows, ambiguous references and incomplete connections are covered |
+| Dependency faults | Real application/client sockets exercise Stripe payout/balance/charge/refund, PayPal OAuth/reporting and Shopify first/later discovery operations. Controlled HTTP rejection, malformed/missing/invalid bodies, disconnect/refusal, timeout, exhausted throttling and GraphQL error/partial-data scenarios assert safe errors and exact call prefixes/counts |
+| Contracts | Workspace formatting, whitespace checks and exact application/Postman GraphQL plus variable parity passed. Postman lint scanned40 requests with zero errors/warnings. Shared DTO/route shape is unchanged |
+| Limits | Controlled provider servers and the existing Docker database were used; no live provider call, production deployment or merge. Live store scopes, requested query cost and gateway-specific receipt stability remain unverified. Requested nested connections retain the documented bounded workload and fail safely when incomplete; discovery has no upstream snapshot isolation |
+
+
+## ENZ-12 native-currency report follow-up (2026-10-20)
+
+| Check | Evidence |
+| --- | --- |
+| PayPal sample | Synthetic fixture preserves AUD53.08 gross, AUD50.26 net, AUD2.82 charged fee and AUD10.08 shipping included in gross. Currency is explicit; exchange_rate and bank po_date are null. No transaction-to-bank FX or payout association is inferred |
+| Date contract | Raw+ and encoded+ offsets pass the same RFC3339 validation and yield identical populated reports/provider requests. PayPal filters inclusive transaction instants without FX lookback; Stripe retains inclusive payout bounds |
+| Wire/order contract | transactions has stripe/paypal arrays, including empty providers. Transactions are stably sorted ascending by payout then transaction instant, null payouts last; accounting items are stably sorted by transaction instant. Different timezone offsets are compared as instants |
+| Monetary cases | Signed charged/returned fees, zero/missing shipping, signed refund shipping, provider shipping precedence, compatible Shopify fallback, mixed-currency rejection and supported currency precision are covered. Unknown PayPal shipping is null; provider-fee VAT is not inferred from merchant tax |
+| Pagination/errors | Existing controlled-provider TCP fault matrices retained. A reportable payment repeated at the shared boundary of two31-day windows is emitted once with unchanged gross/net/shipping; pages reset and exhaust per window |
+| Verification | 222 native API tests and109 real TCP E2E test functions passed, zero failures/ignored; Compose teardown completed. Strict API check, domain3 tests, Postman40 requests with zero errors/warnings, workspace formatting, whitespace and GraphQL/Postman parity passed |
+| Limits | Controlled providers and real Compose PostgreSQL connections, no live-account request or mutation. The supplied payment fields are reproduced using synthetic identifiers without personal data. An all-THB PayPal report and actual bank payout reconciliation require additional authoritative data; consumers must respect per-row currencies. The actual erroneous client response was not supplied, so the separate gross/net mismatch was not independently reproduced |
+
+## ENZ-12 protocol and helper review follow-up (2026-10-20)
+
+| Check | Evidence |
+| --- | --- |
+| API regression | Final native API run:245 passed, zero failed/ignored. Existing full recipe:109 real-TCP E2E cases passed against controlled providers and the owned Compose PostgreSQL instance; teardown removed its container/network/volume. Two final pagination tests were also included in the final native run |
+| Shared behavior | Optional provider accessors reuse AppState clients and retain initialization errors. Date/number utilities preserve parsing, units and fallback behavior. Shared numbered and ID-cursor drivers retain page ordering, metadata/progress guards and stop-on-error behavior; nine pagination tests pass |
+| Provider enums | Exact known wire round trips, unknown PayPal event/currency identities, supported native precision, descriptions/refunds, fee/shipping compatibility and unknown Stripe kind/fee handling are covered. Unknown values do not acquire fabricated precision or FX |
+| Shopify reuse | Accounting and shipping share SKU classification and ASCII phone extraction while retaining feature-owned labels/priorities, numeric/string phone policies, address formatting and romanization. Character-based SKU extraction handles non-ASCII prefixes. Named sale-allocation fields preserve existing rules |
+| Checks | Strict API lint/formatting, workspace Rust formatting and whitespace checks pass. Domain tests:8 passed; domain WASM compiles. The separate domain strict-lint recipe reports9 existing test-fixture violations in unchanged crates/domain/src/tests/dto/accounting.rs (literal formatting and unwrap usage); these are outside this refactor |
+| Postman | Committed snapshot:40 requests scanned with zero errors/warnings. The user's local transaction-request edits and generated folder metadata were preserved byte-for-byte and excluded from staging |
+| Repository guidance | monolith-protocol-enums passes skill structural validation. Independent baseline and guided scenarios both preserve unknown identities/error policy and keep customer memo free text; the strict-status negative control remains rejecting. Baseline was already correct, so no behavioral improvement is claimed |
+| Review and limits | Independent scoped review found no actionable findings. No live provider requests, production deployment or merge. Exact pushed-head CI and native thread replies are confirmed separately after publication |

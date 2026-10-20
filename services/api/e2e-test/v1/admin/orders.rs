@@ -1285,6 +1285,8 @@ fn reship_request() -> axum::http::Request<axum::body::Body> {
 async fn reship_client(shopify_url: &str, mail: &ReshipMailServer) -> crate::common::TestClient {
     crate::common::client_with_providers(crate::common::ProviderConfig {
         shopify_url: Some(shopify_url),
+        paypal_url: None,
+        stripe_url: None,
         resend_url: Some(&mail.url),
         resend_key: Some("re_e2e-fixture"),
         email_timeout_secs: Some(1),
@@ -1553,6 +1555,8 @@ async fn reship_optional_clients_and_settings_fail_before_lookup() {
     ] {
         let client = crate::common::client_with_providers(crate::common::ProviderConfig {
             shopify_url: shopify,
+            paypal_url: None,
+            stripe_url: None,
             resend_url: Some(&mail.url),
             resend_key: key,
             email_timeout_secs: timeout,
@@ -1789,6 +1793,8 @@ async fn reship_connection_refusal_and_disconnect_map_at_each_dependency_stage()
         let fault = OrderFaultServer::start(false, disconnect).await;
         let client = crate::common::client_with_providers(crate::common::ProviderConfig {
             shopify_url: Some(&url),
+            paypal_url: None,
+            stripe_url: None,
             resend_url: Some(&fault.url),
             resend_key: Some("re_e2e-fixture"),
             email_timeout_secs: Some(1),
