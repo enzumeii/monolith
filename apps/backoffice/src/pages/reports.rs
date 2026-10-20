@@ -1,15 +1,20 @@
 mod csv;
-mod data;
+pub(crate) mod data;
 mod export;
 mod save;
 mod table;
 
 use crate::{api, components::ErrorMessage, session};
-use data::{CursorHistory, collect_inventory};
+use data::{CursorHistory, PageData, collect_pages};
 use dioxus::prelude::*;
 use domain::dto::{InventoryQuery, PageInfo, ProductReportRow};
 use save::SaveReport;
-use table::{ReportSkeleton, ReportTable};
+use table::ReportTable;
+
+pub(crate) use csv::encode_table;
+pub(crate) use export::{ExportFormat, encode_table_xlsx};
+pub(crate) use save::download;
+pub(crate) use table::ReportSkeleton;
 
 #[derive(Clone, Copy, PartialEq)]
 enum ReportKind {
@@ -181,14 +186,20 @@ async fn generate(request: ReportRequest) -> api::ApiResult<ReportData> {
                     page_info: Some(response.page_info),
                 })
             } else {
-                let products = collect_inventory(|cursor| {
-                    api::reports::get_inventory_report(
-                        &request.parameter,
-                        InventoryQuery {
-                            page_size: Some(250),
-                            cursor,
-                        },
-                    )
+                let inventory_id = request.parameter.clone();
+                let products = collect_pages(move |cursor| {
+                    let inventory_id = inventory_id.clone();
+                    async move {
+                        let response = api::reports::get_inventory_report(
+                            &inventory_id,
+                            InventoryQuery {
+                                page_size: Some(250),
+                                cursor,
+                            },
+                        )
+                        .await?;
+                        Ok(PageData::new(response.products, response.page_info))
+                    }
                 })
                 .await?;
                 Ok(ReportData {

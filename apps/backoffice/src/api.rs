@@ -1,6 +1,7 @@
 pub mod admins;
 pub mod auth;
 pub mod inventories;
+pub mod orders;
 pub mod reports;
 pub use admins::{create_admin, delete_admin, list_admins, update_admin};
 pub use auth::{login, logout, refresh_session};
@@ -10,7 +11,7 @@ use reqwest::{Method, RequestBuilder, Response, StatusCode};
 use serde::de::DeserializeOwned;
 
 pub type ApiResult<T> = Result<T, ApiError>;
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ApiError {
     pub status: u16,
     message: String,

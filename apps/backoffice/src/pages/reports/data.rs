@@ -1,22 +1,33 @@
 use crate::api::{ApiError, ApiResult};
-use domain::dto::{InventoryResponse, PageInfo, ProductReportRow};
+use domain::dto::PageInfo;
 use std::{collections::HashSet, future::Future};
 
-pub async fn collect_inventory<F, Fut>(mut fetch: F) -> ApiResult<Vec<ProductReportRow>>
+pub struct PageData<T> {
+    pub items: Vec<T>,
+    pub info: PageInfo,
+}
+
+impl<T> PageData<T> {
+    pub fn new(items: Vec<T>, info: PageInfo) -> Self {
+        Self { items, info }
+    }
+}
+
+pub async fn collect_pages<T, F, Fut>(mut fetch: F) -> ApiResult<Vec<T>>
 where
     F: FnMut(Option<String>) -> Fut,
-    Fut: Future<Output = ApiResult<InventoryResponse>>,
+    Fut: Future<Output = ApiResult<PageData<T>>>,
 {
     let mut rows = Vec::new();
     let mut cursor = None;
     let mut seen = HashSet::new();
     loop {
         let page = fetch(cursor.clone()).await?;
-        rows.extend(page.products);
-        if !page.page_info.has_next_page {
+        rows.extend(page.items);
+        if !page.info.has_next_page {
             return Ok(rows);
         }
-        let next = continuation(&page.page_info)?;
+        let next = continuation(&page.info)?;
         if !seen.insert(next.clone()) {
             return Err(incomplete());
         }
