@@ -389,3 +389,197 @@ async fn unmounting_pending_fulfillment_must_release_parent_overlay() {
         "parent loading overlay remains true after the Orders scope cancels its pending action"
     );
 }
+
+pub(super) fn best_label() -> domain::dto::orders::BestLabel {
+    domain::dto::orders::BestLabel {
+        name: "ผู้รับ Best".into(),
+        phone: "00123".into(),
+        zip_code: "00100".into(),
+        address: "Best address".into(),
+        category: "Goods".into(),
+        cod_amount: "12.50".into(),
+        insured_amount: 15,
+        waybill_number: "WB001".into(),
+        note: "=1+1".into(),
+        parcel_id: "00042".into(),
+        weight: 321,
+    }
+}
+pub(super) fn teleport_label() -> domain::dto::orders::TeleportLabel {
+    domain::dto::orders::TeleportLabel {
+        name: "ผู้รับ Teleport".into(),
+        email: "buyer@example.test".into(),
+        phone: "00456".into(),
+        address: "Teleport address".into(),
+        state: "Bangkok".into(),
+        city: "City".into(),
+        postal_code: "00101".into(),
+        weight: "0.321".parse().expect("weight"),
+        is_multi_piece: "Multi Piece Shippment".into(),
+        quantity: 3,
+        commodity_value: "12.50".parse().expect("value"),
+        package: "Polymailer".into(),
+        length: 13,
+        width: 15,
+        height: 4,
+        commodity: "Goods".into(),
+        commodity_description: "=SUM(1)".into(),
+        commodity_currency: "THB".into(),
+        delivery_instructions: "Call first".into(),
+        tracking_number: "000123".into(),
+        reference: "ref-42".into(),
+        destination_geo: "13.75,100.5".into(),
+    }
+}
+
+#[derive(Default)]
+struct LabelRender {
+    text: Vec<String>,
+    attributes: Vec<(String, String)>,
+}
+impl LabelRender {
+    fn node(&mut self, node: &dioxus::dioxus_core::TemplateNode) {
+        use dioxus::dioxus_core::{TemplateAttribute, TemplateNode};
+        match node {
+            TemplateNode::Element {
+                attrs, children, ..
+            } => {
+                for attr in *attrs {
+                    if let TemplateAttribute::Static { name, value, .. } = attr {
+                        self.attributes.push(((*name).into(), (*value).into()));
+                    }
+                }
+                for child in *children {
+                    self.node(child);
+                }
+            }
+            TemplateNode::Text { text } => self.text.push((*text).into()),
+            TemplateNode::Dynamic { .. } => {}
+        }
+    }
+}
+
+use dioxus::dioxus_core::{AttributeValue, ElementId, Template};
+impl dioxus::dioxus_core::WriteMutations for LabelRender {
+    fn append_children(&mut self, _: ElementId, _: usize) {}
+
+    fn assign_node_id(&mut self, _: &'static [u8], _: ElementId) {}
+
+    fn create_placeholder(&mut self, _: ElementId) {}
+
+    fn create_text_node(&mut self, value: &str, _: ElementId) {
+        self.text.push(value.into());
+    }
+
+    fn load_template(&mut self, template: Template, index: usize, _: ElementId) {
+        self.node(&template.roots[index]);
+    }
+
+    fn replace_node_with(&mut self, _: ElementId, _: usize) {}
+
+    fn replace_placeholder_with_nodes(&mut self, _: &'static [u8], _: usize) {}
+
+    fn insert_nodes_after(&mut self, _: ElementId, _: usize) {}
+
+    fn insert_nodes_before(&mut self, _: ElementId, _: usize) {}
+
+    fn set_attribute(
+        &mut self,
+        name: &'static str,
+        _: Option<&'static str>,
+        value: &AttributeValue,
+        _: ElementId,
+    ) {
+        if let AttributeValue::Text(value) = value {
+            self.attributes.push((name.into(), value.clone()));
+        }
+    }
+
+    fn set_node_text(&mut self, _: &str, _: ElementId) {}
+
+    fn create_event_listener(&mut self, _: &'static str, _: ElementId) {}
+
+    fn remove_event_listener(&mut self, _: &'static str, _: ElementId) {}
+
+    fn remove_node(&mut self, _: ElementId) {}
+
+    fn push_root(&mut self, _: ElementId) {}
+}
+
+fn label_app() -> Element {
+    let labels = use_context::<ShippingLabels>();
+    rsx! { ShippingLabelTables { labels } }
+}
+#[test]
+fn empty_courier_sections_are_hidden_and_one_empty_message_is_shown() {
+    let mut dom = VirtualDom::new(label_app).with_root_context(ShippingLabels::default());
+    let mut rendered = LabelRender::default();
+    dom.rebuild(&mut rendered);
+    for label in [
+        "Fastship labels",
+        "ThaiPost labels",
+        "Best labels",
+        "Teleport labels",
+    ] {
+        assert!(
+            !rendered
+                .attributes
+                .iter()
+                .any(|(name, value)| name == "aria-label" && value == label),
+            "empty {label} must be hidden"
+        );
+    }
+    assert_eq!(
+        rendered
+            .text
+            .iter()
+            .filter(|value| value.as_str() == "No shipping labels found.")
+            .count(),
+        1
+    );
+}
+#[test]
+fn only_nonempty_best_and_teleport_sections_render_tables_and_downloads() {
+    for (best, teleport) in [(true, false), (false, true), (true, true)] {
+        let labels = ShippingLabels {
+            best: if best { vec![best_label()] } else { vec![] },
+            teleport: if teleport {
+                vec![teleport_label()]
+            } else {
+                vec![]
+            },
+            ..ShippingLabels::default()
+        };
+        let mut dom = VirtualDom::new(label_app).with_root_context(labels);
+        let mut rendered = LabelRender::default();
+        dom.rebuild(&mut rendered);
+        for (label, present) in [
+            ("Best labels", best),
+            ("Teleport labels", teleport),
+            ("Fastship labels", false),
+            ("ThaiPost labels", false),
+        ] {
+            assert_eq!(
+                rendered
+                    .attributes
+                    .iter()
+                    .any(|(name, value)| name == "aria-label" && value == label),
+                present,
+                "section {label}"
+            );
+        }
+        for (text, present) in [("Save Best XLSX", best), ("Save Teleport XLSX", teleport)] {
+            assert_eq!(
+                rendered.text.iter().any(|value| value == text),
+                present,
+                "button {text}"
+            );
+        }
+        assert!(
+            !rendered
+                .text
+                .iter()
+                .any(|text| text == "No shipping labels found.")
+        );
+    }
+}

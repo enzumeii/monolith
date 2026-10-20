@@ -265,3 +265,123 @@ fn thai_post_xlsx_matches_legacy_headers_and_aligned_values() {
     assert_eq!(workbook_row(&bytes, 2, 30), values);
     assert!(!xml(&bytes, "xl/worksheets/sheet1.xml").contains("<f>"));
 }
+
+#[test]
+fn fulfillment_export_names_all_four_couriers() {
+    use domain::dto::orders::Courier;
+    for (courier, name) in [
+        (Courier::Fastship, "FASTSHIP"),
+        (Courier::ThaiPost, "THAI_POST"),
+        (Courier::Best, "BEST"),
+        (Courier::Teleport, "TELEPORT"),
+    ] {
+        let row = FulfillmentOrder {
+            order: domain::dto::orders::OrderSummary {
+                id: 42,
+                number: 1042,
+                full_name: None,
+                email: None,
+                shipping_country_code: None,
+            },
+            courier,
+        };
+        let table = fulfillment_table(&[row], &std::collections::HashMap::new(), &[]);
+        assert_eq!(table.rows[0][4], name);
+    }
+}
+
+use crate::pages::orders::tests::{best_label, teleport_label};
+
+#[test]
+fn best_xlsx_preserves_legacy_headers_and_values() {
+    let table = best_table(&[best_label()]);
+    let headers = [
+        "*Recipient's name",
+        "*Recipient's telephone#",
+        "*Recipient's post code",
+        "*Recipient's address detail",
+        "*Commodity",
+        "COD amount",
+        "Insured amount",
+        "Waybill#",
+        "Note",
+        "parcel ID",
+        "Weight",
+    ];
+    let values = [
+        "ผู้รับ Best",
+        "00123",
+        "00100",
+        "Best address",
+        "Goods",
+        "12.50",
+        "15",
+        "WB001",
+        "=1+1",
+        "00042",
+        "321",
+    ];
+    let bytes = crate::pages::reports::encode_table_xlsx(table.headers, &table.rows, "Best")
+        .expect("workbook");
+    assert_eq!(workbook_row(&bytes, 1, 11), headers);
+    assert_eq!(workbook_row(&bytes, 2, 11), values);
+    assert!(!xml(&bytes, "xl/worksheets/sheet1.xml").contains("<f>"));
+}
+
+#[test]
+fn teleport_xlsx_preserves_legacy_headers_and_values() {
+    let table = teleport_table(&[teleport_label()]);
+    let headers = [
+        "Recipient Name*",
+        "Recipient Email*",
+        "Recipient Phone No*",
+        "Recipient Address*",
+        "Recipient State*",
+        "Recipient City*",
+        "Recipient Postal Code*",
+        "Package*",
+        "Length (cm)*",
+        "Width (cm)*",
+        "Height (cm)*",
+        "Weight (kg)*",
+        "Multi Piece/ Single Piece*",
+        "Quantity ( pieces)*",
+        "Commodity*",
+        "Commodity Description*",
+        "Commodity Currency*",
+        "Commodity Value*",
+        "Delivery Instruction (optional)",
+        "Tracking Number (optional)",
+        "Reference  (optional)",
+        "Destination geo  (optional)",
+    ];
+    let values = [
+        "ผู้รับ Teleport",
+        "buyer@example.test",
+        "00456",
+        "Teleport address",
+        "Bangkok",
+        "City",
+        "00101",
+        "Polymailer",
+        "13",
+        "15",
+        "4",
+        "0.321",
+        "Multi Piece Shippment",
+        "3",
+        "Goods",
+        "=SUM(1)",
+        "THB",
+        "12.50",
+        "Call first",
+        "000123",
+        "ref-42",
+        "13.75,100.5",
+    ];
+    let bytes = crate::pages::reports::encode_table_xlsx(table.headers, &table.rows, "Teleport")
+        .expect("workbook");
+    assert_eq!(workbook_row(&bytes, 1, 22), headers);
+    assert_eq!(workbook_row(&bytes, 2, 22), values);
+    assert!(!xml(&bytes, "xl/worksheets/sheet1.xml").contains("<f>"));
+}

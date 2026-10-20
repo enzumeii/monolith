@@ -22,49 +22,17 @@ pub struct FulfillmentResult {
 }
 
 pub async fn load_fulfillment_orders() -> ApiResult<Vec<FulfillmentOrder>> {
-    let fastship = orders_by_tag("SHIPPING,FASTSHIP".into()).await?;
-    let thai_post = orders_by_tag("SHIPPING,THAI_POST".into()).await?;
-    Ok(merge_courier_orders(fastship, thai_post))
-}
-
-async fn orders_by_tag(tag: String) -> ApiResult<Vec<OrderSummary>> {
-    collect_pages(move |cursor| {
-        let tag = tag.clone();
-        async move {
-            let response = api::orders::list_orders(&tag, cursor).await?;
-            Ok(page_data(response))
-        }
-    })
-    .await
-}
-
-fn page_data(response: ListOrdersResponse) -> PageData<OrderSummary> {
-    PageData::new(response.orders, response.page_info)
-}
-
-fn merge_courier_orders(
-    fastship: Vec<OrderSummary>,
-    thai_post: Vec<OrderSummary>,
-) -> Vec<FulfillmentOrder> {
-    let mut seen = HashSet::new();
-    let mut rows = Vec::new();
-    for order in fastship {
-        if seen.insert(order.id) {
-            rows.push(FulfillmentOrder {
-                order,
-                courier: Courier::Fastship,
-            });
-        }
+    let mut batches = Vec::new();
+    for courier in [
+        Courier::Fastship,
+        Courier::ThaiPost,
+        Courier::Best,
+        Courier::Teleport,
+    ] {
+        let orders = orders_by_tag(format!("SHIPPING,{}", courier.tag())).await?;
+        batches.push((courier, orders));
     }
-    for order in thai_post {
-        if seen.insert(order.id) {
-            rows.push(FulfillmentOrder {
-                order,
-                courier: Courier::ThaiPost,
-            });
-        }
-    }
-    rows
+    Ok(merge_courier_orders(batches))
 }
 
 pub async fn fulfill_selected<F, Fut>(
@@ -93,6 +61,36 @@ where
         });
     }
     Ok(results)
+}
+
+async fn orders_by_tag(tag: String) -> ApiResult<Vec<OrderSummary>> {
+    collect_pages(move |cursor| {
+        let tag = tag.clone();
+        async move {
+            let response = api::orders::list_orders(&tag, cursor).await?;
+            Ok(page_data(response))
+        }
+    })
+    .await
+}
+
+fn page_data(response: ListOrdersResponse) -> PageData<OrderSummary> {
+    PageData::new(response.orders, response.page_info)
+}
+
+fn merge_courier_orders(
+    batches: impl IntoIterator<Item = (Courier, Vec<OrderSummary>)>,
+) -> Vec<FulfillmentOrder> {
+    let mut seen = HashSet::new();
+    let mut rows = Vec::new();
+    for (courier, orders) in batches {
+        for order in orders {
+            if seen.insert(order.id) {
+                rows.push(FulfillmentOrder { order, courier });
+            }
+        }
+    }
+    rows
 }
 
 #[cfg(test)]

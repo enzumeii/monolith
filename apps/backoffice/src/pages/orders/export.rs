@@ -1,5 +1,5 @@
 use super::data::{FulfillmentOrder, FulfillmentResult};
-use domain::dto::orders::{FastshipLabel, ThaiPostLabel};
+use domain::dto::orders::{BestLabel, FastshipLabel, TeleportLabel, ThaiPostLabel};
 
 #[derive(Clone, PartialEq)]
 pub struct TableData {
@@ -76,6 +76,45 @@ const THAI_POST_HEADERS: &[&str] = &[
     "พิกัดศุลกากร (HS Code)",
 ];
 
+const BEST_HEADERS: &[&str] = &[
+    "*Recipient's name",
+    "*Recipient's telephone#",
+    "*Recipient's post code",
+    "*Recipient's address detail",
+    "*Commodity",
+    "COD amount",
+    "Insured amount",
+    "Waybill#",
+    "Note",
+    "parcel ID",
+    "Weight",
+];
+
+const TELEPORT_HEADERS: &[&str] = &[
+    "Recipient Name*",
+    "Recipient Email*",
+    "Recipient Phone No*",
+    "Recipient Address*",
+    "Recipient State*",
+    "Recipient City*",
+    "Recipient Postal Code*",
+    "Package*",
+    "Length (cm)*",
+    "Width (cm)*",
+    "Height (cm)*",
+    "Weight (kg)*",
+    "Multi Piece/ Single Piece*",
+    "Quantity ( pieces)*",
+    "Commodity*",
+    "Commodity Description*",
+    "Commodity Currency*",
+    "Commodity Value*",
+    "Delivery Instruction (optional)",
+    "Tracking Number (optional)",
+    "Reference  (optional)",
+    "Destination geo  (optional)",
+];
+
 pub fn fulfillment_table(
     orders: &[FulfillmentOrder],
     tracking_numbers: &std::collections::HashMap<u64, String>,
@@ -106,7 +145,7 @@ pub fn fulfillment_table(
                     row.order.full_name.clone().unwrap_or_default(),
                     row.order.email.clone().unwrap_or_default(),
                     row.order.shipping_country_code.clone().unwrap_or_default(),
-                    courier_name(row.courier).to_owned(),
+                    row.courier.tag().to_owned(),
                     tracking_number.to_owned(),
                     status.to_owned(),
                     tracking_url.to_owned(),
@@ -194,11 +233,62 @@ pub fn thai_post_table(labels: &[ThaiPostLabel]) -> TableData {
     }
 }
 
-fn courier_name(courier: domain::dto::orders::Courier) -> &'static str {
-    match courier {
-        domain::dto::orders::Courier::Fastship => "FASTSHIP",
-        domain::dto::orders::Courier::ThaiPost => "THAI_POST",
-        _ => "",
+pub fn best_table(labels: &[BestLabel]) -> TableData {
+    TableData {
+        headers: BEST_HEADERS,
+        rows: labels
+            .iter()
+            .map(|label| {
+                vec![
+                    label.name.clone(),
+                    label.phone.clone(),
+                    label.zip_code.clone(),
+                    label.address.clone(),
+                    label.category.clone(),
+                    label.cod_amount.clone(),
+                    label.insured_amount.to_string(),
+                    label.waybill_number.clone(),
+                    label.note.clone(),
+                    label.parcel_id.clone(),
+                    label.weight.to_string(),
+                ]
+            })
+            .collect(),
+    }
+}
+
+pub fn teleport_table(labels: &[TeleportLabel]) -> TableData {
+    TableData {
+        headers: TELEPORT_HEADERS,
+        rows: labels
+            .iter()
+            .map(|label| {
+                vec![
+                    label.name.clone(),
+                    label.email.clone(),
+                    label.phone.clone(),
+                    label.address.clone(),
+                    label.state.clone(),
+                    label.city.clone(),
+                    label.postal_code.clone(),
+                    label.package.clone(),
+                    label.length.to_string(),
+                    label.width.to_string(),
+                    label.height.to_string(),
+                    label.weight.to_string(),
+                    label.is_multi_piece.clone(),
+                    label.quantity.to_string(),
+                    label.commodity.clone(),
+                    label.commodity_description.clone(),
+                    label.commodity_currency.clone(),
+                    label.commodity_value.to_string(),
+                    label.delivery_instructions.clone(),
+                    label.tracking_number.clone(),
+                    label.reference.clone(),
+                    label.destination_geo.clone(),
+                ]
+            })
+            .collect(),
     }
 }
 

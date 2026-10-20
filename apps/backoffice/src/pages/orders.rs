@@ -12,7 +12,9 @@ use crate::{
 mod data;
 mod export;
 use data::{FulfillmentOrder, FulfillmentResult, fulfill_selected, load_fulfillment_orders};
-use export::{TableData, fastship_table, fulfillment_table, thai_post_table};
+use export::{
+    TableData, best_table, fastship_table, fulfillment_table, teleport_table, thai_post_table,
+};
 
 #[derive(Clone, Copy, PartialEq)]
 enum OrderView {
@@ -303,27 +305,42 @@ fn FulfillmentTable(
 
 #[component]
 fn ShippingLabelTables(labels: ShippingLabels) -> Element {
-    let fastship = fastship_table(&labels.fastship);
-    let thai_post = thai_post_table(&labels.thaipost);
+    let empty = labels.fastship.is_empty()
+        && labels.thaipost.is_empty()
+        && labels.best.is_empty()
+        && labels.teleport.is_empty();
     rsx! {
         section { class: "panel orders-results", aria_label: "Shipping labels",
             h3 { "Shipping labels" }
-            section { class: "shipping-label-group", aria_label: "Fastship labels",
-                h4 { "Fastship" }
-                if fastship.rows.is_empty() { p { "No record" } }
-                else {
-                    DownloadTable { table: fastship.clone(), filename: "fastship-labels.csv", sheet_name: "Fastship", format: ExportFormat::Csv, id: "fastship-label-save", label: "Save Fastship CSV" }
-                    DataTable { table: fastship }
-                }
-            }
-            section { class: "shipping-label-group", aria_label: "ThaiPost labels",
-                h4 { "ThaiPost" }
-                if thai_post.rows.is_empty() { p { "No record" } }
-                else {
-                    DownloadTable { table: thai_post.clone(), filename: "thai-post-labels.xlsx", sheet_name: "ThaiPost", format: ExportFormat::Xlsx, id: "thaipost-label-save", label: "Save ThaiPost XLSX" }
-                    DataTable { table: thai_post }
-                }
-            }
+            if empty { p { "No shipping labels found." } }
+            ShippingLabelGroup { name: "Fastship", table: fastship_table(&labels.fastship), filename: "fastship-labels.csv", id: "fastship-label-save", format: ExportFormat::Csv }
+            ShippingLabelGroup { name: "ThaiPost", table: thai_post_table(&labels.thaipost), filename: "thai-post-labels.xlsx", id: "thaipost-label-save", format: ExportFormat::Xlsx }
+            ShippingLabelGroup { name: "Best", table: best_table(&labels.best), filename: "best-labels.xlsx", id: "best-label-save", format: ExportFormat::Xlsx }
+            ShippingLabelGroup { name: "Teleport", table: teleport_table(&labels.teleport), filename: "teleport-labels.xlsx", id: "teleport-label-save", format: ExportFormat::Xlsx }
+        }
+    }
+}
+
+#[component]
+fn ShippingLabelGroup(
+    name: String,
+    table: TableData,
+    filename: String,
+    id: String,
+    format: ExportFormat,
+) -> Element {
+    if table.rows.is_empty() {
+        return rsx! {};
+    }
+    let extension = match format {
+        ExportFormat::Csv => "CSV",
+        ExportFormat::Xlsx => "XLSX",
+    };
+    rsx! {
+        section { class: "shipping-label-group", aria_label: "{name} labels",
+            h4 { "{name}" }
+            DownloadTable { table: table.clone(), filename, sheet_name: name.clone(), format, id, label: format!("Save {name} {extension}") }
+            DataTable { table }
         }
     }
 }
