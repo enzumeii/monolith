@@ -2,8 +2,11 @@ use super::{Payment, date, money, protocol, quantity};
 use crate::{
     client::shopify::ShopifyClient,
     error::AppError,
-    models::shopify::{AccountingLineItem, Money, Order, OrderTransaction, PageRequest},
+    models::shopify::{
+        AccountingLineItem, Money, Order, OrderTransaction, PageRequest, SkuCategory,
+    },
     services::{common::upstream, pagination::for_each_page},
+    utils::contact::ascii_digits,
     validations::accounting::AccountingDateRange,
 };
 use domain::dto::accounting::AccountingTransactions;
@@ -217,10 +220,10 @@ fn apply(
             }
         }
     } else {
-        let (has_shipping, is_adjusted, has_items) = sale_details(order, payment)?;
-        adjusted = is_adjusted;
-        include_items = has_items;
-        if has_shipping {
+        let allocation = sale_details(order, payment)?;
+        adjusted = allocation.order_adjusted;
+        include_items = allocation.include_items;
+        if allocation.include_shipping {
             has_shipping_allocation = true;
             shipping_lines.extend(
                 order
@@ -270,7 +273,13 @@ fn apply(
     Ok(())
 }
 
-fn sale_details(order: &Order, payment: &Payment) -> Result<(bool, bool, bool), AppError> {
+struct SaleAllocation {
+    include_shipping: bool,
+    order_adjusted: bool,
+    include_items: bool,
+}
+
+fn sale_details(order: &Order, payment: &Payment) -> Result<SaleAllocation, AppError> {
     let shipping = order
         .shipping_lines
         .nodes
@@ -301,16 +310,32 @@ fn sale_details(order: &Order, payment: &Payment) -> Result<(bool, bool, bool), 
         }
     }
     let Some(index) = position else {
-        return Ok((false, false, false));
+        return Ok(SaleAllocation {
+            include_shipping: false,
+            order_adjusted: false,
+            include_items: false,
+        });
     };
     let amount = money(&captured[index].amount_set.shop_money.amount)?;
     if (amount - total_items - shipping).abs() < 0.005 {
-        return Ok((true, false, true));
+        return Ok(SaleAllocation {
+            include_shipping: true,
+            order_adjusted: false,
+            include_items: true,
+        });
     }
     if index == 0 && total > 0.0 && total <= total_items + shipping {
-        Ok((true, true, true))
+        Ok(SaleAllocation {
+            include_shipping: true,
+            order_adjusted: true,
+            include_items: true,
+        })
     } else {
-        Ok((false, false, false))
+        Ok(SaleAllocation {
+            include_shipping: false,
+            order_adjusted: false,
+            include_items: false,
+        })
     }
 }
 
@@ -397,34 +422,28 @@ fn item(
 }
 
 fn sku_category(sku: &str) -> &'static str {
-    if ["_IP", "_SS", "_XM"]
-        .iter()
-        .any(|suffix| sku.contains(suffix))
-    {
-        return "STOCK";
-    }
-    let code = sku.get(3..6).unwrap_or_default();
-    match code {
-        "APP" | "BBT" | "TEE" => "APPAREL",
-        "TOT" => "BAG",
-        "BLK" => "BLANKET",
-        "QCS" | "CSE" | "GTK" | "PSR" => "PHONE_ACCESSORY",
-        "CLC" => "CLAWCLIP",
-        "PIN" => "BADGE",
-        "KEY" | "QSK" | "LNK" | "WDK" | "KMB" | "LQD" => "KEYCHAIN",
-        "CRB" => "CARABINER",
-        "PSH" => "PLUSHIE",
-        "STD" => "STANDEE",
-        "STS" | "PTC" => "STICKER_SHEET",
-        "PCT" => "PHOTOCARD",
-        "MAG" => "MAGNET",
-        "STK" | "BST" => "STICKER",
-        "ZPB" => "ZIPPER_BAG",
-        "BDS" => "BEAD",
-        "CLP" => "HAIRCLIP",
-        "LYD" => "LANYARD",
-        "CHD" => "CARDHOLDER",
-        _ => "",
+    match SkuCategory::from_sku(sku) {
+        SkuCategory::Apparel => "APPAREL",
+        SkuCategory::Bag => "BAG",
+        SkuCategory::Blanket => "BLANKET",
+        SkuCategory::PhoneAccessory => "PHONE_ACCESSORY",
+        SkuCategory::Clawclip => "CLAWCLIP",
+        SkuCategory::Badge => "BADGE",
+        SkuCategory::Keychain => "KEYCHAIN",
+        SkuCategory::Carabiner => "CARABINER",
+        SkuCategory::Plushie => "PLUSHIE",
+        SkuCategory::Standee => "STANDEE",
+        SkuCategory::StickerSheet => "STICKER_SHEET",
+        SkuCategory::Photocard => "PHOTOCARD",
+        SkuCategory::Magnet => "MAGNET",
+        SkuCategory::Sticker => "STICKER",
+        SkuCategory::ZipperBag => "ZIPPER_BAG",
+        SkuCategory::Bead => "BEAD",
+        SkuCategory::Hairclip => "HAIRCLIP",
+        SkuCategory::Lanyard => "LANYARD",
+        SkuCategory::Cardholder => "CARDHOLDER",
+        SkuCategory::Stock => "STOCK",
+        SkuCategory::Unknown => "",
     }
 }
 
@@ -449,16 +468,15 @@ fn address(order: &Order) -> String {
 }
 
 fn phone(order: &Order) -> u64 {
-    order
-        .shipping_address
-        .as_ref()
-        .and_then(|a| a.phone.as_deref())
-        .unwrap_or_default()
-        .chars()
-        .filter(char::is_ascii_digit)
-        .collect::<String>()
-        .parse()
-        .unwrap_or_default()
+    ascii_digits(
+        order
+            .shipping_address
+            .as_ref()
+            .and_then(|a| a.phone.as_deref())
+            .unwrap_or_default(),
+    )
+    .parse()
+    .unwrap_or_default()
 }
 #[cfg(test)]
 #[path = "../../tests/services/accounting/shopify.rs"]

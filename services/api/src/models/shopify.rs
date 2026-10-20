@@ -602,20 +602,8 @@ fn validate_size(first: u16) -> Result<(), ClientError> {
 }
 mod products;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct Sku(String);
-impl Sku {
-    #[must_use]
-    pub fn collection(&self) -> Option<String> {
-        let value = self.0.chars().skip(3).take(6).collect::<String>();
-        (value.chars().count() == 6).then_some(value)
-    }
-    #[must_use]
-    pub fn into_string(self) -> String {
-        self.0
-    }
-}
+mod sku;
+pub use sku::{Sku, SkuCategory};
 
 impl<T> Connection<T> {
     pub(crate) fn into_complete_nodes(self) -> Result<Vec<T>, ClientError> {

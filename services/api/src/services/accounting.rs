@@ -1,4 +1,8 @@
-use super::common::{shopify_client, upstream};
+use super::common::{paypal_client, shopify_client, stripe_client, upstream};
+use crate::utils::{
+    dates::{iso_utc, parse_rfc3339},
+    numbers::{integer_as_f64 as quantity, minor_units as cents, parse_f64},
+};
 use crate::{
     client::{ClientError, ClientErrorKind},
     error::AppError,
@@ -6,7 +10,6 @@ use crate::{
     validations::accounting::AccountingDateRange,
 };
 use axum::http::StatusCode;
-use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use domain::dto::{
     AccountingGateway, AccountingKind, AccountingReportResponse, AccountingTransaction,
 };
@@ -20,22 +23,8 @@ pub async fn report(
     state: &AppState,
     range: AccountingDateRange,
 ) -> Result<AccountingReportResponse, AppError> {
-    let stripe = state
-        .stripe
-        .as_ref()
-        .map(|value| value.as_deref())
-        .map_err(|error| {
-            AppError::new(StatusCode::SERVICE_UNAVAILABLE, "Stripe client unavailable")
-                .with_source(error.clone())
-        })?;
-    let paypal = state
-        .paypal
-        .as_ref()
-        .map(|value| value.as_deref())
-        .map_err(|error| {
-            AppError::new(StatusCode::SERVICE_UNAVAILABLE, "PayPal client unavailable")
-                .with_source(error.clone())
-        })?;
+    let stripe = stripe_client(state)?;
+    let paypal = paypal_client(state)?;
     if stripe.is_none() && paypal.is_none() {
         return Err(AppError::new(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -114,29 +103,11 @@ fn protocol(message: &'static str) -> AppError {
 }
 
 fn money(value: &str) -> Result<f64, AppError> {
-    crate::utils::numbers::parse_number(value)
-        .map_err(|error| upstream(error))?
-        .as_f64()
-        .ok_or_else(|| protocol("invalid report number"))
+    parse_f64(value).map_err(|error| upstream(error))
 }
 
-fn date(value: &str) -> Result<DateTime<FixedOffset>, AppError> {
-    DateTime::parse_from_rfc3339(value).map_err(|_| protocol("invalid accounting date"))
-}
-
-fn cents(value: i64) -> f64 {
-    serde_json::Number::from(value).as_f64().unwrap_or_default() / 100.0
-}
-
-fn quantity(value: i64) -> f64 {
-    serde_json::Number::from(value).as_f64().unwrap_or_default()
-}
-
-fn iso_utc(timestamp: i64) -> String {
-    Utc.timestamp_opt(timestamp, 0)
-        .single()
-        .unwrap_or(chrono::DateTime::<Utc>::UNIX_EPOCH)
-        .to_rfc3339()
+fn date(value: &str) -> Result<chrono::DateTime<chrono::FixedOffset>, AppError> {
+    parse_rfc3339(value).map_err(|error| upstream(error))
 }
 mod paypal;
 mod shopify;

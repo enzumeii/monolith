@@ -10,7 +10,10 @@ fn transaction_models_preserve_decimal_precision_offsets_and_optional_sections()
         detail.transaction.transaction_amount.value,
         "-1234567890.0123456789"
     );
-    assert_eq!(detail.transaction.transaction_amount.currency_code, "THB");
+    assert_eq!(
+        detail.transaction.transaction_amount.currency_code.as_str(),
+        "THB"
+    );
     assert_eq!(
         detail.transaction.transaction_initiation_date.to_rfc3339(),
         "2026-10-01T07:00:00+07:00"
@@ -38,4 +41,45 @@ fn partial_cart_items_do_not_discard_transaction_reports() {
     .unwrap();
     let items = cart.item_details.unwrap();
     assert_eq!(items[0].invoice_number.as_deref(), Some("fixture-invoice"));
+}
+
+#[test]
+fn paypal_protocol_enums_preserve_known_and_unknown_wire_codes() {
+    use crate::models::paypal::{CurrencyCode, TransactionEvent};
+    let event: TransactionEvent = serde_json::from_value(json!("T0403")).unwrap();
+    assert_eq!(event, TransactionEvent::ManualWithdrawal);
+    for code in ["T9999", "T9998"] {
+        let event: TransactionEvent = serde_json::from_value(json!(code)).unwrap();
+        assert_eq!(event, TransactionEvent::Other(code.into()));
+        assert_eq!(serde_json::to_value(event).unwrap(), json!(code));
+    }
+    let currency: CurrencyCode = serde_json::from_value(json!("AUD")).unwrap();
+    assert_eq!(currency, CurrencyCode::Aud);
+    let unknown: CurrencyCode = serde_json::from_value(json!("ZZZ")).unwrap();
+    assert_eq!(unknown, CurrencyCode::Other("ZZZ".into()));
+    assert_eq!(serde_json::to_value(unknown).unwrap(), json!("ZZZ"));
+}
+
+#[test]
+fn paypal_known_event_codes_and_currency_codes_round_trip() {
+    use crate::models::paypal::{CurrencyCode, TransactionEvent};
+    for code in [
+        "T0400", "T0403", "T0201", "T0200", "T1107", "T2105", "T2106", "T1110", "T1111", "T1106",
+        "T0114", "T0000", "T0011", "T0006",
+    ] {
+        let event: TransactionEvent = serde_json::from_value(json!(code)).unwrap();
+        assert!(!matches!(event, TransactionEvent::Other(_)));
+        assert_eq!(event.as_str(), code);
+        assert_eq!(serde_json::to_value(event).unwrap(), json!(code));
+    }
+    for code in [
+        "HUF", "JPY", "TWD", "BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND", "AUD", "BRL", "CAD",
+        "CHF", "CNY", "CZK", "DKK", "EUR", "GBP", "HKD", "ILS", "MYR", "MXN", "NOK", "NZD", "PHP",
+        "PLN", "SEK", "SGD", "THB", "USD",
+    ] {
+        let currency: CurrencyCode = serde_json::from_value(json!(code)).unwrap();
+        assert!(!matches!(currency, CurrencyCode::Other(_)));
+        assert_eq!(currency.as_str(), code);
+        assert_eq!(serde_json::to_value(currency).unwrap(), json!(code));
+    }
 }

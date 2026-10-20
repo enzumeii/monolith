@@ -1,7 +1,13 @@
 use super::{Payment, empty_transaction, money, protocol};
 use crate::{
-    client::paypal::PaypalClient, error::AppError, models::paypal::TransactionDetail,
-    services::common::upstream, validations::accounting::AccountingDateRange,
+    client::paypal::PaypalClient,
+    error::AppError,
+    models::paypal::{CurrencyCode, TransactionDetail, TransactionEvent},
+    services::{
+        common::upstream,
+        pagination::{NumberedPage, for_each_numbered_page},
+    },
+    validations::accounting::AccountingDateRange,
 };
 use chrono::{Duration, Utc};
 use domain::dto::{AccountingGateway, AccountingKind};
@@ -20,31 +26,29 @@ pub(super) async fn collect(
             .checked_add_signed(Duration::days(31))
             .unwrap_or(end)
             .min(end);
-        let mut page = 1;
-        loop {
-            let response = client
-                .get_transactions(start, window_end, 500, page)
-                .await
-                .map_err(|error| upstream(error))?;
-            if response.page != page
-                || (response.total_pages == 0 && !response.transaction_details.is_empty())
-                || (response.total_pages > 0 && page > response.total_pages)
-                || (page < response.total_pages && response.transaction_details.is_empty())
-            {
-                return Err(protocol("invalid PayPal pagination metadata"));
-            }
-            for detail in response.transaction_details {
-                if seen.insert(identity(&detail)) {
-                    details.push(detail);
+        for_each_numbered_page(
+            |page| async move {
+                let response = client
+                    .get_transactions(start, window_end, 500, page)
+                    .await
+                    .map_err(|error| upstream(error))?;
+                Ok(NumberedPage {
+                    nodes: response.transaction_details,
+                    page: response.page,
+                    total_pages: response.total_pages,
+                })
+            },
+            |nodes| {
+                for detail in nodes {
+                    if seen.insert(identity(&detail)) {
+                        details.push(detail);
+                    }
                 }
-            }
-            if page >= response.total_pages {
-                break;
-            }
-            page = page
-                .checked_add(1)
-                .ok_or_else(|| protocol("invalid PayPal pagination metadata"))?;
-        }
+                Ok(())
+            },
+            |error| upstream(error),
+        )
+        .await?;
         if window_end == end {
             break;
         }
@@ -79,8 +83,11 @@ fn records(details: Vec<TransactionDetail>, range: &AccountingDateRange) -> Vec<
         .filter(|detail| {
             let info = &detail.transaction;
             !matches!(
-                info.transaction_event_code.as_str(),
-                "T0400" | "T0403" | "T0201" | "T0200"
+                info.transaction_event_code,
+                TransactionEvent::BankWithdrawal
+                    | TransactionEvent::ManualWithdrawal
+                    | TransactionEvent::UserCurrencyConversion
+                    | TransactionEvent::CurrencyConversion
             ) && info.transaction_initiation_date >= range.start
                 && info.transaction_initiation_date <= range.end
         })
@@ -115,7 +122,7 @@ fn payment(detail: &TransactionDetail) -> Result<Payment, AppError> {
         .transpose()?;
     let mut transaction = empty_transaction(
         AccountingGateway::Paypal,
-        if info.transaction_event_code == "T1107" {
+        if info.transaction_event_code == TransactionEvent::Refund {
             AccountingKind::Refund
         } else {
             AccountingKind::Sale
@@ -131,28 +138,51 @@ fn payment(detail: &TransactionDetail) -> Result<Payment, AppError> {
             .payer
             .as_ref()
             .and_then(|p| p.email_address.as_deref()),
-        currency,
+        currency.as_str(),
     );
-    transaction.currency.clone_from(currency);
+    currency.as_str().clone_into(&mut transaction.currency);
     transaction.net_paid = rounded(gross - fee, factor)?;
     transaction.fee = fee;
     transaction.gross_paid = gross;
     transaction.shipping_fee = shipping;
     Ok(Payment {
         transaction,
-        currency: currency.clone(),
+        currency: currency.as_str().to_owned(),
     })
 }
 
-fn precision_factor(currency: &str) -> Result<f64, AppError> {
+fn precision_factor(currency: &CurrencyCode) -> Result<f64, AppError> {
     match currency {
-        "HUF" | "JPY" | "TWD" => Ok(1.0),
-        "BHD" | "IQD" | "JOD" | "KWD" | "LYD" | "OMR" | "TND" => Ok(1000.0),
-        "AUD" | "BRL" | "CAD" | "CHF" | "CNY" | "CZK" | "DKK" | "EUR" | "GBP" | "HKD" | "ILS"
-        | "MYR" | "MXN" | "NOK" | "NZD" | "PHP" | "PLN" | "SEK" | "SGD" | "THB" | "USD" => {
-            Ok(100.0)
-        }
-        _ => Err(protocol("unsupported PayPal accounting currency")),
+        CurrencyCode::Huf | CurrencyCode::Jpy | CurrencyCode::Twd => Ok(1.0),
+        CurrencyCode::Bhd
+        | CurrencyCode::Iqd
+        | CurrencyCode::Jod
+        | CurrencyCode::Kwd
+        | CurrencyCode::Lyd
+        | CurrencyCode::Omr
+        | CurrencyCode::Tnd => Ok(1000.0),
+        CurrencyCode::Aud
+        | CurrencyCode::Brl
+        | CurrencyCode::Cad
+        | CurrencyCode::Chf
+        | CurrencyCode::Cny
+        | CurrencyCode::Czk
+        | CurrencyCode::Dkk
+        | CurrencyCode::Eur
+        | CurrencyCode::Gbp
+        | CurrencyCode::Hkd
+        | CurrencyCode::Ils
+        | CurrencyCode::Myr
+        | CurrencyCode::Mxn
+        | CurrencyCode::Nok
+        | CurrencyCode::Nzd
+        | CurrencyCode::Php
+        | CurrencyCode::Pln
+        | CurrencyCode::Sek
+        | CurrencyCode::Sgd
+        | CurrencyCode::Thb
+        | CurrencyCode::Usd => Ok(100.0),
+        CurrencyCode::Other(_) => Err(protocol("unsupported PayPal accounting currency")),
     }
 }
 
@@ -165,21 +195,27 @@ fn rounded(value: f64, factor: f64) -> Result<f64, AppError> {
     }
 }
 
-fn paypal_description(event: &str, email: Option<&str>, currency: &str) -> String {
+fn paypal_description(event: &TransactionEvent, email: Option<&str>, currency: &str) -> String {
     let dispute_label = match event {
-        "T2105" => Some("Payment Held for fraudulent activity"),
-        "T2106" => Some("Payment Released from fraud review"),
-        "T1110" => Some("Hold the amount for chargeback review from customer Dispute"),
-        "T1111" => Some("Cancel the charge back and release the amount back to us"),
-        "T1106" => Some("Refund the amount to customer due to dispute lost"),
-        "T0114" => Some("Dispute Fee"),
+        TransactionEvent::PaymentReviewHold => Some("Payment Held for fraudulent activity"),
+        TransactionEvent::PaymentReviewRelease => Some("Payment Released from fraud review"),
+        TransactionEvent::DisputeHold => {
+            Some("Hold the amount for chargeback review from customer Dispute")
+        }
+        TransactionEvent::DisputeHoldCancellation => {
+            Some("Cancel the charge back and release the amount back to us")
+        }
+        TransactionEvent::PaymentReversal => {
+            Some("Refund the amount to customer due to dispute lost")
+        }
+        TransactionEvent::DisputeFee => Some("Dispute Fee"),
         _ => None,
     };
     if let Some(label) = dispute_label {
         return format!("{label} in currency {currency}");
     }
     match event {
-        "T0000" | "T0011" => format!(
+        TransactionEvent::GeneralPayment | TransactionEvent::MobilePayment => format!(
             "PAID TO {} in currency {currency}",
             email.unwrap_or_default()
         ),

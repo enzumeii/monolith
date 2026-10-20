@@ -177,3 +177,75 @@ fn paypal_shipping_prefers_provider_and_never_uses_another_currency() {
     .unwrap();
     assert_eq!(row.transaction.shipping_fee, Some(5.0));
 }
+
+#[test]
+fn report_sku_category_uses_character_positions() {
+    assert_eq!(sku_category("กขคAPP001"), "APPAREL");
+    assert_eq!(sku_category("กขคKEY001"), "KEYCHAIN");
+    assert_eq!(sku_category("กขคAPP_SS"), "STOCK");
+    assert_eq!(sku_category("短"), "");
+}
+
+#[test]
+fn report_contact_preserves_locality_unicode_and_numeric_phone_policy() {
+    let mut value = order_value();
+    value["shippingAddress"] = json!({"name":"Name","address1":" บ้าน 1 ","address2":" ","city":" กรุงเทพ ","provinceCode":" TH-10 ","country":" Thailand ","zip":" 00100 ","phone":"00 (081) ٢3-45"});
+    let order = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(address(&order), "บ้าน 1, กรุงเทพ, TH-10, Thailand, 00100");
+    assert_eq!(phone(&order), 81345);
+    value["shippingAddress"]["phone"] = json!("18446744073709551616");
+    assert_eq!(phone(&serde_json::from_value(value).unwrap()), 0);
+}
+
+#[test]
+fn report_category_labels_keep_each_product_group() {
+    for (code, expected) in [
+        ("APP", "APPAREL"),
+        ("BBT", "APPAREL"),
+        ("TEE", "APPAREL"),
+        ("TOT", "BAG"),
+        ("BLK", "BLANKET"),
+        ("QCS", "PHONE_ACCESSORY"),
+        ("CSE", "PHONE_ACCESSORY"),
+        ("GTK", "PHONE_ACCESSORY"),
+        ("PSR", "PHONE_ACCESSORY"),
+        ("CLC", "CLAWCLIP"),
+        ("PIN", "BADGE"),
+        ("KEY", "KEYCHAIN"),
+        ("QSK", "KEYCHAIN"),
+        ("LNK", "KEYCHAIN"),
+        ("WDK", "KEYCHAIN"),
+        ("KMB", "KEYCHAIN"),
+        ("LQD", "KEYCHAIN"),
+        ("CRB", "CARABINER"),
+        ("PSH", "PLUSHIE"),
+        ("STD", "STANDEE"),
+        ("STS", "STICKER_SHEET"),
+        ("PTC", "STICKER_SHEET"),
+        ("PCT", "PHOTOCARD"),
+        ("MAG", "MAGNET"),
+        ("STK", "STICKER"),
+        ("BST", "STICKER"),
+        ("ZPB", "ZIPPER_BAG"),
+        ("BDS", "BEAD"),
+        ("CLP", "HAIRCLIP"),
+        ("LYD", "LANYARD"),
+        ("CHD", "CARDHOLDER"),
+        ("UNK", ""),
+    ] {
+        assert_eq!(sku_category(&format!("ABC{code}001")), expected);
+    }
+    for marker in ["_IP", "_SS", "_XM"] {
+        assert_eq!(sku_category(&format!("ABCBLK{marker}001")), "STOCK");
+    }
+}
+
+#[test]
+fn unmatched_sale_allocates_neither_shipping_nor_items() {
+    let mut row = payment(AccountingGateway::Stripe, AccountingKind::Sale, "missing");
+    let mut items = Vec::new();
+    apply(&mut row, &order(), &mut items).unwrap();
+    assert_eq!(row.transaction.shipping_fee, Some(0.0));
+    assert!(!row.transaction.order_adjusted);
+    assert!(items.is_empty());
+}

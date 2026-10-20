@@ -49,6 +49,32 @@ pub(super) fn upstream(error: ClientError) -> AppError {
     AppError::new(status, "Upstream request failed").with_source(error)
 }
 
+pub(super) fn stripe_client(
+    state: &AppState,
+) -> Result<Option<&crate::client::stripe::StripeClient>, AppError> {
+    state
+        .stripe
+        .as_ref()
+        .map(|value| value.as_deref())
+        .map_err(|error| {
+            AppError::new(StatusCode::SERVICE_UNAVAILABLE, "Stripe client unavailable")
+                .with_source(error.clone())
+        })
+}
+
+pub(super) fn paypal_client(
+    state: &AppState,
+) -> Result<Option<&crate::client::paypal::PaypalClient>, AppError> {
+    state
+        .paypal
+        .as_ref()
+        .map(|value| value.as_deref())
+        .map_err(|error| {
+            AppError::new(StatusCode::SERVICE_UNAVAILABLE, "PayPal client unavailable")
+                .with_source(error.clone())
+        })
+}
+
 #[cfg(test)]
 #[path = "../tests/services/common.rs"]
 pub(super) mod tests;

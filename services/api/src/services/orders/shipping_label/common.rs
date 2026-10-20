@@ -1,7 +1,8 @@
 use crate::{
     client::{ClientError, ClientErrorKind},
     error::AppError,
-    models::shopify::{ShippingAddress, ShippingItem, ShippingOrder},
+    models::shopify::{ShippingAddress, ShippingItem, ShippingOrder, SkuCategory},
+    utils::contact::ascii_digits,
 };
 use axum::http::StatusCode;
 use domain::dto::orders::Courier;
@@ -43,9 +44,7 @@ impl Parcel {
         required(address.address1.as_deref(), "Order street address missing")?;
         required(address.city.as_deref(), "Order shipping city missing")?;
         required(address.country.as_deref(), "Order shipping country missing")?;
-        address.phone = address
-            .phone
-            .map(|phone| phone.chars().filter(char::is_ascii_digit).collect());
+        address.phone = address.phone.map(|phone| ascii_digits(&phone));
         let lines = order.shipping_lines.nodes;
         let code = lines
             .first()
@@ -109,10 +108,7 @@ pub(super) fn declaration(items: Vec<ShippingItem>) -> Result<(u64, Number, Stri
         if item.title == "Tip" {
             continue;
         }
-        if !["_IP", "_SS", "_XM"]
-            .iter()
-            .any(|marker| sku.contains(marker))
-        {
+        if SkuCategory::from_sku(sku) != SkuCategory::Stock {
             quantity = quantity
                 .checked_add(item.quantity)
                 .ok_or_else(|| invalid("Shipping quantity overflow"))?;
@@ -135,25 +131,31 @@ pub(super) fn declaration(items: Vec<ShippingItem>) -> Result<(u64, Number, Stri
     Ok((quantity, price, category.1.into()))
 }
 fn category_for_sku(sku: &str) -> (u8, &'static str) {
-    if ["_IP", "_SS", "_XM"]
-        .iter()
-        .any(|marker| sku.contains(marker))
-    {
-        return (0, "Stickers");
-    }
-    match sku.chars().skip(3).take(3).collect::<String>().as_str() {
-        "BLK" => (8, "Blankets"),
-        "APP" | "BBT" | "TEE" => (7, "Apparel"),
-        "PSH" => (6, "Collectible Items"),
-        "TOT" => (5, "Tote Bag"),
-        "QCS" | "CSE" | "GTK" | "PSR" => (4, "Phone Accessories"),
-        "CLC" => (3, "Hair Accessories"),
-        "PIN" => (2, "Badge"),
-        "KEY" | "QSK" | "LNK" | "WDK" | "KMB" | "LQD" | "STD" | "ZPB" | "BDS" | "CHD" | "CLP"
-        | "LYD" | "CRB" => (1, "Keychains"),
-        _ => (0, "Stickers"),
+    match SkuCategory::from_sku(sku) {
+        SkuCategory::Blanket => (8, "Blankets"),
+        SkuCategory::Apparel => (7, "Apparel"),
+        SkuCategory::Plushie => (6, "Collectible Items"),
+        SkuCategory::Bag => (5, "Tote Bag"),
+        SkuCategory::PhoneAccessory => (4, "Phone Accessories"),
+        SkuCategory::Clawclip => (3, "Hair Accessories"),
+        SkuCategory::Badge => (2, "Badge"),
+        SkuCategory::Keychain
+        | SkuCategory::Standee
+        | SkuCategory::ZipperBag
+        | SkuCategory::Bead
+        | SkuCategory::Cardholder
+        | SkuCategory::Hairclip
+        | SkuCategory::Lanyard
+        | SkuCategory::Carabiner => (1, "Keychains"),
+        SkuCategory::Stock
+        | SkuCategory::Unknown
+        | SkuCategory::StickerSheet
+        | SkuCategory::Photocard
+        | SkuCategory::Magnet
+        | SkuCategory::Sticker => (0, "Stickers"),
     }
 }
+
 pub(super) fn normalize_method(code: &str, country: &str) -> String {
     let code = match country {
         "US" => "USPS(tracking&fast)",
@@ -239,3 +241,7 @@ fn known_method(code: &str) -> bool {
             | "ไปรษณีย์ไทย EMS"
     )
 }
+
+#[cfg(test)]
+#[path = "../../../tests/services/orders/shipping_label/common.rs"]
+mod tests;

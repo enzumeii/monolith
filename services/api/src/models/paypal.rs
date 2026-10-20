@@ -1,5 +1,5 @@
 use chrono::{DateTime, FixedOffset};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 pub struct TransactionPage {
@@ -24,7 +24,7 @@ pub struct TransactionDetail {
 #[derive(Debug, Deserialize)]
 pub struct TransactionInfo {
     pub transaction_id: String,
-    pub transaction_event_code: String,
+    pub transaction_event_code: TransactionEvent,
     pub transaction_amount: Money,
     pub transaction_initiation_date: DateTime<FixedOffset>,
     pub transaction_updated_date: DateTime<FixedOffset>,
@@ -36,7 +36,7 @@ pub struct TransactionInfo {
 
 #[derive(Debug, Deserialize)]
 pub struct Money {
-    pub currency_code: String,
+    pub currency_code: CurrencyCode,
     pub value: String,
 }
 
@@ -83,6 +83,199 @@ pub struct ItemDetail {
     pub item_unit_price: Option<Money>,
     pub item_amount: Option<Money>,
     pub total_item_amount: Option<Money>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(from = "String", into = "String")]
+pub enum TransactionEvent {
+    BankWithdrawal,
+    ManualWithdrawal,
+    UserCurrencyConversion,
+    CurrencyConversion,
+    Refund,
+    PaymentReviewHold,
+    PaymentReviewRelease,
+    DisputeHold,
+    DisputeHoldCancellation,
+    PaymentReversal,
+    DisputeFee,
+    GeneralPayment,
+    MobilePayment,
+    ExpressCheckoutPayment,
+    Other(String),
+}
+
+impl TransactionEvent {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::BankWithdrawal => "T0400",
+            Self::ManualWithdrawal => "T0403",
+            Self::UserCurrencyConversion => "T0201",
+            Self::CurrencyConversion => "T0200",
+            Self::Refund => "T1107",
+            Self::PaymentReviewHold => "T2105",
+            Self::PaymentReviewRelease => "T2106",
+            Self::DisputeHold => "T1110",
+            Self::DisputeHoldCancellation => "T1111",
+            Self::PaymentReversal => "T1106",
+            Self::DisputeFee => "T0114",
+            Self::GeneralPayment => "T0000",
+            Self::MobilePayment => "T0011",
+            Self::ExpressCheckoutPayment => "T0006",
+            Self::Other(value) => value,
+        }
+    }
+}
+
+impl From<String> for TransactionEvent {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            "T0400" => Self::BankWithdrawal,
+            "T0403" => Self::ManualWithdrawal,
+            "T0201" => Self::UserCurrencyConversion,
+            "T0200" => Self::CurrencyConversion,
+            "T1107" => Self::Refund,
+            "T2105" => Self::PaymentReviewHold,
+            "T2106" => Self::PaymentReviewRelease,
+            "T1110" => Self::DisputeHold,
+            "T1111" => Self::DisputeHoldCancellation,
+            "T1106" => Self::PaymentReversal,
+            "T0114" => Self::DisputeFee,
+            "T0000" => Self::GeneralPayment,
+            "T0011" => Self::MobilePayment,
+            "T0006" => Self::ExpressCheckoutPayment,
+            _ => Self::Other(value),
+        }
+    }
+}
+
+impl From<TransactionEvent> for String {
+    fn from(value: TransactionEvent) -> Self {
+        value.as_str().to_owned()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(from = "String", into = "String")]
+pub enum CurrencyCode {
+    Huf,
+    Jpy,
+    Twd,
+    Bhd,
+    Iqd,
+    Jod,
+    Kwd,
+    Lyd,
+    Omr,
+    Tnd,
+    Aud,
+    Brl,
+    Cad,
+    Chf,
+    Cny,
+    Czk,
+    Dkk,
+    Eur,
+    Gbp,
+    Hkd,
+    Ils,
+    Myr,
+    Mxn,
+    Nok,
+    Nzd,
+    Php,
+    Pln,
+    Sek,
+    Sgd,
+    Thb,
+    Usd,
+    Other(String),
+}
+
+impl CurrencyCode {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Huf => "HUF",
+            Self::Jpy => "JPY",
+            Self::Twd => "TWD",
+            Self::Bhd => "BHD",
+            Self::Iqd => "IQD",
+            Self::Jod => "JOD",
+            Self::Kwd => "KWD",
+            Self::Lyd => "LYD",
+            Self::Omr => "OMR",
+            Self::Tnd => "TND",
+            Self::Aud => "AUD",
+            Self::Brl => "BRL",
+            Self::Cad => "CAD",
+            Self::Chf => "CHF",
+            Self::Cny => "CNY",
+            Self::Czk => "CZK",
+            Self::Dkk => "DKK",
+            Self::Eur => "EUR",
+            Self::Gbp => "GBP",
+            Self::Hkd => "HKD",
+            Self::Ils => "ILS",
+            Self::Myr => "MYR",
+            Self::Mxn => "MXN",
+            Self::Nok => "NOK",
+            Self::Nzd => "NZD",
+            Self::Php => "PHP",
+            Self::Pln => "PLN",
+            Self::Sek => "SEK",
+            Self::Sgd => "SGD",
+            Self::Thb => "THB",
+            Self::Usd => "USD",
+            Self::Other(value) => value,
+        }
+    }
+}
+
+impl From<String> for CurrencyCode {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            "HUF" => Self::Huf,
+            "JPY" => Self::Jpy,
+            "TWD" => Self::Twd,
+            "BHD" => Self::Bhd,
+            "IQD" => Self::Iqd,
+            "JOD" => Self::Jod,
+            "KWD" => Self::Kwd,
+            "LYD" => Self::Lyd,
+            "OMR" => Self::Omr,
+            "TND" => Self::Tnd,
+            "AUD" => Self::Aud,
+            "BRL" => Self::Brl,
+            "CAD" => Self::Cad,
+            "CHF" => Self::Chf,
+            "CNY" => Self::Cny,
+            "CZK" => Self::Czk,
+            "DKK" => Self::Dkk,
+            "EUR" => Self::Eur,
+            "GBP" => Self::Gbp,
+            "HKD" => Self::Hkd,
+            "ILS" => Self::Ils,
+            "MYR" => Self::Myr,
+            "MXN" => Self::Mxn,
+            "NOK" => Self::Nok,
+            "NZD" => Self::Nzd,
+            "PHP" => Self::Php,
+            "PLN" => Self::Pln,
+            "SEK" => Self::Sek,
+            "SGD" => Self::Sgd,
+            "THB" => Self::Thb,
+            "USD" => Self::Usd,
+            _ => Self::Other(value),
+        }
+    }
+}
+
+impl From<CurrencyCode> for String {
+    fn from(value: CurrencyCode) -> Self {
+        value.as_str().to_owned()
+    }
 }
 
 #[cfg(test)]

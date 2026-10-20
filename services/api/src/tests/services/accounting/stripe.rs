@@ -67,3 +67,34 @@ async fn card_payment_refunds_preserve_the_balance_payment_session_reference() {
 fn balance_value() -> serde_json::Value {
     json!({"amount":360_000,"net":348_000,"fee":12_000,"fee_details":[{"amount":10_000,"currency":"thb","type":"stripe_fee"},{"amount":2000,"currency":"thb","type":"tax"}],"id":"txn_1","available_on":1,"created":1,"currency":"thb","object":"balance_transaction","reporting_category":"charge","source":"ch_1","status":"available","type":"charge","exchange_rate":36,"description":null})
 }
+
+#[test]
+fn unknown_stripe_fee_kinds_do_not_become_processing_fees_or_vat() {
+    let mut value = balance_value();
+    value["fee_details"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"amount":900,"currency":"thb","type":"future_fee"}));
+    let balance = serde_json::from_value(value).unwrap();
+    assert_eq!(amounts(&balance).unwrap(), (3480.0, 100.0, 20.0, 3600.0));
+}
+
+#[tokio::test]
+async fn unknown_stripe_balance_kind_is_skipped_without_fetching_its_source() {
+    let mut value = balance_value();
+    value["type"] = json!("future_type");
+    value["source"] = json!(null);
+    let fixture = Fixture::new(vec![Reply::json(json!({"data":[value], "has_more":false}))]).await;
+    let client = StripeClient::new(&StripeConfig {
+        base_url: fixture.url.to_string(),
+        timeout_secs: 3,
+        secret_key: Some("fixture-key".into()),
+    })
+    .unwrap();
+    let payout = crate::models::stripe::Payout {
+        id: "po_fixture".into(),
+        arrival_date: 1,
+    };
+    let payments = super::collect_payout(&client, &payout).await.unwrap();
+    assert!(payments.is_empty());
+}

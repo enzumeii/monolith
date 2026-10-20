@@ -378,3 +378,17 @@ fn listing_contact_projection_accepts_null_but_rejects_missing_selected_fields()
         );
     }
 }
+
+#[test]
+fn sku_wire_value_survives_shared_classification() {
+    for (raw, expected) in [
+        ("กขคAPP001", SkuCategory::Apparel),
+        ("ABCBLK_SS", SkuCategory::Stock),
+        ("ABCUNK001", SkuCategory::Unknown),
+    ] {
+        let sku: Sku = serde_json::from_value(json!(raw)).expect("SKU string");
+        assert_eq!(SkuCategory::from_sku(raw), expected);
+        assert_eq!(serde_json::to_value(&sku).expect("SKU string"), json!(raw));
+        assert_eq!(sku.into_string(), raw);
+    }
+}

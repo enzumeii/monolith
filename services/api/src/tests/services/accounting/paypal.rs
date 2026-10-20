@@ -36,6 +36,8 @@ fn transaction_bounds_compare_instants_including_offset_edges() {
 fn conversion_and_withdrawals_never_invent_a_payment_rate_or_payout() {
     let rows = records(
         vec![
+            detail("manual", "T0403", "2026-10-20T00:00:00Z", "THB", "3600"),
+            detail("conversion", "T0200", "2026-10-19T00:00:00Z", "THB", "3600"),
             detail("withdraw", "T0400", "2026-10-20T00:00:00Z", "THB", "3600"),
             detail("thb", "T0201", "2026-10-19T00:00:00Z", "THB", "3600"),
             detail("usd", "T0201", "2026-10-18T00:00:00Z", "USD", "-100"),
@@ -151,5 +153,91 @@ fn paypal_zero_digit_currencies_round_each_reported_amount() {
         assert_eq!(row.fee, 3.0);
         assert_eq!(row.net_paid, 98.0);
         assert_eq!(row.shipping_fee, Some(11.0));
+    }
+}
+
+#[test]
+fn unknown_paypal_events_keep_distinct_identities_and_sale_behavior() {
+    let first = detail("same", "T9999", "2026-10-01T00:00:00Z", "AUD", "10");
+    let second = detail("same", "T9998", "2026-10-01T00:00:00Z", "AUD", "10");
+    assert_ne!(identity(&first), identity(&second));
+    let row = super::payment(&first).unwrap().transaction;
+    assert_eq!(row.kind, domain::dto::AccountingKind::Sale);
+    assert_eq!(row.gross_paid, 10.0);
+}
+
+#[test]
+fn paypal_event_mappings_keep_descriptions_and_refund_classification() {
+    for (event, expected) in [
+        (
+            "T2105",
+            "Payment Held for fraudulent activity in currency AUD",
+        ),
+        (
+            "T2106",
+            "Payment Released from fraud review in currency AUD",
+        ),
+        (
+            "T1110",
+            "Hold the amount for chargeback review from customer Dispute in currency AUD",
+        ),
+        (
+            "T1111",
+            "Cancel the charge back and release the amount back to us in currency AUD",
+        ),
+        (
+            "T1106",
+            "Refund the amount to customer due to dispute lost in currency AUD",
+        ),
+        ("T0114", "Dispute Fee in currency AUD"),
+        ("T0000", "PAID TO  in currency AUD"),
+        ("T0011", "PAID TO  in currency AUD"),
+        ("T0006", ""),
+        ("T1107", ""),
+    ] {
+        let row = super::payment(&detail("event", event, "2026-10-01T00:00:00Z", "AUD", "10"))
+            .unwrap()
+            .transaction;
+        assert_eq!(row.description, expected);
+        assert_eq!(
+            row.kind,
+            if event == "T1107" {
+                domain::dto::AccountingKind::Refund
+            } else {
+                domain::dto::AccountingKind::Sale
+            }
+        );
+    }
+}
+
+#[test]
+fn all_supported_paypal_currencies_keep_their_native_precision() {
+    for (codes, expected) in [
+        (&["HUF", "JPY", "TWD"][..], 10.0),
+        (
+            &["BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"][..],
+            10.124,
+        ),
+        (
+            &[
+                "AUD", "BRL", "CAD", "CHF", "CNY", "CZK", "DKK", "EUR", "GBP", "HKD", "ILS", "MYR",
+                "MXN", "NOK", "NZD", "PHP", "PLN", "SEK", "SGD", "THB", "USD",
+            ][..],
+            10.12,
+        ),
+    ] {
+        for currency in codes {
+            let row = super::payment(&detail(
+                "precision",
+                "T0006",
+                "2026-10-01T00:00:00Z",
+                currency,
+                "10.1235",
+            ))
+            .unwrap()
+            .transaction;
+            assert_eq!(row.gross_paid, expected, "{currency}");
+            assert_eq!(row.currency, *currency);
+        }
     }
 }
