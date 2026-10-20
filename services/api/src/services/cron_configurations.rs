@@ -1,7 +1,9 @@
 use crate::{
     error::AppError,
-    models::cron::{CronConfiguration, period_mode, report_type, status},
-    repositories::{self, cron::ConfigurationFilter},
+    models::cron::{
+        ConfigurationFilter, CronConfiguration, file_format, period_mode, report_type, status,
+    },
+    repositories,
     services::cron_schedule::{
         CronScheduleError, TransactionPeriodMode, describe, next_occurrence, next_occurrences,
         transaction_window,
@@ -79,6 +81,7 @@ pub async fn create(
         request.inventory_id.as_deref(),
         request.status,
         next_run_at,
+        request.file_format,
     )
     .await?;
     transaction.commit().await?;
@@ -99,6 +102,7 @@ pub async fn update(
         .ok_or_else(missing_configuration)?;
     let current_report_type = report_type(&current.report_type);
     let current_period_mode = current.period_mode.as_deref().map(period_mode);
+    let format = merge_required(&patch.file_format, file_format(&current.file_format))?;
     let current_status = status(&current.status);
     let current_cron_expression = current.cron_expression.clone();
     let current_inventory_id = current.inventory_id.clone();
@@ -143,6 +147,7 @@ pub async fn update(
         inventory_id.as_deref(),
         status,
         next_run_at,
+        format,
     )
     .await?;
     transaction.commit().await?;
@@ -218,7 +223,8 @@ fn next_run(
 }
 
 fn is_empty_patch(patch: &PatchCronConfiguration) -> bool {
-    matches!(&patch.name, PatchField::Missing)
+    matches!(&patch.file_format, PatchField::Missing)
+        && matches!(&patch.name, PatchField::Missing)
         && matches!(&patch.report_type, PatchField::Missing)
         && matches!(&patch.cron_expression, PatchField::Missing)
         && matches!(&patch.receiver_email, PatchField::Missing)

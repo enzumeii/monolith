@@ -5,6 +5,7 @@ pub mod cron_configurations;
 pub mod cron_schedule;
 pub mod cron_worker;
 pub mod report_results;
+pub mod report_storage;
 
 pub mod inventories;
 pub mod orders;

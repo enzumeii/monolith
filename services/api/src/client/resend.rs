@@ -82,9 +82,17 @@ impl ResendClient {
         let options = CreateEmailBaseOptions::new(from, [to], subject)
             .with_html(html)
             .with_attachments(attachments.into_iter().map(|(filename, content)| {
+                let content_type = if std::path::Path::new(&filename)
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("xlsx"))
+                {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                } else {
+                    "text/csv"
+                };
                 CreateAttachment::from_content(content)
                     .with_filename(&filename)
-                    .with_content_type("text/csv")
+                    .with_content_type(content_type)
             }))
             .with_idempotency_key(idempotency_key);
         let response = tokio::time::timeout(self.timeout, self.inner.emails.send(options))
@@ -117,4 +125,4 @@ impl From<resend_rs::Error> for ClientError {
 
 #[cfg(test)]
 #[path = "../tests/client/resend.rs"]
-mod tests;
+pub(crate) mod tests;

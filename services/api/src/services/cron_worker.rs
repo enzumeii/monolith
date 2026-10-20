@@ -1,7 +1,11 @@
+use super::report_storage::{
+    self,
+    encode::{self, ReportData},
+};
 use crate::{
     error::AppError,
     models::{
-        cron::report_type,
+        cron::{Job, file_format, report_type},
         shopify::{PageRequest, ShopifyId},
     },
     repositories,
@@ -16,7 +20,6 @@ use crate::{
 use axum::http::StatusCode;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use domain::dto::{AccountingReportResponse, ScheduleReportType};
-use serde_json::{Value, json};
 use sqlx::PgPool;
 use std::collections::HashSet;
 use tokio::task::JoinSet;
@@ -37,6 +40,7 @@ pub async fn run(state: AppState) {
         }
         process_generation_batch(&state).await;
         process_email_batch(&state).await;
+        process_publication_batch(&state).await;
     }
 }
 
@@ -120,9 +124,8 @@ pub async fn process_generation_batch(state: &AppState) {
 
 pub async fn process_email_batch(state: &AppState) {
     let now = Utc::now().naive_utc();
-    let cutoff = now - chrono::Duration::hours(24);
     if let Err(error) =
-        repositories::cron::mark_ambiguous_emails_unknown(&state.pool, cutoff, now).await
+        repositories::cron::recover_expired(&state.pool, now, generation_attempt_limit(state)).await
     {
         crate::error::log_background_error("scheduled report email ambiguity recovery", &error);
         return;
@@ -141,145 +144,199 @@ pub async fn process_email_batch(state: &AppState) {
     }
 }
 
-#[allow(clippy::too_many_lines)]
-async fn send_one(state: &AppState) -> Result<bool, AppError> {
-    let now = Utc::now().naive_utc();
+pub async fn process_publication_batch(state: &AppState) {
+    for _ in 0..state.settings.scheduler.concurrency {
+        if let Err(error) = publish_one(state).await {
+            crate::error::log_background_error("scheduled report publication", &error);
+        }
+    }
+}
+
+async fn publish_one(state: &AppState) -> Result<bool, AppError> {
     let token = Uuid::new_v4();
-    let lease = now
-        + chrono::Duration::seconds(duration_seconds(state.settings.scheduler.lease_secs.max(1)));
-    let Some(job) = repositories::cron::claim_email(
+    let now = Utc::now().naive_utc();
+    let Some(job) = repositories::cron::claim_publication(
         &state.pool,
         token,
         now,
-        lease,
+        lease_until(state),
         generation_attempt_limit(state),
     )
     .await?
     else {
         return Ok(false);
     };
-    let (datasets, _) = match job.report_type.as_str() {
-        "TRANSACTION" => (vec!["transactions", "items"], 2),
-        "INVENTORY" => (vec!["inventory"], 1),
-        _ => {
-            repositories::cron::fail_email(
-                &state.pool,
-                job.id,
-                token,
-                "Saved report type is invalid",
-                None,
-                false,
-            )
-            .await?;
-            return Ok(true);
+    let outcome = with_lease(state, job.id, token, async {
+        let files =
+            report_storage::publish(&state.settings.reports.storage_directory, job.id).await?;
+        let mut transaction = state.pool.begin().await?;
+        if !repositories::cron::finish_publication(&mut transaction, job.id, Some(token)).await? {
+            return Err(lease_lost());
         }
-    };
-    let mut attachments = Vec::new();
-    for dataset in datasets {
-        let csv =
-            services::report_results::csv_from_saved(&job.report_type, &job.report_data, dataset)?;
-        attachments.push((
-            format!("{}-{dataset}.csv", safe_report_name(&job.cron_name)),
-            csv.into_bytes(),
-        ));
-    }
-    let encoded_size = attachments
-        .iter()
-        .map(|(_, bytes)| bytes.len().saturating_mul(4).div_ceil(3))
-        .sum::<usize>();
-    if encoded_size > state.settings.scheduler.max_email_bytes {
-        repositories::cron::fail_email(
+        if !repositories::report_results::save_files(&mut transaction, job.id, &files).await? {
+            return Err(AppError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Report audit is missing",
+            ));
+        }
+        transaction.commit().await?;
+        Ok(())
+    })
+    .await;
+    if let Err(error) = outcome {
+        repositories::cron::record_publication_failure(
             &state.pool,
             job.id,
             token,
-            "Report attachments exceed configured email size limit",
-            None,
-            false,
+            next_email_retry(state, job.publication_attempts),
         )
         .await?;
-        return Ok(true);
+        return Err(error);
     }
-    let Some(sender) = state
-        .settings
-        .shipping_sender
-        .as_ref()
-        .map(|sender| sender.email.as_str())
+    Ok(true)
+}
+
+async fn send_one(state: &AppState) -> Result<bool, AppError> {
+    let token = Uuid::new_v4();
+    let Some(job) = repositories::cron::claim_email(
+        &state.pool,
+        token,
+        Utc::now().naive_utc(),
+        lease_until(state),
+        generation_attempt_limit(state),
+    )
+    .await?
     else {
+        return Ok(false);
+    };
+    let mut ambiguous = false;
+    let outcome = with_lease(state, job.id, token, async {
+        let prepared = report_storage::load(&state.settings.reports.storage_directory, job.id)
+            .await?
+            .ok_or_else(|| {
+                AppError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Generated report files are missing",
+                )
+            })?;
+        let attachments = prepared
+            .files
+            .into_iter()
+            .map(|file| (file.filename, file.bytes))
+            .collect::<Vec<_>>();
+        let encoded_size = attachments
+            .iter()
+            .map(|(_, bytes)| bytes.len().div_ceil(3).saturating_mul(4))
+            .sum::<usize>();
+        if encoded_size > state.settings.scheduler.max_email_bytes {
+            return Err(AppError::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "Report attachments exceed configured email size limit",
+            ));
+        }
+        let sender = state.settings.shipping_sender.as_ref().ok_or_else(|| {
+            AppError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Report sender is not configured",
+            )
+        })?;
+        let client = super::common::resend_client(state)?;
+        ambiguous = true;
+        let message_id = client
+            .send_report_email(
+                &sender.email,
+                &job.receiver_email,
+                "Your scheduled report",
+                "<p>Your scheduled report is attached.</p>",
+                attachments,
+                &format!("report-result-{}", job.id),
+            )
+            .await
+            .map_err(|error| {
+                ambiguous = email_outcome_is_uncertain(&error);
+                AppError::from(error)
+            })?;
+        ambiguous = true;
+        if !repositories::cron::complete_email(
+            &state.pool,
+            job.id,
+            token,
+            message_id.as_ref(),
+            Utc::now().naive_utc(),
+        )
+        .await?
+        {
+            return Err(lease_lost());
+        }
+        Ok(())
+    })
+    .await;
+    if let Err(error) = outcome {
         let retry = next_email_retry(state, job.email_attempts);
         repositories::cron::fail_email(
             &state.pool,
             job.id,
             token,
-            "Report sender is not configured",
+            "Email delivery attempt failed",
             retry,
-            false,
+            ambiguous,
         )
         .await?;
-        return Ok(true);
-    };
-    let client = match super::common::resend_client(state) {
-        Ok(client) => client,
-        Err(error) => {
-            let retry = next_email_retry(state, job.email_attempts);
-            repositories::cron::fail_email(
-                &state.pool,
-                job.id,
-                token,
-                "Resend client unavailable",
-                retry,
-                false,
-            )
-            .await?;
-            tracing::warn!(result_id=%job.id, error=%error, "scheduled report email provider unavailable");
-            return Ok(true);
-        }
-    };
-    match client
-        .send_report_email(
-            sender,
-            &job.receiver_email,
-            "Your scheduled report",
-            "<p>Your scheduled report is attached.</p>",
-            attachments,
-            &format!("report-result-{}", job.id),
-        )
-        .await
-    {
-        Ok(message_id) => {
-            repositories::cron::complete_email(
-                &state.pool,
-                job.id,
-                token,
-                message_id.as_ref(),
-                Utc::now().naive_utc(),
-            )
-            .await?;
-        }
-        Err(error) => {
-            let ambiguous = crate::error::client_timeout(&error);
-            let retry = if ambiguous {
-                Some(
-                    Utc::now().naive_utc()
-                        + chrono::Duration::seconds(duration_seconds(
-                            state.settings.scheduler.retry_backoff_secs.max(1),
-                        )),
-                )
-            } else {
-                next_email_retry(state, job.email_attempts)
-            };
-            repositories::cron::fail_email(
-                &state.pool,
-                job.id,
-                token,
-                "Email delivery attempt failed",
-                retry,
-                ambiguous,
-            )
-            .await?;
-            tracing::warn!(result_id=%job.id, error=%error, ambiguous, "scheduled report email delivery failed");
-        }
+        crate::error::log_background_error("scheduled report email", &error);
     }
     Ok(true)
+}
+
+async fn with_lease<T>(
+    state: &AppState,
+    id: Uuid,
+    token: Uuid,
+    work: impl std::future::Future<Output = Result<T, AppError>>,
+) -> Result<T, AppError> {
+    let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(
+        (state.settings.scheduler.lease_secs / 3).max(1),
+    ));
+    let renewal = async {
+        loop {
+            heartbeat.tick().await;
+            match repositories::cron::renew_lease(&state.pool, id, token, lease_until(state)).await
+            {
+                Ok(true) => {}
+                Ok(false) => return lease_lost(),
+                Err(error) => return error,
+            }
+        }
+    };
+    tokio::select! {
+        result = work => result,
+        error = renewal => Err(error),
+    }
+}
+
+fn email_outcome_is_uncertain(error: &crate::client::ClientError) -> bool {
+    use crate::client::ClientErrorKind;
+    if crate::error::client_timeout(error) {
+        return true;
+    }
+    match error.kind() {
+        ClientErrorKind::InvalidInput(_) => false,
+        ClientErrorKind::Upstream { source, .. } => !matches!(
+            source.downcast_ref::<resend_rs::Error>(),
+            Some(resend_rs::Error::Resend(_) | resend_rs::Error::RateLimit { .. })
+        ),
+        _ => true,
+    }
+}
+
+fn lease_until(state: &AppState) -> NaiveDateTime {
+    Utc::now().naive_utc()
+        + chrono::Duration::seconds(duration_seconds(state.settings.scheduler.lease_secs))
+}
+fn lease_lost() -> AppError {
+    AppError::new(
+        StatusCode::CONFLICT,
+        "Scheduled report lease is no longer owned",
+    )
 }
 
 fn next_email_retry(state: &AppState, attempts: i32) -> Option<chrono::NaiveDateTime> {
@@ -295,25 +352,6 @@ fn next_email_retry(state: &AppState, attempts: i32) -> Option<chrono::NaiveDate
         .min(i64::MAX.cast_unsigned())
         .cast_signed();
     Some(Utc::now().naive_utc() + chrono::Duration::seconds(seconds))
-}
-
-fn safe_report_name(name: &str) -> String {
-    let name = name
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>();
-    let name = name.trim_matches('-');
-    if name.is_empty() {
-        "report".to_owned()
-    } else {
-        name.to_owned()
-    }
 }
 
 async fn generate_one(state: &AppState) -> Result<bool, AppError> {
@@ -333,43 +371,57 @@ async fn generate_one(state: &AppState) -> Result<bool, AppError> {
         return Ok(false);
     };
 
-    let generated = generate_report(state, &job).await;
-    match generated {
-        Ok((data, row_count)) => {
-            let size = serde_json::to_vec(&data)
-                .map_err(|error| AppError::from(anyhow::Error::new(error)))?
-                .len();
+    let outcome = with_lease(state, job.id, token, async {
+        let prepared = if let Some(prepared) =
+            report_storage::load(&state.settings.reports.storage_directory, job.id).await?
+        {
+            prepared
+        } else {
+            let data = generate_report(state, &job).await?;
+            let generated_at = Utc::now().naive_utc();
+            let format = file_format(&job.file_format);
+            let files = tokio::task::spawn_blocking(move || encode::generate(data, format))
+                .await
+                .map_err(|error| AppError::from(anyhow::Error::new(error)))??;
+            let size = files.iter().map(|file| file.bytes.len()).sum::<usize>();
             if size > state.settings.scheduler.max_payload_bytes {
-                fail_job(
-                    state,
-                    &job,
-                    token,
-                    "Report payload exceeds configured size limit",
-                )
-                .await?;
-                return Ok(true);
+                return Err(AppError::new(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "Report files exceed configured size limit",
+                ));
             }
-            repositories::cron::complete_generation(
-                &state.pool,
+            report_storage::prepare(
+                &state.settings.reports.storage_directory,
                 job.id,
-                token,
-                &data,
-                row_count,
-                Utc::now().naive_utc(),
+                generated_at,
+                format,
+                files,
             )
-            .await?;
+            .await?
+        };
+        if !repositories::cron::complete_generation(
+            &state.pool,
+            job.id,
+            token,
+            prepared.manifest.generated_at,
+        )
+        .await?
+        {
+            return Err(lease_lost());
         }
-        Err(error) => {
-            tracing::warn!(result_id=%job.id, error=%error, "scheduled report generation failed");
-            fail_job(state, &job, token, "Report generation failed").await?;
-        }
+        Ok(())
+    })
+    .await;
+    if let Err(error) = outcome {
+        crate::error::log_background_error("scheduled report generation", &error);
+        fail_job(state, &job, token, "Report generation failed").await?;
     }
     Ok(true)
 }
 
 async fn fail_job(
     state: &AppState,
-    job: &repositories::cron::GenerationJob,
+    job: &Job,
     token: Uuid,
     message: &'static str,
 ) -> Result<(), AppError> {
@@ -398,10 +450,7 @@ async fn fail_job(
     Ok(())
 }
 
-async fn generate_report(
-    state: &AppState,
-    job: &repositories::cron::GenerationJob,
-) -> Result<(Value, i64), AppError> {
+async fn generate_report(state: &AppState, job: &Job) -> Result<ReportData, AppError> {
     match report_type(&job.report_type) {
         ScheduleReportType::Transaction => {
             let start = job.period_start.ok_or_else(|| {
@@ -416,22 +465,10 @@ async fn generate_report(
                     "Transaction period is missing",
                 )
             })?;
-            let range = crate::validations::accounting::AccountingDateRange {
-                start: start.and_utc().fixed_offset(),
-                end: end.and_utc().fixed_offset(),
-            };
+            let range = transaction_range(start, end);
             let result: AccountingReportResponse =
                 services::accounting::report(state, range).await?;
-            let transaction_count = result
-                .transactions
-                .stripe
-                .len()
-                .saturating_add(result.transactions.paypal.len());
-            let count = i64::try_from(transaction_count.saturating_add(result.items.len()))
-                .unwrap_or(i64::MAX);
-            let data = serde_json::to_value(result)
-                .map_err(|error| AppError::from(anyhow::Error::new(error)))?;
-            Ok((data, count))
+            Ok(ReportData::Transaction(result))
         }
         ScheduleReportType::Inventory => {
             let id = job.inventory_id.as_deref().ok_or_else(|| {
@@ -479,8 +516,7 @@ async fn generate_report(
                 }
                 cursor = Some(next);
             }
-            let count = i64::try_from(products.len()).unwrap_or(i64::MAX);
-            Ok((json!({"inventory": products}), count))
+            Ok(ReportData::Inventory(products))
         }
     }
 }
@@ -514,3 +550,19 @@ fn duration_seconds(value: u64) -> i64 {
 fn generation_attempt_limit(state: &AppState) -> i32 {
     i32::try_from(state.settings.scheduler.max_generation_attempts.max(1)).unwrap_or(i32::MAX)
 }
+
+fn transaction_range(
+    start: NaiveDateTime,
+    end_exclusive: NaiveDateTime,
+) -> crate::validations::accounting::AccountingDateRange {
+    crate::validations::accounting::AccountingDateRange {
+        start: start.and_utc().fixed_offset(),
+        end: (end_exclusive - chrono::Duration::nanoseconds(1))
+            .and_utc()
+            .fixed_offset(),
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/services/cron_worker.rs"]
+mod tests;

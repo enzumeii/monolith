@@ -11,6 +11,15 @@ body:
   content: |-
     {
       "name": "Monthly transaction report",
-      "status": "ENABLED"
+      "status": "ENABLED",
+      "file_format": "XLSX"
     }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Format patch is accepted", () => {
+        pm.response.to.have.status(200);
+        pm.expect(pm.response.json().file_format).to.eql("XLSX");
+      });
+    language: text/javascript
 order: 5000

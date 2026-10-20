@@ -1,7 +1,6 @@
 use chrono::{DateTime, NaiveDateTime, SecondsFormat, Utc};
 use domain::dto::{
-    CronConfigurationDTO, EmailStatus, GenerationStatus, ReportResultDTO, SchedulePeriodMode,
-    ScheduleReportType, ScheduleStatus,
+    CronConfigurationDTO, ReportFileFormat, SchedulePeriodMode, ScheduleReportType, ScheduleStatus,
 };
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -13,6 +12,7 @@ pub(crate) struct CronConfiguration {
     pub report_type: String,
     pub cron_expression: String,
     pub receiver_email: String,
+    pub file_format: String,
     pub period_mode: Option<String>,
     pub inventory_id: Option<String>,
     pub status: String,
@@ -29,6 +29,7 @@ impl CronConfiguration {
             report_type: report_type(&self.report_type),
             cron_expression: self.cron_expression,
             receiver_email: self.receiver_email,
+            file_format: file_format(&self.file_format),
             period_mode: self.period_mode.as_deref().map(period_mode),
             inventory_id: self.inventory_id,
             status: status(&self.status),
@@ -40,59 +41,33 @@ impl CronConfiguration {
     }
 }
 
-#[derive(FromRow)]
-pub(crate) struct ReportResult {
-    pub id: Uuid,
-    pub configuration_id_snapshot: Uuid,
-    pub cron_name: String,
-    pub cron_expression: String,
-    pub report_type: String,
-    pub receiver_email: String,
-    pub period_mode: Option<String>,
-    pub inventory_id: Option<String>,
-    pub scheduled_for: NaiveDateTime,
-    pub period_start: Option<NaiveDateTime>,
-    pub period_end_exclusive: Option<NaiveDateTime>,
-    pub generation_status: String,
-    pub email_status: String,
-    pub report_schema_version: i32,
-    pub row_count: Option<i64>,
-    pub started_at: Option<NaiveDateTime>,
-    pub generated_at: Option<NaiveDateTime>,
-    pub email_first_attempt_at: Option<NaiveDateTime>,
-    pub sent_at: Option<NaiveDateTime>,
-    pub generation_error: Option<String>,
-    pub email_error: Option<String>,
-    pub email_message_id: Option<String>,
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ConfigurationFilter {
+    pub report_type: Option<ScheduleReportType>,
+    pub status: Option<ScheduleStatus>,
+    pub page: u32,
+    pub per_page: u32,
 }
 
-impl ReportResult {
-    pub fn into_dto(self, datasets: Vec<String>) -> ReportResultDTO {
-        ReportResultDTO {
-            id: self.id.to_string(),
-            configuration_id_snapshot: self.configuration_id_snapshot.to_string(),
-            cron_name: self.cron_name,
-            cron_expression: self.cron_expression,
-            report_type: report_type(&self.report_type),
-            receiver_email: self.receiver_email,
-            period_mode: self.period_mode.as_deref().map(period_mode),
-            inventory_id: self.inventory_id,
-            scheduled_for: timestamp(self.scheduled_for),
-            period_start: self.period_start.map(timestamp),
-            period_end_exclusive: self.period_end_exclusive.map(timestamp),
-            generation_status: generation_status(&self.generation_status),
-            email_status: email_status(&self.email_status),
-            report_schema_version: self.report_schema_version,
-            row_count: self.row_count,
-            started_at: self.started_at.map(timestamp),
-            generated_at: self.generated_at.map(timestamp),
-            email_first_attempt_at: self.email_first_attempt_at.map(timestamp),
-            sent_at: self.sent_at.map(timestamp),
-            generation_error: self.generation_error,
-            email_error: self.email_error,
-            email_message_id: self.email_message_id,
-            available_datasets: datasets,
-        }
+#[derive(FromRow)]
+pub(crate) struct Job {
+    pub id: Uuid,
+    pub receiver_email: String,
+    pub report_type: String,
+    pub file_format: String,
+    pub period_start: Option<NaiveDateTime>,
+    pub period_end_exclusive: Option<NaiveDateTime>,
+    pub inventory_id: Option<String>,
+    pub generation_attempts: i32,
+    pub email_attempts: i32,
+    pub publication_attempts: i32,
+}
+
+pub(crate) fn file_format(value: &str) -> ReportFileFormat {
+    match value {
+        "CSV" => ReportFileFormat::Csv,
+        "XLSX" => ReportFileFormat::Xlsx,
+        _ => unreachable!("database check restricts file formats"),
     }
 }
 
@@ -120,29 +95,7 @@ pub(crate) fn status(value: &str) -> ScheduleStatus {
     }
 }
 
-fn generation_status(value: &str) -> GenerationStatus {
-    match value {
-        "QUEUED" => GenerationStatus::Queued,
-        "RUNNING" => GenerationStatus::Running,
-        "SUCCEEDED" => GenerationStatus::Succeeded,
-        "FAILED" => GenerationStatus::Failed,
-        _ => unreachable!("database check restricts generation statuses"),
-    }
-}
-
-fn email_status(value: &str) -> EmailStatus {
-    match value {
-        "NOT_READY" => EmailStatus::NotReady,
-        "PENDING" => EmailStatus::Pending,
-        "SENDING" => EmailStatus::Sending,
-        "SENT" => EmailStatus::Sent,
-        "FAILED" => EmailStatus::Failed,
-        "UNKNOWN" => EmailStatus::Unknown,
-        _ => unreachable!("database check restricts email statuses"),
-    }
-}
-
-fn timestamp(value: NaiveDateTime) -> String {
+pub(crate) fn timestamp(value: NaiveDateTime) -> String {
     DateTime::<Utc>::from_naive_utc_and_offset(value, Utc)
         .to_rfc3339_opts(SecondsFormat::AutoSi, true)
 }

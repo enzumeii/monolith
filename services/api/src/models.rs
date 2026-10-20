@@ -19,3 +19,5 @@ pub use currency::CurrencyCode;
 mod sku;
 pub use sku::{Sku, SkuCategory};
 pub(crate) mod cron;
+
+pub(crate) mod report_results;

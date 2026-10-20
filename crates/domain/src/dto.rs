@@ -3,6 +3,7 @@ pub mod admin;
 pub mod auth;
 pub mod cron;
 pub mod error;
+pub mod report_results;
 
 pub use accounting::{
     AccountingGateway, AccountingItem, AccountingKind, AccountingReportQuery,
@@ -14,12 +15,12 @@ pub use admin::{
 pub use auth::{LoginRequest, RefreshRequest, SessionResponse, TokenResponse};
 pub use cron::{
     CreateCronConfiguration, CronConfigurationDTO, CronConfigurationListResponse,
-    CronConfigurationPreview, CronOccurrencePreview, CronPeriodPreview, EmailStatus,
-    GenerationStatus, ListCronConfigurationsQuery, ListReportResultsQuery, PatchCronConfiguration,
-    PatchField, PreviewCronConfiguration, ReportResultDTO, ReportResultDetail, ReportRowsQuery,
-    ReportRowsResponse, SchedulePeriodMode, ScheduleReportType, ScheduleStatus,
+    CronConfigurationPreview, CronOccurrencePreview, CronPeriodPreview,
+    ListCronConfigurationsQuery, PatchCronConfiguration, PatchField, PreviewCronConfiguration,
+    ReportFileFormat, SchedulePeriodMode, ScheduleReportType, ScheduleStatus,
 };
 pub use error::ErrorResponse;
+pub use report_results::{ListReportResultsQuery, ReportFileDTO, ReportResultDTO};
 
 pub mod products;
 pub use products::ProductReportRow;
@@ -30,10 +31,10 @@ pub use inventories::{
 };
 pub use orders::{OrderReportQuery, OrderReportResponse};
 
-#[cfg(test)]
-#[path = "tests/dto/cron.rs"]
-mod cron_tests;
-
 pub mod pagination;
 
 pub use pagination::PageInfo;
+
+#[cfg(test)]
+#[path = "tests/dto/cron.rs"]
+mod cron_tests;

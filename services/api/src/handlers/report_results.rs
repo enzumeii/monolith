@@ -8,7 +8,7 @@ use axum::{
     },
     http::{HeaderValue, Response, StatusCode, header},
 };
-use domain::dto::{ListReportResultsQuery, ReportRowsQuery};
+use domain::dto::ListReportResultsQuery;
 use serde::Deserialize;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -26,34 +26,16 @@ pub async fn list(
 pub async fn detail(
     State(state): State<AppState>,
     path: Result<Path<String>, PathRejection>,
-) -> Result<Json<domain::dto::ReportResultDetail>, AppError> {
+) -> Result<Json<domain::dto::ReportResultDTO>, AppError> {
     Ok(Json(
         services::report_results::detail(&state.pool, result_id(path)?).await?,
     ))
 }
 
-pub async fn rows(
-    State(state): State<AppState>,
-    path: Result<Path<String>, PathRejection>,
-    query: Result<Query<ReportRowsQuery>, QueryRejection>,
-) -> Result<Json<domain::dto::ReportRowsResponse>, AppError> {
-    let id = result_id(path)?;
-    let Query(query) = query.map_err(|_| bad_request("Invalid report rows query"))?;
-    Ok(Json(
-        services::report_results::rows(
-            &state.pool,
-            id,
-            &query.dataset,
-            query.page.unwrap_or(1),
-            query.per_page.unwrap_or(25),
-        )
-        .await?,
-    ))
-}
-
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DownloadQuery {
-    dataset: String,
+    file: Option<String>,
 }
 
 pub async fn download(
@@ -63,12 +45,14 @@ pub async fn download(
 ) -> Result<Response<Body>, AppError> {
     let id = result_id(path)?;
     let Query(query) = query.map_err(|_| bad_request("Invalid report download query"))?;
-    let (csv, filename) = services::report_results::csv(&state.pool, id, &query.dataset).await?;
-    let mut response = Response::new(Body::from(csv));
+    let file = services::report_results::download(&state, id, query.file.as_deref()).await?;
+    let filename = file.filename;
+    let mut response = Response::new(Body::from(file.bytes));
     *response.status_mut() = StatusCode::OK;
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_static("text/csv; charset=utf-8"),
+        HeaderValue::from_str(&file.content_type)
+            .map_err(|_| bad_request("Invalid report content type"))?,
     );
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,

@@ -56,9 +56,13 @@ pub struct TestFixture {
     pool: PgPool,
     lock: Option<sqlx::PgConnection>,
     root: i64,
+    report_ids: std::sync::Mutex<Vec<Uuid>>,
     _api: Arc<TestApi>,
 }
 impl TestFixture {
+    pub fn own_report(&self, id: Uuid) {
+        self.report_ids.lock().unwrap().push(id);
+    }
     pub fn prefix(&self) -> &str {
         &self.prefix
     }
@@ -91,6 +95,7 @@ pub async fn fixture() -> TestFixture {
         prefix: format!("e{}", &Uuid::new_v4().simple().to_string()[..11]),
         lock: Some(lock),
         root: 0,
+        report_ids: std::sync::Mutex::new(Vec::new()),
         _api: api,
     };
     fixture.root = seed_admin(
@@ -106,6 +111,7 @@ impl Drop for TestFixture {
     fn drop(&mut self) {
         let url = self.url.clone();
         let prefix = self.prefix.clone();
+        let report_ids = self.report_ids.lock().unwrap().clone();
         let lock = self.lock.take();
         std::thread::spawn(move || {
             let runtime = tokio::runtime::Runtime::new().expect("cleanup runtime");
@@ -130,11 +136,17 @@ impl Drop for TestFixture {
                     .execute(&pool)
                     .await
                     .expect("owned row cleanup");
-                sqlx::query("DELETE FROM report_results WHERE configuration_id_snapshot IN (SELECT id FROM cron_configurations WHERE left(name,12)=$1)")
+                sqlx::query("DELETE FROM report_results WHERE id = ANY($2) OR id IN (SELECT id FROM cron_jobs WHERE left(cron_name,12)=$1)")
                     .bind(&prefix)
+                    .bind(&report_ids)
                     .execute(&pool)
                     .await
                     .expect("owned scheduled report cleanup");
+                sqlx::query("DELETE FROM cron_jobs WHERE left(cron_name,12)=$1")
+                    .bind(&prefix)
+                    .execute(&pool)
+                    .await
+                    .expect("owned scheduler job cleanup");
                 sqlx::query("DELETE FROM cron_configurations WHERE left(name,12)=$1")
                     .bind(&prefix)
                     .execute(&pool)
@@ -160,6 +172,9 @@ pub async fn client() -> TestClient {
     }
 }
 impl TestClient {
+    pub fn reports_directory(&self) -> std::path::PathBuf {
+        self.api.directory.join("reports")
+    }
     pub fn logs(&self) -> String {
         std::fs::read_to_string(self.api.directory.join("api.log")).unwrap()
     }
@@ -434,7 +449,7 @@ async fn test_api() -> Arc<TestApi> {
     if let Some(api) = shared.upgrade() {
         return api;
     }
-    let api = start_api(ProviderConfig::default()).await;
+    let api = start_api(ProviderConfig::default(), false).await;
     *shared = Arc::downgrade(&api);
     api
 }
@@ -442,10 +457,13 @@ async fn test_api() -> Arc<TestApi> {
 pub async fn client_with_shopify(url: &str) -> TestClient {
     TestClient {
         http: reqwest::Client::new(),
-        api: start_api(ProviderConfig {
-            shopify_url: Some(url),
-            ..Default::default()
-        })
+        api: start_api(
+            ProviderConfig {
+                shopify_url: Some(url),
+                ..Default::default()
+            },
+            false,
+        )
         .await,
     }
 }
@@ -466,12 +484,20 @@ pub async fn client_with_providers(config: ProviderConfig<'_>) -> TestClient {
             .timeout(Duration::from_secs(45))
             .build()
             .unwrap(),
-        api: start_api(config).await,
+        api: start_api(config, false).await,
     }
 }
 
-async fn start_api(config: ProviderConfig<'_>) -> Arc<TestApi> {
+pub async fn client_with_scheduler(config: ProviderConfig<'_>) -> TestClient {
+    TestClient {
+        http: reqwest::Client::new(),
+        api: start_api(config, true).await,
+    }
+}
+
+async fn start_api(config: ProviderConfig<'_>, scheduler: bool) -> Arc<TestApi> {
     let shopify_url = config.shopify_url;
+    let poll_interval = if scheduler { 1 } else { 3600 };
     let port = if shopify_url.is_some()
         || config.resend_url.is_some()
         || std::env::var("E2E_API_PORT").is_err()
@@ -507,6 +533,7 @@ async fn start_api(config: ProviderConfig<'_>) -> Arc<TestApi> {
         directory,
         base: format!("http://127.0.0.1:{port}"),
     };
+    let reports_directory = api.directory.join("reports");
     std::fs::write(
         api.directory.join("application.toml"),
         format!(
@@ -518,13 +545,15 @@ port = {port}
 max_connections = 1
 min_connections = 1
 [scheduler]
-poll_interval_secs = 10
+poll_interval_secs = {poll_interval}
 concurrency = 1
 max_generation_attempts = 2
 retry_backoff_secs = 1
 lease_secs = 5
 max_payload_bytes = 20971520
 max_email_bytes = 20971520
+[reports]
+storage_directory = {reports_directory:?}
 [browser]
 public_origin = "http://127.0.0.1:8084"
 insecure_local = true

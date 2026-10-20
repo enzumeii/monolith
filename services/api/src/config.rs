@@ -94,6 +94,21 @@ pub struct Settings {
     pub jwt: JwtSettings,
     #[serde(default)]
     pub scheduler: SchedulerConfig,
+    #[serde(default)]
+    pub reports: ReportsConfig,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(default)]
+pub struct ReportsConfig {
+    pub storage_directory: std::path::PathBuf,
+}
+impl Default for ReportsConfig {
+    fn default() -> Self {
+        Self {
+            storage_directory: "storage/reports".into(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]

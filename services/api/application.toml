@@ -34,3 +34,6 @@ timeout_secs = 3
 [client.stripe]
 base_url = "https://api.stripe.com/v1/"
 timeout_secs = 3
+
+[reports]
+storage_directory = "storage/reports"

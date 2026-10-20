@@ -22,24 +22,12 @@ pub enum ScheduleStatus {
     Disabled,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
-pub enum GenerationStatus {
-    Queued,
-    Running,
-    Succeeded,
-    Failed,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "UPPERCASE")]
-pub enum EmailStatus {
-    NotReady,
-    Pending,
-    Sending,
-    Sent,
-    Failed,
-    Unknown,
+pub enum ReportFileFormat {
+    #[default]
+    Csv,
+    Xlsx,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -49,6 +37,8 @@ pub struct CreateCronConfiguration {
     pub report_type: ScheduleReportType,
     pub cron_expression: String,
     pub receiver_email: String,
+    #[serde(default)]
+    pub file_format: ReportFileFormat,
     #[serde(default)]
     pub period_mode: Option<SchedulePeriodMode>,
     #[serde(default)]
@@ -87,6 +77,7 @@ pub struct PatchCronConfiguration {
     pub report_type: PatchField<ScheduleReportType>,
     pub cron_expression: PatchField<String>,
     pub receiver_email: PatchField<String>,
+    pub file_format: PatchField<ReportFileFormat>,
     pub period_mode: PatchField<SchedulePeriodMode>,
     pub inventory_id: PatchField<String>,
     pub status: PatchField<ScheduleStatus>,
@@ -129,6 +120,7 @@ pub struct CronConfigurationDTO {
     pub report_type: ScheduleReportType,
     pub cron_expression: String,
     pub receiver_email: String,
+    pub file_format: ReportFileFormat,
     pub period_mode: Option<SchedulePeriodMode>,
     pub inventory_id: Option<String>,
     pub status: ScheduleStatus,
@@ -154,80 +146,6 @@ pub struct ListCronConfigurationsQuery {
 #[derive(Clone, Debug, Serialize)]
 pub struct CronConfigurationListResponse {
     pub items: Vec<CronConfigurationDTO>,
-    pub page: u32,
-    pub per_page: u32,
-    pub has_next: bool,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ListReportResultsQuery {
-    #[serde(default)]
-    pub configuration_id: Option<String>,
-    #[serde(default)]
-    pub report_type: Option<ScheduleReportType>,
-    #[serde(default)]
-    pub generation_status: Option<GenerationStatus>,
-    #[serde(default)]
-    pub email_status: Option<EmailStatus>,
-    #[serde(default)]
-    pub scheduled_from: Option<String>,
-    #[serde(default)]
-    pub scheduled_to: Option<String>,
-    #[serde(default)]
-    pub page: Option<u32>,
-    #[serde(default)]
-    pub per_page: Option<u32>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct ReportResultDTO {
-    pub id: String,
-    pub configuration_id_snapshot: String,
-    pub cron_name: String,
-    pub cron_expression: String,
-    pub report_type: ScheduleReportType,
-    pub receiver_email: String,
-    pub period_mode: Option<SchedulePeriodMode>,
-    pub inventory_id: Option<String>,
-    pub scheduled_for: String,
-    pub period_start: Option<String>,
-    pub period_end_exclusive: Option<String>,
-    pub generation_status: GenerationStatus,
-    pub email_status: EmailStatus,
-    pub report_schema_version: i32,
-    pub row_count: Option<i64>,
-    pub started_at: Option<String>,
-    pub generated_at: Option<String>,
-    pub email_first_attempt_at: Option<String>,
-    pub sent_at: Option<String>,
-    pub generation_error: Option<String>,
-    pub email_error: Option<String>,
-    pub email_message_id: Option<String>,
-    pub available_datasets: Vec<String>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct ReportResultDetail {
-    #[serde(flatten)]
-    pub result: ReportResultDTO,
-    pub export_links: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ReportRowsQuery {
-    pub dataset: String,
-    #[serde(default)]
-    pub page: Option<u32>,
-    #[serde(default)]
-    pub per_page: Option<u32>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct ReportRowsResponse {
-    pub columns: Vec<String>,
-    pub items: Vec<serde_json::Value>,
     pub page: u32,
     pub per_page: u32,
     pub has_next: bool,

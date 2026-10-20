@@ -10,15 +10,19 @@ use crate::{
 use serde_json::json;
 use std::error::Error;
 
-fn client(fixture: &Fixture) -> ResendClient {
+pub(crate) fn client_with_url(url: reqwest::Url) -> ResendClient {
     ResendClient {
         timeout: std::time::Duration::from_secs(10),
         inner: Resend::with_config(
             resend_rs::ConfigBuilder::new("re_private-fixture")
-                .base_url(fixture.url.join("/").unwrap())
+                .base_url(url)
                 .build(),
         ),
     }
+}
+
+fn client(fixture: &Fixture) -> ResendClient {
+    client_with_url(fixture.url.join("/").unwrap())
 }
 
 #[tokio::test]
@@ -169,4 +173,34 @@ fn missing_or_zero_deadlines_are_retained_as_client_initialization_errors() {
             ClientErrorKind::InvalidInput("Resend timeout is missing or zero")
         ));
     }
+}
+
+#[tokio::test]
+async fn report_attachments_keep_raw_bytes_and_selected_mime_types() {
+    let fixture = Fixture::new(vec![Reply::json(json!({"id":"report-email"}))]).await;
+    let bytes = vec![0, 1, 2, 255];
+    client(&fixture)
+        .send_report_email(
+            "sender@example.test",
+            "recipient@example.test",
+            "Report",
+            "<p>Report</p>",
+            vec![
+                ("inventory.csv".into(), bytes.clone()),
+                ("inventory.xlsx".into(), bytes.clone()),
+            ],
+            "report-result-fixture",
+        )
+        .await
+        .unwrap();
+    let requests = fixture.requests();
+    assert_eq!(requests[0].1["idempotency-key"], "report-result-fixture");
+    let attachments = &requests[0].2["attachments"];
+    assert_eq!(attachments[0]["content"], json!(bytes));
+    assert_eq!(attachments[1]["content"], json!(bytes));
+    assert_eq!(attachments[0]["content_type"], "text/csv");
+    assert_eq!(
+        attachments[1]["content_type"],
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
 }
