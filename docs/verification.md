@@ -7,7 +7,7 @@ Results describe this revision's exercised scope, separately from [architecture]
 | Local evidence | Result |
 | --- | --- |
 | CI tooling | Root just check passed: actionlint, shellcheck, Bash syntax, 60 Node policy/release/report/helper tests; pinned reference-parser dependency audit reports zero vulnerabilities |
-| Rust checks | Workspace formatting and all four module check recipes passed, including backoffice native/WASM lint and domain WASM compilation |
+| Rust checks | After incorporating remote accounting changes: workspace formatting and all four module check recipes passed; corrected nine incoming test-only domain lint errors; all11 domain unit/contract tests passed |
 | API coverage command | 200 native tests + 97 TCP endpoint tests + 2 controlled teardown tests passed; isolated Compose enz26 on port15433 removed with volumes |
 | Backoffice coverage command | 53 native tests and 9 shared-domain tests passed; uninstrumented domain WASM compilation passed |
 | Domain coverage command | 1 native unit and 8 contract tests passed |
