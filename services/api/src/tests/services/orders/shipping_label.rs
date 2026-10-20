@@ -54,11 +54,7 @@ fn sku_category_priority_and_declaration_preserve_legacy_quantity_rules() {
         Number::from_f64(100.0).expect("valid fixture")
     );
 }
-#[test]
-fn japanese_kanji_uses_japanese_readings_and_other_addresses_transliterate() {
-    assert_eq!(romanize("東京都", "JP").to_lowercase(), "toukyouto");
-    assert_eq!(romanize("L'été", "FR"), "Lete");
-}
+
 #[test]
 fn best_labels_preserve_reference_zero_weight_without_requiring_order_weight() {
     let raw = json!({"id":"gid://shopify/Order/1","email":null,"totalWeight":null,"shippingAddress":{"firstName":"A","lastName":"B","name":"A B","address1":"1 Main","address2":null,"city":"Bangkok","provinceCode":null,"zip":"00123","country":"Thailand","countryCodeV2":"TH","phone":"123"},"shippingLines":{"nodes":[{"code":"Standard Shipping"}]},"lineItems":{"nodes":[]}});

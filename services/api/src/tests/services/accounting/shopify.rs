@@ -1,7 +1,10 @@
 #![allow(clippy::unwrap_used, clippy::float_cmp)]
-use super::{address, apply, complete, phone, reference, sku_category, thb};
+use super::{address, apply, complete, phone, reference, thb};
 use crate::{
-    models::shopify::{Money, OrderTransaction},
+    models::{
+        SkuCategory,
+        shopify::{Money, OrderTransaction},
+    },
     services::accounting::tests::{order, order_value, page, payment, transaction},
 };
 use domain::dto::{AccountingGateway, AccountingKind};
@@ -55,10 +58,10 @@ fn sales_ship_once_and_use_the_receipt_reference() {
     assert_eq!(items[0].price, 95.0);
     assert_eq!(address(&order()), "1 Road, Bangkok, 10000");
     assert_eq!(phone(&order()), 66_812_345_678);
-    assert_eq!(sku_category("ABCKEY001"), "KEYCHAIN");
-    assert_eq!(sku_category("ABCAPP001"), "APPAREL");
-    assert_eq!(sku_category("ABCUNK001"), "");
-    assert_eq!(sku_category("ABCAPP_IP"), "STOCK");
+    assert_eq!(SkuCategory::from_sku("ABCKEY001").as_str(), "KEYCHAIN");
+    assert_eq!(SkuCategory::from_sku("ABCAPP001").as_str(), "APPAREL");
+    assert_eq!(SkuCategory::from_sku("ABCUNK001").as_str(), "");
+    assert_eq!(SkuCategory::from_sku("ABCAPP_IP").as_str(), "STOCK");
 }
 #[test]
 fn shipping_currency_is_converted_only_when_compatible() {
@@ -179,14 +182,6 @@ fn paypal_shipping_prefers_provider_and_never_uses_another_currency() {
 }
 
 #[test]
-fn report_sku_category_uses_character_positions() {
-    assert_eq!(sku_category("กขคAPP001"), "APPAREL");
-    assert_eq!(sku_category("กขคKEY001"), "KEYCHAIN");
-    assert_eq!(sku_category("กขคAPP_SS"), "STOCK");
-    assert_eq!(sku_category("短"), "");
-}
-
-#[test]
 fn report_contact_preserves_locality_unicode_and_numeric_phone_policy() {
     let mut value = order_value();
     value["shippingAddress"] = json!({"name":"Name","address1":" บ้าน 1 ","address2":" ","city":" กรุงเทพ ","provinceCode":" TH-10 ","country":" Thailand ","zip":" 00100 ","phone":"00 (081) ٢3-45"});
@@ -195,49 +190,6 @@ fn report_contact_preserves_locality_unicode_and_numeric_phone_policy() {
     assert_eq!(phone(&order), 81345);
     value["shippingAddress"]["phone"] = json!("18446744073709551616");
     assert_eq!(phone(&serde_json::from_value(value).unwrap()), 0);
-}
-
-#[test]
-fn report_category_labels_keep_each_product_group() {
-    for (code, expected) in [
-        ("APP", "APPAREL"),
-        ("BBT", "APPAREL"),
-        ("TEE", "APPAREL"),
-        ("TOT", "BAG"),
-        ("BLK", "BLANKET"),
-        ("QCS", "PHONE_ACCESSORY"),
-        ("CSE", "PHONE_ACCESSORY"),
-        ("GTK", "PHONE_ACCESSORY"),
-        ("PSR", "PHONE_ACCESSORY"),
-        ("CLC", "CLAWCLIP"),
-        ("PIN", "BADGE"),
-        ("KEY", "KEYCHAIN"),
-        ("QSK", "KEYCHAIN"),
-        ("LNK", "KEYCHAIN"),
-        ("WDK", "KEYCHAIN"),
-        ("KMB", "KEYCHAIN"),
-        ("LQD", "KEYCHAIN"),
-        ("CRB", "CARABINER"),
-        ("PSH", "PLUSHIE"),
-        ("STD", "STANDEE"),
-        ("STS", "STICKER_SHEET"),
-        ("PTC", "STICKER_SHEET"),
-        ("PCT", "PHOTOCARD"),
-        ("MAG", "MAGNET"),
-        ("STK", "STICKER"),
-        ("BST", "STICKER"),
-        ("ZPB", "ZIPPER_BAG"),
-        ("BDS", "BEAD"),
-        ("CLP", "HAIRCLIP"),
-        ("LYD", "LANYARD"),
-        ("CHD", "CARDHOLDER"),
-        ("UNK", ""),
-    ] {
-        assert_eq!(sku_category(&format!("ABC{code}001")), expected);
-    }
-    for marker in ["_IP", "_SS", "_XM"] {
-        assert_eq!(sku_category(&format!("ABCBLK{marker}001")), "STOCK");
-    }
 }
 
 #[test]

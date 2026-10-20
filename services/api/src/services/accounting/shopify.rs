@@ -2,11 +2,12 @@ use super::{Payment, date, money, protocol, quantity};
 use crate::{
     client::shopify::ShopifyClient,
     error::AppError,
-    models::shopify::{
-        AccountingLineItem, Money, Order, OrderTransaction, PageRequest, SkuCategory,
+    models::{
+        Sku, SkuCategory,
+        shopify::{AccountingLineItem, Money, Order, OrderTransaction, PageRequest},
     },
     services::{common::upstream, pagination::for_each_page},
-    utils::contact::ascii_digits,
+    utils::contact::{format_address, phone_number},
     validations::accounting::AccountingDateRange,
 };
 use domain::dto::accounting::AccountingTransactions;
@@ -397,11 +398,7 @@ fn item(
     order_id: u64,
     reference: &str,
 ) -> AccountingItem {
-    let sku = line
-        .sku
-        .clone()
-        .map(crate::models::shopify::Sku::into_string)
-        .unwrap_or_default();
+    let sku = line.sku.clone().map(Sku::into_string).unwrap_or_default();
     AccountingItem {
         quantity,
         price,
@@ -412,7 +409,7 @@ fn item(
             .clone(),
         title: line.title.clone(),
         variant: line.variant_title.clone().unwrap_or_default(),
-        category: sku_category(&sku).to_owned(),
+        category: SkuCategory::from_sku(&sku).as_str().to_owned(),
         sku,
         kind,
         transaction_date: date.to_owned(),
@@ -421,62 +418,28 @@ fn item(
     }
 }
 
-fn sku_category(sku: &str) -> &'static str {
-    match SkuCategory::from_sku(sku) {
-        SkuCategory::Apparel => "APPAREL",
-        SkuCategory::Bag => "BAG",
-        SkuCategory::Blanket => "BLANKET",
-        SkuCategory::PhoneAccessory => "PHONE_ACCESSORY",
-        SkuCategory::Clawclip => "CLAWCLIP",
-        SkuCategory::Badge => "BADGE",
-        SkuCategory::Keychain => "KEYCHAIN",
-        SkuCategory::Carabiner => "CARABINER",
-        SkuCategory::Plushie => "PLUSHIE",
-        SkuCategory::Standee => "STANDEE",
-        SkuCategory::StickerSheet => "STICKER_SHEET",
-        SkuCategory::Photocard => "PHOTOCARD",
-        SkuCategory::Magnet => "MAGNET",
-        SkuCategory::Sticker => "STICKER",
-        SkuCategory::ZipperBag => "ZIPPER_BAG",
-        SkuCategory::Bead => "BEAD",
-        SkuCategory::Hairclip => "HAIRCLIP",
-        SkuCategory::Lanyard => "LANYARD",
-        SkuCategory::Cardholder => "CARDHOLDER",
-        SkuCategory::Stock => "STOCK",
-        SkuCategory::Unknown => "",
-    }
-}
-
 fn address(order: &Order) -> String {
     let Some(address) = &order.shipping_address else {
         return String::new();
     };
-    [
+    format_address(&[
         address.address1.as_deref(),
         address.address2.as_deref(),
         address.city.as_deref(),
         address.province_code.as_deref(),
         address.country.as_deref(),
         address.zip.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    .map(str::trim)
-    .filter(|part| !part.is_empty())
-    .collect::<Vec<_>>()
-    .join(", ")
+    ])
 }
 
 fn phone(order: &Order) -> u64 {
-    ascii_digits(
+    phone_number(
         order
             .shipping_address
             .as_ref()
             .and_then(|a| a.phone.as_deref())
             .unwrap_or_default(),
     )
-    .parse()
-    .unwrap_or_default()
 }
 #[cfg(test)]
 #[path = "../../tests/services/accounting/shopify.rs"]

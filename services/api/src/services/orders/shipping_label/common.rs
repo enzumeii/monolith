@@ -1,8 +1,11 @@
 use crate::{
     client::{ClientError, ClientErrorKind},
     error::AppError,
-    models::shopify::{ShippingAddress, ShippingItem, ShippingOrder, SkuCategory},
-    utils::contact::ascii_digits,
+    models::{
+        SkuCategory,
+        shopify::{ShippingAddress, ShippingItem, ShippingOrder},
+    },
+    utils::contact::{ascii_digits, romanize},
 };
 use axum::http::StatusCode;
 use domain::dto::orders::Courier;
@@ -189,18 +192,7 @@ pub(super) fn select_courier(method: &str) -> Option<Courier> {
         _ => None,
     }
 }
-pub(super) fn romanize(value: &str, country: &str) -> String {
-    let value = if country == "JP"
-        && value
-            .chars()
-            .any(|c| matches!(c,'\u{3400}'..='\u{9fff}'|'\u{f900}'..='\u{faff}'))
-    {
-        kakasi::convert(value).romaji
-    } else {
-        value.into()
-    };
-    deunicode::deunicode(&value).trim().replace('\'', "")
-}
+
 pub(super) fn joined_address(a: &ShippingAddress) -> String {
     format!(
         "{} {}",

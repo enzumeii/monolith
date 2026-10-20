@@ -42,6 +42,33 @@ pub enum SkuCategory {
 
 impl SkuCategory {
     #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Apparel => "APPAREL",
+            Self::Bag => "BAG",
+            Self::Blanket => "BLANKET",
+            Self::PhoneAccessory => "PHONE_ACCESSORY",
+            Self::Clawclip => "CLAWCLIP",
+            Self::Badge => "BADGE",
+            Self::Keychain => "KEYCHAIN",
+            Self::Carabiner => "CARABINER",
+            Self::Plushie => "PLUSHIE",
+            Self::Standee => "STANDEE",
+            Self::StickerSheet => "STICKER_SHEET",
+            Self::Photocard => "PHOTOCARD",
+            Self::Magnet => "MAGNET",
+            Self::Sticker => "STICKER",
+            Self::ZipperBag => "ZIPPER_BAG",
+            Self::Bead => "BEAD",
+            Self::Hairclip => "HAIRCLIP",
+            Self::Lanyard => "LANYARD",
+            Self::Cardholder => "CARDHOLDER",
+            Self::Stock => "STOCK",
+            Self::Unknown => "",
+        }
+    }
+
+    #[must_use]
     pub fn from_sku(sku: &str) -> Self {
         if ["_IP", "_SS", "_XM"]
             .iter()
@@ -73,3 +100,7 @@ impl SkuCategory {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/models/sku.rs"]
+mod tests;

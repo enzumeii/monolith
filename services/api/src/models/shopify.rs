@@ -1,3 +1,4 @@
+use super::Sku;
 pub use crate::client::MutationUserError;
 use crate::client::{ClientError, ClientErrorKind};
 use chrono::{DateTime, FixedOffset};
@@ -601,9 +602,6 @@ fn validate_size(first: u16) -> Result<(), ClientError> {
     Ok(())
 }
 mod products;
-
-mod sku;
-pub use sku::{Sku, SkuCategory};
 
 impl<T> Connection<T> {
     pub(crate) fn into_complete_nodes(self) -> Result<Vec<T>, ClientError> {

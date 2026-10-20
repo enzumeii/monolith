@@ -15,3 +15,6 @@ pub mod stripe;
 
 mod currency;
 pub use currency::CurrencyCode;
+
+mod sku;
+pub use sku::{Sku, SkuCategory};
