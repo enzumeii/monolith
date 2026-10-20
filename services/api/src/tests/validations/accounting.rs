@@ -39,3 +39,16 @@ fn accounting_report_preserves_the_supplied_offsets() {
     assert_eq!(range.start.offset().local_minus_utc(), 7 * 3600);
     assert_eq!(range.end.offset().local_minus_utc(), 7 * 3600);
 }
+
+#[test]
+fn accounting_report_accepts_raw_plus_and_encoded_timezone_offsets() {
+    for offset in ["+07:00", "%2B07:00", "%2007:00", "Z", "-03:30"] {
+        let range = extract(&format!(
+            "date_from=2026-10-01T00:00:00.123{offset}&date_to=2026-10-31T23:59:59{offset}"
+        ))
+        .expect("valid offset must survive query decoding");
+        assert!(range.start < range.end);
+    }
+    assert!(extract("date_from=2026-10-01T12:00:00+07:00&date_to=2026-10-01T06:00:00Z").is_ok());
+    assert!(extract("date_from=2026-10-01T12:00:00+07:00&date_to=2026-10-01T05:00:00Z").is_err());
+}

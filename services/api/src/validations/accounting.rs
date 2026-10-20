@@ -22,8 +22,10 @@ pub fn extract_accounting_query(
         )
     };
     let Query(query) = query.map_err(|_| invalid())?;
-    let start = DateTime::parse_from_rfc3339(&query.date_from).map_err(|_| invalid())?;
-    let end = DateTime::parse_from_rfc3339(&query.date_to).map_err(|_| invalid())?;
+    let start =
+        DateTime::parse_from_rfc3339(&query.date_from.replace(' ', "+")).map_err(|_| invalid())?;
+    let end =
+        DateTime::parse_from_rfc3339(&query.date_to.replace(' ', "+")).map_err(|_| invalid())?;
     if start >= end {
         return Err(invalid());
     }
