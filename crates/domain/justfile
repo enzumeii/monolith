@@ -2,8 +2,13 @@
 default:
     @just --list
 
-# Run shared serialization contract tests locally.
-test:
+# Run shared serialization contracts; pass --coverage for target/coverage/domain/lcov.info.
+test coverage="":
+    bash ../../scripts/test-coverage.sh domain {{quote(coverage)}}
+
+# Run the existing test suite; coverage instrumentation is supplied by the public test recipe.
+[private]
+_test:
     cargo test --locked -p domain
 
 # Check formatting, strict lint and database-free WASM compilation.

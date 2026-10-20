@@ -5,6 +5,7 @@ on:
     branches:
       - main
   pull_request:
+    types: [opened, edited, synchronize, reopened]
     branches:
       - main
 
@@ -23,7 +24,7 @@ jobs:
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@1.99.0
         with:
-          components: clippy, rustfmt
+          components: clippy, rustfmt, llvm-tools-preview
           targets: wasm32-unknown-unknown
 
       - name: Workspace formatting
@@ -38,7 +39,7 @@ jobs:
           key: api-tools-${{ hashFiles('services/api/justfile', 'services/api/dprint.json') }}
           cache-directories: services/api/.tools
 
-      # Detect which service changed so we only run its check/test.
+      # Detect which service changed for selective lint; coverage tests run for every crate.
       - name: Detect changed services
         uses: dorny/paths-filter@v3
         id: changes
@@ -71,23 +72,104 @@ jobs:
         working-directory: services/api
         run: just setup
 
-      - name: api check + test
+      - name: api check
         if: steps.changes.outputs.api == 'true'
         working-directory: services/api
         run: |
           just check
-          just test
 
-      - name: backoffice check + test
+      - name: backoffice check
         if: steps.changes.outputs.backoffice == 'true'
         working-directory: apps/backoffice
         run: |
           just check
-          just test
 
-      - name: client-ui check + test
+      - name: client-ui check
         if: steps.changes.outputs.client-ui == 'true'
         working-directory: apps/client-ui
         run: |
           just check
-          just test
+
+  infrastructure:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: extractions/setup-just@v3
+      - name: Install actionlint
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Validate CI tooling
+        run: just check
+      - name: Validate PR title
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            require('./.github/scripts/pr-policy.cjs').parseTitle(context.payload.pull_request.title);
+
+  coverage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - crate: api
+            module: services/api
+          - crate: backoffice
+            module: apps/backoffice
+          - crate: client-ui
+            module: apps/client-ui
+          - crate: domain
+            module: crates/domain
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          components: llvm-tools-preview
+          targets: wasm32-unknown-unknown
+      - uses: extractions/setup-just@v3
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: coverage-${{ matrix.crate }}
+          workspaces: '. -> target/coverage/${{ matrix.crate }}/build'
+      - name: Install coverage tool
+        run: cargo install --locked cargo-llvm-cov --version 0.9.1
+      - name: Run tests with coverage
+        working-directory: ${{ matrix.module }}
+        run: just test --coverage
+      - name: Validate report scope
+        run: node .github/scripts/coverage-report.cjs "${{ matrix.crate }}" "target/coverage/${{ matrix.crate }}/lcov.info"
+      - name: Retain coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.crate }}
+          path: target/coverage/${{ matrix.crate }}/lcov.info
+          if-no-files-found: error
+      - name: Check Codecov token availability
+        id: codecov
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        run: |
+          if [ -n "$CODECOV_TOKEN" ]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::CODECOV_TOKEN unavailable; report retained as artifact, Codecov upload skipped.'
+          fi
+      - name: Upload coverage reports to Codecov
+        if: steps.codecov.outputs.enabled == 'true'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: target/coverage/${{ matrix.crate }}/lcov.info
+          flags: ${{ matrix.crate }}
+          disable_search: true
+          fail_ci_if_error: true

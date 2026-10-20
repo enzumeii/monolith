@@ -23,6 +23,30 @@ use uuid::Uuid;
 
 static API: tokio::sync::Mutex<Weak<TestApi>> = tokio::sync::Mutex::const_new(Weak::new());
 
+pub fn stop_process(process: &mut Child, timeout: Duration) {
+    if process.try_wait().ok().flatten().is_some() {
+        return;
+    }
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .args(["-TERM", &process.id().to_string()])
+            .stderr(Stdio::null())
+            .status();
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            if process.try_wait().ok().flatten().is_some() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = timeout;
+    let _ = process.kill();
+    let _ = process.wait();
+}
+
 pub const JWT_SECRET: &str = "abababababababababababababababababababababababababababababababab";
 const FIXTURE_LOCK: i64 = 6_843_819_200_123;
 
@@ -384,8 +408,7 @@ struct TestApi {
 impl Drop for TestApi {
     fn drop(&mut self) {
         if let Some(process) = &mut self.process {
-            let _ = process.kill();
-            let _ = process.wait();
+            stop_process(process, Duration::from_secs(5));
         }
         let _ = std::fs::remove_dir_all(&self.directory);
     }
@@ -526,7 +549,8 @@ insecure_local = true
     for _ in 0..60 {
         assert!(
             api.process.as_mut().unwrap().try_wait().unwrap().is_none(),
-            "E2E API exited before readiness"
+            "E2E API exited before readiness: {}",
+            std::fs::read_to_string(api.directory.join("api.log")).unwrap_or_default()
         );
         if http
             .get(format!("{}/healthz", api.base))

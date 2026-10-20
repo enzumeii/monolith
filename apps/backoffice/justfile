@@ -37,8 +37,13 @@ fix:
 serve:
     dx serve --web --addr 127.0.0.1 --port 8084
 
-# Run shared contracts, domain WASM check, and native backoffice tests.
-test:
+# Run shared contracts, domain WASM check, and native tests; pass --coverage for backoffice LCOV.
+test coverage="":
+    bash ../../scripts/test-coverage.sh backoffice {{quote(coverage)}}
+
+# Run the existing test suite; coverage instrumentation is supplied by the public test recipe.
+[private]
+_test:
     cargo test --locked -p domain --no-default-features
-    cargo check --locked -p domain --no-default-features --target {{web_target}}
+    env -u RUSTC_WRAPPER -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo check --locked -p domain --no-default-features --target {{web_target}}
     cargo test --locked -p backoffice
