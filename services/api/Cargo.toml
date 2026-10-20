@@ -10,6 +10,7 @@ workspace = true
 reqwest.workspace = true
 resend-rs = "0.35.0"
 domain = { path = "../../crates/domain" }
+report-export = { path = "../../crates/report-export" }
 serde.workspace = true
 serde_json.workspace = true
 config.workspace = true

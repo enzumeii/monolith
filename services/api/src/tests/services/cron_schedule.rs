@@ -1,5 +1,8 @@
+#![allow(clippy::unwrap_used)]
+
 use crate::services::cron_schedule::{
-    CronScheduleError, TransactionPeriodMode, next_occurrence, transaction_window,
+    CronScheduleError, TransactionPeriodMode, describe, next_occurrence, next_occurrences,
+    normalize_expression, transaction_window,
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
 
@@ -40,6 +43,23 @@ fn next_occurrence_rejects_invalid_and_impossible_cron() {
         next_occurrence("0 0 31 2 *", utc("2026-10-20T00:00:00Z")),
         Err(CronScheduleError::NoFutureOccurrence)
     );
+}
+
+#[test]
+fn expressions_are_canonicalized_and_described() {
+    let expression = normalize_expression("  0   9 * * * ").unwrap();
+
+    assert_eq!(expression, "0 9 * * *");
+    assert_ne!(describe(&expression).unwrap(), "");
+}
+
+#[test]
+fn next_occurrences_returns_the_requested_number_in_bangkok_time() {
+    let occurrences = next_occurrences("0 9 * * *", utc("2026-10-20T01:00:00Z"), 2).unwrap();
+
+    assert_eq!(occurrences.len(), 2);
+    assert_eq!(occurrences[0], utc("2026-10-20T02:00:00Z"));
+    assert_eq!(occurrences[1], utc("2026-10-21T02:00:00Z"));
 }
 
 #[test]

@@ -1,0 +1,22 @@
+$kind: http-request
+description: Create a disabled Bangkok transaction report schedule. Save the returned id as cron_configuration_id to use the related requests.
+url: "{{server}}/v1/admin/cron-configurations/"
+method: POST
+body:
+  type: json
+  content: |-
+    {
+      "name": "Monthly transaction report",
+      "report_type": "TRANSACTION",
+      "cron_expression": "0 9 1 * *",
+      "receiver_email": "reports@example.com",
+      "period_mode": "PREVIOUS_MONTH",
+      "status": "DISABLED"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      const responseData = pm.response.json();
+      if (responseData.id) pm.environment.set("cron_configuration_id", responseData.id);
+    language: text/javascript
+order: 2000

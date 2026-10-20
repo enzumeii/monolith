@@ -1,0 +1,14 @@
+$kind: http-request
+description: List saved scheduled report metadata without loading report payloads. scheduled_to is exclusive; timestamps require RFC3339 offsets.
+url: "{{server}}/v1/admin/report-results?page=1&per_page=25"
+method: GET
+queryParams:
+  page: "1"
+  per_page: "25"
+scripts:
+  - type: afterResponse
+    code: |-
+      const responseData = pm.response.json();
+      if (responseData.items?.[0]?.id) pm.environment.set("report_result_id", responseData.items[0].id);
+    language: text/javascript
+order: 7000

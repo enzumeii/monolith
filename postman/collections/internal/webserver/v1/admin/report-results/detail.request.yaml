@@ -1,0 +1,9 @@
+$kind: http-request
+description: Get saved report-result metadata and available dataset export links.
+url: "{{server}}/v1/admin/report-results/:id"
+method: GET
+pathVariables:
+  - key: id
+    value: "{{report_result_id}}"
+    description: UUID returned by report history.
+order: 8000

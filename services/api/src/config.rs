@@ -92,6 +92,34 @@ pub struct Settings {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub jwt: JwtSettings,
+    #[serde(default)]
+    pub scheduler: SchedulerConfig,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(default)]
+pub struct SchedulerConfig {
+    pub poll_interval_secs: u64,
+    pub concurrency: usize,
+    pub max_generation_attempts: u32,
+    pub retry_backoff_secs: u64,
+    pub lease_secs: u64,
+    pub max_payload_bytes: usize,
+    pub max_email_bytes: usize,
+}
+
+impl Default for SchedulerConfig {
+    fn default() -> Self {
+        Self {
+            poll_interval_secs: 10,
+            concurrency: 2,
+            max_generation_attempts: 5,
+            retry_backoff_secs: 60,
+            lease_secs: 300,
+            max_payload_bytes: 20 * 1024 * 1024,
+            max_email_bytes: 20 * 1024 * 1024,
+        }
+    }
 }
 
 impl JwtSettings {
@@ -110,6 +138,18 @@ impl JwtSettings {
 impl Settings {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.jwt.key()?;
+        if self.scheduler.poll_interval_secs == 0
+            || !(1..=32).contains(&self.scheduler.concurrency)
+            || self.scheduler.max_generation_attempts == 0
+            || self.scheduler.retry_backoff_secs == 0
+            || self.scheduler.lease_secs == 0
+            || self.scheduler.max_payload_bytes == 0
+            || self.scheduler.max_email_bytes == 0
+        {
+            return Err(ConfigError::Message(
+                "Scheduler intervals, limits, and concurrency must be positive and bounded".into(),
+            ));
+        }
         if let Some(sender) = &self.shipping_sender
             && [
                 &sender.name,

@@ -1,0 +1,11 @@
+$kind: http-request
+description: Download a deterministic CSV generated from the immutable saved result payload. Use inventory for inventory results or transactions/items for transaction results.
+url: "{{server}}/v1/admin/report-results/:id/download?dataset=transactions"
+method: GET
+queryParams:
+  dataset: transactions
+pathVariables:
+  - key: id
+    value: "{{report_result_id}}"
+    description: UUID returned by report history.
+order: 10000

@@ -130,6 +130,16 @@ impl Drop for TestFixture {
                     .execute(&pool)
                     .await
                     .expect("owned row cleanup");
+                sqlx::query("DELETE FROM report_results WHERE configuration_id_snapshot IN (SELECT id FROM cron_configurations WHERE left(name,12)=$1)")
+                    .bind(&prefix)
+                    .execute(&pool)
+                    .await
+                    .expect("owned scheduled report cleanup");
+                sqlx::query("DELETE FROM cron_configurations WHERE left(name,12)=$1")
+                    .bind(&prefix)
+                    .execute(&pool)
+                    .await
+                    .expect("owned schedule cleanup");
                 pool.close().await;
                 drop(lock);
             });
@@ -507,6 +517,14 @@ port = {port}
 [database]
 max_connections = 1
 min_connections = 1
+[scheduler]
+poll_interval_secs = 10
+concurrency = 1
+max_generation_attempts = 2
+retry_backoff_secs = 1
+lease_secs = 5
+max_payload_bytes = 20971520
+max_email_bytes = 20971520
 [browser]
 public_origin = "http://127.0.0.1:8084"
 insecure_local = true

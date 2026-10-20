@@ -1,5 +1,6 @@
 pub(crate) mod admin;
 pub(crate) mod auth;
+pub(crate) mod cron;
 
 use crate::config::Settings;
 use sqlx::postgres::{PgPool, PgPoolOptions};

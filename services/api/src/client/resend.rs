@@ -4,7 +4,7 @@ use crate::{
 };
 use resend_rs::{
     Resend,
-    types::{CreateEmailBaseOptions, EmailId},
+    types::{CreateAttachment, CreateEmailBaseOptions, EmailId},
 };
 
 pub struct ResendClient {
@@ -54,6 +54,39 @@ impl ResendClient {
             subject,
         )
         .with_html(email);
+        let response = tokio::time::timeout(self.timeout, self.inner.emails.send(options))
+            .await
+            .map_err(|source| {
+                ClientError::new(ClientErrorKind::Upstream {
+                    source: Box::new(source),
+                    timed_out: true,
+                })
+            })??;
+        if response.id.as_ref().trim().is_empty() {
+            return Err(ClientError::new(ClientErrorKind::Protocol(
+                "email result missing",
+            )));
+        }
+        Ok(response.id)
+    }
+
+    pub async fn send_report_email(
+        &self,
+        from: &str,
+        to: &str,
+        subject: &str,
+        html: &str,
+        attachments: Vec<(String, Vec<u8>)>,
+        idempotency_key: &str,
+    ) -> Result<EmailId, ClientError> {
+        let options = CreateEmailBaseOptions::new(from, [to], subject)
+            .with_html(html)
+            .with_attachments(attachments.into_iter().map(|(filename, content)| {
+                CreateAttachment::from_content(content)
+                    .with_filename(&filename)
+                    .with_content_type("text/csv")
+            }))
+            .with_idempotency_key(idempotency_key);
         let response = tokio::time::timeout(self.timeout, self.inner.emails.send(options))
             .await
             .map_err(|source| {

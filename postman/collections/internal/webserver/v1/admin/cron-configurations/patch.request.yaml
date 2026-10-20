@@ -1,0 +1,16 @@
+$kind: http-request
+description: Update the selected schedule. PATCH validates the complete merged configuration; use null to clear optional fields.
+url: "{{server}}/v1/admin/cron-configurations/:id"
+method: PATCH
+pathVariables:
+  - key: id
+    value: "{{cron_configuration_id}}"
+    description: UUID returned by the create request.
+body:
+  type: json
+  content: |-
+    {
+      "name": "Monthly transaction report",
+      "status": "ENABLED"
+    }
+order: 5000

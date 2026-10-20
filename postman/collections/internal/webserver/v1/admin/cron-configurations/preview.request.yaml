@@ -1,0 +1,13 @@
+$kind: http-request
+description: Preview a five-field Bangkok transaction schedule and its next five occurrences and period windows.
+url: "{{server}}/v1/admin/cron-configurations/preview"
+method: POST
+body:
+  type: json
+  content: |-
+    {
+      "report_type": "TRANSACTION",
+      "cron_expression": "0 9 1 * *",
+      "period_mode": "PREVIOUS_MONTH"
+    }
+order: 3000

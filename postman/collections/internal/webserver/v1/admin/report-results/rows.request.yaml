@@ -1,0 +1,13 @@
+$kind: http-request
+description: Read one page of rows from the immutable saved result payload.
+url: "{{server}}/v1/admin/report-results/:id/rows?dataset=transactions&page=1&per_page=25"
+method: GET
+queryParams:
+  dataset: transactions
+  page: "1"
+  per_page: "25"
+pathVariables:
+  - key: id
+    value: "{{report_result_id}}"
+    description: UUID returned by report history.
+order: 9000

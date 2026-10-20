@@ -10,6 +10,7 @@ pub use models::stripe as stripe_models;
 pub mod repositories;
 pub mod routes;
 pub(crate) mod services;
+pub use services::cron_worker::run as run_scheduler;
 pub mod state;
 pub(crate) mod utils;
 pub(crate) mod validations;

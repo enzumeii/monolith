@@ -41,6 +41,7 @@ async fn run() -> Result<(), AppError> {
             }
         }
     });
+    let scheduler = tokio::spawn(api::run_scheduler(state.clone()));
     let router = routes::router(state);
     tracing::info!(%address,"API listening");
     let result = axum::serve(listener, router)
@@ -52,6 +53,8 @@ async fn run() -> Result<(), AppError> {
         .await;
     maintenance.abort();
     let _ = maintenance.await;
+    scheduler.abort();
+    let _ = scheduler.await;
     if result.is_ok() {
         pool.close().await;
     }

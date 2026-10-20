@@ -3,7 +3,7 @@ use chrono_tz::Asia::Bangkok;
 use croner::Cron;
 use std::str::FromStr;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CronScheduleError {
     InvalidExpression,
     InvalidPeriod,
@@ -32,6 +32,36 @@ pub fn next_occurrence(
     cron.find_next_occurrence(&after_bangkok, false)
         .map(|occurrence| occurrence.with_timezone(&Utc))
         .map_err(|_| CronScheduleError::NoFutureOccurrence)
+}
+
+pub fn normalize_expression(expression: &str) -> Result<String, CronScheduleError> {
+    let expression = canonical_expression(expression)?;
+    Cron::from_str(&expression).map_err(|_| CronScheduleError::InvalidExpression)?;
+    Ok(expression)
+}
+
+pub fn describe(expression: &str) -> Result<String, CronScheduleError> {
+    let expression = normalize_expression(expression)?;
+    let cron = Cron::from_str(&expression).map_err(|_| CronScheduleError::InvalidExpression)?;
+    Ok(cron.describe())
+}
+
+pub fn next_occurrences(
+    expression: &str,
+    after: DateTime<Utc>,
+    count: usize,
+) -> Result<Vec<DateTime<Utc>>, CronScheduleError> {
+    let expression = normalize_expression(expression)?;
+    let cron = Cron::from_str(&expression).map_err(|_| CronScheduleError::InvalidExpression)?;
+    let mut after_bangkok = after.with_timezone(&Bangkok);
+    let mut occurrences = Vec::with_capacity(count);
+    for _ in 0..count {
+        after_bangkok = cron
+            .find_next_occurrence(&after_bangkok, false)
+            .map_err(|_| CronScheduleError::NoFutureOccurrence)?;
+        occurrences.push(after_bangkok.with_timezone(&Utc));
+    }
+    Ok(occurrences)
 }
 
 pub fn transaction_window(
