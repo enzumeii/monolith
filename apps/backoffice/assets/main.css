@@ -428,6 +428,9 @@ a:focus-visible {
 }
 
 .reports-page { max-width: 1440px; min-width: 0; }
+.orders-page { min-width: 0; }
+.orders-results { max-width: none; }
+.orders-results input { min-width: 16ch; }
 .report-form { max-width: 480px; }
 .report-scroll { max-width: 100%; overflow-x: auto; }
 .report-scroll:focus-visible { outline: 2px solid var(--heading); outline-offset: 3px; }

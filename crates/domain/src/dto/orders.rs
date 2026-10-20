@@ -32,7 +32,7 @@ pub enum FulfillmentStatus {
     Any,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct OrderSummary {
     pub id: u64,
     pub number: i64,
@@ -75,13 +75,13 @@ pub struct FulfillOrderRequest {
     pub tracking_number: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct FulfillOrderResponse {
     pub success: bool,
     pub tracking_url: String,
 }
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ShippingLabels {
     pub fastship: Vec<FastshipLabel>,
     pub thaipost: Vec<ThaiPostLabel>,
@@ -89,7 +89,7 @@ pub struct ShippingLabels {
     pub teleport: Vec<TeleportLabel>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct FastshipLabel {
     pub firstname: String,
     pub lastname: String,
@@ -115,7 +115,7 @@ pub struct FastshipLabel {
     pub incoterm: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ThaiPostLabel {
     pub country_code: String,
     pub weight: u64,
@@ -148,7 +148,7 @@ pub struct ThaiPostLabel {
     pub hs_code: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct BestLabel {
     pub name: String,
     pub phone: String,
@@ -163,7 +163,7 @@ pub struct BestLabel {
     pub weight: u64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct TeleportLabel {
     pub name: String,
     pub email: String,

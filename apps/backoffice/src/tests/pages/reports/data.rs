@@ -1,4 +1,5 @@
 use super::*;
+use domain::dto::{InventoryResponse, PageInfo};
 use futures::executor::block_on;
 use std::collections::VecDeque;
 fn page(next: bool, cursor: Option<&str>) -> InventoryResponse {
@@ -13,8 +14,17 @@ fn page(next: bool, cursor: Option<&str>) -> InventoryResponse {
 #[test]
 fn complete_inventory_follows_empty_pages_until_complete() {
     let mut calls = vec![];
-    let mut pages = VecDeque::from([Ok(page(true, Some("abc+/="))), Ok(page(false, None))]);
-    let rows = block_on(collect_inventory(|cursor| {
+    let mut pages = VecDeque::from([
+        Ok(PageData::new(
+            Vec::<String>::new(),
+            page(true, Some("abc+/=")).page_info,
+        )),
+        Ok(PageData::new(
+            Vec::<String>::new(),
+            page(false, None).page_info,
+        )),
+    ]);
+    let rows = block_on(collect_pages(|cursor| {
         calls.push(cursor);
         std::future::ready(pages.pop_front().expect("valid test fixture"))
     }))
@@ -25,10 +35,25 @@ fn complete_inventory_follows_empty_pages_until_complete() {
 #[test]
 fn incomplete_inventory_never_succeeds() {
     for mut pages in [
-        VecDeque::from([Ok(page(true, None))]),
-        VecDeque::from([Ok(page(true, Some("same"))), Ok(page(true, Some("same")))]),
+        VecDeque::from([Ok(PageData::new(
+            Vec::<String>::new(),
+            page(true, None).page_info,
+        ))]),
         VecDeque::from([
-            Ok(page(true, Some("next"))),
+            Ok(PageData::new(
+                Vec::<String>::new(),
+                page(true, Some("same")).page_info,
+            )),
+            Ok(PageData::new(
+                Vec::<String>::new(),
+                page(true, Some("same")).page_info,
+            )),
+        ]),
+        VecDeque::from([
+            Ok(PageData::new(
+                Vec::<String>::new(),
+                page(true, Some("next")).page_info,
+            )),
             Err(crate::api::ApiError::new(
                 reqwest::StatusCode::BAD_GATEWAY,
                 "upstream failed",
@@ -36,12 +61,31 @@ fn incomplete_inventory_never_succeeds() {
         ]),
     ] {
         assert!(
-            block_on(collect_inventory(|_| std::future::ready(
+            block_on(collect_pages(|_| std::future::ready(
                 pages.pop_front().expect("valid test fixture")
             )))
             .is_err()
         );
     }
+}
+
+#[test]
+fn generic_pagination_collects_rows_across_pages() {
+    let mut calls = vec![];
+    let mut pages = VecDeque::from([
+        Ok(PageData::new(
+            vec![1, 2],
+            page(true, Some("next")).page_info,
+        )),
+        Ok(PageData::new(vec![3], page(false, None).page_info)),
+    ]);
+    let rows = block_on(collect_pages(|cursor| {
+        calls.push(cursor);
+        std::future::ready(pages.pop_front().expect("valid test fixture"))
+    }))
+    .expect("valid test fixture");
+    assert_eq!(rows, [1, 2, 3]);
+    assert_eq!(calls, [None, Some("next".into())]);
 }
 #[test]
 fn cursor_history_returns_to_first_page_and_resets() {

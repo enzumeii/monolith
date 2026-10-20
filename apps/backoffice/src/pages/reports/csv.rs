@@ -43,23 +43,37 @@ pub fn cells(row: &ProductReportRow) -> [String; 14] {
     ]
 }
 pub fn encode(rows: &[ProductReportRow]) -> String {
-    let mut csv = format!("{}\r\n", HEADERS.join(","));
-    for row in rows {
-        let line = cells(row)
+    let rows = rows.iter().map(|row| cells(row).into()).collect::<Vec<_>>();
+    encode_table(&HEADERS, &rows)
+}
+
+pub fn encode_table(headers: &[&str], rows: &[Vec<String>]) -> String {
+    let mut csv = format!(
+        "{}\r\n",
+        headers
             .iter()
-            .map(|value| {
-                if value.contains([',', '\"', '\n', '\r']) {
-                    format!("\"{}\"", value.replace('\"', "\"\""))
-                } else {
-                    value.clone()
-                }
-            })
+            .map(|value| escape(value))
             .collect::<Vec<_>>()
-            .join(",");
-        csv.push_str(&line);
+            .join(",")
+    );
+    for row in rows {
+        csv.push_str(
+            &row.iter()
+                .map(|value| escape(value))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
         csv.push_str("\r\n");
     }
     csv
+}
+
+fn escape(value: &str) -> String {
+    if value.contains([',', '\"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('\"', "\"\""))
+    } else {
+        value.to_owned()
+    }
 }
 #[cfg(test)]
 #[path = "../../tests/pages/reports/csv.rs"]
