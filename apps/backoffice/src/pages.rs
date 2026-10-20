@@ -1,5 +1,7 @@
 //! The app's pages, one module per page plus the shared navbar.
 
+mod accounting;
+pub use accounting::Accounting;
 mod admin;
 mod error;
 mod home;

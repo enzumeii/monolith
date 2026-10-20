@@ -81,7 +81,7 @@ pub fn SaveReport(rows: Vec<ProductReportRow>, filename: String) -> Element {
                                     let rows = rows.clone(); let id = id.clone();
                                     spawn(async move {
                                         let saved = match encode_report(&rows, selected) {
-                                            Ok(bytes) => download(bytes, &filename, selected, &id).await,
+                                            Ok(bytes) => download(bytes, &filename, selected.mime(), &id).await,
                                             Err(message) => Err(message),
                                         };
                                         busy.set(false);
@@ -177,7 +177,7 @@ async fn finish_picker(
 pub(crate) async fn download(
     bytes: Vec<u8>,
     filename: &str,
-    format: ExportFormat,
+    mime: &str,
     id: &str,
 ) -> Result<(), String> {
     let mut download = document::eval(
@@ -193,7 +193,7 @@ pub(crate) async fn download(
     ",
     );
     download
-        .send((encoded_bytes(&bytes), filename, format.mime(), id))
+        .send((encoded_bytes(&bytes), filename, mime, id))
         .map_err(|_| "Unable to save report".to_string())?;
     download
         .recv::<bool>()

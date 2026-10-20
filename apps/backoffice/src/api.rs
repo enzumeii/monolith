@@ -1,3 +1,4 @@
+pub mod accounting;
 pub mod admins;
 pub mod auth;
 pub mod inventories;
