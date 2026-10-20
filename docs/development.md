@@ -191,7 +191,7 @@ Titles require a nonempty description; optional scope accepts letters, digits, u
 | Release rule | Behavior |
 | --- | --- |
 | Initial baseline | Virtual version 0.1.0 at commit 2f9f9101ad5348c327c75c4504a5827975497ada; earlier history is not released |
-| Trigger | PR merged to main; trusted main code reconciles subsequent first-parent commits in order |
+| Trigger | pull_request_target closed, merged to main; trusted main code reconciles subsequent first-parent commits in order, including merged fork PRs |
 | Version storage | GitHub vX.Y.Z tags and release notes; Cargo package versions stay unchanged |
 | Concurrency/retry | Serialized releases; deterministic replay catches queued merges, reuses existing matching tags/releases, and finishes a tag-only partial attempt |
 | Conflicts | Invalid titles, direct commits, conflicting targets, or API errors fail visibly; tags are never moved |
