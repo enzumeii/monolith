@@ -327,11 +327,8 @@ pub struct Order {
     pub shipping_address: Option<Address>,
     pub current_total_price_set: MoneyBag,
     pub transactions: Vec<OrderTransaction>,
-    #[serde(default)]
-    pub line_items: AccountingConnection<AccountingLineItem>,
-    #[serde(default)]
-    pub shipping_lines: AccountingConnection<AccountingShippingLine>,
-    #[serde(default)]
+    pub line_items: Connection<AccountingLineItem>,
+    pub shipping_lines: Connection<AccountingShippingLine>,
     pub refunds: Vec<AccountingRefund>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -351,32 +348,14 @@ pub struct AccountingShippingLine {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountingRefund {
-    pub transactions: Vec<OrderTransaction>,
-    pub order_adjustments: AccountingConnection<AccountingOrderAdjustment>,
-    pub refund_line_items: AccountingConnection<AccountingRefundLineItem>,
+    pub transactions: Connection<OrderTransaction>,
+    pub refund_shipping_lines: Connection<AccountingRefundShippingLine>,
+    pub refund_line_items: Connection<AccountingRefundLineItem>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AccountingConnection<T> {
-    pub nodes: Vec<T>,
-    pub page_info: PageInfo,
-}
-impl<T> Default for AccountingConnection<T> {
-    fn default() -> Self {
-        Self {
-            nodes: Vec::new(),
-            page_info: PageInfo {
-                has_next_page: false,
-                end_cursor: None,
-            },
-        }
-    }
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AccountingOrderAdjustment {
-    pub kind: String,
-    pub amount_set: MoneyBag,
+pub struct AccountingRefundShippingLine {
+    pub subtotal_amount_set: MoneyBag,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

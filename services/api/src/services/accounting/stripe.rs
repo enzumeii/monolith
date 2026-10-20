@@ -1,0 +1,196 @@
+use super::{Payment, cents, empty_transaction, iso_utc, protocol};
+use crate::{
+    client::stripe::StripeClient,
+    error::AppError,
+    models::stripe::{BalanceTransaction, Payout},
+    services::common::upstream,
+    validations::accounting::AccountingDateRange,
+};
+use domain::dto::{AccountingGateway, AccountingKind};
+use std::collections::HashSet;
+
+pub(super) async fn collect(
+    client: &StripeClient,
+    range: &AccountingDateRange,
+) -> Result<Vec<Payment>, AppError> {
+    let mut payments = Vec::new();
+    let mut cursor = None;
+    let mut seen = HashSet::new();
+    loop {
+        let page = client
+            .list_payouts(
+                range.start.timestamp(),
+                range.end.timestamp(),
+                Some("paid"),
+                100,
+                cursor.as_deref(),
+            )
+            .await
+            .map_err(|error| upstream(error))?;
+        let cursor_end = page.data.last().map(|p| p.id.clone());
+        for payout in page.data {
+            collect_payout(client, &payout, &mut payments).await?;
+        }
+        if !page.has_more {
+            return Ok(payments);
+        }
+        let cursor_end = cursor_end
+            .filter(|next| seen.insert(next.clone()))
+            .ok_or_else(|| protocol("Stripe pagination cursor did not progress"))?;
+        cursor = Some(cursor_end);
+    }
+}
+
+async fn collect_payout(
+    client: &StripeClient,
+    payout: &Payout,
+    payments: &mut Vec<Payment>,
+) -> Result<(), AppError> {
+    let mut cursor = None;
+    let mut seen = HashSet::new();
+    loop {
+        let page = client
+            .list_balance_transactions(&payout.id, 100, cursor.as_deref())
+            .await
+            .map_err(|error| upstream(error))?;
+        let cursor_end = page.data.last().map(|p| p.id.clone());
+        for balance in page.data {
+            if !matches!(
+                balance.r#type.as_str(),
+                "charge" | "payment" | "refund" | "payment_refund"
+            ) {
+                continue;
+            }
+            let refund = balance.r#type.contains("refund");
+            let source = balance
+                .source
+                .as_deref()
+                .ok_or_else(|| protocol("Stripe accounting source missing"))?;
+            let (net, fee, vat, gross) = amounts(&balance)?;
+            let (reference, created, description, currency) =
+                reference(client, &balance, source, refund).await?;
+            let rate = exchange_rate(&balance, &currency)?;
+            let mut transaction = empty_transaction(
+                AccountingGateway::Stripe,
+                if refund {
+                    AccountingKind::Refund
+                } else {
+                    AccountingKind::Sale
+                },
+            );
+            transaction.po_number.clone_from(&payout.id);
+            transaction.po_date = iso_utc(payout.arrival_date);
+            transaction.transaction_date = iso_utc(created);
+            transaction.payment_reference = reference;
+            transaction.description = description;
+            transaction.exchange_rate = rate;
+            transaction.net_paid = net;
+            transaction.fee = fee;
+            transaction.vat = vat;
+            transaction.gross_paid = gross;
+            payments.push(Payment {
+                transaction,
+                currency,
+            });
+        }
+        if !page.has_more {
+            return Ok(());
+        }
+        let cursor_end = cursor_end
+            .filter(|next| seen.insert(next.clone()))
+            .ok_or_else(|| protocol("Stripe pagination cursor did not progress"))?;
+        cursor = Some(cursor_end);
+    }
+}
+
+async fn reference(
+    client: &StripeClient,
+    balance: &BalanceTransaction,
+    source: &str,
+    refund: bool,
+) -> Result<(String, i64, String, String), AppError> {
+    if refund {
+        let refund = client
+            .get_refund(source)
+            .await
+            .map_err(|error| upstream(error))?;
+        return Ok((
+            refund.id,
+            refund.created,
+            balance.description.clone().unwrap_or_default(),
+            refund.currency,
+        ));
+    }
+    let charge = client
+        .get_charge(source)
+        .await
+        .map_err(|error| upstream(error))?;
+    let reference = balance
+        .description
+        .as_deref()
+        .and_then(payment_session_id)
+        .unwrap_or_else(|| charge.id.clone());
+    let description = if balance
+        .description
+        .as_deref()
+        .is_some_and(|value| value.contains("REFUND FOR CHARGE"))
+    {
+        balance.description.clone().unwrap_or_default()
+    } else {
+        charge
+            .metadata
+            .customer_email
+            .or(charge.metadata.email)
+            .or(balance.description.clone())
+            .unwrap_or_default()
+    };
+    Ok((reference, charge.created, description, charge.currency))
+}
+
+fn exchange_rate(balance: &BalanceTransaction, currency: &str) -> Result<f64, AppError> {
+    let rate = balance
+        .exchange_rate
+        .or_else(|| currency.eq_ignore_ascii_case("THB").then_some(1.0))
+        .ok_or_else(|| protocol("Stripe exchange rate missing for converted payment"))?;
+    if !rate.is_finite() || rate <= 0.0 {
+        return Err(protocol("invalid Stripe exchange rate"));
+    }
+    Ok(rate)
+}
+
+fn amounts(balance: &BalanceTransaction) -> Result<(f64, f64, f64, f64), AppError> {
+    if !balance.currency.eq_ignore_ascii_case("THB")
+        || balance
+            .fee_details
+            .iter()
+            .any(|fee| !fee.currency.eq_ignore_ascii_case("THB"))
+    {
+        return Err(protocol("Stripe settlement currency is not THB"));
+    }
+    let fees = |kind: &str| {
+        balance
+            .fee_details
+            .iter()
+            .filter(|fee| fee.r#type == kind)
+            .map(|fee| cents(fee.amount))
+            .sum()
+    };
+    Ok((
+        cents(balance.net),
+        fees("stripe_fee"),
+        fees("tax"),
+        cents(balance.amount),
+    ))
+}
+
+fn payment_session_id(description: &str) -> Option<String> {
+    let marker = "gid://shopify/PaymentSession/";
+    let start = description.find(marker)? + marker.len();
+    let id = description[start..]
+        .split(|character: char| !character.is_ascii_digit())
+        .next()?;
+    (!id.is_empty()).then(|| id.to_owned())
+}
+#[cfg(test)]
+#[path = "../../tests/services/accounting/stripe.rs"]
+mod tests;

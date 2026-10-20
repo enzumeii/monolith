@@ -1,0 +1,138 @@
+#![allow(clippy::unwrap_used, clippy::float_cmp)]
+use super::{address, apply, complete, phone, reference, sku_category, thb};
+use crate::{
+    models::shopify::{Money, OrderTransaction},
+    services::accounting::tests::{order, order_value, page, payment, transaction},
+};
+use domain::dto::{AccountingGateway, AccountingKind};
+use serde_json::json;
+
+#[test]
+fn all_legacy_gateway_references_use_receipt_fields() {
+    for (gateway, kind, receipt, expected) in [
+        (
+            "stripe",
+            "CAPTURE",
+            json!({"charges":{"data":[{"id":"charge"}]}}),
+            "charge",
+        ),
+        ("stripe", "REFUND", json!({"id":"refund"}), "refund"),
+        ("paypal", "SALE", json!({"transaction_id":"sale"}), "sale"),
+        (
+            "paypal",
+            "REFUND",
+            json!({"refund_transaction_id":"refund"}),
+            "refund",
+        ),
+        (
+            "Stripe Card Payments",
+            "CAPTURE",
+            json!({}),
+            "different-payment-id",
+        ),
+    ] {
+        let tx: OrderTransaction =
+            serde_json::from_value(transaction(gateway, kind, receipt)).unwrap();
+        assert_eq!(reference(&tx).unwrap().unwrap().1, expected);
+    }
+    let mut value = transaction("paypal", "SALE", json!({}));
+    assert!(
+        reference(&serde_json::from_value(value.clone()).unwrap())
+            .unwrap()
+            .is_none()
+    );
+    value["receiptJson"] = json!("{");
+    assert!(reference(&serde_json::from_value(value).unwrap()).is_err());
+}
+#[test]
+fn sales_ship_once_and_use_the_receipt_reference() {
+    let mut payment = payment(AccountingGateway::Stripe, AccountingKind::Sale, "ch_1");
+    let mut items = Vec::new();
+    apply(&mut payment, &order(), &mut items).unwrap();
+    assert_eq!(payment.transaction.shipping_fee, 180.0);
+    assert_eq!(payment.transaction.shopify_order_id, 1);
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].price, 95.0);
+    assert_eq!(address(&order()), "1 Road, Bangkok, 10000");
+    assert_eq!(phone(&order()), 66_812_345_678);
+    assert_eq!(sku_category("ABCKEY001"), "KEYCHAIN");
+    assert_eq!(sku_category("ABCAPP001"), "APPAREL");
+    assert_eq!(sku_category("ABCUNK001"), "");
+    assert_eq!(sku_category("ABCAPP_IP"), "STOCK");
+}
+#[test]
+fn shipping_currency_is_converted_only_when_compatible() {
+    let payment = payment(AccountingGateway::Stripe, AccountingKind::Sale, "ch_1");
+    for (currency, expected) in [("THB", 5.0), ("USD", 180.0)] {
+        assert_eq!(
+            thb(
+                &Money {
+                    amount: "5".into(),
+                    currency_code: currency.into()
+                },
+                &payment
+            )
+            .unwrap(),
+            expected
+        );
+    }
+    assert!(
+        thb(
+            &Money {
+                amount: "5".into(),
+                currency_code: "EUR".into()
+            },
+            &payment
+        )
+        .is_err()
+    );
+}
+#[test]
+fn refund_connection_controls_shipping_and_item_allocation() {
+    let mut value = order_value();
+    value["refunds"] = json!([{
+        "transactions":page(vec![transaction("stripe","REFUND",json!({"id":"re_1"}))]),
+        "refundShippingLines":page(vec![json!({"subtotalAmountSet":{"shopMoney":{"amount":"1","currencyCode":"USD"}}})]),
+        "refundLineItems":page(vec![json!({"quantity":1,"subtotalSet":{"shopMoney":{"amount":"10","currencyCode":"USD"}},"lineItem":value["lineItems"]["nodes"][0]})])
+    }]);
+    let order = serde_json::from_value(value.clone()).unwrap();
+    let mut payment = payment(AccountingGateway::Stripe, AccountingKind::Refund, "re_1");
+    let mut items = Vec::new();
+    apply(&mut payment, &order, &mut items).unwrap();
+    assert_eq!(payment.transaction.shipping_fee, -36.0);
+    assert_eq!(items[0].quantity, -1);
+    assert_eq!(items[0].price, -10.0);
+    for path in [
+        "/lineItems/pageInfo/hasNextPage",
+        "/shippingLines/pageInfo/hasNextPage",
+        "/refunds/0/transactions/pageInfo/hasNextPage",
+        "/refunds/0/refundShippingLines/pageInfo/hasNextPage",
+        "/refunds/0/refundLineItems/pageInfo/hasNextPage",
+    ] {
+        let mut incomplete = value.clone();
+        *incomplete.pointer_mut(path).unwrap() = json!(true);
+        assert!(complete(&serde_json::from_value(incomplete).unwrap()).is_err());
+    }
+}
+#[test]
+fn partial_payment_items_and_shipping_are_allocated_once() {
+    let mut value = order_value();
+    value["transactions"][0]["amountSet"]["shopMoney"]["amount"] = json!("40");
+    let mut second = transaction(
+        "stripe",
+        "CAPTURE",
+        json!({"charges":{"data":[{"id":"ch_2"}]}}),
+    );
+    second["amountSet"]["shopMoney"]["amount"] = json!("60");
+    value["transactions"].as_array_mut().unwrap().push(second);
+    let order = serde_json::from_value(value).unwrap();
+    let mut first = payment(AccountingGateway::Stripe, AccountingKind::Sale, "ch_1");
+    let mut second = payment(AccountingGateway::Stripe, AccountingKind::Sale, "ch_2");
+    let mut items = Vec::new();
+    apply(&mut first, &order, &mut items).unwrap();
+    apply(&mut second, &order, &mut items).unwrap();
+    assert!(first.transaction.order_adjusted);
+    assert_eq!(first.transaction.shipping_fee, 180.0);
+    assert_eq!(second.transaction.shipping_fee, 0.0);
+    assert_eq!(items.len(), 1);
+}

@@ -1,65 +1,50 @@
-use super::super::accounting::{address, paypal_records, phone, sku_category};
-use crate::models::paypal::TransactionDetail;
+#![allow(clippy::unwrap_used, clippy::float_cmp, clippy::needless_pass_by_value)]
+use super::super::accounting::{Payment, date, empty_transaction, money};
+use crate::models::shopify::Order;
+use domain::dto::{AccountingGateway, AccountingKind};
+use serde_json::{Value, json};
 
 #[test]
-fn maps_accounting_categories_from_sku_codes() {
-    assert_eq!(sku_category("ABCKEY001"), "KEYCHAIN");
-    assert_eq!(sku_category("ABCAPP001"), "APPAREL");
-    assert_eq!(sku_category("ABCUNK001"), "");
-    assert_eq!(sku_category("ABCAPP_IP"), "STOCK");
+fn accounting_numbers_and_dates_reject_unusable_values() {
+    for value in ["NaN", "infinity", "invalid"] {
+        assert!(money(value).is_err());
+    }
+    assert!(date("not-a-date").is_err());
+    assert_eq!(money("12.50").unwrap(), 12.5);
 }
 
-#[test]
-fn missing_customer_address_is_empty_and_phone_is_numeric() {
-    let order: crate::models::shopify::Order = serde_json::from_value(serde_json::json!({
-        "id": "gid://shopify/Order/1",
-        "name": "#1",
-        "number": 1,
-        "createdAt": "2026-10-01T00:00:00Z",
-        "displayFulfillmentStatus": "UNFULFILLED",
-        "tags": [],
-        "currentTotalPriceSet": {"shopMoney": {"amount": "0.00", "currencyCode": "THB"}},
-        "transactions": [],
-        "shippingAddress": {"name": "Buyer", "address1": "1 Road", "address2": null, "city": "Bangkok", "zip": "10000", "countryCodeV2": "TH", "phone": "+66 81-234-5678"}
-    })).expect("Shopify order fixture should deserialize");
-    assert_eq!(address(&order), "1 Road, Bangkok, 10000");
-    assert_eq!(phone(&order), 66_812_345_678);
+pub(super) fn page(nodes: Vec<Value>) -> Value {
+    json!({"nodes": nodes, "pageInfo":{"hasNextPage":false,"endCursor":null}})
 }
-
-#[test]
-fn paypal_usd_checkout_uses_the_nearby_withdrawal_exchange_rate() {
-    let details = vec![
-        paypal_detail("withdrawal", "T0400", "2026-10-31T00:00:00Z", "THB", "0"),
-        paypal_detail("thb", "T0201", "2026-10-30T00:00:00Z", "THB", "3600"),
-        paypal_detail("usd", "T0201", "2026-10-29T00:00:00Z", "USD", "-100"),
-        paypal_detail("sale", "T0006", "2026-10-01T00:00:00Z", "USD", "10"),
-    ];
-    let records = paypal_records(details, 10);
-    assert_eq!(records.len(), 1);
-    assert_eq!(records[0].0.transaction.transaction_id, "sale");
-    assert!((records[0].1 - 36.0).abs() < f64::EPSILON);
-    assert_eq!(records[0].2.to_rfc3339(), "2026-10-31T00:00:00+00:00");
+pub(super) fn payment(
+    gateway: AccountingGateway,
+    kind: AccountingKind,
+    reference: &str,
+) -> Payment {
+    let mut transaction = empty_transaction(gateway, kind);
+    transaction.payment_reference = reference.into();
+    transaction.transaction_date = "2026-10-02T00:00:00Z".into();
+    transaction.exchange_rate = 36.0;
+    Payment {
+        transaction,
+        currency: "USD".into(),
+    }
 }
-
-fn paypal_detail(
-    id: &str,
-    event: &str,
-    date: &str,
-    currency: &str,
-    amount: &str,
-) -> TransactionDetail {
-    serde_json::from_value(serde_json::json!({
-        "transaction_info": {
-            "transaction_id": id,
-            "transaction_event_code": event,
-            "transaction_amount": {"currency_code": currency, "value": amount},
-            "transaction_initiation_date": date,
-            "transaction_updated_date": date,
-            "transaction_status": "S",
-            "invoice_id": null,
-            "fee_amount": null,
-            "shipping_amount": null
-        }
-    }))
-    .expect("PayPal transaction fixture should deserialize")
+pub(super) fn order_value() -> Value {
+    json!({
+        "id":"gid://shopify/Order/1", "name":"#1", "number":1, "createdAt":"2026-10-01T00:00:00Z",
+        "displayFulfillmentStatus":"UNFULFILLED","tags":[],
+        "currentTotalPriceSet":{"shopMoney":{"amount":"100","currencyCode":"USD"}},
+        "shippingAddress":{"name":"Buyer","address1":"1 Road","city":"Bangkok","zip":"10000","phone":"+66 81-234-5678"},
+        "transactions":[transaction("stripe","CAPTURE",json!({"charges":{"data":[{"id":"ch_1"}]}}))],
+        "lineItems":page(vec![json!({"title":"Keychain","variantTitle":"Blue","sku":"ABCKEY001","quantity":1,"originalUnitPriceSet":{"shopMoney":{"amount":"95","currencyCode":"USD"}}})]),
+        "shippingLines":page(vec![json!({"priceSet":{"shopMoney":{"amount":"5","currencyCode":"USD"}}})]),
+        "refunds":[]
+    })
+}
+pub(super) fn order() -> Order {
+    serde_json::from_value(order_value()).unwrap()
+}
+pub(super) fn transaction(gateway: &str, kind: &str, receipt: Value) -> Value {
+    json!({"id":"gid://shopify/OrderTransaction/1","paymentId":"different-payment-id","gateway":gateway,"kind":kind,"status":"SUCCESS","processedAt":"2026-10-02T00:00:00Z","amountSet":{"shopMoney":{"amount":"100","currencyCode":"USD"}},"receiptJson":receipt.to_string()})
 }

@@ -205,3 +205,15 @@ Earlier sections record historical behavior and test runs; this section supersed
 | Review | Independent static review found no remaining actionable issues |
 
 Endpoint tests use controlled Shopify/Resend servers and real PostgreSQL connections. The new contact/country projection and tag transitions were verified with controlled providers; no live mutations ran. Postman CLI GraphQL execution requires login and was not completed; its request passed lint/parity checks and the application query ran through the TCP tests. Published-head CI is confirmed separately after push.
+
+## ENZ-12 accounting review remediation (2026-10-20)
+
+| Check | Evidence |
+| --- | --- |
+| API | Strict API formatting/lint passed; 214 native tests and 105 real TCP E2E test functions passed with zero failures/ignored tests. Accounting test functions include operation-by-operation fault matrices. Compose PostgreSQL teardown and volume removal completed |
+| Stripe settlement | THB balance amounts/fees are used once; USD100 settled as THB3600 remains THB3600. Refund signs, native-THB/null-rate behavior, unsupported settlement/fee currencies and missing conversion rates are covered |
+| PayPal | At-most31-day lookback windows, independent page traversal, duplicate overlap removal, distinct same-ID events, withdrawal-rate context and inclusive payout instants across offsets/year boundaries are covered |
+| Shopify matching | Refund transaction/shipping connections and originalPriceSet shipping alias match the documented schema. Created/updated discovery exhausts root pages, deduplicates order IDs and matches legacy receipt references, including the literal Stripe Card Payments gateway. Sale/refund shipping/items, partial allocation, unmatched rows, ambiguous references and incomplete connections are covered |
+| Dependency faults | Real application/client sockets exercise Stripe payout/balance/charge/refund, PayPal OAuth/reporting and Shopify first/later discovery operations. Controlled HTTP rejection, malformed/missing/invalid bodies, disconnect/refusal, timeout, exhausted throttling and GraphQL error/partial-data scenarios assert safe errors and exact call prefixes/counts |
+| Contracts | Workspace formatting, whitespace checks and exact application/Postman GraphQL plus variable parity passed. Postman lint scanned40 requests with zero errors/warnings. Shared DTO/route shape is unchanged |
+| Limits | Controlled provider servers and the existing Docker database were used; no live provider call, production deployment or merge. Live store scopes, requested query cost and gateway-specific receipt stability remain unverified. Requested nested connections retain the documented bounded workload and fail safely when incomplete; discovery has no upstream snapshot isolation |

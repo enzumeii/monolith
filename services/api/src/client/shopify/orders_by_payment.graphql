@@ -62,7 +62,7 @@ query OrdersByPayment($first: Int!, $search: String!, $after: String) {
       }
       shippingLines(first: 250) {
         nodes {
-          priceSet {
+          priceSet: originalPriceSet {
             shopMoney {
               amount
               currencyCode
@@ -75,25 +75,30 @@ query OrdersByPayment($first: Int!, $search: String!, $after: String) {
         }
       }
       refunds(first: 250) {
-        transactions {
-          id
-          paymentId
-          gateway
-          kind
-          status
-          processedAt
-          amountSet {
-            shopMoney {
-              amount
-              currencyCode
-            }
-          }
-          receiptJson
-        }
-        orderAdjustments(first: 250) {
+        transactions(first: 250) {
           nodes {
+            id
+            paymentId
+            gateway
             kind
+            status
+            processedAt
             amountSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+            receiptJson
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+        refundShippingLines(first: 250) {
+          nodes {
+            subtotalAmountSet {
               shopMoney {
                 amount
                 currencyCode
