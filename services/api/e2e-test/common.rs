@@ -420,6 +420,8 @@ pub async fn client_with_shopify(url: &str) -> TestClient {
 #[derive(Default)]
 pub struct ProviderConfig<'a> {
     pub shopify_url: Option<&'a str>,
+    pub paypal_url: Option<&'a str>,
+    pub stripe_url: Option<&'a str>,
     pub resend_url: Option<&'a str>,
     pub resend_key: Option<&'a str>,
     pub email_timeout_secs: Option<u64>,
@@ -453,6 +455,14 @@ async fn start_api(config: ProviderConfig<'_>) -> Arc<TestApi> {
     let shopify = shopify_url
         .map(|url| format!("\n[client.shopify]\nadmin_api_url = {url:?}\ntimeout_secs = 3\n"))
         .unwrap_or_default();
+    let stripe = config
+        .stripe_url
+        .map(|url| format!("\n[client.stripe]\nbase_url = {url:?}\ntimeout_secs = 3\nsecret_key = \"e2e-fixture-key\"\n"))
+        .unwrap_or_default();
+    let paypal = config
+        .paypal_url
+        .map(|url| format!("\n[client.paypal]\nbase_url = {url:?}\ntimeout_secs = 3\n"))
+        .unwrap_or_default();
     let resend = config
         .email_timeout_secs
         .map(|secs| format!("\n[client.resend]\ntimeout_secs = {secs}\n"))
@@ -478,6 +488,8 @@ min_connections = 1
 public_origin = "http://127.0.0.1:8084"
 insecure_local = true
 {shopify}
+{stripe}
+{paypal}
 {resend}
 "#
         ),
@@ -512,6 +524,16 @@ insecure_local = true
             .env_remove("PAYPAL_CLIENT_SECRET")
             .env_remove("STRIPE_SECRET_KEY")
             .envs(shopify_url.map(|_| ("SHOPIFY_ACCESS_TOKEN", "e2e-fixture-token")))
+            .envs(
+                config
+                    .paypal_url
+                    .map(|_| ("PAYPAL_CLIENT_ID", "e2e-fixture-id")),
+            )
+            .envs(
+                config
+                    .paypal_url
+                    .map(|_| ("PAYPAL_CLIENT_SECRET", "e2e-fixture-secret")),
+            )
             .stdin(Stdio::null())
             .stdout(Stdio::from(
                 std::fs::File::create(api.directory.join("api.log")).expect("create owned API log"),

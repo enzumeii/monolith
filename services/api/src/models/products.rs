@@ -1,6 +1,9 @@
 use crate::{
     client::{ClientError, ClientErrorKind},
-    models::shopify::{InventoryMetadata, Money, Sku},
+    models::{
+        Sku,
+        shopify::{InventoryMetadata, Money},
+    },
     utils::numbers::{multiply_number, parse_number},
 };
 use domain::dto::ProductReportRow;

@@ -1,0 +1,27 @@
+$kind: http-request
+description: |
+  Build the accounting report with required RFC3339 date_from/date_to (date_from must be earlier).
+  Both raw +07:00 and encoded %2B07:00 timezone offsets are accepted.
+  Returns {"transactions":{"stripe":[],"paypal":[]},"items":[]} when providers have no records.
+  Each provider array is sorted oldest-first by po_date then transaction_date; unknown po_date sorts last.
+  Items are sorted oldest-first by transaction_date. All comparisons use instants across offsets.
+  Stripe uses inclusive payout bounds and THB settlement amounts; currency is THB.
+  PayPal uses inclusive transaction-date bounds and native currency, with <=31-day paginated windows.
+  PayPal exchange_rate and po_date are null because this response does not identify FX or bank settlement.
+  PayPal shipping_amount takes precedence over currency-compatible Shopify shipping; unknown shipping is null.
+  Shipping is included in gross, not added again. Reconcile gross_paid = net_paid + fee + vat within currency precision.
+  Example PayPal: {"currency":"AUD","exchange_rate":null,"po_date":null,"gross_paid":53.08,"net_paid":50.26,"fee":2.82,"vat":0,"shipping_fee":10.08}.
+  VAT is separately identified provider-fee VAT, not merchant sales tax; PayPal has no separate fee VAT breakdown.
+  Inherits bearer access_token. Do not sum monetary values across currencies.
+  400: invalid date bounds. 503: unavailable provider. 502/504: unusable provider data or timeout.
+  Error bodies retain the existing safe {"error":"..."} contract.
+url: '{{server}}/v1/admin/transactions?date_from=2026-10-01T00:00:00%2B07:00&date_to=2026-10-31T23:59:59%2B07:00'
+method: GET
+queryParams:
+  - key: date_from
+    value: 2026-10-01T00:00:00%2B07:00
+    description: ''
+  - key: date_to
+    value: 2026-10-31T23:59:59%2B07:00
+    description: ''
+order: 1000
