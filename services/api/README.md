@@ -23,3 +23,7 @@ Run `../../init.sh` to install the CLI packages after installing Rust and Docker
 | `just db-down` | Stop development PostgreSQL |
 | `just reset-db` | Drop and recreate the configured database |
 
+
+## Coverage
+
+`just test` runs the normal suite. `just test --coverage` writes `target/coverage/api/lcov.info` relative to the repository root. Install pinned cargo-llvm-cov via the root `init.sh`; the pinned Rust toolchain includes LLVM tools.

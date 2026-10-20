@@ -4,4 +4,5 @@
 
 mod common;
 mod healthz;
+mod process;
 mod v1;

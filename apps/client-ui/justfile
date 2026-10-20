@@ -12,6 +12,11 @@ fix:
     cargo fmt -p client-ui
     cargo clippy --locked -p client-ui --fix --allow-dirty --allow-staged -- -D warnings
 
-# Test: run client-ui tests (currently none; validates it builds)
-test:
+# Run client-ui tests; pass --coverage to generate target/coverage/client-ui/lcov.info.
+test coverage="":
+    bash ../../scripts/test-coverage.sh client-ui {{quote(coverage)}}
+
+# Run the existing test suite; coverage instrumentation is supplied by the public test recipe.
+[private]
+_test:
     cargo test --locked -p client-ui
