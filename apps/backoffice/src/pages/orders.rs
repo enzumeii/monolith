@@ -4,17 +4,15 @@ use std::collections::HashMap;
 
 use crate::{
     api::{self, ApiError, ApiResult},
-    components::{ErrorMessage, LoadingState},
-    pages::reports::{ExportFormat, ReportSkeleton, download, encode_table, encode_table_xlsx},
+    components::{DataTable, DownloadTable, ErrorMessage, LoadingState, TableData},
+    pages::reports::{ExportFormat, ReportSkeleton},
     session,
 };
 
 mod data;
 mod export;
 use data::{FulfillmentOrder, FulfillmentResult, fulfill_selected, load_fulfillment_orders};
-use export::{
-    TableData, best_table, fastship_table, fulfillment_table, teleport_table, thai_post_table,
-};
+use export::{best_table, fastship_table, fulfillment_table, teleport_table, thai_post_table};
 
 #[derive(Clone, Copy, PartialEq)]
 enum OrderView {
@@ -341,74 +339,6 @@ fn ShippingLabelGroup(
             h4 { "{name}" }
             DownloadTable { table: table.clone(), filename, sheet_name: name.clone(), format, id, label: format!("Save {name} {extension}") }
             DataTable { table }
-        }
-    }
-}
-
-#[component]
-fn DataTable(table: TableData, children: Option<Element>) -> Element {
-    rsx! {
-        div { class: "report-scroll", tabindex: "0", role: "region", aria_label: "Order report table",
-            table { class: "admins-table report-table",
-                thead { tr { for header in table.headers { th { "{header}" } } } }
-                if let Some(children) = children {
-                    {children}
-                } else {
-                    tbody {
-                        for row in &table.rows {
-                            tr { for value in row { td { "{value}" } } }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn DownloadTable(
-    table: TableData,
-    filename: String,
-    sheet_name: String,
-    format: ExportFormat,
-    id: String,
-    label: String,
-) -> Element {
-    let mut busy = use_signal(|| false);
-    let mut error = use_signal(|| None::<String>);
-    rsx! {
-        div { class: "order-download",
-            button { id: "{id}", class: "ghost", disabled: busy() || table.rows.is_empty(),
-                onclick: {
-                    let table = table.clone();
-                    let filename = filename.clone();
-                    let sheet_name = sheet_name.clone();
-                    let id = id.clone();
-                    move |_| {
-                        if busy() || table.rows.is_empty() { return; }
-                        busy.set(true);
-                        error.set(None);
-                        let table = table.clone();
-                        let filename = filename.clone();
-                        let sheet_name = sheet_name.clone();
-                        let id = id.clone();
-                        spawn(async move {
-                            let bytes = match format {
-                                ExportFormat::Csv => Ok(encode_table(table.headers, &table.rows).into_bytes()),
-                                ExportFormat::Xlsx => encode_table_xlsx(table.headers, &table.rows, &sheet_name),
-                            };
-                            let result = match bytes {
-                                Ok(bytes) => download(bytes, &filename, format, &id).await,
-                                Err(message) => Err(message),
-                            };
-                            busy.set(false);
-                            if let Err(message) = result { error.set(Some(message)); }
-                        });
-                    }
-                },
-                if busy() { "Saving…" } else { "{label}" }
-            }
-            ErrorMessage { message: error() }
         }
     }
 }

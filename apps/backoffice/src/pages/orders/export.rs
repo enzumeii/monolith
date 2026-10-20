@@ -1,11 +1,7 @@
 use super::data::{FulfillmentOrder, FulfillmentResult};
 use domain::dto::orders::{BestLabel, FastshipLabel, TeleportLabel, ThaiPostLabel};
 
-#[derive(Clone, PartialEq)]
-pub struct TableData {
-    pub headers: &'static [&'static str],
-    pub rows: Vec<Vec<String>>,
-}
+use crate::components::TableData;
 
 const FULFILLMENT_HEADERS: &[&str] = &[
     "order_number",
