@@ -32,3 +32,13 @@ fn invalid_numbers_keep_the_utility_origin() {
     assert_eq!(error.location().file(), "services/api/src/utils/numbers.rs");
     assert!(error.location().line() > 0);
 }
+
+#[test]
+fn reusable_float_conversions_preserve_units() {
+    assert_eq!(super::integer_as_f64(-125), -125.0);
+    assert_eq!(super::minor_units(-125), -1.25);
+    assert_eq!(super::parse_f64("1.25").unwrap(), 1.25);
+    assert!(super::parse_f64("NaN").is_err());
+    assert!(super::parse_f64("1e999").is_err());
+    assert!(super::integer_as_f64(i64::MAX).is_finite());
+}

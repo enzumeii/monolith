@@ -1,3 +1,4 @@
+use super::Sku;
 pub use crate::client::MutationUserError;
 use crate::client::{ClientError, ClientErrorKind};
 use chrono::{DateTime, FixedOffset};
@@ -7,9 +8,14 @@ use uuid::Uuid;
 
 pub use domain::dto::PageInfo;
 
-#[derive(Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Nodes<T> {
     pub nodes: Vec<T>,
+}
+impl<T> Default for Nodes<T> {
+    fn default() -> Self {
+        Self { nodes: Vec::new() }
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -289,7 +295,9 @@ pub struct Address {
     pub address1: Option<String>,
     pub address2: Option<String>,
     pub city: Option<String>,
+    pub province_code: Option<String>,
     pub zip: Option<String>,
+    pub country: Option<String>,
     pub country_code_v2: Option<String>,
     pub phone: Option<String>,
 }
@@ -303,6 +311,7 @@ pub struct OrderTransaction {
     pub status: String,
     pub processed_at: Option<DateTime<FixedOffset>>,
     pub amount_set: MoneyBag,
+    pub receipt_json: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -319,6 +328,42 @@ pub struct Order {
     pub shipping_address: Option<Address>,
     pub current_total_price_set: MoneyBag,
     pub transactions: Vec<OrderTransaction>,
+    pub line_items: Connection<AccountingLineItem>,
+    pub shipping_lines: Connection<AccountingShippingLine>,
+    pub refunds: Vec<AccountingRefund>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountingLineItem {
+    pub title: String,
+    pub variant_title: Option<String>,
+    pub sku: Option<Sku>,
+    pub quantity: i64,
+    pub original_unit_price_set: MoneyBag,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountingShippingLine {
+    pub price_set: MoneyBag,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountingRefund {
+    pub transactions: Connection<OrderTransaction>,
+    pub refund_shipping_lines: Connection<AccountingRefundShippingLine>,
+    pub refund_line_items: Connection<AccountingRefundLineItem>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountingRefundShippingLine {
+    pub subtotal_amount_set: MoneyBag,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountingRefundLineItem {
+    pub quantity: i64,
+    pub subtotal_set: MoneyBag,
+    pub line_item: AccountingLineItem,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -557,21 +602,6 @@ fn validate_size(first: u16) -> Result<(), ClientError> {
     Ok(())
 }
 mod products;
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct Sku(String);
-impl Sku {
-    #[must_use]
-    pub fn collection(&self) -> Option<String> {
-        let value = self.0.chars().skip(3).take(6).collect::<String>();
-        (value.chars().count() == 6).then_some(value)
-    }
-    #[must_use]
-    pub fn into_string(self) -> String {
-        self.0
-    }
-}
 
 impl<T> Connection<T> {
     pub(crate) fn into_complete_nodes(self) -> Result<Vec<T>, ClientError> {

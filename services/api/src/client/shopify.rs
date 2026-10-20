@@ -75,15 +75,19 @@ impl ShopifyClient {
         input: &OrdersByPaymentRequest,
         page: &PageRequest,
     ) -> Result<Connection<Order>, ClientError> {
-        let data: OrdersData = self
-            .execute(
-                "OrdersByPayment",
-                include_str!("shopify/orders_by_payment.graphql"),
-                input.variables(page)?,
-            )
-            .await?;
-        Ok(data.orders)
+        self.orders_query(input.variables(page)?).await
     }
+
+    pub(crate) async fn accounting_orders(
+        &self,
+        search: &str,
+        page: &PageRequest,
+    ) -> Result<Connection<Order>, ClientError> {
+        page.validate()?;
+        self.orders_query(json!({"search": search, "first":page.first, "after":page.after}))
+            .await
+    }
+
     pub async fn orders_by_tag(
         &self,
         input: &OrdersByTagRequest,
@@ -257,6 +261,17 @@ impl ShopifyClient {
             )
             .await?;
         data.fulfillment_create.into_id()
+    }
+
+    async fn orders_query(&self, variables: Value) -> Result<Connection<Order>, ClientError> {
+        let data: OrdersData = self
+            .execute(
+                "OrdersByPayment",
+                include_str!("shopify/orders_by_payment.graphql"),
+                variables,
+            )
+            .await?;
+        Ok(data.orders)
     }
 
     async fn execute<D: DeserializeOwned>(

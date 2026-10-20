@@ -8,7 +8,7 @@ fn source_models_derive_collection_and_inventory_rows() {
         ("กขคSTSWOW01", Some("STSWOW")),
         ("SHORT", None),
     ] {
-        let sku: crate::models::shopify::Sku = serde_json::from_value(json!(raw)).unwrap();
+        let sku: crate::models::Sku = serde_json::from_value(json!(raw)).unwrap();
         assert_eq!(sku.collection().as_deref(), want);
     }
     for (active, quantity) in [(true, 0), (true, -2), (false, 3)] {

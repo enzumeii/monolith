@@ -69,3 +69,5 @@ These rules apply to the entire repository.
 - For reusable runtime dependencies, use `.agents/skills/monolith-dependency-injection/SKILL.md`; construct clients once in AppState and inject shared instances.
 - For application settings and configuration readers, use `.agents/skills/monolith-configuration/SKILL.md`; keep non-sensitive settings in TOML and sensitive values, including private sender profiles, in environment variables.
 - For API errors and diagnostics, use `.agents/skills/monolith-error-handling/SKILL.md`; reuse generic errors with descriptive safe messages, appropriate HTTP status codes and preserved source diagnostics.
+
+- For related provider protocol codes and semantic magic-string groups, use `.agents/skills/monolith-protocol-enums/SKILL.md`; preserve exact wire values and existing unknown-value behavior.
