@@ -12,3 +12,6 @@ pub(crate) mod products;
 pub mod paypal;
 
 pub mod stripe;
+
+mod currency;
+pub use currency::CurrencyCode;

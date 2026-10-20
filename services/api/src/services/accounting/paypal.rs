@@ -2,7 +2,10 @@ use super::{Payment, empty_transaction, money, protocol};
 use crate::{
     client::paypal::PaypalClient,
     error::AppError,
-    models::paypal::{CurrencyCode, TransactionDetail, TransactionEvent},
+    models::{
+        CurrencyCode,
+        paypal::{TransactionDetail, TransactionEvent},
+    },
     services::{
         common::upstream,
         pagination::{NumberedPage, for_each_numbered_page},
@@ -153,35 +156,35 @@ fn payment(detail: &TransactionDetail) -> Result<Payment, AppError> {
 
 fn precision_factor(currency: &CurrencyCode) -> Result<f64, AppError> {
     match currency {
-        CurrencyCode::Huf | CurrencyCode::Jpy | CurrencyCode::Twd => Ok(1.0),
-        CurrencyCode::Bhd
-        | CurrencyCode::Iqd
-        | CurrencyCode::Jod
-        | CurrencyCode::Kwd
-        | CurrencyCode::Lyd
-        | CurrencyCode::Omr
-        | CurrencyCode::Tnd => Ok(1000.0),
-        CurrencyCode::Aud
-        | CurrencyCode::Brl
-        | CurrencyCode::Cad
-        | CurrencyCode::Chf
-        | CurrencyCode::Cny
-        | CurrencyCode::Czk
-        | CurrencyCode::Dkk
-        | CurrencyCode::Eur
-        | CurrencyCode::Gbp
-        | CurrencyCode::Hkd
-        | CurrencyCode::Ils
-        | CurrencyCode::Myr
-        | CurrencyCode::Mxn
-        | CurrencyCode::Nok
-        | CurrencyCode::Nzd
-        | CurrencyCode::Php
-        | CurrencyCode::Pln
-        | CurrencyCode::Sek
-        | CurrencyCode::Sgd
-        | CurrencyCode::Thb
-        | CurrencyCode::Usd => Ok(100.0),
+        CurrencyCode::HUF | CurrencyCode::JPY | CurrencyCode::TWD => Ok(1.0),
+        CurrencyCode::BHD
+        | CurrencyCode::IQD
+        | CurrencyCode::JOD
+        | CurrencyCode::KWD
+        | CurrencyCode::LYD
+        | CurrencyCode::OMR
+        | CurrencyCode::TND => Ok(1000.0),
+        CurrencyCode::AUD
+        | CurrencyCode::BRL
+        | CurrencyCode::CAD
+        | CurrencyCode::CHF
+        | CurrencyCode::CNY
+        | CurrencyCode::CZK
+        | CurrencyCode::DKK
+        | CurrencyCode::EUR
+        | CurrencyCode::GBP
+        | CurrencyCode::HKD
+        | CurrencyCode::ILS
+        | CurrencyCode::MYR
+        | CurrencyCode::MXN
+        | CurrencyCode::NOK
+        | CurrencyCode::NZD
+        | CurrencyCode::PHP
+        | CurrencyCode::PLN
+        | CurrencyCode::SEK
+        | CurrencyCode::SGD
+        | CurrencyCode::THB
+        | CurrencyCode::USD => Ok(100.0),
         CurrencyCode::Other(_) => Err(protocol("unsupported PayPal accounting currency")),
     }
 }
