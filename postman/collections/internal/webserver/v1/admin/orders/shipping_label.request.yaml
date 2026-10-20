@@ -1,0 +1,5 @@
+$kind: http-request
+description: ""
+url: "{{server}}/v1/admin/orders/shipping_label"
+method: POST
+order: 3000

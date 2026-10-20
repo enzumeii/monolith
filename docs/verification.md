@@ -53,6 +53,34 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitl
 | Browser/deployment | No new rendered browser E2E, production deployment or merge |
 | Coverage percentage | Not measured |
 
+## ENZ-14 order fulfillment (historical pre-remediation evidence)
+
+| Area | Verification |
+| --- | --- |
+| Shipping labels | POST `/v1/admin/orders/shipping_label`; all open/paid/unfulfilled PACKING pages, four carrier outputs, country redirects, SKU category/declaration rules, transliteration, Thai Post service selection and Teleport kilograms. Add SHIPPING/courier, then remove PACKING; no date tags |
+| Order listing | GET `/v1/admin/orders?tag=SHIPPING,FASTSHIP`; AND tag filters, fulfillment filter, default/boundary page sizes, opaque cursor forwarding, numeric order IDs and upstream page metadata |
+| Fulfillment | POST numeric order ID; remaining eligible quantities grouped by location, tracking-pattern precedence and URL encoding, customer notification enabled; remove SHIPPING after all fulfillment calls succeed |
+| TCP dependencies | Production API/middleware/client against controlled Shopify HTTP servers; Compose PostgreSQL and uniquely owned admin fixtures. Each reachable operation covers malformed/partial/missing responses, HTTP/GraphQL rejection, throttling and timeout; later-call failures assert no unintended subsequent calls |
+| Errors and validation | Missing/invalid/expired JWTs; invalid paths/query/JSON/tracking, unsupported actions and missing order; safe 400/401/404/409/502/503/504 responses. ADMIN and SUPER_ADMIN are the only current roles; these stateless JWT routes perform no database lookup |
+| Native regression | After integrating main’s Resend SDK:147 native API tests and66 real-TCP tests passed, with Compose teardown. Domain/backoffice/client native and configured WASM checks/tests passed; API formatting/lint and Postman lint passed |
+| Postman | Both collections lint without diagnostics; nine new GraphQL documents and variable sets match executable requests exactly |
+
+| Limit | Behavior |
+| --- | --- |
+| External side effects | Tag and fulfillment mutations cannot roll back. A later-order label failure may leave earlier orders without PACKING; later fulfillment/tag failure may leave completed fulfillments. Inspect Shopify before retrying ambiguous failures |
+| Concurrent batches | No durable label replay, snapshot isolation or exactly-once guarantee; simultaneous label requests can select overlapping orders |
+| Nested connections | Shipping methods, order items and fulfillment items traverse every nested cursor before writes. Missing/repeated/cyclic cursors fail502. Fulfillment line arrays are chunked to250 items per mutation |
+| Providers and addresses | No live Shopify/carrier mutations; store scopes, query costs and carrier acceptance unverified. Rust Japanese transliteration uses Kakasi rather than Python Cutlet; dictionary/name readings can differ |
+| Reship notice | POST `/v1/admin/orders/{order_id}/reship`: positive Shopify ID, no query/body; minimal order contact lookup, additive RETURNED, then shared Resend SDK send from shipping@enzumeii.com. Every explicit POST sends; no automatic email retries or tag-based suppression |
+| Reship TCP coverage | Nine scenario groups cover both roles, repeat calls, invalid ID/query/body, auth/cookie origin, missing/unusable contacts, optional dependency/config503, lookup/tag HTTP/GraphQL/timeout/decode failures, refused/disconnected connections at all stages, SDK401/422/429/5xx and unusable IDs. Public bodies and ordinary logs stay sanitized; sending stops after earlier failures |
+| Reship deadline | TOML-only reship.email_timeout_secs=10; missing/zero makes only reship unavailable503. Actual controlled stalled send returns504 within the configured one-second test deadline; original elapsed cause retained |
+| Final reship regression |152 native API tests and87 real-TCP E2E tests passed with Docker PostgreSQL and controlled Shopify/Resend HTTP services. Compose teardown completed. API/domain/backoffice/client checks/tests and configured WASM checks passed;17 internal/20 external Postman requests lint cleanly; all19 Shopify query/variable pairs match; four reship response examples parse |
+| Reviewed transport faults | An additional20 real-TCP scenarios exercise refused/disconnected connections after successful prefixes at label/list/fulfillment/nested-read operations; safe502 and exact received request counts prevent unintended calls/replay. Independent whole-branch review found this coverage gap; no production defect was identified |
+| Shared query reuse | Reship reuses `sales_order_lines.graphql` with includeLines=false/includeContact=true. Default includeLines=true/includeContact=false preserves existing report selection and DTOs. The separate reship document and Postman request are removed; existing report-client and real-TCP reship regressions pass |
+| Main-merge compatibility | Shipping-label pagination now supplies the identity error mapper required by the shared paginator, retaining the existing502/504 conversion. Four stale order-test503 expectations now match main's intentional Shopify client unavailable message |
+| Email partial effects | RETURNED remains if sending fails; timeout can occur after acceptance. HTTP200 means provider acceptance only. No rollback, durable replay, idempotency key or exactly-once guarantee |
+| Email provider limits | No live customer email, sender-domain configuration or mailbox-delivery check. Older returned orders may need Shopify read_all_orders beyond the default60-day window. Legacy email wording retained, including85% item refund and shipping-fee exclusions; endpoint performs no refund or replacement shipment |
+| Scope | No production deployment, merge or browser changes |
 ## Inventory enablement (ENZ-22, 2026-10-19)
 
 | Check | Evidence |
@@ -89,3 +117,91 @@ Product E2E uses real API TCP endpoints and Docker PostgreSQL with the explicitl
 | Local verification | Strict API `just check` and complete `just test` passed134 library tests and56 TCP E2E tests; Compose teardown completed. Workspace formatting/diff checks passed |
 | Postman and review | Changed YAML parses; internal13 requests lint with0 errors/warnings. Independent read-only review found no actionable issues |
 | Limits | Final-head hosted CI is recorded in the PR; no live Shopify calls or deployment |
+
+## ENZ-14 fulfillment location batching review fix (2026-10-19)
+
+| Check | Evidence |
+| --- | --- |
+| Red/green | Three new real-TCP regressions failed before the service change and passed afterward: same-location orders on one or separate pages share one creation;251 orders batch250+1; a251-line order plus a small order preserves distinct line chunks without duplicate order IDs |
+| API | Strict API just check passed. Complete just test passed152 native and90 real-TCP tests with zero ignored; Compose PostgreSQL teardown completed |
+| Preserved behavior | Existing separate-location, remaining-quantity, tracking, later-failure, tag-order, label/list/report and reship scenarios passed. SHIPPING is removed only after all required creations succeed |
+| Postman | Internal18 and external19 requests lint with zero errors/warnings. All18 Shopify GraphQL query/variable pairs match; existing fulfillment example now shows two same-location orders |
+| Limits | Controlled Shopify/Resend HTTP services and Compose PostgreSQL only; no live provider calls or mailbox-delivery proof. Required overflow batches can create multiple fulfillments/notifications. Existing partial-side-effect and ambiguous-timeout limits remain |
+
+
+## ENZ-14 review remediation — local verification (2026-10-20)
+
+Earlier ENZ-14 sections record historical evidence; this section covers the revised single-location contract.
+
+| Check | Result / scope |
+| --- | --- |
+| API | `just check` passed; complete `just test` passed 157 native and 94 real-TCP tests, zero ignored; owned Compose PostgreSQL removed afterward |
+| Reship | Four-digit merchant lookup reuses ListOrders with conditional email, selects exact number across pages, rejects ambiguity before writes, preserves missing-email guard, tags before one send, returns `email_id` |
+| Failure paths | Controlled Shopify/Resend HTTP services exercise initial/later-page reads, tag/send errors, connection loss and deadlines; no live customer email or provider mutations |
+| Fulfillment | One selling location and at most 250 order items; one combined creation, 250-line/entry boundaries, completed-order skipping before extra line reads, stop before SHIPPING removal on failure |
+| Sender configuration | Central environment loading and redaction; synthetic fixtures; setup preserves existing nonempty and duplicate keys, fills empty/missing fields, and remains idempotent |
+| Review regressions | Duplicate-key overwrite and old label fallback mailbox reproduced failing, then passed after fixes; fallback now shipping@enzumeii.com |
+| Shared consumers | Domain 7 contract tests; backoffice 29 native tests; domain/backoffice configured WASM checks and all module strict checks passed; client test target builds with no tests |
+| Postman | Internal 18 and external 18 requests lint with zero errors/warnings; all 17 Shopify query documents match executable request text and variables parse |
+| Repository skills | New Rust layout skill plus configuration/ownership updates validate; metadata/links and touched test-module placement checked; no agent-behavior improvement claim |
+| Limits | Live Shopify permissions/query cost, carrier acceptance and inbox delivery remain unverified. Multi-location and more-than-250-item fulfillment are outside the supplied business bounds. Published-head CI is recorded separately during delivery |
+
+## ENZ-14 review comment revision (2026-10-20)
+
+Earlier sections record historical behavior and test runs; this section supersedes their lookup, nested-pagination and reship-ordering descriptions.
+
+| Area | Revised contract / verification scope |
+| --- | --- |
+| Shared metadata | One PageInfo type for inventory, orders and Shopify; accepts camelCase provider fields and emits unchanged snake_case public fields; API-owned cursor checks remain on Connection |
+| Bounded children | Existing ShippingOrders and FulfillmentOrders include items directly at first250; shipping methods also first250. Nodes-only fixtures omit unselected pageInfo. Root list pagination remains |
+| Lookup | Existing ListOrders name filter, first1 and contact projection; store naming convention supplies matching, without service scanning or ambiguity checks |
+| Reship order | Lookup and email validation, send once, add RETURNED, then success/email_id. Send errors/timeout prevent tagging; tagging error can follow accepted email. No rollback or automatic send retry |
+| Request validation | Fulfillment IDs reuse ShopifyId; shipping-label query parameters are ignored; four-digit bodyless/queryless reship validation stays intact |
+| Configuration | Resend timeout3 in TOML; just setup is the sole environment scaffold; redundant .env.example removed |
+| Limits | Controlled providers only; no live Shopify mutations, customer emails, carrier acceptance or inbox delivery checks. Item/method counts above250 and multiple selling locations remain outside agreed bounds |
+
+| Verification | Result |
+| --- | --- |
+| Native API | 190 tests passed after preserving Shopify Connection camelCase serialization alongside public snake_case PageInfo |
+| Shared consumers | Domain strict/native/WASM checks and 8 contracts passed; backoffice strict native/WASM checks and 29 native tests passed |
+| Regression evidence | Realistic camelCase metadata and nodes-only fixtures failed before their model changes and passed afterward. Real-TCP ordering test failed with tag-before-email and passed with email-before-tag |
+| Postman static checks | Internal18/external21 requests lint with zero errors or warnings; all14 remaining Shopify documents match executable query text and required variables |
+| Postman execution | Saved reship and shipping-label HTTP requests ran against the real local API with controlled Shopify/Resend servers; observed lookup → email → tag. Local GraphQL request execution requires Postman login and was unavailable; no live-provider compatibility claim |
+| Independent review | No remaining code correctness findings; corrected the stale inventory-alias documentation |
+| Real-TCP API | Full API recipe passed all91 E2E tests with Docker PostgreSQL and controlled Shopify/Resend HTTP services; Compose teardown completed; zero ignored |
+
+## Additional ENZ-14 comments (2026-10-20)
+
+| Contract | Verification scope |
+| --- | --- |
+| Currency-independent declaration | New unit regression failed on the THB guard and passed after removing both currency checks. Covers THB/USD/EUR, price summed once, Tip exclusion, stock price/quantity distinction, minimum100 and existing invalid/nonfinite/overflow rejection |
+| Listing cursor | Omitted cursor remains accepted and forwards after:null; explicit cursor and default/page-size behavior preserved; validation wording now says optional |
+| Typed fulfillment | ShopifyId retained from extractor through service and fulfillment-order client; standard AsRef borrowing supports the existing tag boundary; invalid numeric ID and u64-boundary coverage retained |
+| Model ownership | Provider DTOs and selected-field tests consolidated into Shopify models; duplicate resource envelope replaced by existing ResourceReference; serde hooks and root/nested metadata contracts preserved |
+| Limits | Controlled providers only; no actual FX rates, live Shopify writes or customer emails. Postman GraphQL execution still requires login; static parity and Rust TCP checks cover its transport contracts |
+
+| Check | Result |
+| --- | --- |
+| Full API recipe | 192 native tests and92 real-TCP tests passed, zero failed/ignored; Compose PostgreSQL teardown completed |
+| Final query/model checks | Required nested shopMoney currency selection retained for MoneyBag; new cross-file query contract failed on omission and passed after restoration. All13 consolidated model tests and the focused non-THB TCP scenario passed against the final query |
+| Saved HTTP requests | Listing and shipping-label requests ran against the rebuilt real local API and a controlled Shopify server; both passed |
+| Static contracts | API formatting/strict lint and both Postman collection lints passed; all14 GraphQL documents match request text and variable sets |
+| Review | Independent final review reports no remaining findings; shared DTO/backoffice code unchanged from the prior verified round |
+
+
+## ENZ-14 review follow-up (2026-10-20)
+
+| Area | Verified result |
+| --- | --- |
+| API checks | Rust/GraphQL formatting and strict all-target Clippy passed |
+| API tests | 200 native tests and 97 real-TCP endpoint tests passed; Compose PostgreSQL was removed with its volume afterwards |
+| Domain | One DTO unit test and eight integration contract tests passed; formatting, strict Clippy and WASM compilation passed |
+| Listing response | id/number plus nullable full_name, order contact email and shipping_country_code; trimmed profile names, partial/Unicode/blank names, guest/null contacts, present/null shipping address/country and unchanged pagination |
+| Listing projection | Explicit includeContact/includeTags flags; missing selected contact/root address fields and malformed selected values return safe502; no extra customer query |
+| Tag edits | Stored spelling used for case-insensitive removals; existing additions and no-op edits skip mutations; unrelated tags preserved; each new read/mutation failure stage covered over TCP |
+| Effect ordering | Label transitions, fulfillment-before-SHIPPING-removal and accepted-email-before-RETURNED operations retained, including later failure and connection-loss cases |
+| Provider contract | Separate read-only Shopify2026-10 diagnostic reproduced omitted includeContact INVALID_VARIABLE and accepted the same search with an explicit Boolean; filter syntax unchanged |
+| Postman | Internal18/external21 requests lint clean; all14 GraphQL query texts and variable sets match; saved listing and shipping-label HTTP requests passed against the real local API and controlled Shopify server |
+| Review | Independent static review found no remaining actionable issues |
+
+Endpoint tests use controlled Shopify/Resend servers and real PostgreSQL connections. The new contact/country projection and tag transitions were verified with controlled providers; no live mutations ran. Postman CLI GraphQL execution requires login and was not completed; its request passed lint/parity checks and the application query ran through the TCP tests. Published-head CI is confirmed separately after push.

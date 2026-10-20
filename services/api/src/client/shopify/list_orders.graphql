@@ -1,0 +1,34 @@
+query ListOrders(
+  $first: Int!
+  $after: String
+  $search: String!
+  $includeContact: Boolean!
+  $includeTags: Boolean!
+) {
+  orders(
+    first: $first
+    after: $after
+    query: $search
+    sortKey: CREATED_AT
+    reverse: true
+  ) {
+    nodes {
+      id
+      number
+      name @include(if: $includeTags)
+      tags @include(if: $includeTags)
+      customer @include(if: $includeContact) {
+        firstName
+        lastName
+      }
+      shippingAddress @include(if: $includeContact) {
+        countryCodeV2
+      }
+      email @include(if: $includeContact)
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}

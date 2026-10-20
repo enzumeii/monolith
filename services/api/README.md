@@ -8,7 +8,7 @@ Run `../../init.sh` to install the CLI packages after installing Rust and Docker
 
 ## Run locally
 
-- `just setup`
+- `just setup` installs pinned dprint, caches plugins, and scaffolds `.env` with a random signing key and synthetic sender profile while preserving nonempty values.
 - `just run` and access API server at `localhost:3000`
 
 ## Useful commands

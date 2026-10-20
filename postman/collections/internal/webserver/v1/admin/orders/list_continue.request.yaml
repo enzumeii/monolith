@@ -1,0 +1,26 @@
+$kind: http-request
+description: "Set order_cursor to the previous end_cursor. List the next order page; tag is optional; omit it to list without a tag filter. Supplied comma-separated tags use AND. page_size: 1..250 (default 50); cursor is opaque. Returns orders [{id,number,full_name,email,shipping_country_code}] (full_name/email/shipping_country_code are nullable; name is the customer profile first/last name and email is the order contact; country code is from the shipping address) and page_info {has_next_page,end_cursor}. Invalid input 400; auth 401; unavailable 503; upstream 502/timeout 504. Inherits bearer access_token."
+url: "{{server}}/v1/admin/orders?tag=shipping&fulfillment=UNFULFILLED&page_size=1&cursor={{order_cursor}}"
+method: GET
+queryParams:
+  - key: tag
+    value: shipping
+    disabled: false
+    description: ""
+  - key: fulfillment
+    value: UNFULFILLED
+    disabled: false
+    description: ""
+  - key: page_size
+    value: "1"
+    disabled: false
+    description: ""
+  - key: cursor
+    value: "{{order_cursor}}"
+    disabled: false
+    description: ""
+scripts:
+  - type: afterResponse
+    code: ""
+    language: text/javascript
+order: 2100

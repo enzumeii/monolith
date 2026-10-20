@@ -62,6 +62,7 @@ impl std::fmt::Debug for ShopifyConfig {
 
 #[derive(Deserialize, Clone)]
 pub struct ResendConfig {
+    pub timeout_secs: Option<u64>,
     pub api_key: Option<String>,
 }
 
@@ -85,6 +86,7 @@ impl std::fmt::Debug for StripeConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
+    pub shipping_sender: Option<ShippingSender>,
     pub client: Option<ClientConfig>,
     pub browser: BrowserConfig,
     pub server: ServerConfig,
@@ -108,6 +110,25 @@ impl JwtSettings {
 impl Settings {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.jwt.key()?;
+        if let Some(sender) = &self.shipping_sender
+            && [
+                &sender.name,
+                &sender.phone,
+                &sender.email,
+                &sender.address,
+                &sender.sub_district,
+                &sender.district,
+                &sender.province,
+                &sender.postcode,
+                &sender.country_code,
+            ]
+            .iter()
+            .any(|value| value.trim().is_empty())
+        {
+            return Err(ConfigError::Message(
+                "Shipping sender profile is incomplete".into(),
+            ));
+        }
         let origin: axum::http::Uri = self
             .browser
             .public_origin
@@ -154,6 +175,21 @@ impl Settings {
         if let Ok(resend_api_key) = env::var("RESEND_API_KEY") {
             builder = builder.set_override("client.resend.api_key", resend_api_key)?;
         }
+        for field in [
+            "name",
+            "phone",
+            "email",
+            "address",
+            "sub_district",
+            "district",
+            "province",
+            "postcode",
+            "country_code",
+        ] {
+            if let Ok(value) = env::var(format!("SHIPPING_SENDER_{}", field.to_ascii_uppercase())) {
+                builder = builder.set_override(format!("shipping_sender.{field}"), value)?;
+            }
+        }
         if let Ok(client_id) = env::var("PAYPAL_CLIENT_ID") {
             builder = builder.set_override("client.paypal.client_id", client_id)?;
         }
@@ -182,6 +218,25 @@ impl std::fmt::Debug for DatabaseConfig {
 impl std::fmt::Debug for JwtSettings {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("JwtSettings { secret: [REDACTED] }")
+    }
+}
+
+#[derive(Clone, Deserialize)]
+pub struct ShippingSender {
+    pub name: String,
+    pub phone: String,
+    pub email: String,
+    pub address: String,
+    pub sub_district: String,
+    pub district: String,
+    pub province: String,
+    pub postcode: String,
+    pub country_code: String,
+}
+
+impl std::fmt::Debug for ShippingSender {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ShippingSender { [REDACTED] }")
     }
 }
 

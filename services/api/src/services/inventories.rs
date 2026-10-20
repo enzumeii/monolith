@@ -9,7 +9,7 @@ use crate::{
     state::AppState,
 };
 use axum::http::StatusCode;
-use domain::dto::{InventoryPageInfo, InventoryResponse};
+use domain::dto::InventoryResponse;
 
 pub async fn inventory_report(
     state: &AppState,
@@ -27,7 +27,6 @@ pub async fn inventory_report(
         .await
         .map_err(|error| upstream(error))?;
     products
-        .page_info
         .validate_after(page.after.as_deref())
         .map_err(|error| upstream(error))?;
     let mut rows = Vec::new();
@@ -47,10 +46,7 @@ pub async fn inventory_report(
     }
     Ok(InventoryResponse {
         products: rows,
-        page_info: InventoryPageInfo {
-            has_next_page: products.page_info.has_next_page,
-            end_cursor: products.page_info.end_cursor,
-        },
+        page_info: products.page_info,
     })
 }
 

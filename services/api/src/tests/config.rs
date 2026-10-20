@@ -242,6 +242,33 @@ fn builder_override_populates_shopify_token_without_a_construction_helper() {
 }
 
 #[test]
+fn shipping_sender_is_typed_from_toml_and_rejects_incomplete_values() {
+    let sender: ShippingSender = config::Config::builder()
+        .add_source(config::File::from_str(
+            r#"
+name="Sender"
+phone="123"
+email="sender@example.test"
+address="1 Test"
+sub_district="Sub"
+district="District"
+province="Province"
+postcode="00123"
+country_code="TH"
+"#,
+            config::FileFormat::Toml,
+        ))
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert_eq!(sender.postcode, "00123");
+    assert!(
+        serde_json::from_value::<ShippingSender>(serde_json::json!({"postcode":"00123"})).is_err()
+    );
+}
+
+#[test]
 fn resend_api_key_comes_from_central_configuration() {
     let settings = temp_env::with_vars(
         [
@@ -283,7 +310,7 @@ fn resend_settings_follow_file_and_secret_override_precedence() {
 }
 
 #[test]
-fn resend_configuration_needs_only_the_api_key() {
+fn resend_configuration_retains_missing_deadline_for_optional_client_validation() {
     let config: ResendConfig = config::Config::builder()
         .add_source(config::File::from_str(
             "api_key = 'fixture-key'",
@@ -295,6 +322,61 @@ fn resend_configuration_needs_only_the_api_key() {
         .unwrap();
     assert_eq!(config.api_key.as_deref(), Some("fixture-key"));
     assert!(!format!("{config:?}").contains("fixture-key"));
+}
+
+#[test]
+fn review_plan_sender_environment_is_centralized_and_redacted() {
+    let settings = temp_env::with_vars(
+        [
+            ("DATABASE_URL", Some("postgres://unused")),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
+            ("SHIPPING_SENDER_NAME", Some("Synthetic Sender")),
+            ("SHIPPING_SENDER_PHONE", Some("0000000000")),
+            ("SHIPPING_SENDER_EMAIL", Some("sender@example.test")),
+            ("SHIPPING_SENDER_ADDRESS", Some("123 Synthetic Street")),
+            ("SHIPPING_SENDER_SUB_DISTRICT", Some("Test Subdistrict")),
+            ("SHIPPING_SENDER_DISTRICT", Some("Test District")),
+            ("SHIPPING_SENDER_PROVINCE", Some("Test Province")),
+            ("SHIPPING_SENDER_POSTCODE", Some("10100")),
+            ("SHIPPING_SENDER_COUNTRY_CODE", Some("TH")),
+        ],
+        Settings::new,
+    )
+    .unwrap();
+    let sender = settings.shipping_sender.unwrap();
+    assert_eq!(sender.name, "Synthetic Sender");
+    assert_eq!(sender.address, "123 Synthetic Street");
+    assert!(!format!("{sender:?}").contains("Synthetic"));
+}
+
+#[test]
+fn explicitly_configured_empty_sender_fields_are_invalid() {
+    let mut settings = temp_env::with_vars(
+        [
+            ("DATABASE_URL", Some("postgres://unused")),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
+        ],
+        Settings::new,
+    )
+    .unwrap();
+    settings.shipping_sender = Some(ShippingSender {
+        name: " ".into(),
+        phone: "0000000000".into(),
+        email: "sender@example.test".into(),
+        address: "Synthetic".into(),
+        sub_district: "Synthetic".into(),
+        district: "Synthetic".into(),
+        province: "Synthetic".into(),
+        postcode: "10100".into(),
+        country_code: "TH".into(),
+    });
+    assert!(settings.validate().is_err());
 }
 
 #[test]
@@ -350,4 +432,15 @@ fn stripe_key_comes_from_central_configuration() {
     assert_eq!(stripe.base_url, "https://api.stripe.com/v1/");
     assert_eq!(stripe.timeout_secs, 3);
     assert!(!format!("{stripe:?}").contains("sk_test_private"));
+}
+
+#[test]
+fn checked_in_resend_timeout_is_three_seconds() {
+    let timeout: u64 = Config::builder()
+        .add_source(File::with_name("application"))
+        .build()
+        .unwrap()
+        .get("client.resend.timeout_secs")
+        .unwrap();
+    assert_eq!(timeout, 3);
 }

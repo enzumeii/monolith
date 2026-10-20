@@ -1,0 +1,20 @@
+mutation EditOrderTags($id: ID!, $tags: [String!]!, $add: Boolean!) {
+  tagsAdd(id: $id, tags: $tags) @include(if: $add) {
+    node {
+      id
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+  tagsRemove(id: $id, tags: $tags) @skip(if: $add) {
+    node {
+      id
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}

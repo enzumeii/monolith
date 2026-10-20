@@ -1,3 +1,4 @@
 $kind: collection
 variables:
   inventories_cursor: ""
+  order_cursor: ""

@@ -25,6 +25,20 @@ pub(super) fn shopify_client(state: &AppState) -> Result<&ShopifyClient, AppErro
         })
 }
 
+pub(super) fn resend_client(
+    state: &AppState,
+) -> Result<&crate::client::resend::ResendClient, AppError> {
+    state
+        .resend
+        .as_ref()
+        .map_err(|error| {
+            AppError::new(StatusCode::SERVICE_UNAVAILABLE, "Resend client unavailable")
+                .with_source(error.clone())
+        })?
+        .as_deref()
+        .ok_or_else(|| AppError::new(StatusCode::SERVICE_UNAVAILABLE, "Resend client unavailable"))
+}
+
 #[track_caller]
 pub(super) fn upstream(error: ClientError) -> AppError {
     let status = if client_timeout(&error) {

@@ -404,6 +404,9 @@ async fn bounded_sales_lines_accept_only_order_id() {
     let requests = f.requests();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].2["variables"], json!({"id":id("Order",1)}));
+    let query = requests[0].2["query"].as_str().unwrap();
+    assert!(query.contains("lineItems(first: 250)"));
+    assert!(!query.contains("includeContact"));
     assert!(
         requests[0].2["query"]
             .as_str()
@@ -533,4 +536,26 @@ async fn inventory_discovery_distinguishes_missing_location_key_from_null() {
             .is_none()
     );
     assert_eq!(f.requests().len(), 2);
+}
+
+#[tokio::test]
+async fn list_orders_explicitly_supplies_required_selection_flags() {
+    let fixture = Fixture::new(vec![Reply::json(
+        json!({"data":{"orders":page(vec![],None)}}),
+    )])
+    .await;
+    client(&fixture)
+        .list_orders(
+            "tag:shipping AND fulfillment_status:unfulfilled",
+            &PageRequest {
+                first: 1,
+                after: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture.requests()[0].2["variables"],
+        json!({"first":1,"after":null,"search":"tag:shipping AND fulfillment_status:unfulfilled","includeContact":true,"includeTags":false})
+    );
 }

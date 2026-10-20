@@ -1,0 +1,20 @@
+$kind: http-request
+description: "List one order page; tag is optional; omit it to list without a tag filter. Supplied comma-separated tags use AND. page_size: 1..250 (default 50); cursor is opaque. Returns orders [{id,number,full_name,email,shipping_country_code}] (full_name/email/shipping_country_code are nullable; name is the customer profile first/last name and email is the order contact; country code is from the shipping address) and page_info {has_next_page,end_cursor}. Invalid input 400; auth 401; unavailable 503; upstream 502/timeout 504. Inherits bearer access_token."
+url: "{{server}}/v1/admin/orders?tag=shipping&fulfillment=UNFULFILLED&page_size=1"
+method: GET
+queryParams:
+  tag: shipping
+  fulfillment: UNFULFILLED
+  page_size: "1"
+scripts:
+  - type: afterResponse
+    code: |-
+      // 1. Parse the JSON response body
+      const responseData = pm.response.json();
+      // 2. Set the environment variable
+      const pageInfo = responseData.page_info;
+      if (pageInfo?.has_next_page === true && pageInfo.end_cursor != null) {
+        pm.collectionVariables.set("order_cursor", pageInfo.end_cursor);
+      }
+    language: text/javascript
+order: 2000

@@ -62,6 +62,7 @@ async fn discover(
     let mut seen = HashMap::new();
     let mut items = Vec::new();
     for_each_page(
+        None,
         async |after| {
             client
                 .find_inventory_to_activate(&request, &PageRequest { first: 250, after })

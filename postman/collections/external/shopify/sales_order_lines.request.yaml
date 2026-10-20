@@ -1,5 +1,6 @@
 $kind: graphql-request
 url: "{{shopify}}/graphql.json"
+description: "Read-only sales-report order ID and line projection. Use a test-store ID and local vault credentials."
 query: |
   query SalesOrderLines($id: ID!) {
     order(id: $id) {

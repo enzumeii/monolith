@@ -1,0 +1,50 @@
+query ShippingOrders($first: Int!, $after: String, $search: String!) {
+  orders(
+    first: $first
+    after: $after
+    query: $search
+    sortKey: CREATED_AT
+    reverse: true
+  ) {
+    nodes {
+      id
+      email
+      totalWeight
+      shippingAddress {
+        firstName
+        lastName
+        name
+        address1
+        address2
+        city
+        provinceCode
+        zip
+        country
+        countryCodeV2
+        phone
+      }
+      shippingLines(first: 250) {
+        nodes {
+          code
+        }
+      }
+      lineItems(first: 250) {
+        nodes {
+          title
+          sku
+          quantity
+          originalUnitPriceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}

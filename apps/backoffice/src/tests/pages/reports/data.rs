@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 fn page(next: bool, cursor: Option<&str>) -> InventoryResponse {
     InventoryResponse {
         products: vec![],
-        page_info: InventoryPageInfo {
+        page_info: PageInfo {
             has_next_page: next,
             end_cursor: cursor.map(str::to_string),
         },

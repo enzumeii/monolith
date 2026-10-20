@@ -8,7 +8,7 @@ export DPRINT_CACHE_DIR := justfile_directory() / ".tools/cache"
 default:
     @just --list
 
-# Install pinned dprint, cache plugins, scaffold .env and add missing optional client credential placeholders.
+# Install pinned dprint, cache plugins, and scaffold private local settings without replacing existing values.
 setup:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -36,6 +36,33 @@ setup:
     done
     printf '%s\n' 'Optional Stripe client: set STRIPE_SECRET_KEY in .env before reading Stripe data.'
     printf '%s\n' 'Optional PayPal reporting: set PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET in .env; select the PayPal base URL in application.toml.'
+    python3 - <<'PY_SENDER'
+    import pathlib, re, secrets
+    path = pathlib.Path('.env')
+    text = path.read_text()
+    token = secrets.token_hex(4)
+    sender = {
+        'NAME': f'Synthetic Sender {token}',
+        'PHONE': f'000{secrets.randbelow(10_000_000):07d}',
+        'EMAIL': 'shipping@enzumeii.com',
+        'ADDRESS': f'{secrets.randbelow(9999) + 1} Synthetic Street {token}',
+        'SUB_DISTRICT': 'Synthetic Subdistrict',
+        'DISTRICT': 'Synthetic District',
+        'PROVINCE': 'Bangkok',
+        'POSTCODE': f'10{secrets.randbelow(1000):03d}',
+        'COUNTRY_CODE': 'TH',
+    }
+    for field, value in sender.items():
+        key = f'SHIPPING_SENDER_{field}'
+        pattern = re.compile(rf'(?m)^[ \t]*(?:export[ \t]+)?{key}[ \t]*=(.*)$')
+        matches = list(pattern.finditer(text))
+        empty = ('', "''", '""')
+        existing = next((match.group(1).strip() for match in matches if match.group(1).strip() not in empty), None)
+        line = f'{key}={existing}' if existing else f'{key}="{value}"'
+        text = pattern.sub(lambda match: line if match.group(1).strip() in empty else match.group(0), text) if matches else text.rstrip('\n') + '\n' + line + '\n'
+    path.write_text(text)
+    PY_SENDER
+    printf '%s\n' 'Synthetic local sender values are scaffolded in .env; replace them with your shipping sender profile before real use.'
     printf '%s\n' 'Optional Resend client: set RESEND_API_KEY in .env to your Resend API key before sending email.'
     printf '%s\n' 'Optional Shopify client: set SHOPIFY_ACCESS_TOKEN in .env and client.shopify.admin_api_url in application.toml.'
 

@@ -5,6 +5,7 @@ use crate::{
 use std::collections::HashSet;
 
 pub(crate) async fn for_each_page<T: Send, E, F, Fut, C, M>(
+    mut initial: Option<Connection<T>>,
     mut fetch: F,
     mut consume: C,
     mut pagination_error: M,
@@ -18,9 +19,11 @@ where
     let mut after = None;
     let mut seen = HashSet::new();
     loop {
-        let page = fetch(after.clone()).await?;
-        page.page_info
-            .validate_after(after.as_deref())
+        let page = match initial.take() {
+            Some(page) => page,
+            None => fetch(after.clone()).await?,
+        };
+        page.validate_after(after.as_deref())
             .map_err(&mut pagination_error)?;
         consume(page.nodes)?;
         if !page.page_info.has_next_page {

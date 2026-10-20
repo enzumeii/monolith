@@ -232,9 +232,12 @@ fn page_sizes_and_continuation_metadata_are_validated() {
         (false, None, None, true),
     ] {
         assert_eq!(
-            PageInfo {
-                has_next_page,
-                end_cursor: end_cursor.map(str::to_owned)
+            Connection {
+                nodes: Vec::<()>::new(),
+                page_info: PageInfo {
+                    has_next_page,
+                    end_cursor: end_cursor.map(str::to_owned)
+                }
             }
             .validate_after(after)
             .is_ok(),
@@ -284,6 +287,94 @@ fn activation_candidates_reject_zero_and_overflowed_resource_ids() {
         assert!(
             candidate.activation_item().is_err(),
             "item={item}, variant={variant}, product={product}"
+        );
+    }
+}
+
+#[test]
+fn fulfillment_resource_kinds_share_checked_shopify_numeric_extraction() {
+    for kind in [
+        "Order",
+        "FulfillmentOrder",
+        "FulfillmentOrderLineItem",
+        "Fulfillment",
+    ] {
+        assert_eq!(
+            ShopifyId::new(format!("gid://shopify/{kind}/42"))
+                .expect("valid ID")
+                .number(kind)
+                .expect("numeric ID"),
+            42
+        );
+        for value in ["0", "18446744073709551616"] {
+            assert!(
+                ShopifyId::new(format!("gid://shopify/{kind}/{value}"))
+                    .expect("valid lexical ID")
+                    .number(kind)
+                    .is_err()
+            );
+        }
+    }
+}
+
+#[test]
+fn shipping_weight_accepts_shopify_unsigned_integer_strings() {
+    let order:ShippingOrder=serde_json::from_value(json!({"id":"gid://shopify/Order/1","email":null,"totalWeight":"2000","shippingAddress":null,"shippingLines":{"nodes":[]},"lineItems":{"nodes":[]}})).expect("valid fixture");
+    assert_eq!(order.total_weight, Some(2000));
+}
+#[test]
+fn resource_identity_rejects_wrong_kind_zero_and_overflow() {
+    for id in [
+        "gid://shopify/Order/0",
+        "gid://shopify/Product/1",
+        "gid://shopify/Order/-1",
+        "gid://shopify/Order/18446744073709551616",
+    ] {
+        assert!(
+            crate::models::shopify::ShopifyId::new(id)
+                .and_then(|id| id.number("Order"))
+                .is_err()
+        );
+    }
+    assert_eq!(
+        crate::models::shopify::ShopifyId::new("gid://shopify/Order/42")
+            .and_then(|id| id.number("Order"))
+            .expect("valid fixture"),
+        42
+    );
+}
+
+#[test]
+fn shipping_query_keeps_required_money_fields_after_removing_order_currency() {
+    let query = include_str!("../../client/shopify/shipping_orders.graphql")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(query.contains("shopMoney { amount currencyCode }"));
+    let money: MoneyBag =
+        serde_json::from_value(json!({"shopMoney":{"amount":"30","currencyCode":"USD"}}))
+            .expect("query-selected price");
+    assert_eq!(money.shop_money.currency_code, "USD");
+}
+
+#[test]
+fn listing_contact_projection_accepts_null_but_rejects_missing_selected_fields() {
+    for value in [
+        json!({"id":"gid://shopify/Order/42","number":1085,"shippingAddress":null,"email":null,"customer":null}),
+        json!({"id":"gid://shopify/Order/42","number":1085,"shippingAddress":null,"email":"order@example.test","customer":{"firstName":null,"lastName":null}}),
+    ] {
+        assert!(serde_json::from_value::<OrderSummary>(value).is_ok());
+    }
+    for value in [
+        json!({"id":"gid://shopify/Order/42","number":1085,"shippingAddress":null,"customer":null}),
+        json!({"id":"gid://shopify/Order/42","number":1085,"shippingAddress":null,"email":null}),
+        json!({"id":"gid://shopify/Order/42","number":1085,"shippingAddress":null,"email":null,"customer":{"lastName":null}}),
+        json!({"id":"gid://shopify/Order/42","number":1085,"shippingAddress":null,"email":null,"customer":{"firstName":null}}),
+        json!({"id":"gid://shopify/Order/42","number":1085,"shippingAddress":null,"email":123,"customer":null}),
+    ] {
+        assert!(
+            serde_json::from_value::<OrderSummary>(value.clone()).is_err(),
+            "{value}"
         );
     }
 }

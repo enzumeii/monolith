@@ -6,7 +6,9 @@ queryParams:
   page_size: "50"
   cursor: "{{inventories_cursor}}"
 pathVariables:
-  location_id: "90340917419"
+  - key: location_id
+    value: "65761018027"
+    description: ""
 scripts:
   - type: afterResponse
     code: |-

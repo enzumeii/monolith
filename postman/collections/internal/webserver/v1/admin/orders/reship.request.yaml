@@ -1,0 +1,9 @@
+$kind: http-request
+description: Replace 1085 with a four-digit merchant order number (1000-9999). Bodyless POST without query. Reuses ListOrders contact projection, resolves the exact number, adds RETURNED, then sends once through shared Resend. HTTP200 returns success and email_id for provider acceptance. Input400; auth401; unknown404; ambiguous number or missing email409; upstream502/504; unavailable client503. RETURNED remains after email failure. Use an isolated test environment.
+url: "{{server}}/v1/admin/orders/:order_number/reship"
+method: POST
+pathVariables:
+  - key: order_number
+    value: "5621"
+    description: ""
+order: 5000

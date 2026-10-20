@@ -1,0 +1,38 @@
+$kind: graphql-request
+description: "Requires Shopify token in local vault. Synthetic IDs must be replaced with test-store IDs. Returns selected data and pageInfo where applicable. Mutation userErrors, GraphQL errors and missing payloads are failures. Do not run mutations against production during verification."
+url: "{{shopify}}/graphql.json"
+query: |
+  query FulfillmentOrders($id: ID!, $first: Int!, $after: String) {
+    order(id: $id) {
+      id
+      fulfillmentOrders(first: $first, after: $after) {
+        nodes {
+          id
+          status
+          supportedActions {
+            action
+          }
+          lineItems(first: 250) {
+            nodes {
+              id
+              remainingQuantity
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+variables: |
+  {
+    "id": "gid://shopify/Order/123",
+    "first": 250,
+    "after": null
+  }
+settings: {}
+schema:
+  source: auto
+order: 3200

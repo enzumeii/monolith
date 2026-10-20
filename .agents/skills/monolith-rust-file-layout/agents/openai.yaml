@@ -1,0 +1,4 @@
+interface:
+  display_name: "Monolith Rust File Layout"
+  short_description: "Order Rust items and keep test modules last"
+  default_prompt: "Use $monolith-rust-file-layout to check item ordering and test-module placement in the touched Rust files."

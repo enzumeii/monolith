@@ -14,4 +14,12 @@ Before placing new behavior, identify its owning capability and read the existin
 5. Reuse existing framework lifecycle and composition mechanisms. Do not add entities, aggregates, repositories, adapters or generic infrastructure solely to satisfy a DDD label. Add an abstraction only when an agreed requirement and actual consumers justify it.
 6. Before completion, trace imports and callers through the final diff. Verify each file still owns one cohesive responsibility, feature behavior has not leaked into routing or shared UI, and extraction preserves lifecycle and observable behavior. Record any necessary cross-boundary dependency or justified new module briefly in the existing plan or review notes; do not create another approval workflow.
 
+Repository-specific placement:
+
+| Responsibility | Owner |
+| --- | --- |
+| Shopify operation methods | `services/api/src/client/shopify.rs`; supporting GraphQL documents in `client/shopify/`; services retain pagination and multi-call orchestration |
+| Carrier-specific label builders | The shipping-label feature and its focused children, rather than miscellaneous shared utils |
+| Static API templates | `services/api/assets/`, referenced by the owning feature |
+
 For a broad architecture audit, use the existing monolith-architecture-review skill. This skill guides ownership decisions within the requested scope; it does not authorize unrelated restructuring.

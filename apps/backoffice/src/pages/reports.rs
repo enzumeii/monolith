@@ -7,7 +7,7 @@ mod table;
 use crate::{api, components::ErrorMessage, session};
 use data::{CursorHistory, collect_inventory};
 use dioxus::prelude::*;
-use domain::dto::{InventoryPageInfo, InventoryQuery, ProductReportRow};
+use domain::dto::{InventoryQuery, PageInfo, ProductReportRow};
 use save::SaveReport;
 use table::{ReportSkeleton, ReportTable};
 
@@ -25,7 +25,7 @@ struct ReportRequest {
 }
 struct ReportData {
     products: Vec<ProductReportRow>,
-    page_info: Option<InventoryPageInfo>,
+    page_info: Option<PageInfo>,
 }
 
 #[component]
@@ -140,7 +140,7 @@ pub fn Reports() -> Element {
                         button { class: "ghost", disabled: loading || !next_cursor.as_ref().is_some_and(|(has_next, _)| *has_next),
                             onclick: move |_| {
                                 if let Some((has_next_page, end_cursor)) = next_cursor.clone() {
-                                    let advanced = history.write().next(&InventoryPageInfo { has_next_page, end_cursor });
+                                    let advanced = history.write().next(&PageInfo { has_next_page, end_cursor });
                                     match advanced {
                                         Ok(()) => {
                                             local_error.set(None);
