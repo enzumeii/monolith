@@ -518,6 +518,10 @@ dialog.popup { width: min(54rem, calc(100vw - 2rem)); max-width: none; max-heigh
 .schedule-table td { vertical-align: top; overflow-wrap: anywhere; }
 .schedule-table a { display: inline-block; }
 .schedule-table caption { text-align: left; padding: .75rem 0; }
+.report-files-compact { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; margin: 0; padding: 0; }
+.schedule-table .report-file-download { display: inline-flex; align-items: center; justify-content: center; width: 2.75rem; height: 2.75rem; border: 1px solid var(--ghost-border); color: var(--text); text-decoration: none; }
+.report-file-download:hover { background: var(--hover-bg); }
+.report-file-download:focus-visible { outline: 2px solid var(--heading); outline-offset: 2px; }
 .schedule-editor { margin-top: 1.5rem; max-width: 54rem; }
 .schedule-editor fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: .4rem; }
 .schedule-editor input, .schedule-editor select { width: 100%; }

@@ -62,6 +62,7 @@ fn rendered_file_links_keep_signed_hrefs_and_reject_unsafe_schemes() {
     let mut dom = VirtualDom::new_with_props(
         ReportFiles,
         ReportFilesProps {
+            compact: false,
             files: vec![
                 ReportFileDTO {
                     filename: "transactions.csv".into(),

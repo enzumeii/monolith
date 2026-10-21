@@ -3,13 +3,13 @@ use domain::dto::ReportFileDTO;
 use std::time::Duration;
 
 #[component]
-pub fn ReportFiles(files: Vec<ReportFileDTO>) -> Element {
+pub fn ReportFiles(files: Vec<ReportFileDTO>, #[props(default)] compact: bool) -> Element {
     rsx! {
         if files.is_empty() { p { "Files unavailable" } }
         else {
-            ul { class: "report-files",
+            ul { class: if compact { "report-files report-files-compact" } else { "report-files" },
                 for (index,file) in files.iter().enumerate() {
-                    SavedFile { key: "{index}:{file.download_url}", file: file.clone() }
+                    SavedFile { key: "{index}:{file.download_url}", file: file.clone(), compact }
                 }
             }
         }
@@ -39,20 +39,29 @@ impl Activation {
 }
 
 #[component]
-fn SavedFile(file: ReportFileDTO) -> Element {
+fn SavedFile(file: ReportFileDTO, compact: bool) -> Element {
     let started = use_hook(web_time::Instant::now);
     let mut activation = use_signal(Activation::default);
     rsx! {
         li {
             if eligible_url(&file.download_url) {
                 a { href: file.download_url.clone(), target: "_blank", rel: "noopener noreferrer",
+                    class: if compact { "report-file-download" } else { "" },
+                    aria_label: "Download {file.filename} ({file.content_type})",
+                    title: "{file.filename} · {file.content_type}",
                     onclick: move |event| {
                         if !activation.write().begin(started.elapsed()) { event.prevent_default(); }
                     },
-                    "{file.filename}"
+                    if compact {
+                        svg { width: "20", height: "20", view_box: "0 0 24 24", fill: "none",
+                            stroke: "currentColor", stroke_width: "1.75", stroke_linecap: "round", stroke_linejoin: "round",
+                            "aria-hidden": "true", "focusable": "false",
+                            path { d: "M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4" }
+                        }
+                    } else { "{file.filename}" }
                 }
             } else { span { "{file.filename} · File link unavailable" } }
-            span { " · {file.content_type}" }
+            if !compact { span { " · {file.content_type}" } }
         }
     }
 }
