@@ -349,7 +349,7 @@ async fn send_report(
                 email::Report::Transaction { start, end }
             }
         };
-        let content = email::report_content(&claim.recipient, report);
+        let content = email::report_content(&claim.recipient, report, checkpoint.generated_at);
         let mut next = checkpoint.clone();
         next.mail = MailState::Sending(MailIntent {
             from: content.from,

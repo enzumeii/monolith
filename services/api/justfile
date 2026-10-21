@@ -128,7 +128,3 @@ fix:
 # Recreate the dev Postgres database (drop + create)
 reset-db:
     sqlx database drop -y && sqlx database create
-
-# Start the pinned local Docker Blob emulator with persistent bytes in its named volume.
-local-blob:
-    docker compose -f docker-compose.yml up -d --wait local-blob

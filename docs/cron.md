@@ -135,7 +135,7 @@ flowchart LR
 | Direct downloads | The same Rust HTTP client uploads to a pinned Docker Vercel Blob emulator locally and Vercel Blob when configured. Keys use type/Bangkok generation date/audit ID/filename. Stored URLs come from provider responses. |
 | Blob protocol | API version 13: raw PUT with public access, random suffix and overwrite disabled; authenticated metadata GET by pathname; unauthenticated bounded GET for verified content. No hidden PUT retries. |
 | Recovery | Expected keys, sizes and SHA-256 reconcile accepted uploads after a lost response. A process crash before all CSV uploads finish can permanently lose missing bytes: mark failure, retain available URLs and never regenerate or email an incomplete report. Transport uncertainty consumes the ordinary whole-job retry budget. |
-| Scheduled email | New intents use reporting@enzumeii.com with report type and frozen inventory ID or inclusive Bangkok range in subject and HTML. Existing intents retain sender, recipient, content, time and idempotency key. |
+| Scheduled email | New intents use reporting@enzumeii.com with report type, frozen inventory ID or inclusive Bangkok range, and saved generation timestamp in subject and HTML. Generation timestamps use Asia/Bangkok (UTC+07:00). Existing intents retain sender, recipient, content, time and idempotency key. |
 | Authorization | Metadata uses API authentication. Direct URLs use their storage host's access policy. |
 | Integrity | Checksums during prepare/recovery/publication. File hosting after publication belongs to storage. |
 
@@ -147,7 +147,6 @@ The emulator image is pinned to ghcr.io/lafittemehdy/vercel-blob-local@sha256:9e
 
 ```bash
 just --justfile services/api/justfile run
-just --justfile services/api/justfile local-blob
 just --justfile services/api/justfile test
 just --justfile crates/report-generator/justfile check
 just --justfile crates/report-generator/justfile test

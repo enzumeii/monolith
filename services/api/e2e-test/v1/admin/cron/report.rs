@@ -45,10 +45,19 @@ async fn email_failure_is_eager_and_retry_reuses_the_frozen_request_and_files() 
     );
     assert_eq!(requests[0].1["to"][0], "reports@example.test");
     assert_eq!(requests[0].1["from"], "reporting@enzumeii.com");
+    let generated_at =
+        chrono::DateTime::parse_from_rfc3339(failed["generated_at"].as_str().unwrap())
+            .unwrap()
+            .with_timezone(&chrono_tz::Asia::Bangkok)
+            .format("%Y-%m-%d %H:%M:%S %:z")
+            .to_string();
     assert_eq!(
         requests[0].1["subject"],
-        "Inventory report - inventory ID 12345"
+        format!("Inventory report - inventory ID 12345 - Generated: {generated_at} (Asia/Bangkok)")
     );
+    assert!(requests[0].1["html"].as_str().unwrap().contains(&format!(
+        "Report generation date: {generated_at} (Asia/Bangkok)"
+    )));
     assert!(
         requests[0].1["html"]
             .as_str()

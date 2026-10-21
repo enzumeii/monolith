@@ -53,23 +53,20 @@ fn encode(data: ReportData) -> Vec<GeneratedFile> {
             vec![("inventory.csv", report_generator::inventory::encode(&rows))]
         }
         ReportData::Transaction(report) => {
-            let transactions = report_generator::accounting::transaction_table(
-                report
-                    .transactions
-                    .stripe
-                    .iter()
-                    .chain(&report.transactions.paypal),
-                "",
-            );
-            let items = report_generator::accounting::item_table(&report.items);
             vec![
                 (
                     "transactions.csv",
-                    report_generator::csv::encode_table(transactions.headers, &transactions.rows),
+                    report_generator::accounting::encode_transactions(
+                        report
+                            .transactions
+                            .stripe
+                            .iter()
+                            .chain(&report.transactions.paypal),
+                    ),
                 ),
                 (
                     "items.csv",
-                    report_generator::csv::encode_table(items.headers, &items.rows),
+                    report_generator::accounting::encode_items(&report.items),
                 ),
             ]
         }

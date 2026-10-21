@@ -1,6 +1,9 @@
 use domain::dto::accounting::{
     AccountingGateway, AccountingItem, AccountingKind, AccountingTransaction,
 };
+const TRANSACTION_NUMERIC_COLUMNS: &[usize] = &[7, 8, 11, 13, 14, 15, 16, 17, 18];
+const ITEM_NUMERIC_COLUMNS: &[usize] = &[0, 1, 9];
+
 pub const TRANSACTION_HEADERS: &[&str] = &[
     "gateway",
     "type",
@@ -102,9 +105,27 @@ pub fn item_table(rows: &[AccountingItem]) -> crate::Table {
             .collect(),
     }
 }
+#[must_use]
+pub fn encode_transactions<'a>(
+    rows: impl IntoIterator<Item = &'a AccountingTransaction>,
+) -> String {
+    let table = transaction_table(rows, "");
+    crate::csv::encode_table(table.headers, &table.rows, TRANSACTION_NUMERIC_COLUMNS)
+}
+
+#[must_use]
+pub fn encode_items(rows: &[AccountingItem]) -> String {
+    let table = item_table(rows);
+    crate::csv::encode_table(table.headers, &table.rows, ITEM_NUMERIC_COLUMNS)
+}
+
 fn kind(kind: AccountingKind) -> &'static str {
     match kind {
         AccountingKind::Sale => "SALE",
         AccountingKind::Refund => "REFUND",
     }
 }
+
+#[cfg(test)]
+#[path = "tests/accounting.rs"]
+mod tests;

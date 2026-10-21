@@ -8,7 +8,7 @@ use axum::{
         Path, Query, State,
         rejection::{JsonRejection, PathRejection, QueryRejection},
     },
-    http::{HeaderValue, StatusCode, header::LOCATION},
+    http::StatusCode,
 };
 use domain::dto::{
     CreateCronConfiguration, ListCronConfigurationsQuery, PatchCronConfiguration,
@@ -27,19 +27,10 @@ pub async fn list(
 pub async fn create(
     State(state): State<AppState>,
     payload: Result<Json<CreateCronConfiguration>, JsonRejection>,
-) -> Result<
-    (
-        StatusCode,
-        [(axum::http::HeaderName, HeaderValue); 1],
-        Json<domain::dto::CronConfigurationDTO>,
-    ),
-    AppError,
-> {
+) -> Result<(StatusCode, Json<domain::dto::CronConfigurationDTO>), AppError> {
     let input = validate::validate_create(validate::validate_body(payload)?)?;
     let result = cron_config::create(&state.pool, &input).await?;
-    let location = HeaderValue::from_str(&format!("/v1/admin/cron/configs/{}", result.id))
-        .map_err(anyhow::Error::new)?;
-    Ok((StatusCode::CREATED, [(LOCATION, location)], Json(result)))
+    Ok((StatusCode::CREATED, Json(result)))
 }
 pub async fn preview(
     query: Result<Query<PreviewCronConfiguration>, QueryRejection>,

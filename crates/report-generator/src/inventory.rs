@@ -1,6 +1,8 @@
 use crate::csv::encode_table;
 use domain::dto::ProductReportRow;
 
+const NUMERIC_COLUMNS: &[usize] = &[5, 7, 9, 11, 12, 13];
+
 pub const HEADERS: [&str; 14] = [
     "category",
     "collection",
@@ -49,7 +51,7 @@ pub fn cells(row: &ProductReportRow) -> [String; 14] {
 #[must_use]
 pub fn encode(rows: &[ProductReportRow]) -> String {
     let rows = rows.iter().map(|row| cells(row).into()).collect::<Vec<_>>();
-    encode_table(&HEADERS, &rows)
+    encode_table(&HEADERS, &rows, NUMERIC_COLUMNS)
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-Run `../../init.sh` to install the CLI packages after installing Rust, Docker, and Python 3.
+Run `../../init.sh` to install the CLI packages after installing Rust, Docker, and Python 3. Python 3 is only needed by `just setup` to generate the JWT signing key and scaffold synthetic sender settings; running the API and Blob emulator does not require Python.
 
 `just setup` installs pinned dprint with Cargo under `.tools/`, caches its GraphQL/JSON plugins, and creates `.env` when missing. It adds empty `RESEND_API_KEY`, `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` and `BLOB_READ_WRITE_TOKEN` entries if absent. Supply optional provider credentials there; PayPal uses the sandbox URL in `application.toml` by default.
 
@@ -17,7 +17,6 @@ Run `../../init.sh` to install the CLI packages after installing Rust, Docker, a
 | --- | --- |
 | `just` | List recipes |
 | `RUST_LOG=info,api=debug just run` | Include API DEBUG events and original error diagnostics; error text can contain sensitive values |
-| `just local-blob` | Start the pinned Docker Vercel Blob emulator |
 | `just test` | Start isolated PostgreSQL and Blob containers, run API and TCP E2E, then remove test resources |
 | `just check` | Rust/GraphQL/JSON formatting and strict API lint |
 | `just fix` | Apply Rust/GraphQL/JSON formatting and lint fixes and prepare SQLx metadata |

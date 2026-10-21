@@ -175,6 +175,22 @@ async fn all_files_recovery_publishes_before_mail_and_email_failure_preserves_ur
             .unwrap()
             .contains("Asia/Bangkok")
     );
+    let generated_at = checkpoint
+        .generated_at
+        .and_utc()
+        .with_timezone(&chrono_tz::Asia::Bangkok)
+        .format("%Y-%m-%d %H:%M:%S %:z")
+        .to_string();
+    assert_eq!(failed.generated_at, Some(checkpoint.generated_at));
+    assert!(
+        requests[0].2["subject"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("Generated: {generated_at} (Asia/Bangkok)"))
+    );
+    assert!(requests[0].2["html"].as_str().unwrap().contains(&format!(
+        "Report generation date: {generated_at} (Asia/Bangkok)"
+    )));
     assert_eq!(blob.data.lock().unwrap().puts.len(), 0);
     state.pool.close().await;
 }

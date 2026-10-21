@@ -39,12 +39,7 @@ async fn admin_can_create_preview_list_patch_and_delete_new_contract() {
         "receiver_email":"reports@example.test","parameter":"PREVIOUS_MONTH"
     }))).await.unwrap();
     assert_eq!(created.status(), 201);
-    assert!(
-        created.headers()["location"]
-            .to_str()
-            .unwrap()
-            .starts_with("/v1/admin/cron/configs/")
-    );
+    assert!(!created.headers().contains_key("location"));
     let created = body_json(created).await;
     let id = created["id"].as_str().unwrap();
     assert_eq!(created["enabled"], false);

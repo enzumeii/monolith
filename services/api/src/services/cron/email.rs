@@ -10,7 +10,15 @@ pub(crate) struct ReportContent {
     pub html: String,
 }
 
-pub(crate) fn report_content(recipient: &str, report: Report<'_>) -> ReportContent {
+pub(crate) fn report_content(
+    recipient: &str,
+    report: Report<'_>,
+    generated_at: chrono::NaiveDateTime,
+) -> ReportContent {
+    let generated_at = generated_at
+        .and_utc()
+        .with_timezone(&chrono_tz::Asia::Bangkok)
+        .format("%Y-%m-%d %H:%M:%S %:z");
     let (subject, html) = match report {
         Report::Inventory { id } => (
             format!("Inventory report - inventory ID {id}"),
@@ -31,8 +39,8 @@ pub(crate) fn report_content(recipient: &str, report: Report<'_>) -> ReportConte
     ReportContent {
         from: "reporting@enzumeii.com".into(),
         to: recipient.into(),
-        subject,
-        html,
+        subject: format!("{subject} - Generated: {generated_at} (Asia/Bangkok)"),
+        html: format!("{html}<p>Report generation date: {generated_at} (Asia/Bangkok)</p>"),
     }
 }
 fn escape_html(value: &str) -> String {
