@@ -5,6 +5,8 @@ pub mod auth;
 pub mod inventories;
 pub mod orders;
 
-mod common;
-
 mod pagination;
+
+#[cfg(test)]
+#[path = "tests/services/common.rs"]
+pub(super) mod common;

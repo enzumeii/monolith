@@ -93,6 +93,71 @@ async fn body_json(response: Response) -> serde_json::Value {
 }
 
 #[tokio::test]
+async fn upstream_mapper_preserves_status_typed_cause_and_both_origins() {
+    for (kind, expected_status) in [
+        (
+            ClientErrorKind::Protocol("private-protocol"),
+            StatusCode::BAD_GATEWAY,
+        ),
+        (
+            ClientErrorKind::Http {
+                status: 401,
+                request_id: Some("private-request-id".into()),
+            },
+            StatusCode::BAD_GATEWAY,
+        ),
+        (
+            ClientErrorKind::Upstream {
+                source: Box::new(std::io::Error::other("private-upstream")),
+                timed_out: false,
+            },
+            StatusCode::BAD_GATEWAY,
+        ),
+        (
+            ClientErrorKind::Upstream {
+                source: Box::new(std::io::Error::other("private-timeout")),
+                timed_out: true,
+            },
+            StatusCode::GATEWAY_TIMEOUT,
+        ),
+    ] {
+        let expected_kind = std::mem::discriminant(&kind);
+        let source_line = line!() + 1;
+        let source = ClientError::new(kind);
+        let origin = source.location();
+        assert_eq!(origin.line(), source_line);
+        let mapping_line = line!() + 2;
+        let error = Err::<(), _>(source)
+            .map_err(|error| upstream(error))
+            .unwrap_err();
+        assert_location(&error, mapping_line);
+        assert_eq!(client_origin(&error), Some(origin));
+        let retained = error
+            .cause
+            .as_ref()
+            .unwrap()
+            .downcast_ref::<ClientError>()
+            .unwrap();
+        assert_eq!(std::mem::discriminant(retained.kind()), expected_kind);
+        if matches!(retained.kind(), ClientErrorKind::Upstream { .. }) {
+            assert!(
+                std::error::Error::source(retained)
+                    .unwrap()
+                    .is::<std::io::Error>()
+            );
+        }
+        assert!(!format!("{error:?}").contains("private"));
+        let response = error.into_response();
+        assert_eq!(response.status(), expected_status);
+        assert!(!response.headers().contains_key(WWW_AUTHENTICATE));
+        assert_eq!(
+            body_json(response).await,
+            serde_json::json!({"error":"Upstream request failed"})
+        );
+    }
+}
+
+#[tokio::test]
 async fn database_error_hides_internal_detail_behind_generic_message() {
     let sql_error = sqlx::Error::RowNotFound;
     let response = AppError::from(sql_error).into_response();
@@ -307,10 +372,12 @@ mod logging_tests {
     fn report_failures_keep_private_diagnostics() {
         for filter in ["info", "info,api=debug"] {
             let log = capture(filter, || {
-                let error = AppError::new(StatusCode::BAD_GATEWAY, "Upstream request failed")
-                    .with_source(crate::client::ClientError::new(ClientErrorKind::Protocol(
-                        "private-report-cause",
-                    )));
+                let source = ClientError::new(ClientErrorKind::Protocol("private-report-cause"));
+                let origin = source.location();
+                let line = line!() + 1;
+                let error = upstream(source);
+                assert_location(&error, line);
+                assert_eq!(client_origin(&error), Some(origin));
                 let response = error.into_response();
                 assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
             });

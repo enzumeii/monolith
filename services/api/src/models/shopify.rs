@@ -1,7 +1,6 @@
 use super::Sku;
 pub use crate::client::MutationUserError;
 use crate::client::{ClientError, ClientErrorKind};
-use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -106,28 +105,7 @@ pub struct ListProductsRequest {
     pub location_id: ShopifyId,
     pub statuses: Vec<ProductStatus>,
 }
-pub struct OrdersByPaymentRequest {
-    pub payment_id: String,
-}
 pub struct OrdersByTagRequest {
-    pub tags: Vec<String>,
-}
-pub struct OrderLinesRequest {
-    pub order_id: ShopifyId,
-}
-impl OrderLinesRequest {
-    pub(crate) fn variables(&self) -> Result<Value, ClientError> {
-        self.order_id.require_kind("Order")?;
-        Ok(json!({"id":self.order_id}))
-    }
-}
-
-pub struct SalesRangeRequest {
-    pub start: DateTime<FixedOffset>,
-    pub end: DateTime<FixedOffset>,
-}
-pub struct ReplaceOrderTagsRequest {
-    pub order_id: ShopifyId,
     pub tags: Vec<String>,
 }
 pub struct InventoryDiscoveryRequest {
@@ -160,19 +138,6 @@ impl ListProductsRequest {
         )
     }
 }
-impl OrdersByPaymentRequest {
-    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
-        page.validate()?;
-        if self.payment_id.trim().is_empty() {
-            return Err(ClientError::new(ClientErrorKind::InvalidInput(
-                "payment ID is empty",
-            )));
-        }
-        Ok(
-            json!({"search": format!("payment_id:\"{}\"", escape_search(&self.payment_id)), "after": page.after, "first": page.first}),
-        )
-    }
-}
 impl OrdersByTagRequest {
     pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
         page.validate()?;
@@ -188,25 +153,6 @@ impl OrdersByTagRequest {
             .collect::<Vec<_>>()
             .join(" AND ");
         Ok(json!({"search": search, "after": page.after, "first": page.first}))
-    }
-}
-impl SalesRangeRequest {
-    pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
-        page.validate()?;
-        if self.start >= self.end {
-            return Err(ClientError::new(ClientErrorKind::InvalidInput(
-                "sales start must precede end",
-            )));
-        }
-        Ok(
-            json!({"search": format!("created_at:>='{}' created_at:<'{}'", self.start.to_rfc3339(), self.end.to_rfc3339()), "ordersAfter": page.after, "first": page.first}),
-        )
-    }
-}
-impl ReplaceOrderTagsRequest {
-    pub(crate) fn variables(&self) -> Result<Value, ClientError> {
-        self.order_id.require_kind("Order")?;
-        Ok(json!({"input": {"id": self.order_id, "tags": self.tags}}))
     }
 }
 impl InventoryDiscoveryRequest {
@@ -237,10 +183,6 @@ pub struct Money {
 pub struct MoneyBag {
     pub shop_money: Money,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Image {
-    pub url: String,
-}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct InventoryQuantity {
     pub name: String,
@@ -256,8 +198,6 @@ pub struct InventoryLevel {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VariantInventory {
-    pub id: ShopifyId,
-    pub tracked: bool,
     pub inventory_level: Option<InventoryLevel>,
     #[serde(flatten)]
     pub metadata: InventoryMetadata,
@@ -269,22 +209,15 @@ pub struct Pricing {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Variant {
-    pub id: ShopifyId,
     pub title: String,
     pub sku: Option<Sku>,
     pub contextual_pricing: Pricing,
-    pub image: Option<Image>,
     pub inventory_item: VariantInventory,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Product {
-    pub id: ShopifyId,
     pub title: String,
-    pub description: String,
-    pub status: ProductStatus,
-    pub tags: Vec<String>,
-    pub featured_image: Option<Image>,
     pub variants: Connection<Variant>,
     pub product_type: String,
 }
@@ -304,12 +237,10 @@ pub struct Address {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrderTransaction {
-    pub id: String,
     pub payment_id: Option<String>,
     pub gateway: Option<String>,
     pub kind: String,
     pub status: String,
-    pub processed_at: Option<DateTime<FixedOffset>>,
     pub amount_set: MoneyBag,
     pub receipt_json: Option<String>,
 }
@@ -317,16 +248,9 @@ pub struct OrderTransaction {
 #[serde(rename_all = "camelCase")]
 pub struct Order {
     pub id: ShopifyId,
-    pub name: String,
     pub number: i64,
-    pub created_at: DateTime<FixedOffset>,
-    pub display_financial_status: Option<String>,
-    pub display_fulfillment_status: String,
-    pub tags: Vec<String>,
-    pub email: Option<String>,
     pub phone: Option<String>,
     pub shipping_address: Option<Address>,
-    pub current_total_price_set: MoneyBag,
     pub transactions: Vec<OrderTransaction>,
     pub line_items: Connection<AccountingLineItem>,
     pub shipping_lines: Connection<AccountingShippingLine>,
@@ -379,12 +303,6 @@ pub struct TaggedOrderLineItem {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaggedOrder {
-    pub tags: Vec<String>,
-    pub id: ShopifyId,
-    pub number: i64,
-    pub email: Option<String>,
-    pub phone: Option<String>,
-    pub current_total_price_set: MoneyBag,
     pub line_items: Connection<TaggedOrderLineItem>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -392,22 +310,8 @@ pub struct ResourceReference {
     pub id: ShopifyId,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SalesLine {
-    pub id: String,
-    pub title: String,
-    pub variant_title: Option<String>,
-    pub sku: Option<Sku>,
-    pub quantity: i64,
-    pub current_quantity: i64,
-    pub product: Option<ResourceReference>,
-    pub variant: Option<ResourceReference>,
-    pub original_unit_price_set: MoneyBag,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OrderTags {
     pub id: ShopifyId,
-    pub name: String,
     pub tags: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -437,18 +341,6 @@ pub struct InventoryActivationCandidate {
     pub item: InventoryItemSummary,
 }
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SalesOrderHeader {
-    pub id: ShopifyId,
-    pub name: String,
-    pub created_at: DateTime<FixedOffset>,
-    pub cancelled_at: Option<DateTime<FixedOffset>>,
-    pub test: bool,
-    pub display_financial_status: Option<String>,
-    pub display_fulfillment_status: String,
-}
-
-#[derive(Deserialize)]
 pub struct ProductsData {
     pub products: Connection<Product>,
 }
@@ -459,10 +351,6 @@ pub struct OrdersData {
 #[derive(Deserialize)]
 pub struct OrdersByTagData {
     pub orders: Connection<TaggedOrder>,
-}
-#[derive(Deserialize)]
-pub struct SalesData {
-    pub orders: Connection<SalesOrderHeader>,
 }
 #[derive(Deserialize)]
 pub struct InventoryData {
@@ -476,17 +364,6 @@ pub struct LocationInventory {
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OrderUpdateData {
-    pub order_update: OrderUpdate,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OrderUpdate {
-    pub order: Option<OrderTags>,
-    pub user_errors: Vec<MutationUserError>,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ActivationData {
     pub inventory_activate: Activation,
 }
@@ -495,16 +372,6 @@ pub struct ActivationData {
 pub struct Activation {
     pub inventory_level: Option<InventoryLevel>,
     pub user_errors: Vec<MutationUserError>,
-}
-#[derive(Deserialize)]
-pub struct OrderLinesData<T> {
-    pub order: Option<OrderLines<T>>,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OrderLines<T> {
-    pub id: ShopifyId,
-    pub line_items: Connection<T>,
 }
 fn serialize_page_info<S: serde::Serializer>(
     page: &PageInfo,

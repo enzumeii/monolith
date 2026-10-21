@@ -1,22 +1,19 @@
 mod enable;
 pub use enable::enable_inventory;
 
-use super::common::{shopify_client, upstream};
 use crate::{
     client::shopify::ShopifyClient,
-    error::AppError,
+    error::{AppError, upstream},
     models::shopify::{ListProductsRequest, PageRequest, ProductStatus, ShopifyId},
-    state::AppState,
 };
 use axum::http::StatusCode;
 use domain::dto::InventoryResponse;
 
 pub async fn inventory_report(
-    state: &AppState,
+    client: &crate::client::shopify::ShopifyClient,
     location_id: ShopifyId,
     page: PageRequest,
 ) -> Result<InventoryResponse, AppError> {
-    let client = shopify_client(state)?;
     validate_location(client, &location_id).await?;
     let request = ListProductsRequest {
         location_id,

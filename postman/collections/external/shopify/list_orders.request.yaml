@@ -19,7 +19,6 @@ query: |
       nodes {
         id
         number
-        name @include(if: $includeTags)
         tags @include(if: $includeTags)
         customer @include(if: $includeContact) {
           firstName

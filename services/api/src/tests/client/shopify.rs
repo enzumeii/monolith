@@ -21,13 +21,11 @@ fn page(nodes: Vec<Value>, cursor: Option<&str>) -> Value {
 fn money() -> Value {
     json!({"amount":"123.4500","currencyCode":"THB"})
 }
-fn variant(n: u64) -> Value {
-    json!({"id":format!("gid://shopify/ProductVariant/{n}"),"title":"M","sku":null,
-        "contextualPricing":{"price":money()},"image":null,
-        "inventoryItem":{"id":"gid://shopify/InventoryItem/1","tracked":true,"unitCost":null,"measurement":{"weight":null},"inventoryLevel":null}})
+fn variant(_n: u64) -> Value {
+    json!({"title":"M","sku":null,"contextualPricing":{"price":money()},"inventoryItem":{"unitCost":null,"measurement":{"weight":null},"inventoryLevel":null}})
 }
-fn product(n: u64, variants: Vec<Value>) -> Value {
-    json!({"id":format!("gid://shopify/Product/{n}"),"title":"Shirt","description":"Cotton","productType":"KEYCHAIN","status":"ACTIVE","tags":[],"featuredImage":null,"variants":page(variants,None)})
+fn product(_n: u64, variants: Vec<Value>) -> Value {
+    json!({"title":"Shirt","productType":"KEYCHAIN","variants":page(variants,None)})
 }
 fn order(n: u64) -> Value {
     json!({"id":format!("gid://shopify/Order/{n}"),"name":"#1","number":1,"createdAt":"2026-10-01T00:00:00+07:00",
@@ -35,27 +33,14 @@ fn order(n: u64) -> Value {
         "email":null,"phone":null,"shippingAddress":null,
         "currentTotalPriceSet":{"shopMoney":money()},"transactions":[], "lineItems":page(vec![],None), "shippingLines":page(vec![],None), "refunds":[]})
 }
-fn line(n: u64) -> Value {
-    json!({"id":format!("line-{n}"),"title":"Shirt","variantTitle":null,"sku":null,"quantity":3,"currentQuantity":1,
-        "product":null,"variant":null,"originalUnitPriceSet":{"shopMoney":money()}})
-}
-fn sales(n: u64, lines: Value) -> Value {
-    json!({"id":format!("gid://shopify/Order/{n}"),"name":"#1","createdAt":"2026-10-01T00:00:00+07:00",
-        "cancelledAt":"2026-10-02T00:00:00+07:00","test":true,
-        "displayFinancialStatus":"PENDING","displayFulfillmentStatus":"UNFULFILLED","lineItems":lines})
-}
 fn inventory(n: u64, active: bool, on_hand: i64, tracked: bool) -> Value {
     json!({"id":format!("level-{n}"),"isActive":active,
         "quantities":[{"name":"on_hand","quantity":on_hand},{"name":"available","quantity":on_hand}],
         "item":{"id":format!("gid://shopify/InventoryItem/{n}"),"sku":null,"tracked":tracked,
         "variant":{"id":format!("gid://shopify/ProductVariant/{n}"),"title":"M","product":{"id":"gid://shopify/Product/1","title":"Shirt"}}}})
 }
-fn child_order(n: u64, lines: Value) -> Value {
-    json!({"data":{"order":{"id":format!("gid://shopify/Order/{n}"),"lineItems":lines}}})
-}
-fn tagged_order(n: u64, lines: Vec<Value>) -> Value {
-    json!({"id":format!("gid://shopify/Order/{n}"),"number":n,"tags":["shipping"],"email":null,"phone":null,
-        "currentTotalPriceSet":{"shopMoney":money()},"lineItems":page(lines,None)})
+fn tagged_order(_n: u64, lines: Vec<Value>) -> Value {
+    json!({"lineItems":page(lines,None)})
 }
 fn tagged_line() -> Value {
     json!({"title":"Shirt","variantTitle":"Blue","sku":"SHIRT-BLUE","quantity":3,
@@ -109,21 +94,10 @@ fn constructor_trusts_configuration_but_rejects_invalid_url_or_token() {
 #[tokio::test]
 async fn mutations_return_raw_user_errors_and_optional_outputs_without_replay() {
     let f=Fixture::new(vec![
-        Reply::json(json!({"data":{"orderUpdate":{"order":null,"userErrors":[{"field":null,"message":"denied"}]}}})),
         Reply::json(json!({"data":{"inventoryActivate":{"inventoryLevel":null,"userErrors":[{"field":null,"message":"denied"}]}}})),
     ]).await;
     let c = client(&f);
     let key = Uuid::new_v4();
-    let tags = c
-        .replace_order_tags(&ReplaceOrderTagsRequest {
-            order_id: id("Order", 1),
-            tags: vec![],
-        })
-        .await
-        .unwrap()
-        .order_update;
-    assert!(tags.order.is_none());
-    assert_eq!(tags.user_errors.len(), 1);
     let activation = c
         .activate_existing_inventory(&ActivateInventoryRequest {
             inventory_item_id: id("InventoryItem", 1),
@@ -136,14 +110,13 @@ async fn mutations_return_raw_user_errors_and_optional_outputs_without_replay() 
     assert!(activation.inventory_level.is_none());
     assert_eq!(activation.user_errors.len(), 1);
     let requests = f.requests();
-    assert_eq!(requests.len(), 2);
-    assert_eq!(requests[0].2["variables"]["input"]["tags"], json!([]));
+    assert_eq!(requests.len(), 1);
     assert_eq!(
-        requests[1].2["variables"]["idempotencyKey"],
+        requests[0].2["variables"]["idempotencyKey"],
         key.to_string()
     );
-    assert!(requests[1].2["variables"].get("available").is_none());
-    assert!(requests[1].2["variables"].get("onHand").is_none());
+    assert!(requests[0].2["variables"].get("available").is_none());
+    assert!(requests[0].2["variables"].get("onHand").is_none());
 }
 
 #[tokio::test]
@@ -338,16 +311,10 @@ fn request_page() -> PageRequest {
 }
 #[tokio::test]
 async fn root_proxies_forward_pages_without_collecting_them() {
-    for operation in [
-        "OrdersByPayment",
-        "OrdersByTag",
-        "SoldVariantsInRange",
-        "FindInventoryToActivate",
-    ] {
+    for operation in ["OrdersByPayment", "OrdersByTag", "FindInventoryToActivate"] {
         let nodes = match operation {
             "OrdersByPayment" => vec![order(1)],
             "OrdersByTag" => vec![tagged_order(1, vec![tagged_line()])],
-            "SoldVariantsInRange" => vec![sales(1, page(vec![], None))],
             _ => vec![inventory(1, false, 0, true)],
         };
         let connection = page(nodes, Some("next"));
@@ -369,14 +336,7 @@ async fn root_proxies_forward_pages_without_collecting_them() {
         let variables = &request["variables"];
         assert_eq!(request["operationName"], operation);
         assert_eq!(variables["first"], 7);
-        assert_eq!(
-            variables[if operation == "SoldVariantsInRange" {
-                "ordersAfter"
-            } else {
-                "after"
-            }],
-            "incoming"
-        );
+        assert_eq!(variables["after"], "incoming");
         assert!(variables.get("linesFirst").is_none());
         if operation == "OrdersByTag" {
             assert!(
@@ -387,32 +347,6 @@ async fn root_proxies_forward_pages_without_collecting_them() {
             );
         }
     }
-}
-#[tokio::test]
-async fn bounded_sales_lines_accept_only_order_id() {
-    let f = Fixture::new(vec![Reply::json(child_order(1, page(vec![line(1)], None)))]).await;
-    let result = client(&f)
-        .sales_order_lines(&OrderLinesRequest {
-            order_id: id("Order", 1),
-        })
-        .await
-        .unwrap()
-        .order
-        .unwrap();
-    assert_eq!(result.id, id("Order", 1));
-    assert_eq!(result.line_items.nodes[0].quantity, 3);
-    let requests = f.requests();
-    assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].2["variables"], json!({"id":id("Order",1)}));
-    let query = requests[0].2["query"].as_str().unwrap();
-    assert!(query.contains("lineItems(first: 250)"));
-    assert!(!query.contains("includeContact"));
-    assert!(
-        requests[0].2["query"]
-            .as_str()
-            .unwrap()
-            .contains("lineItems(first: 250)")
-    );
 }
 #[tokio::test]
 async fn invalid_client_inputs_are_rejected_before_network() {
@@ -429,16 +363,8 @@ async fn invalid_client_inputs_are_rejected_before_network() {
         .await
         .err()
         .unwrap(),
-        c.sales_order_lines(&OrderLinesRequest {
-            order_id: id("Location", 1),
-        })
-        .await
-        .err()
-        .unwrap(),
-        c.orders_by_payment(
-            &OrdersByPaymentRequest {
-                payment_id: "pay".into(),
-            },
+        c.accounting_orders(
+            "",
             &PageRequest {
                 first: 0,
                 after: None,
@@ -460,12 +386,7 @@ async fn call_root_proxy(
     match operation {
         "OrdersByPayment" => {
             let p = c
-                .orders_by_payment(
-                    &OrdersByPaymentRequest {
-                        payment_id: "pay".into(),
-                    },
-                    page,
-                )
+                .accounting_orders("payment_id:\"pay\"", page)
                 .await
                 .unwrap();
             (p.nodes.len(), p.page_info)
@@ -483,19 +404,7 @@ async fn call_root_proxy(
             assert_eq!(p.nodes[0].line_items.nodes.len(), 1);
             (p.nodes.len(), p.page_info)
         }
-        "SoldVariantsInRange" => {
-            let p = c
-                .sold_variants_in_range(
-                    &SalesRangeRequest {
-                        start: "2026-01-01T00:00:00Z".parse().unwrap(),
-                        end: "2026-02-01T00:00:00Z".parse().unwrap(),
-                    },
-                    page,
-                )
-                .await
-                .unwrap();
-            (p.nodes.len(), p.page_info)
-        }
+
         _ => {
             let p = c
                 .find_inventory_to_activate(

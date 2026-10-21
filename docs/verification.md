@@ -288,3 +288,35 @@ Endpoint tests use controlled Shopify/Resend servers and real PostgreSQL connect
 | Verification | Backoffice just check, just test and just build pass: 66 backoffice tests, 11 domain tests and domain WASM check. New archive tests failed before implementation, then passed for both entries, escaped text, refund rows, header-only sections and item-only export eligibility |
 | Browser downloads | Actual ZIP inspected with two transaction rows and two item rows; provider order, SALE/REFUND, signed quantities, Unicode/quotes/newlines, leading-zero SKU and full u64 IDs preserved. Item-only report enables ZIP; entirely empty report disables it. Existing Orders Best XLSX downloaded and inspected after the shared DownloadFile extraction |
 | Limits | Synthetic localhost HTTP responses only. ZIP uses stored entries from the already-locked zip library. Backend calculations and product report CSV/XLSX formats remain unchanged. Exact updated-head CI is confirmed separately |
+
+## ENZ-33 initial cleanup baseline
+
+| Area | Observed result |
+| --- | --- |
+| API | Existing `just test` passed 249 native tests and111 real-TCP E2E tests, zero failures/ignored; isolated Compose PostgreSQL was removed afterward |
+| Backoffice / contracts | 67 backoffice native tests; domain3 unit/8 contract tests; configured domain WASM check and backoffice web build passed |
+| Formatting / lint | API dprint/Rust/strict Clippy, backoffice native/WASM strict Clippy and domain check passed |
+| Dependency ownership | Services, clients, repositories and middleware contain no AppState references; handlers resolve provider availability; startup/router composition retains application wiring |
+| Reduced projections | Inventory/order-report minimal-response tests failed on removed required fields before the DTO change and passed afterward; surviving client/model/service tests retain pagination, completeness and failure assertions |
+| Postman static checks | External18/internal19 requests lint with zero errors/warnings; all11 retained Shopify documents and variables match parsed executable requests |
+| Saved GraphQL envelopes | Four changed saved queries executed as identical JSON envelopes via `postman request` with status200/data/no-errors assertions; all4 passed. Inline bodies avoid the installed CLI file-body failure |
+| Saved internal requests | Inventory report, order report and accounting requests returned200 against the real local API with controlled upstreams; zero request/script failures |
+| Browser / downloads | Real local API and built UI: report CSV222 bytes/14 headers, report XLSX5699 bytes/14 headers, Fastship CSV307 bytes/22 headers, each with one synthetic row; accounting ZIP872 bytes with exactly transactions.csv/items.csv, one row each; downloaded bytes inspected |
+| Browser states | Loading skeleton, native picker cancellation, fallback filename/format dialog and focus restoration, empty accounting export suppression, sanitized upstream error and Retry verified |
+| Limits | Native picker save not automated; fallback exercised in a disposable built copy with the native capability disabled. Native GraphQL collection execution requires Postman login; no live Shopify/schema/scope/cost, carrier acceptance, email delivery, deployment or load claim |
+| Review | Initial author diff/consumer review preceded PR29 feedback; results in this table predate the review-comment fixes |
+
+
+## ENZ-33 PR29 comment fixes (2026-10-21)
+
+| Area | Observed result / remaining coverage |
+| --- | --- |
+| Required accounting providers | Fresh combined API `just test` passed 250 native and 111 real-TCP tests with zero failures/ignored; all 12 accounting test functions passed and isolated Compose PostgreSQL was removed. Missing/init-failed Stripe, PayPal and Shopify return provider-specific 503 with zero upstream calls; both configured providers can independently return no records |
+| Shared upstream mapper | After relocation to `error.rs`, 31 error, 18 Orders, 7 Inventories and 9 pagination native tests passed; strict API check passed. New mapper regression preserves safe 502/504, typed source, tracked origins and redacted diagnostics |
+| XLSX extraction / consumers | After unchanged encoder/row-limit relocation, backoffice `just check`, `just test` and `just build` passed: 67 backoffice tests and domain 3 unit/8 contract tests; native/WASM strict Clippy, domain WASM and browser bundle passed. Generic text-cell/row-limit tests reuse the existing XML fixture; Reports, all courier mappings and Accounting export suites remain covered |
+| Static scope | Domain `just check`, workspace formatting and patch whitespace checks passed; shared DTOs and feature-specific export mappings are unchanged |
+| Browser accounting | Real built UI and real API with controlled Stripe/PayPal/Shopify: populated Stripe1/PayPal0/Items1, all-empty export disabled, sanitized failure/Retry, loading/export disabled. Actual ZIP872 bytes has exactly transactions.csv/items.csv,20/11 headers and one row each |
+| Browser XLSX | Reports fallback Save report as, filename/format selection and restored button focus verified in a disposable capability-disabled bundle. Actual XLSX5700 bytes:14headers/one row, expected shared strings, string headers and zero formula cells |
+| Saved accounting request | Actual Postman HTTP collection request ran with inherited synthetic bearer token: populated200, empty200 and missing-PayPal503; each CLI exit0/zero request failures. Separate real-HTTP assertions checked populated/empty shapes and exact safe provider error; collection itself contains no test scripts |
+| Final local verification | Independent combined diff/consumer review found no gaps. Strict API check, workspace formatting, patch whitespace and Postman lint passed (19 internal/18 external, zero warnings/errors); six saved examples and all 11 external GraphQL query/variable pairs verified. CI for the final pushed source SHA is recorded separately |
+| Limits | Controlled localhost providers only; no live provider compatibility, merchant scope, cost, load, email or deployment claim. Native picker save/cancellation/focus remain manual/unverified this run: permitted tab Escape did not dismiss the native dialog. Browser fallback was exercised only in a disposable capability-disabled bundle |

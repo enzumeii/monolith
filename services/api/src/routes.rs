@@ -15,6 +15,7 @@ pub fn router(state: AppState) -> Router {
         .public_origin
         .parse::<axum::http::HeaderValue>()
         .expect("validated browser origin");
+    let browser = state.settings.browser.clone();
     let cors = tower_http::cors::CorsLayer::new()
         .allow_origin(origin)
         .allow_credentials(true)
@@ -31,10 +32,10 @@ pub fn router(state: AppState) -> Router {
         ]);
     Router::new()
         .merge(healthz::router())
-        .nest("/v1", v1::router(state.clone()))
-        .with_state(state.clone())
+        .nest("/v1", v1::router(&state))
+        .with_state(state)
         .layer(axum::middleware::from_fn_with_state(
-            state,
+            browser,
             crate::middleware::cookies::browser_guard,
         ))
         .layer(cors)

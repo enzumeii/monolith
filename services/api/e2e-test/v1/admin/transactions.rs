@@ -18,6 +18,7 @@ use std::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
+    sync::oneshot,
     task::JoinHandle,
 };
 
@@ -56,7 +57,7 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
         }
         let expected_calls = steps.len();
         let server = Server::start(steps).await;
-        let client = server.client(stripe, paypal).await;
+        let client = server.client().await;
         let response = client
             .send(authed(
                 "GET",
@@ -214,7 +215,7 @@ async fn transactions_empty_results_and_both_admin_roles_over_tcp() {
         let steps = flow(stripe, paypal, false, true);
         let count = steps.len();
         let server = Server::start(steps).await;
-        let client = server.client(stripe, paypal).await;
+        let client = server.client().await;
         let response = client
             .send(authed("GET", URI, fixture.root_id(), role))
             .await
@@ -232,7 +233,7 @@ async fn transactions_empty_results_and_both_admin_roles_over_tcp() {
 async fn transactions_rejects_each_query_rule_and_auth_before_provider_calls() {
     let fixture = fixture().await;
     let server = Server::start(vec![]).await;
-    let client = server.client(true, true).await;
+    let client = server.client().await;
     for query in [
         "",
         "date_from=2026-10-01T00:00:00Z",
@@ -286,41 +287,95 @@ async fn transactions_unavailable_configuration_is_safe() {
     for (stripe, paypal, shopify, message) in [
         (
             None,
-            None,
-            Some("http://127.0.0.1:1/graphql.json"),
-            "Accounting report provider unavailable",
-        ),
-        (
-            Some("invalid-url"),
-            None,
-            Some("http://127.0.0.1:1/graphql.json"),
+            Some("valid"),
+            Some("valid"),
             "Stripe client unavailable",
         ),
         (
-            None,
             Some("invalid-url"),
-            Some("http://127.0.0.1:1/graphql.json"),
+            Some("valid"),
+            Some("valid"),
+            "Stripe client unavailable",
+        ),
+        (
+            Some("valid"),
+            None,
+            Some("valid"),
             "PayPal client unavailable",
         ),
         (
-            Some("http://127.0.0.1:1"),
+            Some("valid"),
+            Some("invalid-url"),
+            Some("valid"),
+            "PayPal client unavailable",
+        ),
+        (None, None, Some("valid"), "Stripe client unavailable"),
+        (
             None,
+            Some("invalid-url"),
+            Some("valid"),
+            "Stripe client unavailable",
+        ),
+        (
+            Some("valid"),
+            Some("valid"),
             None,
             "Shopify client unavailable",
         ),
         (
-            Some("http://127.0.0.1:1"),
-            None,
+            Some("valid"),
+            Some("valid"),
             Some("invalid-url"),
             "Shopify client unavailable",
         ),
     ] {
+        let server = Server::start(vec![]).await;
+        let graphql = format!("{}/graphql.json", server.url);
+        let configured = |value, url| match value {
+            Some("valid") => Some(url),
+            other => other,
+        };
         let client = client_with_providers(ProviderConfig {
-            stripe_url: stripe,
-            paypal_url: paypal,
-            shopify_url: shopify,
+            stripe_url: configured(stripe, server.url.as_str()),
+            paypal_url: configured(paypal, server.url.as_str()),
+            shopify_url: configured(shopify, graphql.as_str()),
             ..Default::default()
         })
+        .await;
+        assert_eq!(
+            client
+                .send(
+                    Request::builder()
+                        .uri("/healthz")
+                        .body(Body::empty())
+                        .unwrap()
+                )
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+        assert_eq!(
+            client
+                .send(authed(
+                    "GET",
+                    "/v1/admins",
+                    fixture.root_id(),
+                    AdminRole::SuperAdmin
+                ))
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+        assert_report_error(
+            client
+                .send(Request::builder().uri(URI).body(Body::empty()).unwrap())
+                .await
+                .unwrap(),
+            401,
+            "Invalid or expired token",
+        )
         .await;
         assert_report_error(
             client
@@ -331,6 +386,7 @@ async fn transactions_unavailable_configuration_is_safe() {
             message,
         )
         .await;
+        assert!(server.finish().await.is_empty(), "{message}");
     }
 }
 
@@ -353,7 +409,7 @@ async fn transactions_maps_each_dependency_failure_and_stops_at_the_failed_call(
             failed.reply = Reply::Fault(fault);
             steps.push(failed);
             let server = Server::start(steps).await;
-            let client = server.client(true, true).await;
+            let client = server.client().await;
             let response = client
                 .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
                 .await
@@ -383,7 +439,7 @@ async fn transactions_exhausts_throttling_without_advancing_and_rejects_graphql_
         failed.reply = Reply::Fault("throttled");
         steps.extend(std::iter::repeat_n(failed, 4));
         let server = Server::start(steps).await;
-        let client = server.client(true, true).await;
+        let client = server.client().await;
         assert_report_error(
             client
                 .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
@@ -407,7 +463,7 @@ async fn transactions_exhausts_throttling_without_advancing_and_rejects_graphql_
             failed.reply = Reply::Fault(fault);
             steps.push(failed);
             let server = Server::start(steps).await;
-            let client = server.client(true, true).await;
+            let client = server.client().await;
             assert_report_error(
                 client
                     .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
@@ -495,17 +551,15 @@ async fn transactions_rejects_bad_currency_continuations_and_incomplete_connecti
         bad.push(steps);
     }
     let mut page = flow(false, true, false, false);
-    page.truncate(2);
-    if let Reply::Json(ref mut body) = page[1].reply {
+    page.truncate(3);
+    if let Reply::Json(ref mut body) = page.last_mut().unwrap().reply {
         body["page"] = json!(2);
     }
     bad.push(page);
     for steps in bad {
         let count = steps.len();
         let server = Server::start(steps).await;
-        let client = server
-            .client(server.stripe_first(), !server.stripe_first())
-            .await;
+        let client = server.client().await;
         assert_report_error(
             client
                 .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
@@ -530,7 +584,7 @@ async fn transactions_keeps_unmatched_provider_rows_without_unrelated_order_item
     }
     let count = steps.len();
     let server = Server::start(steps).await;
-    let client = server.client(true, false).await;
+    let client = server.client().await;
     let response = client
         .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
         .await
@@ -560,7 +614,7 @@ async fn transactions_raw_and_encoded_plus_return_identical_reports() {
         let steps = flow(true, true, true, false);
         let count = steps.len();
         let server = Server::start(steps).await;
-        let client = server.client(true, true).await;
+        let client = server.client().await;
         let response = client
             .send(authed("GET", &uri, fixture.root_id(), AdminRole::Admin))
             .await
@@ -575,10 +629,18 @@ async fn transactions_raw_and_encoded_plus_return_identical_reports() {
 #[tokio::test]
 async fn transactions_paypal_long_ranges_exhaust_each_window_and_page_without_fx_lookback() {
     let fixture = fixture().await;
-    let mut steps = vec![Step::json(
-        "/v1/oauth2/token",
-        json!({"access_token":"e2e-token","token_type":"Bearer","expires_in":3600}),
-    )];
+    let mut steps = vec![
+        Step::json("/payouts", json!({"data":[],"has_more":false})).query(&[
+            ("arrival_date[gte]", "1788220800"),
+            ("arrival_date[lte]", "1794700800"),
+            ("status", "paid"),
+            ("limit", "100"),
+        ]),
+        Step::json(
+            "/v1/oauth2/token",
+            json!({"access_token":"e2e-token","token_type":"Bearer","expires_in":3600}),
+        ),
+    ];
     for (start, end) in [
         ("2026-09-01T00:00:00Z", "2026-10-02T00:00:00Z"),
         ("2026-10-02T00:00:00Z", "2026-11-02T00:00:00Z"),
@@ -610,7 +672,7 @@ async fn transactions_paypal_long_ranges_exhaust_each_window_and_page_without_fx
     steps.push(orders);
     let count = steps.len();
     let server = Server::start(steps).await;
-    let client = server.client(false, true).await;
+    let client = server.client().await;
     let response = client
         .send(authed(
             "GET",
@@ -643,8 +705,8 @@ async fn transactions_paypal_rejects_incompatible_amount_currencies_before_shopi
         "overflow",
     ] {
         let mut steps = flow(false, true, false, false);
-        steps.truncate(2);
-        if let Reply::Json(ref mut body) = steps[1].reply {
+        steps.truncate(3);
+        if let Reply::Json(ref mut body) = steps.last_mut().unwrap().reply {
             let info = &mut body["transaction_details"][2]["transaction_info"];
             if field == "overflow" {
                 info["transaction_amount"]["value"] = json!("1e308");
@@ -657,7 +719,7 @@ async fn transactions_paypal_rejects_incompatible_amount_currencies_before_shopi
             }
         }
         let server = Server::start(steps).await;
-        let client = server.client(false, true).await;
+        let client = server.client().await;
         assert_report_error(
             client
                 .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
@@ -667,7 +729,7 @@ async fn transactions_paypal_rejects_incompatible_amount_currencies_before_shopi
             "Upstream request failed",
         )
         .await;
-        assert_eq!(server.finish().await.len(), 2);
+        assert_eq!(server.finish().await.len(), 3);
     }
 }
 
@@ -675,7 +737,12 @@ async fn transactions_paypal_rejects_incompatible_amount_currencies_before_shopi
 async fn transactions_paypal_preserves_zero_and_signed_shipping_over_shopify() {
     let fixture = fixture().await;
     let mut steps = flow(false, true, false, false);
-    if let Reply::Json(ref mut body) = steps[1].reply {
+    if let Reply::Json(ref mut body) = steps
+        .iter_mut()
+        .find(|step| step.path == "/v1/reporting/transactions")
+        .unwrap()
+        .reply
+    {
         for row in body["transaction_details"].as_array_mut().unwrap() {
             let info = &mut row["transaction_info"];
             let shipping = match info["transaction_id"].as_str().unwrap() {
@@ -690,7 +757,7 @@ async fn transactions_paypal_preserves_zero_and_signed_shipping_over_shopify() {
     }
     let count = steps.len();
     let server = Server::start(steps).await;
-    let client = server.client(false, true).await;
+    let client = server.client().await;
     let response = client
         .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
         .await
@@ -744,16 +811,29 @@ struct Server {
     url: String,
     task: Option<JoinHandle<()>>,
     requests: Arc<Mutex<Vec<String>>>,
-    stripe_first: bool,
+    stop: Option<oneshot::Sender<()>>,
 }
 impl Server {
     async fn start(steps: Vec<Step>) -> Self {
-        let stripe_first = steps.first().is_some_and(|step| step.path == "/payouts");
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
         let recorded = requests.clone();
+        let (stop, mut stopped) = oneshot::channel();
         let task = tokio::spawn(async move {
+            if steps.is_empty() {
+                loop {
+                    tokio::select! {
+                        _ = &mut stopped => break,
+                        accepted = listener.accept() => {
+                            let (mut stream, _) = accepted.unwrap();
+                            recorded.lock().unwrap().push("unexpected upstream connection".into());
+                            let _ = stream.write_all(b"HTTP/1.1 500 Fixture\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+                        }
+                    }
+                }
+                return;
+            }
             for step in steps {
                 if matches!(step.reply, Reply::Fault("refused")) {
                     break;
@@ -859,23 +939,21 @@ impl Server {
             url,
             task: Some(task),
             requests,
-            stripe_first,
+            stop: Some(stop),
         }
     }
-    fn stripe_first(&self) -> bool {
-        self.stripe_first
-    }
-    async fn client(&self, stripe: bool, paypal: bool) -> crate::common::TestClient {
+    async fn client(&self) -> crate::common::TestClient {
         let graphql = format!("{}/graphql.json", self.url);
         client_with_providers(ProviderConfig {
             shopify_url: Some(&graphql),
-            stripe_url: stripe.then_some(self.url.as_str()),
-            paypal_url: paypal.then_some(self.url.as_str()),
+            stripe_url: Some(&self.url),
+            paypal_url: Some(&self.url),
             ..Default::default()
         })
         .await
     }
     async fn finish(mut self) -> Vec<String> {
+        let _ = self.stop.take().unwrap().send(());
         tokio::time::timeout(Duration::from_secs(3), self.task.take().unwrap())
             .await
             .unwrap()
@@ -893,8 +971,9 @@ impl Drop for Server {
 
 fn flow(stripe: bool, paypal: bool, paginated: bool, empty: bool) -> Vec<Step> {
     let mut steps = Vec::new();
-    if stripe {
-        let payouts = if empty {
+    {
+        let stripe_empty = empty || !stripe;
+        let payouts = if stripe_empty {
             vec![]
         } else {
             vec![json!({"id":"po_123","arrival_date":1_790_985_600})]
@@ -902,7 +981,7 @@ fn flow(stripe: bool, paypal: bool, paginated: bool, empty: bool) -> Vec<Step> {
         steps.push(
             Step::json(
                 "/payouts",
-                json!({"data":payouts,"has_more":paginated && !empty}),
+                json!({"data":payouts,"has_more":paginated && !stripe_empty}),
             )
             .query(&[
                 ("arrival_date[gte]", "1790787600"),
@@ -911,7 +990,7 @@ fn flow(stripe: bool, paypal: bool, paginated: bool, empty: bool) -> Vec<Step> {
                 ("limit", "100"),
             ]),
         );
-        if !empty {
+        if !stripe_empty {
             steps.push(Step::json("/balance_transactions",json!({"data":if paginated {vec![balance(false)]} else {vec![balance(false),balance(true)]},"has_more":paginated})).query(&[("payout","po_123"),("limit","100")]));
             steps.push(Step::json("/charges/ch_123",json!({"id":"ch_123","amount_captured":10_000,"amount_refunded":1000,"captured":true,"paid":true,"refunded":false,"created":1_790_899_200,"currency":"usd","disputed":false,"metadata":{"customer_email":"buyer@example.test"},"payment_intent":null,"balance_transaction":"txn_sale"})));
             if paginated {
@@ -941,7 +1020,8 @@ fn flow(stripe: bool, paypal: bool, paginated: bool, empty: bool) -> Vec<Step> {
             }
         }
     }
-    if paypal {
+    {
+        let paypal_empty = empty || !paypal;
         steps.push(Step::json(
             "/v1/oauth2/token",
             json!({"access_token":"e2e-token","token_type":"Bearer","expires_in":3600}),
@@ -955,7 +1035,7 @@ fn flow(stripe: bool, paypal: bool, paginated: bool, empty: bool) -> Vec<Step> {
             Some("-2.82"),
         );
         aud["transaction_info"]["shipping_amount"] = json!({"currency_code":"AUD","value":"10.08"});
-        let mut first = if empty {
+        let mut first = if paypal_empty {
             vec![]
         } else {
             vec![
@@ -994,7 +1074,7 @@ fn flow(stripe: bool, paypal: bool, paginated: bool, empty: bool) -> Vec<Step> {
                 ),
             ]
         };
-        let second = if empty {
+        let second = if paypal_empty {
             vec![]
         } else {
             vec![
@@ -1033,10 +1113,10 @@ fn flow(stripe: bool, paypal: bool, paginated: bool, empty: bool) -> Vec<Step> {
             "2026-09-30T17:00:00Z",
             "2026-10-31T16:59:59Z",
             1,
-            if paginated && !empty { 2 } else { 1 },
+            if paginated && !paypal_empty { 2 } else { 1 },
             first,
         ));
-        if paginated && !empty {
+        if paginated && !paypal_empty {
             steps.push(report_step(
                 "2026-09-30T17:00:00Z",
                 "2026-10-31T16:59:59Z",

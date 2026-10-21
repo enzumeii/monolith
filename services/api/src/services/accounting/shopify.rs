@@ -1,12 +1,12 @@
 use super::{Payment, date, money, protocol, quantity};
 use crate::{
     client::shopify::ShopifyClient,
-    error::AppError,
+    error::{AppError, upstream},
     models::{
         Sku, SkuCategory,
         shopify::{AccountingLineItem, Money, Order, OrderTransaction, PageRequest},
     },
-    services::{common::upstream, pagination::for_each_page},
+    services::pagination::for_each_page,
     utils::contact::{format_address, phone_number},
     validations::accounting::AccountingDateRange,
 };

@@ -2,7 +2,7 @@
 use super::*;
 use crate::{
     client::tests::{Fixture, Reply},
-    services::common::tests::{assert_failure, id, page, state},
+    services::common::{assert_failure, client, id, page},
 };
 use serde_json::{Value, json};
 
@@ -49,7 +49,7 @@ async fn missing_location_identifies_resource() {
 
     let f = Fixture::new(vec![Reply::json(json!({"data":{"location":null}}))]).await;
     let response = inventory_report(
-        &state(&f),
+        &client(&f),
         id("Location", 999),
         PageRequest {
             first: 50,
@@ -95,7 +95,7 @@ async fn inventory_forwards_page_values_and_returns_one_root_page() {
         Reply::json(json!({"data":{"products":page(vec![product(2,page(vec![variant(-2)],None))],None)}}))
     ]).await;
     let result = inventory_report(
-        &state(&f),
+        &client(&f),
         id("Location", 1),
         PageRequest {
             first: 50,
@@ -130,7 +130,7 @@ async fn nested_continuation_fails_without_a_child_lookup() {
     assert_failure(
         &f,
         inventory_report(
-            &state(&f),
+            &client(&f),
             id("Location", 1),
             PageRequest {
                 first: 50,
@@ -148,7 +148,7 @@ async fn nested_continuation_fails_without_a_child_lookup() {
 async fn exactly_250_nested_nodes_are_included() {
     let f=Fixture::new(vec![Reply::json(json!({"data":{"location":{"id":id("Location",1)}}})),Reply::json(json!({"data":{"products":page(vec![product(1,page(vec![variant(1);250],None))],None)}}))]).await;
     let result = inventory_report(
-        &state(&f),
+        &client(&f),
         id("Location", 1),
         PageRequest {
             first: 1,
@@ -171,7 +171,7 @@ async fn empty_or_filtered_inventory_pages_keep_upstream_continuation() {
         ])
         .await;
         let result = inventory_report(
-            &state(&f),
+            &client(&f),
             id("Location", 1),
             PageRequest {
                 first: 50,
@@ -196,7 +196,7 @@ async fn inventory_rejects_nonprogressing_root_metadata() {
             Reply::json(json!({"data":{"products":{"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":end}}}})),
         ]).await;
         let error = inventory_report(
-            &state(&f),
+            &client(&f),
             id("Location", 1),
             PageRequest {
                 first: 50,

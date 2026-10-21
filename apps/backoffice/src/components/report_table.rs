@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use super::ErrorMessage;
-use crate::pages::reports::{ExportFormat, download, encode_table, encode_table_xlsx};
+use crate::export::{ExportFormat, download, encode_table, encode_table_xlsx};
 
 #[derive(Clone, PartialEq)]
 pub struct TableData {

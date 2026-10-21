@@ -83,5 +83,5 @@ fn incomplete() -> ApiError {
     )
 }
 #[cfg(test)]
-#[path = "../../tests/pages/reports/data.rs"]
+#[path = "tests/pagination.rs"]
 mod tests;

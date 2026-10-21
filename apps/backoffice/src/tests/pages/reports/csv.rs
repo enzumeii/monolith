@@ -29,14 +29,3 @@ fn csv_preserves_decimal_null_zero_and_escapes_text() {
 fn empty_csv_has_headers() {
     assert_eq!(encode(&[]), format!("{}\r\n", HEADERS.join(",")));
 }
-
-#[test]
-fn generic_table_csv_escapes_cells_and_keeps_header_order() {
-    assert_eq!(
-        encode_table(
-            &["Order", "Customer"],
-            &[vec!["#123".into(), "A, \"B\"".into()]]
-        ),
-        "Order,Customer\r\n#123,\"A, \"\"B\"\"\"\r\n"
-    );
-}

@@ -1,26 +1,21 @@
 use super::validate_location;
 use crate::{
     client::{ClientError, ClientErrorKind, shopify::ShopifyClient},
-    error::{AppError, client_timeout, log_background_error},
+    error::{AppError, client_timeout, log_background_error, upstream},
     models::shopify::{
         ActivateInventoryRequest, InventoryActivationItem, InventoryDiscoveryRequest, PageRequest,
         ShopifyId,
     },
-    services::{
-        common::{shopify_client, upstream},
-        pagination::for_each_page,
-    },
-    state::AppState,
+    services::pagination::for_each_page,
 };
 use axum::http::StatusCode;
 use domain::dto::{InventoryEnableError, InventoryEnableResponse};
 use std::collections::HashMap;
 
 pub async fn enable_inventory(
-    state: &AppState,
+    client: &crate::client::shopify::ShopifyClient,
     location_id: ShopifyId,
 ) -> Result<InventoryEnableResponse, AppError> {
-    let client = shopify_client(state)?;
     validate_location(client, &location_id).await?;
     let items = discover(client, &location_id).await?;
     let mut result = InventoryEnableResponse {

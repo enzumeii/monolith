@@ -1,20 +1,17 @@
 mod csv;
-pub(crate) mod data;
 mod export;
 mod save;
 mod table;
 
 use crate::{api, components::ErrorMessage, session};
-use data::{CursorHistory, PageData, collect_pages};
+use crate::{
+    components::ReportSkeleton,
+    pagination::{CursorHistory, PageData, collect_pages},
+};
 use dioxus::prelude::*;
 use domain::dto::{InventoryQuery, PageInfo, ProductReportRow};
 use save::SaveReport;
 use table::ReportTable;
-
-pub(crate) use csv::encode_table;
-pub(crate) use export::{ExportFormat, encode_table_xlsx};
-pub(crate) use save::download;
-pub(crate) use table::ReportSkeleton;
 
 #[derive(Clone, Copy, PartialEq)]
 enum ReportKind {

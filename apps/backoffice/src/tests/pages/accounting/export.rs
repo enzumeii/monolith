@@ -122,7 +122,7 @@ fn consolidated_csv_preserves_provider_order_and_escapes_text() {
     );
     assert_eq!(table.rows[0][0], "STRIPE");
     assert_eq!(table.rows[0][1], "SALE");
-    let csv = crate::pages::reports::encode_table(table.headers, &table.rows);
+    let csv = crate::export::encode_table(table.headers, &table.rows);
     assert!(csv.starts_with(
         "gateway,type,po_number,po_date,transaction_date,payment_reference,description,"
     ));

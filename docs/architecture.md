@@ -27,7 +27,7 @@ flowchart LR
 | `apps/backoffice` | Browser pages, forms, direct API requests, session coordination | Public configuration only; Axum owns cookies, CORS, and origin checks |
 | `apps/client-ui` | Placeholder client application | No implemented service integration |
 
-AppState constructs the optional Shopify client once and shares its HTTP pool. Handlers pass state to report services, which resolve the shared client; optional initialization failures affect report availability without stopping unrelated endpoints.
+AppState constructs optional outbound clients once and shares their HTTP pools. Handlers resolve shared client availability and pass only concrete dependencies to services; optional initialization failures affect report availability without stopping unrelated endpoints.
 
 ## Module responsibilities
 
@@ -37,12 +37,13 @@ AppState constructs the optional Shopify client once and shares its HTTP pool. H
 | `src/main.rs` | Configuration, database startup, listener, maintenance task, graceful shutdown |
 | `src/config.rs` / `src/state.rs` | Typed settings; pool, settings, and signing key in application state |
 | `src/routes/` / `src/handlers/` | Route composition; HTTP inputs, responses, and transport |
-| `src/middleware/cookies.rs` | Cookie helpers, session transport, origin enforcement |
-| `src/middleware/token.rs` | JWT validation and role checks |
+| `src/handlers/dependencies.rs` | Resolve shared optional clients and preserve availability errors before service calls; accounting requires concrete Stripe, PayPal and Shopify references |
+| `src/middleware/cookies.rs` | Cookie helpers, session transport, origin enforcement using BrowserConfig |
+| `src/middleware/token.rs` | JWT validation and role checks using the signing key and BrowserConfig |
 | `src/services/` / `src/repositories/` | Use cases and transaction boundaries / SQL queries |
 | `src/models/` | Persistence/authentication models and API-owned Shopify contracts |
 | `src/validations/` / `src/utils/` | Input rules / Argon2 operations and native number parsing and multiplication |
-| `src/error.rs` | Public error mapping and centralized boundary logging |
+| `src/error.rs` | Public and upstream error mapping, retained source diagnostics and centralized boundary logging |
 | `src/client.rs` | Generic HTTP/GraphQL request envelopes, decoding, failures, throttling backoff |
 | `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication and single-operation proxy methods / matching query documents |
 | `src/tests/` | Tests mirroring implementation paths through test-gated child modules |
@@ -54,6 +55,9 @@ AppState constructs the optional Shopify client once and shares its HTTP pool. H
 | `src/lib.rs` / `src/main.rs` | Module declarations / startup and root App |
 | `src/config.rs` / `application.toml` | Single typed startup reader / published public settings |
 | `src/api.rs` / `src/api/{auth,admins}.rs` | HTTP construction, decoding, errors / endpoint calls |
+| `src/export.rs` | Shared format/filename API and encoder re-exports |
+| `src/export/{csv,xlsx,browser}.rs` | CSV encoding / XLSX encoding and row limits / browser download transport; feature-specific cells/archives remain page-owned |
+| `src/pagination.rs` | Shared cursor collection/history for Reports and Orders |
 | `src/session/` | Viewer state, response ownership, browser synchronization |
 | `src/route.rs`, `src/pages/`, `src/components/` | Navigation, pages, forms, confirmation, reusable UI |
 | `src/tests/` | Configuration, HTTP boundary, and session tests |
@@ -128,7 +132,7 @@ flowchart LR
 | --- | --- |
 | HttpClient / GraphqlClient | Shared HTTP pool; typed transport and GraphQL envelopes; partial-data errors rejected |
 | ShopifyClient | One operation per call; root-paged methods accept explicit first/after; no automatic follow-up |
-| Initialization | AppState owns one optional client; service resolves availability and retained initialization causes |
+| Initialization | AppState owns one optional client; handler resolves availability and retained initialization causes |
 | Root report traversal | Inventory forwards caller size/cursor and returns one product page; orders process batches250 until exhausted with cursor progress/cycle checks |
 | Nested report data | Product variants and tagged-order lines use fixed first250 without child queries; unexpected hasNextPage fails rather than truncates |
 | Models | API-owned source conversions, SKU/stock derivation, report row totals and merge compatibility; shared numeric helpers live in utils/numbers.rs; domain DTOs remain wire-only |
@@ -137,11 +141,10 @@ flowchart LR
 | --- | --- |
 | ProductsWithVariants | Product connection with bounded variants and location inventory/pricing metadata |
 | OrdersByTag | Matching-order connection including bounded report lines |
-| OrdersByPayment / SoldVariantsInRange | One matching-order/header page |
-| SalesOrderLines | One order envelope with fixed250 lines and completeness metadata; ID-only input |
+| OrdersByPayment | One accounting-enrichment order page; retained operation name |
 | Location | Location existence before inventory report queries |
 | FindInventoryToActivate | One raw inventory-level page; no eligibility filtering |
-| ReplaceOrderTags / ActivateExistingInventory | Raw mutation userErrors and optional output; activation takes item/location IDs and a stable UUID; no quantity arguments |
+| ActivateExistingInventory | Raw mutation userErrors and optional output; activation takes item/location IDs and a stable UUID; no quantity arguments |
 
 | Request policy | Guarantee / limit |
 | --- | --- |
@@ -151,7 +154,6 @@ flowchart LR
 | Retry-After | Honor seconds/HTTP-date minimums; stop rather than exceed the sleep budget or overflow duration arithmetic |
 | No replay | HTTP 3xx/5xx, network ambiguity/timeouts, decoding errors, partial data, and mutation user errors |
 | Mutations | Preserve exact variables and idempotency key during throttling retries; discovery never activates automatically |
-| Sales semantics | Callers calculate/filter; current quantities can reflect refunds after the selected order-creation range |
 | Platform limits | No snapshot isolation, bulk-export guarantee, or bypass of Shopify limits. Actual query cost remains unverified against the 1,000-point maximum; non-throttle cost errors propagate without retry |
 | Compatibility | Discovery retains Shopify's supported deprecated singular inventory-item `variant` field |
 
@@ -173,7 +175,7 @@ flowchart LR
 | --- | --- |
 | Routes | Parent v1 protected route group authenticates /v1/admin once; /v1/customer reserved for future customer routes. GET /v1/admin/inventories/{inventory_id} and GET /v1/admin/orders/report?tags=TAG; existing ADMIN/SUPER_ADMIN bearer or cookie protection |
 | Contract | Domain product report DTOs only; API owns Shopify models, validation and report orchestration |
-| Service ownership | inventories.rs retrieves one inventory page; orders.rs aggregates orders; common.rs shares client lookup and upstream-error mapping |
+| Service ownership | inventories.rs retrieves one inventory page; orders.rs aggregates orders; handlers/dependencies.rs resolves client availability; common.rs shares upstream-error mapping |
 | Inventory | Numeric location ID; active products and active inventory levels at the location; on_hand includes zero/negative quantities; missing location is 404 |
 | Metadata | Category = productType; collection = SKU characters 4–9 inclusive, null for short/missing SKU; cost and weight are current inventory metadata |
 | Orders | Literal tag; original quantities and original unit shop-money prices; merge SKU + price + currency with compatible cost/weight/category; missing SKUs stay separate |
@@ -212,6 +214,6 @@ The nested250 bound is the agreed store workload, not a Shopify platform maximum
 | Public metadata | One domain `dto/pagination::PageInfo`; inventory, orders and provider models consume it directly; public JSON remains snake_case and provider connections retain camelCase serialization |
 | Order workflow bound | ShippingOrders selects items and shipping methods together, each fixed at first250 with nodes-only models; root order pages remain paginated. No separate nested continuation queries |
 | Reship partial effects | Send failure stops before tagging; tag failure can follow accepted email. No automatic email retry or compensation; success means provider acceptance and successful tagging |
-| Tag edits | Shared order service reuses ListOrders (id filter, name/tags projection) before tagsAdd/tagsRemove; ASCII-case-insensitive workflow matching, stored spelling for removal, skip existing additions and no-op mutations; unrelated tags preserved |
+| Tag edits | Shared order service reuses ListOrders (id filter, id/tags projection) before tagsAdd/tagsRemove; ASCII-case-insensitive workflow matching, stored spelling for removal, skip existing additions and no-op mutations; unrelated tags preserved |
 | Shopify projections | Fulfillment, shipping and reship DTOs live in models/shopify.rs alongside the existing provider models; fulfillment retains ShopifyId through validation, service and the fulfillment-order client call |
 | Mock declaration | Sum non-Tip item prices once, multiply by5, minimum100, independent of currency; stock items contribute price but not quantity; no price×quantity multiplication |

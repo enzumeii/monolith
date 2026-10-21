@@ -2,13 +2,7 @@ query OrdersByPayment($first: Int!, $search: String!, $after: String) {
   orders(first: $first, after: $after, query: $search) {
     nodes {
       id
-      name
       number
-      createdAt
-      displayFinancialStatus
-      displayFulfillmentStatus
-      tags
-      email
       phone
       shippingAddress {
         name
@@ -21,19 +15,11 @@ query OrdersByPayment($first: Int!, $search: String!, $after: String) {
         countryCodeV2
         phone
       }
-      currentTotalPriceSet {
-        shopMoney {
-          amount
-          currencyCode
-        }
-      }
       transactions {
-        id
         paymentId
         gateway
         kind
         status
-        processedAt
         amountSet {
           shopMoney {
             amount
@@ -77,12 +63,10 @@ query OrdersByPayment($first: Int!, $search: String!, $after: String) {
       refunds(first: 250) {
         transactions(first: 250) {
           nodes {
-            id
             paymentId
             gateway
             kind
             status
-            processedAt
             amountSet {
               shopMoney {
                 amount

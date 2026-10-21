@@ -1,3 +1,4 @@
+use crate::client::ClientError;
 use axum::{
     Json,
     http::{StatusCode, header::WWW_AUTHENTICATE},
@@ -155,6 +156,16 @@ impl From<sqlx::Error> for AppError {
     }
 }
 
+#[track_caller]
+pub(crate) fn upstream(error: ClientError) -> AppError {
+    let status = if client_timeout(&error) {
+        StatusCode::GATEWAY_TIMEOUT
+    } else {
+        StatusCode::BAD_GATEWAY
+    };
+    AppError::new(status, "Upstream request failed").with_source(error)
+}
+
 pub(crate) fn client_timeout(error: &crate::client::ClientError) -> bool {
     match error.kind() {
         crate::client::ClientErrorKind::Transport { source } => source.is_timeout(),
@@ -228,10 +239,6 @@ fn client_cause<'a>(
         })
 }
 
-#[cfg(test)]
-#[path = "tests/error.rs"]
-mod tests;
-
 struct ClientDiagnostic<'a>(&'a crate::client::ClientError);
 impl std::fmt::Debug for ClientDiagnostic<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -251,3 +258,7 @@ impl std::fmt::Debug for ClientDiagnostic<'_> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/error.rs"]
+mod tests;

@@ -1,15 +1,12 @@
-use super::common::{paypal_client, shopify_client, stripe_client, upstream};
 use crate::utils::{
     dates::{iso_utc, parse_rfc3339},
     numbers::{integer_as_f64 as quantity, minor_units as cents, parse_f64},
 };
 use crate::{
     client::{ClientError, ClientErrorKind},
-    error::AppError,
-    state::AppState,
+    error::{AppError, upstream},
     validations::accounting::AccountingDateRange,
 };
-use axum::http::StatusCode;
 use domain::dto::{
     AccountingGateway, AccountingKind, AccountingReportResponse, AccountingTransaction,
 };
@@ -20,25 +17,14 @@ struct Payment {
 }
 
 pub async fn report(
-    state: &AppState,
+    shopify: &crate::client::shopify::ShopifyClient,
+    stripe: &crate::client::stripe::StripeClient,
+    paypal: &crate::client::paypal::PaypalClient,
     range: AccountingDateRange,
 ) -> Result<AccountingReportResponse, AppError> {
-    let stripe = stripe_client(state)?;
-    let paypal = paypal_client(state)?;
-    if stripe.is_none() && paypal.is_none() {
-        return Err(AppError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Accounting report provider unavailable",
-        ));
-    }
-    let shopify = shopify_client(state)?;
     let mut payments = Vec::new();
-    if let Some(client) = stripe {
-        payments.extend(stripe::collect(client, &range).await?);
-    }
-    if let Some(client) = paypal {
-        payments.extend(paypal::collect(client, &range).await?);
-    }
+    payments.extend(stripe::collect(stripe, &range).await?);
+    payments.extend(paypal::collect(paypal, &range).await?);
     let mut response = shopify::enrich(shopify, sort_payments(payments)?, &range).await?;
     let mut items = response
         .items

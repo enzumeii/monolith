@@ -1,13 +1,9 @@
-use super::super::{
-    common::{shopify_client, upstream},
-    pagination::for_each_page,
-};
+use super::super::pagination::for_each_page;
 use crate::{
     client::shopify::TagAction,
     client::{ClientError, ClientErrorKind},
-    error::AppError,
+    error::{AppError, upstream},
     models::shopify::ShopifyId,
-    state::AppState,
 };
 use axum::http::StatusCode;
 use domain::dto::orders::{FulfillOrderRequest, FulfillOrderResponse};
@@ -15,11 +11,10 @@ use serde_json::{Value, json};
 use std::collections::HashSet;
 
 pub async fn fulfill(
-    state: &AppState,
+    client: &crate::client::shopify::ShopifyClient,
     id: ShopifyId,
     request: FulfillOrderRequest,
 ) -> Result<FulfillOrderResponse, AppError> {
-    let client = shopify_client(state)?;
     let mut orders = Vec::new();
     for_each_page(
         None,
@@ -27,7 +22,7 @@ pub async fn fulfill(
             client
                 .fulfillment_orders(&id, after)
                 .await
-                .map_err(upstream)?
+                .map_err(|error| upstream(error))?
                 .order
                 .map(|order| order.fulfillment_orders)
                 .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Shopify order not found"))
@@ -36,7 +31,7 @@ pub async fn fulfill(
             orders.extend(page);
             Ok(())
         },
-        upstream,
+        |error| upstream(error),
     )
     .await?;
     let mut seen = HashSet::new();
@@ -87,10 +82,10 @@ pub async fn fulfill(
             "lineItemsByFulfillmentOrder":entries,
         }))
         .await
-        .map_err(upstream)?;
+        .map_err(|error| upstream(error))?;
     ShopifyId::new(created)
         .and_then(|id| id.number("Fulfillment"))
-        .map_err(upstream)?;
+        .map_err(|error| upstream(error))?;
     super::edit_order_tags(client, id.as_ref(), &["SHIPPING"], TagAction::Remove).await?;
     Ok(FulfillOrderResponse {
         success: true,

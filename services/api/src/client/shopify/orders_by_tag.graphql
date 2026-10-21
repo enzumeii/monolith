@@ -7,11 +7,6 @@ query OrdersByTag($first: Int!, $search: String!, $after: String) {
     reverse: true
   ) {
     nodes {
-      id
-      number
-      tags
-      email
-      phone
       lineItems(first: 250) {
         nodes {
           title
@@ -45,12 +40,6 @@ query OrdersByTag($first: Int!, $search: String!, $after: String) {
         pageInfo {
           hasNextPage
           endCursor
-        }
-      }
-      currentTotalPriceSet {
-        shopMoney {
-          amount
-          currencyCode
         }
       }
     }

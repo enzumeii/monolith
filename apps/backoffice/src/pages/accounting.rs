@@ -3,8 +3,8 @@ mod export;
 
 use crate::{
     api,
+    components::ReportSkeleton,
     components::{DataTable, DownloadFile, ErrorMessage, TableData},
-    pages::reports::ReportSkeleton,
     session,
 };
 use data::{ReportRequest, date_range};

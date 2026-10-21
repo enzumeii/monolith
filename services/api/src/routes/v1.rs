@@ -4,7 +4,7 @@ mod auth;
 use crate::{middleware, state::AppState};
 use axum::{Router, middleware as axum_middleware};
 
-pub fn router(state: AppState) -> Router<AppState> {
+pub fn router(state: &AppState) -> Router<AppState> {
     let public_routes = Router::new().nest("/auth", auth::public_router());
 
     let super_admin_routes = Router::new()
@@ -18,7 +18,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .nest("/admin", admin::router())
         .merge(super_admin_routes)
         .layer(axum_middleware::from_fn_with_state(
-            state,
+            (state.jwt_key.clone(), state.settings.browser.clone()),
             middleware::token::auth_middleware,
         ));
 

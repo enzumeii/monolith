@@ -112,7 +112,7 @@ pub fn encode_archive(transactions: &TableData, items: &TableData) -> Result<Vec
         archive
             .start_file(name, options)
             .map_err(|error| error.to_string())?;
-        let csv = crate::pages::reports::encode_table(table.headers, &table.rows);
+        let csv = crate::export::encode_table(table.headers, &table.rows);
         archive
             .write_all(csv.as_bytes())
             .map_err(|error| error.to_string())?;

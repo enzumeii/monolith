@@ -6,11 +6,8 @@ use crate::{
     config::ShopifyConfig,
     models::shopify::{
         ActivateInventoryRequest, ActivationData, Connection, InventoryActivationCandidate,
-        InventoryData, InventoryDiscoveryRequest, ListProductsRequest, Order, OrderLinesData,
-        OrderLinesRequest, OrderUpdateData, OrdersByPaymentRequest, OrdersByTagData,
-        OrdersByTagRequest, OrdersData, PageRequest, Product, ProductsData,
-        ReplaceOrderTagsRequest, SalesData, SalesLine, SalesOrderHeader, SalesRangeRequest,
-        ShopifyId, TaggedOrder,
+        InventoryData, InventoryDiscoveryRequest, ListProductsRequest, Order, OrdersByTagData,
+        OrdersByTagRequest, OrdersData, PageRequest, Product, ProductsData, ShopifyId, TaggedOrder,
     },
 };
 use reqwest::{
@@ -70,14 +67,6 @@ impl ShopifyClient {
             .await?;
         Ok(data.products)
     }
-    pub async fn orders_by_payment(
-        &self,
-        input: &OrdersByPaymentRequest,
-        page: &PageRequest,
-    ) -> Result<Connection<Order>, ClientError> {
-        self.orders_query(input.variables(page)?).await
-    }
-
     pub(crate) async fn accounting_orders(
         &self,
         search: &str,
@@ -101,33 +90,6 @@ impl ShopifyClient {
             )
             .await?;
         Ok(data.orders)
-    }
-    pub async fn sold_variants_in_range(
-        &self,
-        input: &SalesRangeRequest,
-        page: &PageRequest,
-    ) -> Result<Connection<SalesOrderHeader>, ClientError> {
-        let data: SalesData = self
-            .execute(
-                "SoldVariantsInRange",
-                include_str!("shopify/sold_variants_in_range.graphql"),
-                input.variables(page)?,
-            )
-            .await?;
-        Ok(data.orders)
-    }
-    pub async fn sales_order_lines(
-        &self,
-        input: &OrderLinesRequest,
-    ) -> Result<OrderLinesData<SalesLine>, ClientError> {
-        let data: OrderLinesData<SalesLine> = self
-            .execute(
-                "SalesOrderLines",
-                include_str!("shopify/sales_order_lines.graphql"),
-                input.variables()?,
-            )
-            .await?;
-        Ok(data)
     }
     pub async fn find_inventory_to_activate(
         &self,
@@ -153,17 +115,6 @@ impl ShopifyClient {
             )
             .await?;
         Ok(data.location.is_some())
-    }
-    pub async fn replace_order_tags(
-        &self,
-        input: &ReplaceOrderTagsRequest,
-    ) -> Result<OrderUpdateData, ClientError> {
-        self.execute(
-            "ReplaceOrderTags",
-            include_str!("shopify/replace_order_tags.graphql"),
-            input.variables()?,
-        )
-        .await
     }
     pub async fn activate_existing_inventory(
         &self,

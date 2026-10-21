@@ -1,6 +1,6 @@
-use super::export::{ExportFormat, encode_report};
+use super::export::encode_report;
 use crate::components::ErrorMessage;
-use base64::Engine;
+use crate::export::{ExportFormat, download, encoded_bytes};
 use dioxus::prelude::*;
 use domain::dto::ProductReportRow;
 use serde::Deserialize;
@@ -174,34 +174,6 @@ async fn finish_picker(
     }
 }
 
-pub(crate) async fn download(
-    bytes: Vec<u8>,
-    filename: &str,
-    mime: &str,
-    id: &str,
-) -> Result<(), String> {
-    let mut download = document::eval(
-        r"
-        const [encoded, filename, mime, id] = await dioxus.recv();
-        if (!document.getElementById(id)?.isConnected) { dioxus.send(false); return; }
-        const url = URL.createObjectURL(new Blob([Uint8Array.from(atob(encoded), character => character.charCodeAt(0))], {type: mime}));
-        const link = document.createElement('a');
-        link.href = url; link.download = filename;
-        document.body.appendChild(link); link.click(); link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-        dioxus.send(true);
-    ",
-    );
-    download
-        .send((encoded_bytes(&bytes), filename, mime, id))
-        .map_err(|_| "Unable to save report".to_string())?;
-    download
-        .recv::<bool>()
-        .await
-        .map_err(|_| "Unable to save report".to_string())?;
-    Ok(())
-}
-
 fn focus_save(id: &str) {
     let focus = document::eval(
         "const id = await dioxus.recv(); document.getElementById(id)?.querySelector('button')?.focus();",
@@ -227,9 +199,6 @@ fn focus_dialog(id: &str) {
     let _ = focus.send(id);
 }
 
-fn encoded_bytes(bytes: &[u8]) -> String {
-    base64::engine::general_purpose::STANDARD.encode(bytes)
-}
 #[cfg(test)]
 #[path = "../../tests/pages/reports/save.rs"]
 mod tests;
