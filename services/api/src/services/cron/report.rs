@@ -117,8 +117,12 @@ async fn generate_report(state: &AppState, job: &ReportResult) -> Result<ReportD
                 &job.parameters,
             )?
             .ok_or_else(crate::models::cron::saved_invalid)?;
+            let stripe = crate::state::required_client(&state.stripe, "Stripe client unavailable")?;
+            let paypal = crate::state::required_client(&state.paypal, "PayPal client unavailable")?;
+            let shopify =
+                crate::state::required_client(&state.shopify, "Shopify client unavailable")?;
             let result: AccountingReportResponse =
-                services::accounting::report(state, range).await?;
+                services::accounting::report(shopify, stripe, paypal, range).await?;
             Ok(ReportData::Transaction(result))
         }
         ScheduleReportType::Inventory => {
@@ -132,12 +136,14 @@ async fn generate_report(state: &AppState, job: &ReportResult) -> Result<ReportD
                     )
                     .with_source(error)
                 })?;
+            let shopify =
+                crate::state::required_client(&state.shopify, "Shopify client unavailable")?;
             let mut cursor = None;
             let mut seen_cursors = HashSet::new();
             let mut products = Vec::new();
             loop {
                 let page = services::inventories::inventory_report(
-                    state,
+                    shopify,
                     location.clone(),
                     PageRequest {
                         first: 250,

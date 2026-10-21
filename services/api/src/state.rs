@@ -45,6 +45,22 @@ pub fn app_state(pool: PgPool, settings: Settings) -> Result<AppState, config::C
     })
 }
 
+pub(crate) fn required_client<'a, T>(
+    client: &'a Result<Option<Arc<T>>, Arc<ClientError>>,
+    message: &'static str,
+) -> Result<&'a T, crate::error::AppError> {
+    client
+        .as_ref()
+        .map_err(|error| {
+            crate::error::AppError::new(axum::http::StatusCode::SERVICE_UNAVAILABLE, message)
+                .with_source(error.clone())
+        })?
+        .as_deref()
+        .ok_or_else(|| {
+            crate::error::AppError::new(axum::http::StatusCode::SERVICE_UNAVAILABLE, message)
+        })
+}
+
 fn optional_client<C, T>(
     config: Option<&C>,
     create: impl FnOnce(&C) -> Result<T, ClientError>,

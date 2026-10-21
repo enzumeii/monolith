@@ -35,7 +35,7 @@ pub(crate) async fn report(
             "Report sender is not configured",
         )
     })?;
-    let client = super::common::resend_client(state)?;
+    let client = crate::state::required_client(&state.resend, "Resend client unavailable")?;
     if recovering && !report_storage::has_mail_intent(root, id).await? {
         return Err(AppError::new(
             StatusCode::CONFLICT,
