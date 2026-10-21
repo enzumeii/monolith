@@ -1,4 +1,4 @@
-use super::cron::{report_type, saved_invalid, timestamp};
+use super::{report_type, saved_invalid, timestamp};
 use crate::error::AppError;
 use chrono::NaiveDateTime;
 use domain::dto::report_results::ReportStatus;
@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, types::Json};
 use uuid::Uuid;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub(crate) struct SavedFile {
     pub filename: String,
     pub content_type: String,
@@ -34,10 +34,10 @@ impl ReportResult {
             _ => return Err(saved_invalid()),
         };
         let kind = report_type(&self.report_type)?;
-        crate::validations::cron::saved_parameters(kind, &self.parameters)?;
+        crate::validations::cron::report::validate_saved_parameters(kind, &self.parameters)?;
         let mut files = Vec::new();
         for file in self.files.0 {
-            crate::validations::report_results::saved_file(&file)?;
+            crate::validations::cron::report::validate_saved_file(&file)?;
             files.push(ReportFileDTO {
                 filename: file.filename,
                 content_type: file.content_type,

@@ -1,6 +1,6 @@
-use super::csv::{HEADERS, cells};
 use dioxus::prelude::*;
 use domain::dto::ProductReportRow;
+use report_generator::inventory::{HEADERS, cells};
 
 #[component]
 pub fn ReportTable(rows: Vec<ProductReportRow>) -> Element {

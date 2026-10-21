@@ -1,11 +1,11 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
-use crate::{repositories, services::cron::job};
+use crate::{cron::job, repositories};
 use repositories::cron_configurations::tests::{input, state};
 
 #[tokio::test]
 async fn whole_workflow_budget_fences_stale_tokens_and_keeps_eager_failure() {
-    let (state, _) = state().await;
+    let state = state().await;
     let config = repositories::cron_configurations::insert(&state.pool, &input())
         .await
         .unwrap();
@@ -71,7 +71,7 @@ async fn whole_workflow_budget_fences_stale_tokens_and_keeps_eager_failure() {
 }
 #[tokio::test]
 async fn final_expired_attempt_is_audited_and_claim_transaction_rolls_back_on_audit_error() {
-    let (state, _) = state().await;
+    let state = state().await;
     let config = repositories::cron_configurations::insert(&state.pool, &input())
         .await
         .unwrap();
@@ -112,7 +112,7 @@ async fn final_expired_attempt_is_audited_and_claim_transaction_rolls_back_on_au
 }
 #[tokio::test]
 async fn existing_audit_inputs_survive_configuration_changes() {
-    let (state, _) = state().await;
+    let state = state().await;
     let config = repositories::cron_configurations::insert(&state.pool, &input())
         .await
         .unwrap();
@@ -140,7 +140,7 @@ async fn existing_audit_inputs_survive_configuration_changes() {
 
 #[tokio::test]
 async fn expired_nonfinal_lease_is_failed_eagerly_and_reclaimable() {
-    let (state, _) = state().await;
+    let state = state().await;
     let config = repositories::cron_configurations::insert(&state.pool, &input())
         .await
         .unwrap();

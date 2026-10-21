@@ -22,6 +22,7 @@ CREATE TABLE cron_jobs (
     published_at TIMESTAMP WITHOUT TIME ZONE NULL,
     lease_token UUID NULL,
     lease_until TIMESTAMP WITHOUT TIME ZONE NULL,
+    execution_checkpoint JSONB NULL,
     UNIQUE (cron_configuration_id, scheduled_for)
 );
 

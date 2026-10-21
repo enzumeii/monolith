@@ -1,0 +1,15 @@
+$kind: http-request
+description: 'Authenticated Blob metadata lookup uses GET with url=<pathname>, rather than HTTP HEAD. Required: blob_api, blob_token and blob_pathname. Success 200 returns pathname/url/downloadUrl/contentType; absent object 404 and rejected bearer 403. This operation does not generate or upload a report.'
+url: "{{blob_api}}?url={{blob_pathname}}"
+method: GET
+order: 2000
+headers:
+  x-api-version: '13'
+auth:
+  type: inherit
+  credentials:
+    id: 8025d452-33d8-4f58-98bb-ec4b2560b940
+scripts:
+  - type: afterResponse
+    code: 'pm.test("Stored object metadata", function () { pm.response.to.have.status(200); const blob = pm.response.json(); pm.expect(blob.pathname).to.eql(pm.environment.get("blob_pathname")); pm.environment.set("blob_download_url", blob.downloadUrl); });'
+    language: text/javascript

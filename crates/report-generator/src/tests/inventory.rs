@@ -1,5 +1,6 @@
 use super::*;
-pub fn row() -> ProductReportRow {
+
+fn row() -> ProductReportRow {
     ProductReportRow {
         category: None,
         collection: Some("é".into()),

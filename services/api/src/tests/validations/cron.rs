@@ -1,4 +1,4 @@
-use crate::validations::cron::validate_report_inputs;
+use crate::validations::cron::configs::validate_report_inputs;
 use domain::dto::{SchedulePeriodMode, ScheduleReportType};
 
 #[test]

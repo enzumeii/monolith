@@ -175,9 +175,6 @@ impl TestClient {
     pub fn storage_base(&self) -> &str {
         &self.api.storage_base
     }
-    pub fn reports_directory(&self) -> std::path::PathBuf {
-        self.api.directory.join("reports")
-    }
     pub fn logs(&self) -> String {
         std::fs::read_to_string(self.api.directory.join("api.log")).unwrap()
     }
@@ -429,7 +426,6 @@ impl Drop for TestUpstream {
 
 struct TestApi {
     process: Option<Child>,
-    static_process: Option<Child>,
     storage_base: String,
     directory: std::path::PathBuf,
     base: String,
@@ -438,9 +434,6 @@ struct TestApi {
 impl Drop for TestApi {
     fn drop(&mut self) {
         if let Some(process) = &mut self.process {
-            stop_process(process, Duration::from_secs(5));
-        }
-        if let Some(process) = &mut self.static_process {
             stop_process(process, Duration::from_secs(5));
         }
         let _ = std::fs::remove_dir_all(&self.directory);
@@ -539,21 +532,15 @@ async fn start_api(config: ProviderConfig<'_>, scheduler_backoff: Option<u64>) -
         .email_timeout_secs
         .map(|secs| format!("\n[client.resend]\ntimeout_secs = {secs}\n"))
         .unwrap_or_default();
-    let storage_port = std::net::TcpListener::bind("127.0.0.1:0")
-        .expect("allocate static port")
-        .local_addr()
-        .unwrap()
-        .port();
+    let storage_port = std::env::var("E2E_BLOB_PORT").unwrap_or_else(|_| "5434".into());
     let directory = std::env::temp_dir().join(format!("monolith-api-e2e-{}", Uuid::new_v4()));
     std::fs::create_dir(&directory).expect("create owned E2E configuration directory");
     let mut api = TestApi {
         process: None,
-        static_process: None,
         storage_base: format!("http://127.0.0.1:{storage_port}/"),
         directory,
         base: format!("http://127.0.0.1:{port}"),
     };
-    let reports_directory = api.directory.join("reports");
     std::fs::write(
         api.directory.join("application.toml"),
         format!(
@@ -573,10 +560,9 @@ retry_backoff_secs = {retry_backoff_secs}
 lease_secs = 5
 max_payload_bytes = 20971520
 max_email_bytes = 20971520
-[reports.storage]
-backend = "local"
-directory = {reports_directory:?}
-public_base_url = "http://127.0.0.1:{storage_port}/"
+[client.vercel_blob]
+api_url = "http://127.0.0.1:{storage_port}/"
+timeout_secs = 3
 [browser]
 public_origin = "http://127.0.0.1:8084"
 insecure_local = true
@@ -588,43 +574,46 @@ insecure_local = true
         ),
     )
     .expect("write non-secret E2E configuration");
-    api.static_process = Some(
-        Command::new("python3")
-            .arg(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../scripts/serve-reports.py"
-            ))
-            .arg(api.directory.join("application.toml"))
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("start owned static file host"),
+    assert!(
+        reqwest::get(format!("{}health", api.storage_base))
+            .await
+            .expect("Docker Blob health connection")
+            .status()
+            .is_success()
     );
-    for attempt in 0..100 {
-        if reqwest::get(&api.storage_base).await.is_ok() {
-            break;
-        }
-        assert!(attempt < 99, "static host did not start");
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
 
     api.process = Some(
         Command::new(env!("CARGO_BIN_EXE_api"))
             .current_dir(&api.directory)
             .env("DATABASE_URL", database_url())
             .env("JWT_SECRET", JWT_SECRET)
+            .env("BLOB_READ_WRITE_TOKEN", "vercel_blob_rw_local_synthetic")
             .env("RUST_LOG", "info")
-            .envs([
-                ("SHIPPING_SENDER_NAME", "Synthetic Sender"),
-                ("SHIPPING_SENDER_PHONE", "0000000000"),
-                ("SHIPPING_SENDER_EMAIL", "sender@example.test"),
-                ("SHIPPING_SENDER_ADDRESS", "123 Synthetic Street"),
-                ("SHIPPING_SENDER_SUB_DISTRICT", "Synthetic Subdistrict"),
-                ("SHIPPING_SENDER_DISTRICT", "Synthetic District"),
-                ("SHIPPING_SENDER_PROVINCE", "Synthetic Province"),
-                ("SHIPPING_SENDER_POSTCODE", "10100"),
-                ("SHIPPING_SENDER_COUNTRY_CODE", "TH"),
-            ])
+            .env_remove("SHIPPING_SENDER_NAME")
+            .env_remove("SHIPPING_SENDER_PHONE")
+            .env_remove("SHIPPING_SENDER_EMAIL")
+            .env_remove("SHIPPING_SENDER_ADDRESS")
+            .env_remove("SHIPPING_SENDER_SUB_DISTRICT")
+            .env_remove("SHIPPING_SENDER_DISTRICT")
+            .env_remove("SHIPPING_SENDER_PROVINCE")
+            .env_remove("SHIPPING_SENDER_POSTCODE")
+            .env_remove("SHIPPING_SENDER_COUNTRY_CODE")
+            .envs(
+                (!scheduler_enabled)
+                    .then_some([
+                        ("SHIPPING_SENDER_NAME", "Synthetic Sender"),
+                        ("SHIPPING_SENDER_PHONE", "0000000000"),
+                        ("SHIPPING_SENDER_EMAIL", "sender@example.test"),
+                        ("SHIPPING_SENDER_ADDRESS", "123 Synthetic Street"),
+                        ("SHIPPING_SENDER_SUB_DISTRICT", "Synthetic Subdistrict"),
+                        ("SHIPPING_SENDER_DISTRICT", "Synthetic District"),
+                        ("SHIPPING_SENDER_PROVINCE", "Synthetic Province"),
+                        ("SHIPPING_SENDER_POSTCODE", "10100"),
+                        ("SHIPPING_SENDER_COUNTRY_CODE", "TH"),
+                    ])
+                    .into_iter()
+                    .flatten(),
+            )
             .env_remove("SHOPIFY_ACCESS_TOKEN")
             .env_remove("RESEND_API_KEY")
             .env_remove("RESEND_BASE_URL")

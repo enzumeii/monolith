@@ -1,5 +1,4 @@
-mod cron_configurations;
+mod cron;
 mod inventories;
 mod orders;
-mod report_results;
 mod transactions;

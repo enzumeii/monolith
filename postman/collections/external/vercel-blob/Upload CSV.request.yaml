@@ -1,0 +1,22 @@
+$kind: http-request
+description: 'Upload frozen CSV bytes once with public access and deterministic pathname. Required local variables: blob_api (for example http://localhost:3001), blob_token (synthetic locally; supply production secrets privately), and blob_pathname (unique report key). API version 13. Success 200 returns pathname/contentType/url/downloadUrl. Existing object: 412; bad bearer: 403. No overwrite or retry. Running PUT against production writes an object; use the Docker emulator for checks.'
+url: "{{blob_api}}?pathname={{blob_pathname}}"
+method: PUT
+order: 1000
+headers:
+  x-api-version: '13'
+  x-vercel-blob-access: public
+  x-content-type: 'text/csv; charset=utf-8'
+  x-add-random-suffix: '0'
+  x-allow-overwrite: '0'
+body:
+  type: text
+  content: "id,title\n1,synthetic\n"
+auth:
+  type: inherit
+  credentials:
+    id: 8025d452-33d8-4f58-98bb-ec4b2560b940
+scripts:
+  - type: afterResponse
+    code: 'pm.test("Uploaded deterministic CSV", function () { pm.response.to.have.status(200); const blob = pm.response.json(); pm.expect(blob.pathname).to.eql(pm.environment.get("blob_pathname")); pm.expect(blob.contentType).to.eql("text/csv; charset=utf-8"); pm.expect(blob.downloadUrl).to.be.a("string"); pm.environment.set("blob_download_url", blob.downloadUrl); });'
+    language: text/javascript

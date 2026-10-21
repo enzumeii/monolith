@@ -1,22 +1,37 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: core-db
     restart: always
     environment:
       POSTGRES_DB: core
       POSTGRES_USER: user
       POSTGRES_PASSWORD: pass
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${LOCAL_POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U myuser -d mydatabase"]
+      test: ["CMD-SHELL", "pg_isready -U user -d core"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  local-blob:
+    image: ghcr.io/lafittemehdy/vercel-blob-local@sha256:9e85fdc2c7ff691bdd4b6d5457e4d8cb3a0beb010724adc594786cd76395a31c
+    restart: "no"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      BLOB_READ_WRITE_TOKEN: vercel_blob_rw_local_synthetic
+      VERCEL_BLOB_LOCAL_DIR: /data
+      VERCEL_BLOB_LOCAL_PUBLIC_URL: ${LOCAL_BLOB_PUBLIC_URL:-http://localhost:3001}
+    ports:
+      - "127.0.0.1:${LOCAL_BLOB_PORT:-3001}:3000"
+    volumes:
+      - local_blob_data:/data
+
 volumes:
   postgres_data:
     driver: local
+
+  local_blob_data:

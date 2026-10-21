@@ -4,7 +4,7 @@ use crate::repositories::cron_configurations::tests::{input, state};
 
 #[tokio::test]
 async fn dispatch_visits_every_page_and_coalesces_inventory_without_duplicates() {
-    let (state, _) = state().await;
+    let state = state().await;
     for _ in 0..51 {
         repositories::cron_configurations::insert(&state.pool, &input())
             .await
@@ -22,7 +22,7 @@ async fn dispatch_visits_every_page_and_coalesces_inventory_without_duplicates()
     );
     for (table, expected) in [
         ("cron_configurations", 9_i64),
-        ("cron_jobs", 9),
+        ("cron_jobs", 10),
         ("report_results", 8),
     ] {
         let actual:i64=sqlx::query_scalar("SELECT COUNT(*) FROM pg_attribute WHERE attrelid=$1::regclass AND attnum>0 AND NOT attisdropped")
@@ -33,7 +33,7 @@ async fn dispatch_visits_every_page_and_coalesces_inventory_without_duplicates()
 }
 #[tokio::test]
 async fn malformed_configuration_does_not_starve_other_jobs() {
-    let (state, _) = state().await;
+    let state = state().await;
     let bad = repositories::cron_configurations::insert(&state.pool, &input())
         .await
         .unwrap();
@@ -71,7 +71,7 @@ async fn malformed_configuration_does_not_starve_other_jobs() {
 }
 #[tokio::test]
 async fn missing_provider_failure_is_eagerly_audited() {
-    let (state, _) = state().await;
+    let state = state().await;
     let config = repositories::cron_configurations::insert(&state.pool, &input())
         .await
         .unwrap();
@@ -94,7 +94,7 @@ async fn missing_provider_failure_is_eagerly_audited() {
 }
 #[tokio::test]
 async fn heartbeat_does_not_stop_polling_work_that_holds_the_only_database_connection() {
-    let (state, _) = state().await;
+    let state = state().await;
     let config = repositories::cron_configurations::insert(&state.pool, &input())
         .await
         .unwrap();
@@ -133,7 +133,7 @@ async fn heartbeat_does_not_stop_polling_work_that_holds_the_only_database_conne
 
 #[tokio::test]
 async fn transaction_dispatch_catches_up_and_edit_starts_a_future_revision() {
-    let (state, _) = state().await;
+    let state = state().await;
     let mut request = input();
     request.report_type = domain::dto::ScheduleReportType::Transaction;
     request.parameter = "PREVIOUS_MONTH".into();
@@ -179,7 +179,7 @@ async fn transaction_dispatch_catches_up_and_edit_starts_a_future_revision() {
 
 #[tokio::test]
 async fn one_second_lease_renews_before_expiry_during_slow_work() {
-    let (mut state, _) = state().await;
+    let mut state = state().await;
     let mut settings = (*state.settings).clone();
     settings.scheduler.lease_secs = 1;
     state.settings = std::sync::Arc::new(settings);

@@ -5,101 +5,6 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 #[tokio::test]
-async fn accepted_mail_is_not_repeated_when_whole_job_retries_publication() {
-    let fixture = fixture().await;
-    let (url, upstream) = inventory_upstream().await;
-    let mail = ReportMail::start("block-storage").await;
-    let client = worker(&url, &mail.url, 10).await;
-    *mail.storage.lock().unwrap() = Some(client.reports_directory());
-    let config = queue(&fixture, &client, false).await;
-    let failed = wait(&fixture, &client, config, "FAILED").await;
-    let id = Uuid::parse_str(failed["id"].as_str().unwrap()).unwrap();
-    assert!(failed["error"].as_str().unwrap().contains("publication"));
-    assert!(failed["generated_at"].is_string());
-    assert_eq!(failed["files"].as_array().unwrap().len(), 0);
-    assert_eq!(mail.requests.lock().unwrap().len(), 1);
-    assert_eq!(attempts(&fixture, id).await, 1);
-    tokio::fs::remove_file(
-        client
-            .reports_directory()
-            .join("public")
-            .join(id.to_string()),
-    )
-    .await
-    .unwrap();
-    make_due(&fixture, id).await;
-    let success = wait(&fixture, &client, config, "SUCCESS").await;
-    assert_eq!(success["generated_at"], failed["generated_at"]);
-    assert_eq!(attempts(&fixture, id).await, 2);
-    let reference = &success["files"][0];
-    let bytes = reqwest::get(reference["download_url"].as_str().unwrap())
-        .await
-        .unwrap()
-        .bytes()
-        .await
-        .unwrap();
-    {
-        let requests = mail.requests.lock().unwrap();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(
-            serde_json::from_value::<Vec<u8>>(requests[0].1["attachments"][0]["content"].clone())
-                .unwrap(),
-            bytes
-        );
-    }
-    assert!(
-        std::str::from_utf8(&bytes)
-            .unwrap()
-            .starts_with("category,collection,sku,")
-    );
-    assert_eq!(
-        reqwest::get(format!("{}.pending/{id}/email.json", client.storage_base()))
-            .await
-            .unwrap()
-            .status(),
-        404
-    );
-    assert_eq!(
-        get(
-            &client,
-            &format!("/v1/admin/cron/reports/{id}/download"),
-            fixture.root_id()
-        )
-        .await
-        .status(),
-        404
-    );
-    let deleted = client
-        .send(authed_json(
-            "DELETE",
-            &format!("/v1/admin/cron/configs/{config}"),
-            fixture.root_id(),
-            AdminRole::SuperAdmin,
-            &json!({}),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(deleted.status(), 204);
-    assert_eq!(
-        get(
-            &client,
-            &format!("/v1/admin/cron/reports/{id}"),
-            fixture.root_id()
-        )
-        .await
-        .status(),
-        200
-    );
-    assert_eq!(
-        reqwest::get(reference["download_url"].as_str().unwrap())
-            .await
-            .unwrap()
-            .status(),
-        200
-    );
-    assert_eq!(upstream.requests().len(), 4);
-}
-#[tokio::test]
 async fn email_failure_is_eager_and_retry_reuses_the_frozen_request_and_files() {
     let fixture = fixture().await;
     let (url, upstream) = inventory_upstream().await;
@@ -109,6 +14,11 @@ async fn email_failure_is_eager_and_retry_reuses_the_frozen_request_and_files() 
     let failed = wait(&fixture, &client, config, "FAILED").await;
     assert!(failed["generated_at"].is_string());
     assert!(failed["error"].as_str().unwrap().contains("Email"));
+    assert_eq!(failed["files"].as_array().unwrap().len(), 1);
+    let response = reqwest::get(failed["files"][0]["download_url"].as_str().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
     let id = Uuid::parse_str(failed["id"].as_str().unwrap()).unwrap();
     let patched = client
         .send(authed_json(
@@ -134,6 +44,17 @@ async fn email_failure_is_eager_and_retry_reuses_the_frozen_request_and_files() 
         requests[1].0["idempotency-key"]
     );
     assert_eq!(requests[0].1["to"][0], "reports@example.test");
+    assert_eq!(requests[0].1["from"], "reporting@enzumeii.com");
+    assert_eq!(
+        requests[0].1["subject"],
+        "Inventory report - inventory ID 12345"
+    );
+    assert!(
+        requests[0].1["html"]
+            .as_str()
+            .unwrap()
+            .contains("Inventory ID: 12345")
+    );
     assert_eq!(upstream.requests().len(), 4);
 }
 #[tokio::test]
@@ -410,17 +331,24 @@ async fn get(client: &TestClient, url: &str, admin: i64) -> axum::response::Resp
 async fn seed(fixture: &TestFixture, client: &TestClient) -> Uuid {
     let id = Uuid::new_v4();
     fixture.own_report(id);
-    let directory = client
-        .reports_directory()
-        .join("public")
-        .join(id.to_string());
-    tokio::fs::create_dir_all(&directory).await.unwrap();
     let mut files = Vec::new();
     for name in ["transactions.csv", "items.csv"] {
-        tokio::fs::write(directory.join(name), b"header\r\noriginal\r\n")
+        let response = reqwest::Client::new()
+            .put(client.storage_base())
+            .query(&[("pathname", format!("{id}/{name}"))])
+            .bearer_auth("vercel_blob_rw_local_synthetic")
+            .header("x-api-version", "13")
+            .header("x-vercel-blob-access", "public")
+            .header("x-add-random-suffix", "0")
+            .header("x-allow-overwrite", "0")
+            .header("x-content-type", "text/csv; charset=utf-8")
+            .body("header\r\noriginal\r\n")
+            .send()
             .await
             .unwrap();
-        files.push(json!({"filename":name,"content_type":"text/csv; charset=utf-8","storage_key":format!("{id}/{name}"),"download_url":format!("{}{id}/{name}",client.storage_base())}));
+        assert!(response.status().is_success());
+        let blob: Value = response.json().await.unwrap();
+        files.push(json!({"filename":name,"content_type":blob["contentType"],"storage_key":blob["pathname"],"download_url":blob["downloadUrl"]}));
     }
     sqlx::query("INSERT INTO report_results (id,report_type,attempted_at,generated_at,status,parameters,files) VALUES ($1,'TRANSACTION','2026-11-01 00:00:00','2026-11-01 00:00:00','SUCCESS',$2,$3)")
         .bind(id).bind("2026-10-01T00:00:00+07:00 - 2026-10-31T23:59:59+07:00").bind(json!(files)).execute(&fixture.pool()).await.unwrap();
@@ -430,29 +358,17 @@ async fn seed(fixture: &TestFixture, client: &TestClient) -> Uuid {
 struct ReportMail {
     url: String,
     requests: std::sync::Arc<std::sync::Mutex<Vec<(axum::http::HeaderMap, serde_json::Value)>>>,
-    storage: std::sync::Arc<std::sync::Mutex<Option<std::path::PathBuf>>>,
     task: tokio::task::JoinHandle<()>,
 }
 impl ReportMail {
     async fn start(mode: &'static str) -> Self {
         use axum::{Json, Router, response::IntoResponse, routing::post};
         let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let storage: std::sync::Arc<std::sync::Mutex<Option<std::path::PathBuf>>> =
-            std::sync::Arc::default();
         let recorded = requests.clone();
-        let directory = storage.clone();
         let router = Router::new().route("/emails",post(move |headers:axum::http::HeaderMap,Json(body):Json<serde_json::Value>| {
             let recorded = recorded.clone();
-            let directory = directory.clone();
             async move {
                 assert_eq!(headers["authorization"],"Bearer re_e2e-fixture");
-                if mode == "block-storage" {
-                    let root = directory.lock().unwrap().clone().unwrap();
-                    std::fs::create_dir_all(&root).unwrap();
-                    let id = headers["idempotency-key"].to_str().unwrap().strip_prefix("report-result-").unwrap();
-                    std::fs::create_dir_all(root.join("public")).unwrap();
-                    std::fs::write(root.join("public").join(id),b"block destination").unwrap();
-                }
                 recorded.lock().unwrap().push((headers,body));
                 if mode == "slow" { tokio::time::sleep(std::time::Duration::from_secs(6)).await; }
                 if mode == "reject" || (mode == "reject-first" && recorded.lock().unwrap().len()==1) {
@@ -469,7 +385,6 @@ impl ReportMail {
         Self {
             url,
             requests,
-            storage,
             task,
         }
     }

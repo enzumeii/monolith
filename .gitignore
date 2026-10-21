@@ -12,5 +12,3 @@ target/
 /services/api/.tools/
 
 /.github/scripts/node_modules/
-
-/services/api/storage/reports/

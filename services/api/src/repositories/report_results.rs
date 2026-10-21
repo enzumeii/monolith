@@ -1,8 +1,8 @@
 use crate::{
     error::AppError,
     models::{
+        cron::report::{ReportResult, ResultFilter, SavedFile},
         cron::report_type_value,
-        report_results::{ReportResult, ResultFilter, SavedFile},
     },
 };
 use chrono::NaiveDateTime;
@@ -63,29 +63,6 @@ pub(crate) async fn start(
     .execute(connection)
     .await?;
     Ok(())
-}
-pub(crate) async fn generated(
-    pool: &PgPool,
-    id: Uuid,
-    token: Uuid,
-    at: NaiveDateTime,
-) -> Result<bool, AppError> {
-    Ok(sqlx::query(
-        r"
-        WITH owned AS (
-            SELECT id FROM cron_jobs WHERE id = $1 AND lease_token = $2
-                AND lease_until > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') FOR UPDATE
-        )
-        UPDATE report_results SET generated_at = $3 WHERE id IN (SELECT id FROM owned)
-    ",
-    )
-    .bind(id)
-    .bind(token)
-    .bind(at)
-    .execute(pool)
-    .await?
-    .rows_affected()
-        == 1)
 }
 pub(crate) async fn fail(
     connection: &mut PgConnection,

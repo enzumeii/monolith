@@ -1,5 +1,5 @@
 use super::*;
-use crate::models::report_results::{ReportResult, SavedFile};
+use crate::models::cron::report::{ReportResult, SavedFile};
 use sqlx::types::Json;
 fn result() -> ReportResult {
     ReportResult {
@@ -37,5 +37,5 @@ fn malformed_saved_metadata_returns_controlled_errors() {
         }
         assert!(row.into_dto().is_err());
     }
-    assert!(!csv_filename("file.xlsx"));
+    assert!(!validate_csv_filename("file.xlsx"));
 }

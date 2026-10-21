@@ -32,11 +32,10 @@ timeout_secs = 3
 base_url = "https://api-m.paypal.com"
 timeout_secs = 3
 
+[client.vercel_blob]
+api_url = "https://vercel.com/api/blob"
+timeout_secs = 10
+
 [client.stripe]
 base_url = "https://api.stripe.com/v1/"
 timeout_secs = 3
-
-[reports.storage]
-backend = "local"
-directory = "storage/reports"
-public_base_url = "http://localhost:3001/"

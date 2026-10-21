@@ -10,15 +10,7 @@ pub(crate) async fn list(
     pool: &PgPool,
     filter: ConfigurationFilter,
 ) -> Result<Vec<CronConfiguration>, AppError> {
-    let mut query = QueryBuilder::<Postgres>::new("SELECT * FROM cron_configurations WHERE TRUE");
-    if let Some(kind) = filter.report_type {
-        query
-            .push(" AND report_type = ")
-            .push_bind(report_type_value(kind));
-    }
-    if let Some(enabled) = filter.enabled {
-        query.push(" AND enabled = ").push_bind(enabled);
-    }
+    let mut query = filtered_query("SELECT * FROM cron_configurations WHERE TRUE", filter);
     query
         .push(" ORDER BY created_at DESC, id DESC LIMIT ")
         .push_bind(i64::from(filter.per_page) + 1)
@@ -73,20 +65,18 @@ pub(crate) async fn lock(
             .await?,
     )
 }
-pub(crate) async fn enabled_page(
-    pool: &PgPool,
-    after: Option<Uuid>,
-) -> Result<Vec<Uuid>, AppError> {
-    Ok(sqlx::query_scalar(
-        r"
-        SELECT id FROM cron_configurations
-        WHERE enabled AND ($1::uuid IS NULL OR id > $1)
-        ORDER BY id LIMIT 50
-    ",
-    )
-    .bind(after)
-    .fetch_all(pool)
-    .await?)
+pub(crate) async fn enabled(pool: &PgPool) -> Result<Vec<Uuid>, AppError> {
+    let mut query = filtered_query(
+        "SELECT id FROM cron_configurations WHERE TRUE",
+        ConfigurationFilter {
+            report_type: None,
+            enabled: Some(true),
+            page: 1,
+            per_page: 1,
+        },
+    );
+    query.push(" ORDER BY id");
+    Ok(query.build_query_scalar().fetch_all(pool).await?)
 }
 pub(crate) async fn delete(connection: &mut PgConnection, id: Uuid) -> Result<(), AppError> {
     sqlx::query("DELETE FROM cron_configurations WHERE id = $1")
@@ -106,6 +96,19 @@ pub(crate) async fn try_lock(
             .fetch_optional(connection)
             .await?,
     )
+}
+
+fn filtered_query(select: &'static str, filter: ConfigurationFilter) -> QueryBuilder<Postgres> {
+    let mut query = QueryBuilder::<Postgres>::new(select);
+    if let Some(kind) = filter.report_type {
+        query
+            .push(" AND report_type = ")
+            .push_bind(report_type_value(kind));
+    }
+    if let Some(enabled) = filter.enabled {
+        query.push(" AND enabled = ").push_bind(enabled);
+    }
+    query
 }
 
 #[cfg(test)]

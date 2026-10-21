@@ -13,3 +13,20 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  local-blob:
+    image: ghcr.io/lafittemehdy/vercel-blob-local@sha256:9e85fdc2c7ff691bdd4b6d5457e4d8cb3a0beb010724adc594786cd76395a31c
+    restart: "no"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      BLOB_READ_WRITE_TOKEN: vercel_blob_rw_local_synthetic
+      VERCEL_BLOB_LOCAL_DIR: /data
+      VERCEL_BLOB_LOCAL_PUBLIC_URL: ${E2E_BLOB_PUBLIC_URL:-http://127.0.0.1:5434}
+    ports:
+      - "127.0.0.1:${E2E_BLOB_PORT:-5434}:3000"
+    volumes:
+      - local_blob_data:/data
+
+volumes:
+  local_blob_data:

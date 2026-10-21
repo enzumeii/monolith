@@ -1,9 +1,8 @@
-use crate::{
-    error::AppError,
-    repositories,
-    services::cron::{config, job},
-    state::AppState,
-};
+pub(crate) mod job;
+pub(crate) mod publication;
+pub(crate) mod report;
+pub(crate) mod schedule;
+use crate::{error::AppError, repositories, services::cron::config, state::AppState};
 use chrono::Utc;
 use tokio::task::JoinSet;
 
@@ -42,62 +41,53 @@ pub async fn run(state: AppState) {
 }
 pub(crate) async fn dispatch(state: &AppState) -> Result<(), AppError> {
     let now = Utc::now().naive_utc();
-    let mut after = None;
-    loop {
-        let ids = repositories::cron_configurations::enabled_page(&state.pool, after).await?;
-        if ids.is_empty() {
-            break;
+    let ids = repositories::cron_configurations::enabled(&state.pool).await?;
+    for id in ids {
+        let result = async {
+            let mut transaction = state.pool.begin().await?;
+            let Some(configuration) =
+                repositories::cron_configurations::try_lock(&mut transaction, id).await?
+            else {
+                return Ok::<_, AppError>(());
+            };
+            if !configuration.enabled {
+                return Ok(());
+            }
+            let kind = crate::models::cron::report_type(&configuration.report_type)?;
+            crate::validations::cron::configs::validate_inputs(
+                kind,
+                &configuration.cron_expression,
+                &configuration.parameter,
+            )?;
+            let cursor = repositories::cron_jobs::latest(&mut transaction, id)
+                .await?
+                .map_or(configuration.updated_at, |due| {
+                    due.max(configuration.updated_at)
+                });
+            let mut cursor = cursor.and_utc();
+            let mut latest = None;
+            for _ in 0..1000 {
+                let due = schedule::next_occurrence(&configuration.cron_expression, cursor)
+                    .map_err(config::schedule_error)?;
+                if due.naive_utc() > now {
+                    break;
+                }
+                if kind == domain::dto::ScheduleReportType::Transaction {
+                    repositories::cron_jobs::enqueue(&mut transaction, id, due.naive_utc()).await?;
+                } else {
+                    latest = Some(due.naive_utc());
+                }
+                cursor = due;
+            }
+            if let Some(due) = latest {
+                repositories::cron_jobs::enqueue(&mut transaction, id, due).await?;
+            }
+            transaction.commit().await?;
+            Ok(())
         }
-        for id in ids {
-            after = Some(id);
-            let result = async {
-                let mut transaction = state.pool.begin().await?;
-                let Some(configuration) =
-                    repositories::cron_configurations::try_lock(&mut transaction, id).await?
-                else {
-                    return Ok::<_, AppError>(());
-                };
-                if !configuration.enabled {
-                    return Ok(());
-                }
-                let kind = crate::models::cron::report_type(&configuration.report_type)?;
-                crate::validations::cron::inputs(
-                    kind,
-                    &configuration.cron_expression,
-                    &configuration.parameter,
-                )?;
-                let cursor = repositories::cron_jobs::latest(&mut transaction, id)
-                    .await?
-                    .map_or(configuration.updated_at, |due| {
-                        due.max(configuration.updated_at)
-                    });
-                let mut cursor = cursor.and_utc();
-                let mut latest = None;
-                for _ in 0..1000 {
-                    let due =
-                        config::schedule::next_occurrence(&configuration.cron_expression, cursor)
-                            .map_err(config::schedule_error)?;
-                    if due.naive_utc() > now {
-                        break;
-                    }
-                    if kind == domain::dto::ScheduleReportType::Transaction {
-                        repositories::cron_jobs::enqueue(&mut transaction, id, due.naive_utc())
-                            .await?;
-                    } else {
-                        latest = Some(due.naive_utc());
-                    }
-                    cursor = due;
-                }
-                if let Some(due) = latest {
-                    repositories::cron_jobs::enqueue(&mut transaction, id, due).await?;
-                }
-                transaction.commit().await?;
-                Ok(())
-            }
-            .await;
-            if let Err(error) = result {
-                crate::error::log_background_error("cron configuration dispatch", &error);
-            }
+        .await;
+        if let Err(error) = result {
+            crate::error::log_background_error("cron configuration dispatch", &error);
         }
     }
     Ok(())
@@ -120,9 +110,14 @@ async fn execute_one(state: &AppState) -> Result<(), AppError> {
     let Some(claim) = job::claim(state).await? else {
         return Ok(());
     };
-    if let Err(failure) = with_lease(state, &claim, job::execute(state, &claim)).await {
-        crate::error::log_background_error("cron workflow", &failure.error);
-        job::fail(state, &claim, failure.message).await?;
+    match with_lease(state, &claim, job::execute(state, &claim)).await {
+        Ok(()) => {
+            tracing::info!(job_id = %claim.job.id, scheduled_for = %claim.job.scheduled_for, "cron job completed");
+        }
+        Err(failure) => {
+            crate::error::log_background_error("cron workflow", &failure.error);
+            job::fail(state, &claim, failure.message).await?;
+        }
     }
     Ok(())
 }
@@ -146,11 +141,11 @@ async fn with_lease<T>(
             .await
             .map_err(|error| job::Failure {
                 error,
-                message: "Lease renewal failed; email delivery may be unconfirmed",
+                message: "Lease renewal failed; job side effect may be unconfirmed",
             })? {
                 return Err(job::Failure {
                     error: job::lease_lost(),
-                    message: "Job lease lost; email delivery may be unconfirmed",
+                    message: "Job lease lost; side effect may be unconfirmed",
                 });
             }
         }

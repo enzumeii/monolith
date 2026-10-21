@@ -32,6 +32,7 @@ pub struct ClientConfig {
     pub shopify: Option<ShopifyConfig>,
     pub resend: Option<ResendConfig>,
     pub stripe: Option<StripeConfig>,
+    pub vercel_blob: Option<VercelBlobConfig>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -73,6 +74,18 @@ impl std::fmt::Debug for ResendConfig {
 }
 
 #[derive(Deserialize, Clone)]
+pub struct VercelBlobConfig {
+    pub api_url: String,
+    pub timeout_secs: u64,
+    pub token: Option<String>,
+}
+impl std::fmt::Debug for VercelBlobConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("VercelBlobConfig { token: [REDACTED], .. }")
+    }
+}
+
+#[derive(Deserialize, Clone)]
 pub struct StripeConfig {
     pub base_url: String,
     pub timeout_secs: u64,
@@ -93,37 +106,6 @@ pub struct Settings {
     pub database: DatabaseConfig,
     pub jwt: JwtSettings,
     pub scheduler: SchedulerConfig,
-    pub reports: ReportsConfig,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct ReportsConfig {
-    pub storage: ReportStorageConfig,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-#[serde(tag = "backend", rename_all = "lowercase", deny_unknown_fields)]
-pub enum ReportStorageConfig {
-    Local {
-        directory: std::path::PathBuf,
-        public_base_url: String,
-    },
-}
-impl ReportStorageConfig {
-    #[must_use]
-    pub fn directory(&self) -> &std::path::Path {
-        match self {
-            Self::Local { directory, .. } => directory,
-        }
-    }
-    #[must_use]
-    pub fn public_base_url(&self) -> &str {
-        match self {
-            Self::Local {
-                public_base_url, ..
-            } => public_base_url,
-        }
-    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -164,24 +146,6 @@ impl Settings {
         {
             return Err(ConfigError::Message(
                 "Scheduler intervals, limits, and concurrency must be positive and bounded".into(),
-            ));
-        }
-        let storage = &self.reports.storage;
-        let url = reqwest::Url::parse(storage.public_base_url()).map_err(|_| {
-            ConfigError::Message(
-                "Report storage public_base_url must be an absolute HTTP URL".into(),
-            )
-        })?;
-        if !matches!(url.scheme(), "http" | "https")
-            || url.host_str().is_none()
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.query().is_some()
-            || url.fragment().is_some()
-            || storage.directory().as_os_str().is_empty()
-        {
-            return Err(ConfigError::Message(
-                "Invalid report storage configuration".into(),
             ));
         }
         if let Some(sender) = &self.shipping_sender
@@ -269,6 +233,9 @@ impl Settings {
         }
         if let Ok(client_secret) = env::var("PAYPAL_CLIENT_SECRET") {
             builder = builder.set_override("client.paypal.client_secret", client_secret)?;
+        }
+        if let Ok(token) = env::var("BLOB_READ_WRITE_TOKEN") {
+            builder = builder.set_override("client.vercel_blob.token", token)?;
         }
         if let Ok(key) = env::var("STRIPE_SECRET_KEY") {
             builder = builder.set_override("client.stripe.secret_key", key)?;
