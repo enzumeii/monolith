@@ -1,6 +1,6 @@
 use backoffice::{
     SITE_LOGO, config,
-    pages::Login,
+    pages::{Login, use_scheduled_reports_history},
     route::Route,
     session::{self, SESSION},
 };
@@ -30,6 +30,7 @@ fn App() -> Element {
 #[component]
 fn Application(settings: config::Settings) -> Element {
     use_context_provider(move || settings);
+    use_scheduled_reports_history();
     use_effect(|| {
         session::install_sync();
         spawn(async {

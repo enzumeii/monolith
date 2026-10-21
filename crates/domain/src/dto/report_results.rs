@@ -1,7 +1,7 @@
 use super::cron::ScheduleReportType;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ListReportResultsQuery {
     pub report_type: Option<ScheduleReportType>,
@@ -10,7 +10,7 @@ pub struct ListReportResultsQuery {
     pub page: Option<u32>,
     pub per_page: Option<u32>,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ReportFileDTO {
     pub filename: String,
     pub content_type: String,
@@ -23,7 +23,7 @@ pub enum ReportStatus {
     Success,
     Failed,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ReportResultDTO {
     pub id: String,
     pub report_type: ScheduleReportType,

@@ -352,3 +352,76 @@ This contract supersedes the earlier ENZ-29 verification entry above.
 | Safety and recovery | Tests cover eager failures, one attempt budget, expired/fenced leases, a one-second lease renewal, immutable saved bytes/mail requests, private checkpoints, publication rollback, direct URL retention after config deletion, malformed metadata and revision-based catch-up. |
 | Isolation | API runs used dedicated enz29schema, enz29unit and enz29lease Compose projects/ports; owned containers and volumes were cleaned. Other worktrees were preserved. |
 | Limits | Native OS file picker was disabled in browser automation; the fallback save dialog was exercised. Live provider acceptance, Blob integration, production migration and deployment remain unverified. Exact pushed-head CI is recorded separately after publication. |
+
+## ENZ-30 scheduled reports — local verification (2026-10-22)
+
+Local delivery on `feat/ENZ-30`, based on ENZ-29 `274eb5f8a864648cb4404a5916e687ce80aa9768` plus its copied, uncommitted API dependency changes. No commit, push, PR, tracker update or deployment was performed. The ENZ-29 source checkout was not edited.
+
+| Check | Result |
+| --- | --- |
+| Backoffice `just test` | PASS: 98 backoffice tests, 9 domain unit tests, 8 domain contract tests; domain WASM check. |
+| Native and WASM web `cargo clippy --all-targets -- -D warnings` | PASS after final implementation changes. |
+| Backoffice `just build` | PASS; compiled Dioxus bundle exercised against real local API and PostgreSQL. |
+| Existing cron real-TCP E2E modules | PASS: 2 configuration tests and 2 report-history tests, isolated Compose database, normal harness startup/teardown. |
+| API `just test` | BLOCKED: 12 inherited library-test compile errors referencing moved scheduler/storage/email/validation items. No tests removed or disabled. |
+| Full diagnostic API E2E attempt | INCOMPLETE: publication retry failure recorded; no final suite summary. Not a passing full-suite result. |
+| Backoffice/API `just check` | BLOCKED by inherited formatting. Separate strict frontend lint passes. Scoped formatting differs only in an inherited API import block, verified identical to the copied baseline. |
+| Fixed Bangkok time under `TZ=America/Los_Angeles` | PASS: 2 timestamp/range tests; fractional boundaries preserved. |
+| Independent reviews | Final scoped reviews pass after fixes to defaults, conflict recovery, recurrence selection, dirty navigation and confirmation borrow lifetime. |
+
+| Real browser exercise | Evidence/result |
+| --- | --- |
+| ADMIN and SUPER_ADMIN | Cookie sign-in; create, edit, enable/disable and delete; ADMIN edited SUPER_ADMIN-created schedule. All worker schedules disabled during verification. |
+| Presets and preview | Previous month, first half and weekly inventory returned five Bangkok runs; half-open periods shown; field edit cleared stale preview; canonical inventory ID errors preserved input. Report-type switches visibly select the matching recurrence. |
+| History | Global list, numbered pages, type/date bounds with explicit +07:00, generated/attempted fallback, nullable generation, detail/back and safe overall failures. Offset round-trip regression fixed and browser verified. |
+| Draft departures | Native Back/Forward Cancel preserves draft; Confirm reaches original destination. In-app Cancel/Confirm and dirty close pass. Reload attempt retained the draft; automation did not expose a native reload-dialog object. |
+| Confirmation | Cancel initially focused, keyboard navigation/Escape, trigger focus restored; existing profile confirmation opens and cancels. Native dialog at phone width inspected. |
+| Responsive layout | Desktop and 390×844 override inspected. Narrow history table is 768px inside its horizontal scroll region; page width stays 375px. Temporary viewport override reset. |
+| Stale responses | Mounted production Router/History/Detail with real HTTP: filter/detail/account/logout changes reject old completions; refresh retains previous data while pending and after 503, retry replaces it. Preview revisions and duplicate guards covered by tests. |
+| Files and retained history | Six browser-saved files compared byte-for-byte by SHA-256: transactions.csv, items.csv, 149-byte header-only inventory, 4,984,609-byte inventory, opaque corrupt bytes and a file from FAILED email workflow. Saved history remained after schedule edits/deletes. |
+| Storage/session separation | Public storage HTTP requests need no metadata credentials; missing object returns 404. Real API metadata routes use cookie sessions. Scheduler disabled and provider clients absent; metadata/file paths perform no generation or email dispatch. |
+
+| Coverage limit | Detail |
+| --- | --- |
+| Browser timezone | Actual browser was Asia/Bangkok; available browser controls provide no timezone override. A non-Bangkok browser session remains unverified; fixed-offset code and non-Bangkok process tests pass. |
+| Download UI | Ordinary links use original returned URLs. Browser download helper saved and verified bytes; native Save As completion was not verified. Missing-file error rendering was blocked by the browser tool's URL policy; HTTP 404 verified independently. No controlled storage-host outage or expired-metadata browser session was completed. |
+| Conflict/recovery faults | 409 reload latches, stale/failed reload rejection and native history-restoration failure were tested deterministically; real-API concurrent 409 and native browser restoration rejection were not forced. |
+| Screenshots | Desktop/narrow screenshots inspected in browser output; exporting screenshots to local files was denied by the read-only browser filesystem. |
+
+Detailed logs, fixture manifest, hash evidence, task reports and the ENZ-30-only patch are retained under `.superpowers/sdd/2026-10-22-enz-30-scheduled-reports/`. Runtime credentials are private, ignored files. Only owned verification processes and Compose volumes were cleaned up.
+
+### ENZ-30 UI refinements (2026-10-22)
+
+| Requested change | Implementation and verification |
+| --- | --- |
+| More prominent navigation | Bordered, padded Schedules/Report history tabs with selected/hover/focus states; selected contrast preserved during keyboard focus. |
+| Cell borders and shared table | Both scheduled-report tables now use existing `DataTable`, extended with optional caption/class for rich rows; shared cell borders cover all sides. Existing download/table consumers retain their interfaces. |
+| Popup creation/editing | Shared `Popup` reuses Confirm's native-dialog lifecycle. Real API create/preview/save, asynchronous edit focus, Escape/discard cancellation, native Back guard, clean close and invoker focus restoration exercised. Desktop width 864px; phone popup 358px in 375px document. |
+| Shared calendar/time UX | `DateTimePicker` in Accounting/history, `TimePicker` in schedules: month/year navigation, date grid, Today/Clear and 24-hour hour/minute selects. Six date arithmetic/precision/empty-value tests added. Browser leap day 2028-02-29 17:45, Clear, Accounting Today and real history +07:00 bounds verified. Phone calendar width 301px with no page overflow. |
+| Final checks | PASS: 104 backoffice tests, 9 domain unit and 8 contract tests, domain WASM check, strict native/WASM lint, changed-file formatting, popup JavaScript syntax and browser build. Scoped review finding about popup width fixed and re-reviewed. |
+
+Reuse decisions: extend `components/report_table.rs::DataTable` for rich schedule/history rows; extract existing Confirm bridge into `components/popup.rs`/`popup.js` instead of adding another modal lifecycle. No shared calendar existed, so `components/date_time.rs` owns the common controls and date arithmetic. API request and timestamp semantics remain with their existing features.
+
+A synthetic preview is left running at `http://localhost:8084/scheduled-reports`, with scheduler disabled. Its API/storage/database are isolated owned fixtures. Runtime configuration, process IDs and cleanup helper are in `.superpowers/sdd/2026-10-22-enz-30-scheduled-reports/runtime-ui-refinement/`; do not treat preview data as production data. No commits, pushes or external updates.
+
+### ENZ-30 calendar seconds (2026-10-22)
+
+Shared calendar pickers in Accounting/history now offer Second (00–59), alongside Hour/Minute. Scheduler time controls remain HH:mm. Three regressions cover second replacement, boundary choices, precision preservation and suffix duplication. All 107 backoffice tests, formatting and strict native/WASM lint pass; browser build passes. Real browser checks: 08:15:43.1200 → second59/minute20 yields 08:20:59.1200; history URL contains :59 with +07:00, Accounting accepts second00, schedule form exposes no seconds control, and phone layout has no horizontal page overflow.
+
+### ENZ-30 reconciliation with ENZ-29 (2026-10-22)
+
+This checkpoint supersedes the earlier copied-dependency verification blockers. At the user's explicit request, `feat/ENZ-30` now starts at committed ENZ-29 `8c5e953ca4cac1d9efd2ea23d3955e6f8457d0b2`. ENZ-30 changes remain uncommitted. Source ENZ-29 was not modified.
+
+| Check | Result |
+| --- | --- |
+| Conflict reconciliation | Complete dirty-tree snapshot retained. Independent read-only review PASS: 47 original owned paths preserved byte-for-byte, one model merge retains required owned timezone String conversion; 400 non-owned tracked files match upstream. Two owned files now equal upstream, leaving 46 changed paths. Index clean. |
+| API checks and tests | `just --justfile services/api/justfile check` PASS; full `test` PASS: 297 native tests and 118 real-TCP E2E tests, zero failed/ignored. Isolated Compose project `enz30-verify-20261022` torn down with volumes. |
+| Frontend checks and tests | Backoffice `check` and `test` PASS: 107 backoffice tests, 9 domain unit tests and 8 domain contract tests; native/WASM strict lint, formatting and domain WASM check pass. |
+| Builds | API and actual Dioxus browser bundle rebuilt successfully. Runtime API SHA256 `653b5f882b76e5b971b8bcc7abcc599d60caabd7e49c967fdc29500592f8ab58`. |
+| Rebased runtime | Fresh owned PostgreSQL volume avoids old migration checksum reuse. API 13132 / Docker Vercel Blob 15442; both roles pass real cookie/CORS, disabled-schedule CRUD, Bangkok preview, 25+7 history pages and all 32 detail checks. Scheduler disabled; zero jobs at seeding. |
+| Browser on rebased API | Login, global history, two-file detail/back, popup create/preview/save pass. Newly saved browser schedule remains disabled. Prominent tabs, bordered shared tables and retained calendar/seconds UI render. Six browser-saved CSV files match seeded original SHA256 hashes, including 149-byte header-only inventory, 4,984,609-byte inventory, and both files from failed email workflow. |
+| Local delivery | Patch regenerated against current HEAD and checked using a separate index. No commits, pushes, PRs, tracker changes or deployments. |
+
+Earlier browser timezone, native Save As and controlled fault coverage limits still apply; no claim of complete browser acceptance. Reconciliation does not change those UI implementations. Logs: `/tmp/enz-30-rebased-{api-check,api-test,api-build,ui-check,ui-test,ui-build}.log`. Snapshots and independent review evidence: `.superpowers/sdd/2026-10-22-enz-30-scheduled-reports/reconcile-enz29-20261022/`.
+
+The preview at `http://localhost:8084/scheduled-reports` now uses the rebased synthetic API/Blob runtime. Its private helper, process identities, credentials, fixture metadata and browser download hashes are under `runtime-rebased-20261022/`. The previous API/storage processes and old Compose project were stopped after ownership checks. Current preview remains running intentionally; provider integrations and scheduler remain disabled.

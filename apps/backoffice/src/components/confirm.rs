@@ -12,28 +12,40 @@ pub fn Confirm(
     on_confirm: EventHandler<()>,
     on_cancel: EventHandler<()>,
 ) -> Element {
-    if !open {
-        return rsx! {};
-    }
+    let (id, mounted) = super::popup::use_native_dialog(open);
+
     rsx! {
-        div { class: "modal-overlay",
-            div { class: "modal", role: "dialog", aria_modal: "true",
-                h3 { class: "modal-title", "{title}" }
-                p { class: "modal-message", "{message}" }
-                div { class: "modal-actions",
-                    button {
-                        class: "ghost",
-                        onclick: move |_| on_cancel(()),
-                        "Cancel"
-                    }
-                    button {
-                        class: if danger { "danger" } else { "primary" },
-                        autofocus: true,
-                        onclick: move |_| on_confirm(()),
-                        "{confirm_label}"
-                    }
+        dialog {
+            id: "{id}",
+            class: "modal",
+            aria_labelledby: "{id}-title",
+            aria_describedby: "{id}-message",
+            onmounted: move |_| mounted(()),
+            oncancel: move |event| {
+                event.prevent_default();
+                on_cancel(());
+            },
+            h3 { id: "{id}-title", class: "modal-title", "{title}" }
+            p { id: "{id}-message", class: "modal-message", "{message}" }
+            div { class: "modal-actions",
+                button {
+                    r#type: "button",
+                    class: "ghost",
+                    autofocus: true,
+                    onclick: move |_| on_cancel(()),
+                    "Cancel"
+                }
+                button {
+                    r#type: "button",
+                    class: if danger { "danger" } else { "primary" },
+                    onclick: move |_| on_confirm(()),
+                    "{confirm_label}"
                 }
             }
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/components/confirm.rs"]
+mod tests;

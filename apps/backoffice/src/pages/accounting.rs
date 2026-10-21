@@ -4,7 +4,7 @@ mod export;
 use crate::{
     api,
     components::ReportSkeleton,
-    components::{DataTable, DownloadFile, ErrorMessage, TableData},
+    components::{DataTable, DateTimePicker, DownloadFile, ErrorMessage, TableData},
     session,
 };
 use data::{ReportRequest, date_range};
@@ -73,18 +73,16 @@ pub fn Accounting() -> Element {
                     }
                 },
                 p { id: "accounting-timezone", "All dates and times are in UTC+07:00." }
-                label { r#for: "accounting-start", "Start date and time" }
-                input { id: "accounting-start", r#type: "datetime-local", step: "1",
-                    required: true, value: "{start}", aria_describedby: "accounting-timezone",
-                    oninput: move |event| {
-                        start.set(event.value()); submitted.set(None); report.reset(); local_error.set(None);
+                DateTimePicker { id: "accounting-start", label: "Start date and time",
+                    required: true, value: start(), describedby: "accounting-timezone",
+                    on_input: move |value| {
+                        start.set(value); submitted.set(None); report.reset(); local_error.set(None);
                     },
                 }
-                label { r#for: "accounting-end", "End date and time" }
-                input { id: "accounting-end", r#type: "datetime-local", step: "1",
-                    required: true, value: "{end}", aria_describedby: "accounting-timezone",
-                    oninput: move |event| {
-                        end.set(event.value()); submitted.set(None); report.reset(); local_error.set(None);
+                DateTimePicker { id: "accounting-end", label: "End date and time",
+                    required: true, value: end(), describedby: "accounting-timezone",
+                    on_input: move |value| {
+                        end.set(value); submitted.set(None); report.reset(); local_error.set(None);
                     },
                 }
                 button { class: "primary", r#type: "submit", disabled: loading,
