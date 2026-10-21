@@ -130,5 +130,5 @@ fn kind(kind: AccountingKind) -> &'static str {
     }
 }
 #[cfg(test)]
-#[path = "../../tests/pages/accounting/export.rs"]
+#[path = "../../../tests/pages/reports/accounting/export.rs"]
 mod tests;

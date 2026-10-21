@@ -1,3 +1,4 @@
+mod accounting;
 mod csv;
 mod export;
 mod save;
@@ -14,13 +15,13 @@ use save::SaveReport;
 use table::ReportTable;
 
 #[derive(Clone, Copy, PartialEq)]
-enum ReportKind {
+enum ProductReportKind {
     Convention,
     Picklist,
 }
 #[derive(Clone, PartialEq)]
 struct ReportRequest {
-    kind: ReportKind,
+    kind: ProductReportKind,
     parameter: String,
     page_size: Option<u16>,
     cursor: Option<String>,
@@ -33,6 +34,50 @@ struct ReportData {
 #[component]
 pub fn Reports() -> Element {
     let mut kind = use_signal(|| ReportKind::Convention);
+    rsx! {
+        main { class: "page reports-page",
+            h2 { "Reports" }
+            div { class: "panel report-form",
+                label { r#for: "report-kind", "Report" }
+                select { id: "report-kind", value: kind().value(),
+                    onchange: move |event| kind.set(match event.value().as_str() {
+                        "picklist" => ReportKind::Picklist,
+                        "accounting" => ReportKind::Accounting,
+                        _ => ReportKind::Convention,
+                    }),
+                    option { value: "convention", "Convention report" }
+                    option { value: "picklist", "Picklist Report" }
+                    option { value: "accounting", "Accounting" }
+                }
+            }
+            match kind() {
+                ReportKind::Convention => rsx! { ProductReport { key: "{kind().value()}", kind: ProductReportKind::Convention } },
+                ReportKind::Picklist => rsx! { ProductReport { key: "{kind().value()}", kind: ProductReportKind::Picklist } },
+                ReportKind::Accounting => rsx! { accounting::AccountingReport {} },
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum ReportKind {
+    Convention,
+    Picklist,
+    Accounting,
+}
+
+impl ReportKind {
+    fn value(self) -> &'static str {
+        match self {
+            Self::Convention => "convention",
+            Self::Picklist => "picklist",
+            Self::Accounting => "accounting",
+        }
+    }
+}
+
+#[component]
+fn ProductReport(kind: ProductReportKind) -> Element {
     let mut inventory = use_signal(String::new);
     let mut tags = use_signal(String::new);
     let mut page_size = use_signal(|| Some(50_u16));
@@ -68,26 +113,16 @@ pub fn Reports() -> Element {
         .map(|info| (info.has_next_page, info.end_cursor.clone()));
 
     rsx! {
-        main { class: "page reports-page",
-            h2 { "Reports" }
+        div {
             form {
                 class: "panel report-form",
                 onsubmit: move |event| {
                     event.prevent_default();
                     history.write().reset();
                     local_error.set(None);
-                    submitted.set(Some(ReportRequest { kind: kind(), parameter: if kind() == ReportKind::Convention { inventory().trim().into() } else { tags().trim().into() }, page_size: page_size(), cursor: None }));
+                    submitted.set(Some(ReportRequest { kind, parameter: if kind == ProductReportKind::Convention { inventory().trim().into() } else { tags().trim().into() }, page_size: page_size(), cursor: None }));
                 },
-                label { r#for: "report-kind", "Report" }
-                select { id: "report-kind", value: if kind() == ReportKind::Convention { "convention" } else { "picklist" },
-                    onchange: move |event| {
-                        kind.set(if event.value() == "picklist" { ReportKind::Picklist } else { ReportKind::Convention });
-                        history.write().reset(); submitted.set(None); local_error.set(None);
-                    },
-                    option { value: "convention", "Convention report" }
-                    option { value: "picklist", "Picklist Report" }
-                }
-                if kind() == ReportKind::Convention {
+                if kind == ProductReportKind::Convention {
                     label { r#for: "inventory-id", "Inventory ID (Shopify location ID)" }
                     input { id: "inventory-id", required: true, pattern: "[0-9]+", inputmode: "numeric", value: "{inventory}",
                         oninput: move |event| { inventory.set(event.value()); submitted.set(None); history.write().reset(); local_error.set(None); },
@@ -110,13 +145,13 @@ pub fn Reports() -> Element {
                     p { role: "status", "{data.products.len()} rows" }
                     SaveReport {
                         rows: data.products.clone(),
-                        filename: if kind() == ReportKind::Convention { "convention-report.csv" } else { "picklist-report.csv" },
+                        filename: if kind == ProductReportKind::Convention { "convention-report.csv" } else { "picklist-report.csv" },
                     }
                 }
                 if data.products.is_empty() { p { "No products found." } }
                 ReportTable { rows: data.products.clone() }
             }
-            if kind() == ReportKind::Convention {
+            if kind == ProductReportKind::Convention {
                 div { class: "pager report-pager",
                     label { r#for: "report-page-size", "Rows per page" }
                     select { id: "report-page-size", value: page_size().map_or_else(|| "all".into(), |size| size.to_string()), disabled: loading,
@@ -124,7 +159,7 @@ pub fn Reports() -> Element {
                             let size = event.value().parse::<u16>().ok();
                             page_size.set(size); history.write().reset(); local_error.set(None);
                             if submitted.read().is_some() {
-                                submitted.set(Some(ReportRequest { kind: ReportKind::Convention, parameter: inventory().trim().into(), page_size: size, cursor: None }));
+                                submitted.set(Some(ReportRequest { kind: ProductReportKind::Convention, parameter: inventory().trim().into(), page_size: size, cursor: None }));
                             }
                         },
                         option { value: "25", "25" }
@@ -161,14 +196,14 @@ pub fn Reports() -> Element {
 
 async fn generate(request: ReportRequest) -> api::ApiResult<ReportData> {
     match request.kind {
-        ReportKind::Picklist => {
+        ProductReportKind::Picklist => {
             let response = api::reports::get_picklist_report(&request.parameter).await?;
             Ok(ReportData {
                 products: response.products,
                 page_info: None,
             })
         }
-        ReportKind::Convention => {
+        ProductReportKind::Convention => {
             if let Some(size) = request.page_size {
                 let response = api::reports::get_inventory_report(
                     &request.parameter,

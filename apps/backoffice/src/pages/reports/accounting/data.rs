@@ -25,5 +25,5 @@ pub fn date_range(start: &str, end: &str) -> Result<ReportRequest, String> {
     })
 }
 #[cfg(test)]
-#[path = "../../tests/pages/accounting/data.rs"]
+#[path = "../../../tests/pages/reports/accounting/data.rs"]
 mod tests;

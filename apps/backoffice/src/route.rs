@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::{
     components::NavLayout,
-    pages::{Accounting, Admins, Home, NotFound, Orders, Profile, Reports, Triggers},
+    pages::{Admins, Home, NotFound, Orders, Profile, Reports, Triggers},
 };
 
 #[derive(Clone, Debug, PartialEq, Routable)]
@@ -14,8 +14,6 @@ pub enum Route {
     Admins {},
     #[route("/reports")]
     Reports {},
-    #[route("/accounting")]
-    Accounting {},
     #[route("/orders")]
     Orders {},
     #[route("/triggers")]
