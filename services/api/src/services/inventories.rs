@@ -1,10 +1,9 @@
 mod enable;
 pub use enable::enable_inventory;
 
-use super::common::upstream;
 use crate::{
     client::shopify::ShopifyClient,
-    error::AppError,
+    error::{AppError, upstream},
     models::shopify::{ListProductsRequest, PageRequest, ProductStatus, ShopifyId},
 };
 use axum::http::StatusCode;

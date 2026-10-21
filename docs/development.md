@@ -97,6 +97,8 @@ Inventory returns one caller-selected product page with active inventory levels;
 | Shutdown | Native Axum graceful shutdown on Ctrl-C/SIGTERM |
 | Refresh retention | Startup/hourly batches, at most 500 rows, skip locked rows |
 | API rejection | Invalid request400; unauthenticated401; forbidden403; missing Shopify location404; duplicate username409. Missing admin targets return401 with {"error":"Not authorized"} and WWW-Authenticate: Bearer |
+| Accounting dependencies | `GET /v1/admin/transactions` requires initialized Stripe, PayPal and Shopify clients. Resolve all three before upstream work; missing/init-failed clients return provider-specific503 in that order. Startup and unrelated endpoints keep optional-provider behavior |
+| Accounting collection | Query both payment providers even if one is empty; both empty returns empty transactions/items without Shopify enrichment. Actual upstream failures abort without partial results:502 or timeout504 with safe `Upstream request failed` |
 | Internal failure | Generic public 500; underlying source retained internally |
 | Normal logs | One boundary event with operation, HTTP status and automatic source location in the prefix; optional client_origin retains the client's original file:line:column. No error messages or causes |
 | Error location | First AppError creation/conversion location survives propagation; external-library failures identify our mapping site, not an internal dependency frame |

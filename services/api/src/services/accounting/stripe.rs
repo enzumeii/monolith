@@ -1,12 +1,9 @@
 use super::{Payment, cents, empty_transaction, iso_utc, protocol};
 use crate::{
     client::stripe::StripeClient,
-    error::AppError,
+    error::{AppError, upstream},
     models::stripe::{BalanceTransaction, BalanceTransactionKind, FeeKind, Payout},
-    services::{
-        common::upstream,
-        pagination::{CursorPage, collect_cursor_pages},
-    },
+    services::pagination::{CursorPage, collect_cursor_pages},
     validations::accounting::AccountingDateRange,
 };
 use domain::dto::{AccountingGateway, AccountingKind};

@@ -27,7 +27,7 @@ flowchart LR
 | `apps/backoffice` | Browser pages, forms, direct API requests, session coordination | Public configuration only; Axum owns cookies, CORS, and origin checks |
 | `apps/client-ui` | Placeholder client application | No implemented service integration |
 
-AppState constructs the optional Shopify client once and shares its HTTP pool. Handlers resolve shared client availability and pass only concrete dependencies to services; optional initialization failures affect report availability without stopping unrelated endpoints.
+AppState constructs optional outbound clients once and shares their HTTP pools. Handlers resolve shared client availability and pass only concrete dependencies to services; optional initialization failures affect report availability without stopping unrelated endpoints.
 
 ## Module responsibilities
 
@@ -37,13 +37,13 @@ AppState constructs the optional Shopify client once and shares its HTTP pool. H
 | `src/main.rs` | Configuration, database startup, listener, maintenance task, graceful shutdown |
 | `src/config.rs` / `src/state.rs` | Typed settings; pool, settings, and signing key in application state |
 | `src/routes/` / `src/handlers/` | Route composition; HTTP inputs, responses, and transport |
-| `src/handlers/dependencies.rs` | Resolve shared optional clients and preserve availability errors before service calls |
+| `src/handlers/dependencies.rs` | Resolve shared optional clients and preserve availability errors before service calls; accounting requires concrete Stripe, PayPal and Shopify references |
 | `src/middleware/cookies.rs` | Cookie helpers, session transport, origin enforcement using BrowserConfig |
 | `src/middleware/token.rs` | JWT validation and role checks using the signing key and BrowserConfig |
 | `src/services/` / `src/repositories/` | Use cases and transaction boundaries / SQL queries |
 | `src/models/` | Persistence/authentication models and API-owned Shopify contracts |
 | `src/validations/` / `src/utils/` | Input rules / Argon2 operations and native number parsing and multiplication |
-| `src/error.rs` | Public error mapping and centralized boundary logging |
+| `src/error.rs` | Public and upstream error mapping, retained source diagnostics and centralized boundary logging |
 | `src/client.rs` | Generic HTTP/GraphQL request envelopes, decoding, failures, throttling backoff |
 | `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication and single-operation proxy methods / matching query documents |
 | `src/tests/` | Tests mirroring implementation paths through test-gated child modules |
@@ -55,7 +55,8 @@ AppState constructs the optional Shopify client once and shares its HTTP pool. H
 | `src/lib.rs` / `src/main.rs` | Module declarations / startup and root App |
 | `src/config.rs` / `application.toml` | Single typed startup reader / published public settings |
 | `src/api.rs` / `src/api/{auth,admins}.rs` | HTTP construction, decoding, errors / endpoint calls |
-| `src/export.rs` / `src/export/` | Shared file formats, table CSV/XLSX encoding and browser download transport; feature-specific cells/archives remain page-owned |
+| `src/export.rs` | Shared format/filename API and encoder re-exports |
+| `src/export/{csv,xlsx,browser}.rs` | CSV encoding / XLSX encoding and row limits / browser download transport; feature-specific cells/archives remain page-owned |
 | `src/pagination.rs` | Shared cursor collection/history for Reports and Orders |
 | `src/session/` | Viewer state, response ownership, browser synchronization |
 | `src/route.rs`, `src/pages/`, `src/components/` | Navigation, pages, forms, confirmation, reusable UI |

@@ -1,15 +1,12 @@
 use super::{Payment, empty_transaction, money, protocol};
 use crate::{
     client::paypal::PaypalClient,
-    error::AppError,
+    error::{AppError, upstream},
     models::{
         CurrencyCode,
         paypal::{TransactionDetail, TransactionEvent},
     },
-    services::{
-        common::upstream,
-        pagination::{NumberedPage, for_each_numbered_page},
-    },
+    services::pagination::{NumberedPage, for_each_numbered_page},
     validations::accounting::AccountingDateRange,
 };
 use chrono::{Duration, Utc};

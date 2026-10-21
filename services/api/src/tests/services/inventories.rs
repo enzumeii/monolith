@@ -2,7 +2,7 @@
 use super::*;
 use crate::{
     client::tests::{Fixture, Reply},
-    services::common::tests::{assert_failure, client, id, page},
+    services::common::{assert_failure, client, id, page},
 };
 use serde_json::{Value, json};
 

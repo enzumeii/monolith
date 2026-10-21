@@ -93,7 +93,7 @@ async fn consumer_failure_stops_before_the_next_fetch() {
 
 #[tokio::test]
 async fn mapped_pagination_errors_do_not_become_internal_server_errors() {
-    use crate::{error::AppError, services::common::upstream};
+    use crate::error::{AppError, upstream};
     use axum::{http::StatusCode, response::IntoResponse};
     for failure in ["cursor", "fetch", "consume"] {
         let error = for_each_page(

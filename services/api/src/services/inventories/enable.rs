@@ -1,12 +1,12 @@
 use super::validate_location;
 use crate::{
     client::{ClientError, ClientErrorKind, shopify::ShopifyClient},
-    error::{AppError, client_timeout, log_background_error},
+    error::{AppError, client_timeout, log_background_error, upstream},
     models::shopify::{
         ActivateInventoryRequest, InventoryActivationItem, InventoryDiscoveryRequest, PageRequest,
         ShopifyId,
     },
-    services::{common::upstream, pagination::for_each_page},
+    services::pagination::for_each_page,
 };
 use axum::http::StatusCode;
 use domain::dto::{InventoryEnableError, InventoryEnableResponse};

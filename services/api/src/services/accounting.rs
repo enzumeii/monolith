@@ -1,11 +1,10 @@
-use super::common::upstream;
 use crate::utils::{
     dates::{iso_utc, parse_rfc3339},
     numbers::{integer_as_f64 as quantity, minor_units as cents, parse_f64},
 };
 use crate::{
     client::{ClientError, ClientErrorKind},
-    error::AppError,
+    error::{AppError, upstream},
     validations::accounting::AccountingDateRange,
 };
 use domain::dto::{
@@ -19,17 +18,13 @@ struct Payment {
 
 pub async fn report(
     shopify: &crate::client::shopify::ShopifyClient,
-    stripe: Option<&crate::client::stripe::StripeClient>,
-    paypal: Option<&crate::client::paypal::PaypalClient>,
+    stripe: &crate::client::stripe::StripeClient,
+    paypal: &crate::client::paypal::PaypalClient,
     range: AccountingDateRange,
 ) -> Result<AccountingReportResponse, AppError> {
     let mut payments = Vec::new();
-    if let Some(client) = stripe {
-        payments.extend(stripe::collect(client, &range).await?);
-    }
-    if let Some(client) = paypal {
-        payments.extend(paypal::collect(client, &range).await?);
-    }
+    payments.extend(stripe::collect(stripe, &range).await?);
+    payments.extend(paypal::collect(paypal, &range).await?);
     let mut response = shopify::enrich(shopify, sort_payments(payments)?, &range).await?;
     let mut items = response
         .items

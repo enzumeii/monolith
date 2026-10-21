@@ -1,5 +1,7 @@
-use super::super::common::upstream;
-use crate::{client::shopify::TagAction, error::AppError};
+use crate::{
+    client::shopify::TagAction,
+    error::{AppError, upstream},
+};
 use axum::http::StatusCode;
 use domain::dto::orders::ReshipOrderResponse;
 

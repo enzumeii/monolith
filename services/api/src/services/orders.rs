@@ -1,7 +1,7 @@
-use super::{common::upstream, pagination::for_each_page};
+use super::pagination::for_each_page;
 use crate::{
     client::ClientError,
-    error::AppError,
+    error::{AppError, upstream},
     models::{
         products::ReportRow,
         shopify::{OrdersByTagRequest, PageRequest},

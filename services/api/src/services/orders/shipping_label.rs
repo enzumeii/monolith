@@ -1,8 +1,8 @@
-use super::super::{common::upstream, pagination::for_each_page};
+use super::super::pagination::for_each_page;
 use crate::{
     client::shopify::TagAction,
     config::ShippingSender,
-    error::AppError,
+    error::{AppError, upstream},
     models::shopify::{ShippingOrder, ShopifyId},
 };
 use axum::http::StatusCode;

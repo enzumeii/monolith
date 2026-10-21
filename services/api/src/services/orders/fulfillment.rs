@@ -1,8 +1,8 @@
-use super::super::{common::upstream, pagination::for_each_page};
+use super::super::pagination::for_each_page;
 use crate::{
     client::shopify::TagAction,
     client::{ClientError, ClientErrorKind},
-    error::AppError,
+    error::{AppError, upstream},
     models::shopify::ShopifyId,
 };
 use axum::http::StatusCode;
@@ -22,7 +22,7 @@ pub async fn fulfill(
             client
                 .fulfillment_orders(&id, after)
                 .await
-                .map_err(upstream)?
+                .map_err(|error| upstream(error))?
                 .order
                 .map(|order| order.fulfillment_orders)
                 .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Shopify order not found"))
@@ -31,7 +31,7 @@ pub async fn fulfill(
             orders.extend(page);
             Ok(())
         },
-        upstream,
+        |error| upstream(error),
     )
     .await?;
     let mut seen = HashSet::new();
@@ -82,10 +82,10 @@ pub async fn fulfill(
             "lineItemsByFulfillmentOrder":entries,
         }))
         .await
-        .map_err(upstream)?;
+        .map_err(|error| upstream(error))?;
     ShopifyId::new(created)
         .and_then(|id| id.number("Fulfillment"))
-        .map_err(upstream)?;
+        .map_err(|error| upstream(error))?;
     super::edit_order_tags(client, id.as_ref(), &["SHIPPING"], TagAction::Remove).await?;
     Ok(FulfillOrderResponse {
         success: true,

@@ -13,12 +13,6 @@ pub async fn report(
     let range = validations::accounting::extract_accounting_query(query)?;
     let stripe = stripe_client(&state)?;
     let paypal = paypal_client(&state)?;
-    if stripe.is_none() && paypal.is_none() {
-        return Err(AppError::new(
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            "Accounting report provider unavailable",
-        ));
-    }
     let shopify = shopify_client(&state)?;
     Ok(Json(
         services::accounting::report(shopify, stripe, paypal, range).await?,
