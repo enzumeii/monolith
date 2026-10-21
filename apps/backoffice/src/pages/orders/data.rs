@@ -1,6 +1,6 @@
 use crate::{
     api::{self, ApiResult},
-    pages::reports::data::{PageData, collect_pages},
+    pagination::{PageData, collect_pages},
 };
 use domain::dto::orders::{Courier, FulfillOrderResponse, ListOrdersResponse, OrderSummary};
 use std::{

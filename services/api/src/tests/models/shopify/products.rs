@@ -55,3 +55,47 @@ fn missing_required_inventory_quantity_is_a_model_protocol_error() {
     assert!(error.location().line() > 0);
     assert!(error.location().column() > 0);
 }
+
+#[test]
+fn inventory_report_decodes_without_unused_catalog_fields() {
+    let product: crate::models::shopify::Product = serde_json::from_value(json!({
+        "title":"Parent", "productType":"KEYCHAIN",
+        "variants":{"nodes":[{"title":"Large","sku":"GENSTSWOW01",
+            "contextualPricing":{"price":{"amount":"2.5","currencyCode":"THB"}},
+            "inventoryItem":{"unitCost":null,"measurement":{"weight":null},
+                "inventoryLevel":{"id":"level","isActive":true,"quantities":[{"name":"on_hand","quantity":2}]}}
+        }],"pageInfo":{"hasNextPage":false,"endCursor":null}}
+    })).unwrap();
+    let row = product
+        .variants
+        .nodes
+        .into_iter()
+        .next()
+        .unwrap()
+        .into_report_row(&product.title, &product.product_type)
+        .unwrap()
+        .unwrap()
+        .into_dto();
+    assert_eq!(row.quantity, 2);
+    assert_eq!(row.total_selling_price.to_string(), "5");
+}
+
+#[test]
+fn order_report_decodes_without_unused_order_header() {
+    let order: crate::models::shopify::TaggedOrder = serde_json::from_value(json!({
+        "lineItems":{"nodes":[{"title":"Item","variantTitle":null,"sku":null,"quantity":2,
+            "originalUnitPriceSet":{"shopMoney":{"amount":"2.5","currencyCode":"THB"}},"product":null,"variant":null
+        }],"pageInfo":{"hasNextPage":false,"endCursor":null}}
+    })).unwrap();
+    let row = order
+        .line_items
+        .nodes
+        .into_iter()
+        .next()
+        .unwrap()
+        .into_report_row()
+        .unwrap()
+        .into_dto();
+    assert_eq!(row.quantity, 2);
+    assert_eq!(row.total_selling_price.to_string(), "5");
+}

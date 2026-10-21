@@ -1,11 +1,13 @@
-use super::super::common::{resend_client, shopify_client, upstream};
-use crate::{client::shopify::TagAction, error::AppError, state::AppState};
+use super::super::common::upstream;
+use crate::{client::shopify::TagAction, error::AppError};
 use axum::http::StatusCode;
 use domain::dto::orders::ReshipOrderResponse;
 
-pub async fn reship(state: &AppState, number: u16) -> Result<ReshipOrderResponse, AppError> {
-    let shopify = shopify_client(state)?;
-    let resend = resend_client(state)?;
+pub async fn reship(
+    shopify: &crate::client::shopify::ShopifyClient,
+    resend: &crate::client::resend::ResendClient,
+    number: u16,
+) -> Result<ReshipOrderResponse, AppError> {
     let order = shopify
         .get_order_by_order_number(number)
         .await

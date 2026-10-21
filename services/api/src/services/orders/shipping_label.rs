@@ -1,13 +1,9 @@
-use super::super::{
-    common::{shopify_client, upstream},
-    pagination::for_each_page,
-};
+use super::super::{common::upstream, pagination::for_each_page};
 use crate::{
     client::shopify::TagAction,
     config::ShippingSender,
     error::AppError,
     models::shopify::{ShippingOrder, ShopifyId},
-    state::AppState,
 };
 use axum::http::StatusCode;
 use common::{Parcel, select_courier};
@@ -19,8 +15,10 @@ mod fastship;
 mod teleport;
 mod thaipost;
 
-pub async fn labels(state: &AppState) -> Result<ShippingLabels, AppError> {
-    let client = shopify_client(state)?;
+pub async fn labels(
+    client: &crate::client::shopify::ShopifyClient,
+    sender: Option<&ShippingSender>,
+) -> Result<ShippingLabels, AppError> {
     let mut orders = Vec::new();
     for_each_page(
         None,
@@ -40,7 +38,7 @@ pub async fn labels(state: &AppState) -> Result<ShippingLabels, AppError> {
             .and_then(|id| id.number("Order"))
             .map_err(|error| upstream(error))?;
         let id = order.id.clone();
-        let courier = append_label(order, state.settings.shipping_sender.as_ref(), &mut labels)?;
+        let courier = append_label(order, sender, &mut labels)?;
         tags.push((id, courier));
     }
     for (id, courier) in tags {

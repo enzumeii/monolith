@@ -6,13 +6,7 @@ query: |
     orders(first: $first, after: $after, query: $search) {
       nodes {
         id
-        name
         number
-        createdAt
-        displayFinancialStatus
-        displayFulfillmentStatus
-        tags
-        email
         phone
         shippingAddress {
           name
@@ -25,19 +19,11 @@ query: |
           countryCodeV2
           phone
         }
-        currentTotalPriceSet {
-          shopMoney {
-            amount
-            currencyCode
-          }
-        }
         transactions {
-          id
           paymentId
           gateway
           kind
           status
-          processedAt
           amountSet {
             shopMoney {
               amount
@@ -81,12 +67,10 @@ query: |
         refunds(first: 250) {
           transactions(first: 250) {
             nodes {
-              id
               paymentId
               gateway
               kind
               status
-              processedAt
               amountSet {
                 shopMoney {
                   amount

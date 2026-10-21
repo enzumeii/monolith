@@ -1,3 +1,4 @@
+use super::dependencies::shopify_client;
 use crate::{error::AppError, services, state::AppState, validations};
 use axum::{
     Json,
@@ -10,7 +11,9 @@ pub async fn report(
     query: Result<Query<OrderReportQuery>, QueryRejection>,
 ) -> Result<Json<OrderReportResponse>, AppError> {
     let tags = validations::orders::extract_order_query(query)?;
-    Ok(Json(services::orders::order_report(&state, tags).await?))
+    Ok(Json(
+        services::orders::order_report(shopify_client(&state)?, tags).await?,
+    ))
 }
 
 pub async fn list(
@@ -18,7 +21,9 @@ pub async fn list(
     query: Result<Query<domain::dto::orders::ListOrdersQuery>, QueryRejection>,
 ) -> Result<Json<domain::dto::orders::ListOrdersResponse>, AppError> {
     let (search, page) = validations::orders::extract_list_query(query)?;
-    Ok(Json(services::orders::list(&state, search, page).await?))
+    Ok(Json(
+        services::orders::list(shopify_client(&state)?, search, page).await?,
+    ))
 }
 pub async fn shipping_labels(
     State(state): State<AppState>,
@@ -31,7 +36,13 @@ pub async fn shipping_labels(
 > {
     Ok((
         [(axum::http::header::CACHE_CONTROL, "no-store")],
-        Json(services::orders::shipping_label::labels(&state).await?),
+        Json(
+            services::orders::shipping_label::labels(
+                shopify_client(&state)?,
+                state.settings.shipping_sender.as_ref(),
+            )
+            .await?,
+        ),
     ))
 }
 pub async fn fulfill(
@@ -44,7 +55,7 @@ pub async fn fulfill(
 ) -> Result<Json<domain::dto::orders::FulfillOrderResponse>, AppError> {
     let (id, body) = validations::orders::extract_fulfill_request(path, body)?;
     Ok(Json(
-        services::orders::fulfillment::fulfill(&state, id, body).await?,
+        services::orders::fulfillment::fulfill(shopify_client(&state)?, id, body).await?,
     ))
 }
 
@@ -55,5 +66,12 @@ pub async fn reship(
     body: Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
 ) -> Result<Json<domain::dto::orders::ReshipOrderResponse>, AppError> {
     let id = validations::orders::extract_reship_request(path, uri.query(), body)?;
-    Ok(Json(services::orders::reship::reship(&state, id).await?))
+    Ok(Json(
+        services::orders::reship::reship(
+            shopify_client(&state)?,
+            super::dependencies::resend_client(&state)?,
+            id,
+        )
+        .await?,
+    ))
 }

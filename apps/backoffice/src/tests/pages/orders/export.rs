@@ -172,7 +172,7 @@ fn fastship_csv_matches_legacy_headers_and_aligned_values() {
         "order-7",
         "DDP",
     ];
-    let csv = crate::pages::reports::encode_table(table.headers, &table.rows);
+    let csv = crate::export::encode_table(table.headers, &table.rows);
     let mut lines = csv.split("\r\n");
     assert_eq!(
         lines
@@ -259,8 +259,8 @@ fn thai_post_xlsx_matches_legacy_headers_and_aligned_values() {
         "false",
         "0000",
     ];
-    let bytes = crate::pages::reports::encode_table_xlsx(table.headers, &table.rows, "ThaiPost")
-        .expect("XLSX");
+    let bytes =
+        crate::export::encode_table_xlsx(table.headers, &table.rows, "ThaiPost").expect("XLSX");
     assert_eq!(workbook_row(&bytes, 1, 30), headers);
     assert_eq!(workbook_row(&bytes, 2, 30), values);
     assert!(!xml(&bytes, "xl/worksheets/sheet1.xml").contains("<f>"));
@@ -321,8 +321,8 @@ fn best_xlsx_preserves_legacy_headers_and_values() {
         "00042",
         "321",
     ];
-    let bytes = crate::pages::reports::encode_table_xlsx(table.headers, &table.rows, "Best")
-        .expect("workbook");
+    let bytes =
+        crate::export::encode_table_xlsx(table.headers, &table.rows, "Best").expect("workbook");
     assert_eq!(workbook_row(&bytes, 1, 11), headers);
     assert_eq!(workbook_row(&bytes, 2, 11), values);
     assert!(!xml(&bytes, "xl/worksheets/sheet1.xml").contains("<f>"));
@@ -379,8 +379,8 @@ fn teleport_xlsx_preserves_legacy_headers_and_values() {
         "ref-42",
         "13.75,100.5",
     ];
-    let bytes = crate::pages::reports::encode_table_xlsx(table.headers, &table.rows, "Teleport")
-        .expect("workbook");
+    let bytes =
+        crate::export::encode_table_xlsx(table.headers, &table.rows, "Teleport").expect("workbook");
     assert_eq!(workbook_row(&bytes, 1, 22), headers);
     assert_eq!(workbook_row(&bytes, 2, 22), values);
     assert!(!xml(&bytes, "xl/worksheets/sheet1.xml").contains("<f>"));

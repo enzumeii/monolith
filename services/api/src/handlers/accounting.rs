@@ -1,3 +1,4 @@
+use super::dependencies::{paypal_client, shopify_client, stripe_client};
 use crate::{error::AppError, services, state::AppState, validations};
 use axum::{
     Json,
@@ -10,5 +11,16 @@ pub async fn report(
     query: Result<Query<AccountingReportQuery>, QueryRejection>,
 ) -> Result<Json<AccountingReportResponse>, AppError> {
     let range = validations::accounting::extract_accounting_query(query)?;
-    Ok(Json(services::accounting::report(&state, range).await?))
+    let stripe = stripe_client(&state)?;
+    let paypal = paypal_client(&state)?;
+    if stripe.is_none() && paypal.is_none() {
+        return Err(AppError::new(
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "Accounting report provider unavailable",
+        ));
+    }
+    let shopify = shopify_client(&state)?;
+    Ok(Json(
+        services::accounting::report(shopify, stripe, paypal, range).await?,
+    ))
 }

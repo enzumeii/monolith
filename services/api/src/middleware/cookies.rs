@@ -1,4 +1,4 @@
-use crate::{config::BrowserConfig, error::AppError, state::AppState};
+use crate::{config::BrowserConfig, error::AppError};
 use axum::http::StatusCode;
 use axum::{
     extract::{Request, State},
@@ -83,14 +83,14 @@ pub(crate) fn clear_cookie(jar: CookieJar, config: &BrowserConfig) -> CookieJar 
     )
 }
 pub(crate) async fn browser_guard(
-    State(state): State<AppState>,
+    State(browser_config): State<BrowserConfig>,
     request: Request,
     next: Next,
 ) -> Result<Response, AppError> {
     let browser = cookie_mode(request.headers())?
         || (!request.headers().contains_key(AUTHORIZATION)
             && CookieJar::from_headers(request.headers())
-                .get(cookie_name(&state.settings.browser))
+                .get(cookie_name(&browser_config))
                 .is_some());
     if browser
         && !matches!(
@@ -101,7 +101,7 @@ pub(crate) async fn browser_guard(
             .headers()
             .get(ORIGIN)
             .and_then(|value| value.to_str().ok())
-            != Some(state.settings.browser.public_origin.as_str())
+            != Some(browser_config.public_origin.as_str())
     {
         return Err(AppError::new(
             StatusCode::FORBIDDEN,

@@ -10,11 +10,6 @@ query: |
       reverse: true
     ) {
       nodes {
-        id
-        number
-        tags
-        email
-        phone
         lineItems(first: 250) {
           nodes {
             title
@@ -48,12 +43,6 @@ query: |
           pageInfo {
             hasNextPage
             endCursor
-          }
-        }
-        currentTotalPriceSet {
-          shopMoney {
-            amount
-            currencyCode
           }
         }
       }

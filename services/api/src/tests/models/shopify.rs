@@ -19,25 +19,12 @@ fn resource_ids_reject_wrong_kind_and_malformed_values() {
 #[test]
 fn tagged_order_decodes_only_requested_fields_and_keeps_shop_currency() {
     let value = serde_json::json!({
-        "id": "gid://shopify/Order/123", "number": 1001, "tags": ["shipping"], "email": null, "phone": null,
-        "currentTotalPriceSet": {"shopMoney": {"amount": "1234567890.0123456789", "currencyCode": "THB"}},
         "lineItems": {"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes": [{
             "title": "Shirt", "variantTitle": null, "sku": null, "quantity": 2, "product": null, "variant": null,
             "originalUnitPriceSet": {"shopMoney": {"amount": "45.6700", "currencyCode": "THB"}}
         }]}
     });
     let order: TaggedOrder = serde_json::from_value(value.clone()).unwrap();
-    assert_eq!(order.number, 1001);
-    assert!(order.email.is_none());
-    assert!(order.phone.is_none());
-    assert_eq!(
-        order.current_total_price_set.shop_money.amount,
-        "1234567890.0123456789"
-    );
-    assert_eq!(
-        order.current_total_price_set.shop_money.currency_code,
-        "THB"
-    );
     let line = &order.line_items.nodes[0];
     assert!(line.variant_title.is_none());
     assert!(line.sku.is_none());
@@ -94,23 +81,6 @@ fn requests_own_validation_and_preserve_literal_values() {
         })
         .is_err()
     );
-    assert!(
-        ReplaceOrderTagsRequest {
-            order_id: location.clone(),
-            tags: vec![]
-        }
-        .variables()
-        .is_err()
-    );
-    assert_eq!(
-        ReplaceOrderTagsRequest {
-            order_id: order.clone(),
-            tags: vec![" shipping ".into()]
-        }
-        .variables()
-        .unwrap()["input"]["tags"],
-        json!([" shipping "])
-    );
 }
 
 #[test]
@@ -126,17 +96,6 @@ fn search_requests_preserve_literals_and_validate_ranges() {
         .unwrap()["search"],
         "tag:\" shipping \""
     );
-    assert_eq!(
-        OrdersByPaymentRequest {
-            payment_id: " a:b ".into()
-        }
-        .variables(&PageRequest {
-            first: 10,
-            after: None
-        })
-        .unwrap()["search"],
-        "payment_id:\" a\\:b \""
-    );
     for blank in ["", " \t "] {
         assert!(
             OrdersByTagRequest {
@@ -148,29 +107,7 @@ fn search_requests_preserve_literals_and_validate_ranges() {
             })
             .is_err()
         );
-        assert!(
-            OrdersByPaymentRequest {
-                payment_id: blank.into()
-            }
-            .variables(&PageRequest {
-                first: 10,
-                after: None
-            })
-            .is_err()
-        );
     }
-    let time = DateTime::parse_from_rfc3339("2026-01-01T00:00:00+07:00").unwrap();
-    assert!(
-        SalesRangeRequest {
-            start: time,
-            end: time
-        }
-        .variables(&PageRequest {
-            first: 10,
-            after: None
-        })
-        .is_err()
-    );
 }
 
 #[test]

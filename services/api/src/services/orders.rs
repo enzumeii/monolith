@@ -1,7 +1,4 @@
-use super::{
-    common::{shopify_client, upstream},
-    pagination::for_each_page,
-};
+use super::{common::upstream, pagination::for_each_page};
 use crate::{
     client::ClientError,
     error::AppError,
@@ -9,7 +6,6 @@ use crate::{
         products::ReportRow,
         shopify::{OrdersByTagRequest, PageRequest},
     },
-    state::AppState,
 };
 use domain::dto::{
     OrderReportResponse,
@@ -18,10 +14,9 @@ use domain::dto::{
 use std::collections::HashMap;
 
 pub async fn order_report(
-    state: &AppState,
+    client: &crate::client::shopify::ShopifyClient,
     tags: Vec<String>,
 ) -> Result<OrderReportResponse, AppError> {
-    let client = shopify_client(state)?;
     let request = OrdersByTagRequest { tags };
     let mut rows = Vec::new();
     let mut by_sku = HashMap::new();
@@ -50,11 +45,11 @@ pub async fn order_report(
 }
 
 pub async fn list(
-    state: &AppState,
+    client: &crate::client::shopify::ShopifyClient,
     search: String,
     page: PageRequest,
 ) -> Result<ListOrdersResponse, AppError> {
-    let result = shopify_client(state)?
+    let result = client
         .list_orders(&search, &page)
         .await
         .map_err(|error| upstream(error))?;

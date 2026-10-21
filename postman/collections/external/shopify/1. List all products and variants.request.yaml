@@ -15,18 +15,10 @@ query: |
       reverse: true
     ) {
       nodes {
-        id
         title
         productType
-        description
-        status
-        tags
-        featuredImage {
-          url
-        }
         variants(first: 250) {
           nodes {
-            id
             title
             sku
             contextualPricing(context: { locationId: $locationId }) {
@@ -35,12 +27,7 @@ query: |
                 currencyCode
               }
             }
-            image {
-              url
-            }
             inventoryItem {
-              id
-              tracked
               unitCost {
                 amount
                 currencyCode
@@ -54,7 +41,7 @@ query: |
               inventoryLevel(locationId: $locationId) {
                 id
                 isActive
-                quantities(names: ["on_hand", "available"]) {
+                quantities(names: ["on_hand"]) {
                   name
                   quantity
                 }

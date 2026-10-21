@@ -4,8 +4,9 @@ use std::collections::HashMap;
 
 use crate::{
     api::{self, ApiError, ApiResult},
+    components::ReportSkeleton,
     components::{DataTable, DownloadTable, ErrorMessage, LoadingState, TableData},
-    pages::reports::{ExportFormat, ReportSkeleton},
+    export::ExportFormat,
     session,
 };
 

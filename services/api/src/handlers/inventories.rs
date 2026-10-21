@@ -1,3 +1,4 @@
+use super::dependencies::shopify_client;
 use crate::{error::AppError, services, state::AppState, validations};
 use axum::{
     Json,
@@ -15,7 +16,7 @@ pub async fn get(
 ) -> Result<Json<InventoryResponse>, AppError> {
     let (location, page) = validations::inventories::extract_inventory_request(path, query)?;
     Ok(Json(
-        services::inventories::inventory_report(&state, location, page).await?,
+        services::inventories::inventory_report(shopify_client(&state)?, location, page).await?,
     ))
 }
 
@@ -26,6 +27,6 @@ pub async fn post_enable(
 ) -> Result<Json<domain::dto::InventoryEnableResponse>, AppError> {
     let location = validations::inventories::extract_enable_request(path, query.as_deref())?;
     Ok(Json(
-        services::inventories::enable_inventory(&state, location).await?,
+        services::inventories::enable_inventory(shopify_client(&state)?, location).await?,
     ))
 }

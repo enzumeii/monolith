@@ -64,16 +64,13 @@ Do not substitute loopback client fixtures or in-process handler tests for deplo
 
 ## Using the Shopify client
 
-Handlers pass AppState to report services; services resolve the shared state.shopify client initialized once by app_state. Request/result models are exported through api::shopify_models; construct IDs with ShopifyId::new. Paginated proxy methods accept a PageRequest with first (1–250) and nullable after, return one page, and never fetch another page automatically.
+Handlers resolve the shared state.shopify client initialized once by app_state and pass concrete client references to report services. Services, clients and repositories do not access AppState. Middleware receives only browser/JWT configuration. Request/result models are exported through api::shopify_models; construct IDs with ShopifyId::new. Paginated proxy methods accept a PageRequest with first (1–250) and nullable after, return one page, and never fetch another page automatically.
 
 | Operation | Caller responsibility |
 | --- | --- |
 | Product listing | products_with_variants(request, page): location/statuses; one product page with fixed250 variants and completeness metadata |
-| Payment lookup | orders_by_payment(request, page): Shopify payment ID; external references may require separate mapping |
+| Accounting enrichment | accounting_orders(search, page): one order page for the accounting service; retains the OrdersByPayment document and nested completeness metadata |
 | Tag lookup | orders_by_tag(request, page): literal tags combined with AND; one order page including fixed250 report lines |
-| Date-range headers | sold_variants_in_range(request, page): timestamps with offsets and exclusive end; statuses/test/cancellation remain available |
-| Order lines | sales_order_lines(request): order ID only; bounded250 lines and hasNextPage metadata |
-| Tag replacement | replace_order_tags(request): complete replacement list; empty list clears; inspect userErrors and optional order |
 | Inventory discovery | find_inventory_to_activate(request, page): one raw level page; caller decides eligibility from tracked/isActive/on_hand |
 | Inventory activation | activate_existing_inventory(request): item/location IDs and stable UUID only; no quantity arguments; inspect userErrors/optional level |
 | Nested bounds | Fixed250 variants/order lines is the agreed store workload; report services reject unexpected hasNextPage instead of silently truncating |
@@ -91,7 +88,6 @@ Inventory returns one caller-selected product page with active inventory levels;
 | Budget | Shared HTTP/GraphQL attempt count; 30-second total sleep budget |
 | Fail without retry | HTTP 5xx and other errors, ambiguous network failures, decoding/partial-data errors, mutation user errors |
 | Stored inventory | Enablement sends no initial quantity arguments; live provider quantity behavior remains unverified |
-| Sales interpretation | Current line quantities exclude refunded/removed units and can change after the date range; not event-date net sales |
 
 ## Runtime, failures, and administration
 

@@ -1,8 +1,8 @@
 use super::cookies;
 use crate::{
+    config::BrowserConfig,
     error::AppError,
     models::{AuthenticatedAdmin, Claims},
-    state::AppState,
 };
 use axum::http::StatusCode;
 use axum::{
@@ -15,7 +15,7 @@ use domain::dto::AdminRole;
 use jsonwebtoken::{DecodingKey, Validation, decode};
 
 pub async fn auth_middleware(
-    State(state): State<AppState>,
+    State((jwt_key, browser)): State<(std::sync::Arc<Vec<u8>>, BrowserConfig)>,
     mut req: Request,
     next: Next,
 ) -> Result<Response, AppError> {
@@ -24,11 +24,11 @@ pub async fn auth_middleware(
         (token, crate::models::AuthSource::Bearer)
     } else {
         (
-            cookies::cookie_credentials(&jar, &state.settings.browser)?.0,
+            cookies::cookie_credentials(&jar, &browser)?.0,
             crate::models::AuthSource::Cookie,
         )
     };
-    let claims = validate_token(token, state.jwt_key.as_slice())?;
+    let claims = validate_token(token, jwt_key.as_slice())?;
     req.extensions_mut().insert(source);
     req.extensions_mut().insert(AuthenticatedAdmin {
         id: claims.admin_id,

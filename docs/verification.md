@@ -288,3 +288,20 @@ Endpoint tests use controlled Shopify/Resend servers and real PostgreSQL connect
 | Verification | Backoffice just check, just test and just build pass: 66 backoffice tests, 11 domain tests and domain WASM check. New archive tests failed before implementation, then passed for both entries, escaped text, refund rows, header-only sections and item-only export eligibility |
 | Browser downloads | Actual ZIP inspected with two transaction rows and two item rows; provider order, SALE/REFUND, signed quantities, Unicode/quotes/newlines, leading-zero SKU and full u64 IDs preserved. Item-only report enables ZIP; entirely empty report disables it. Existing Orders Best XLSX downloaded and inspected after the shared DownloadFile extraction |
 | Limits | Synthetic localhost HTTP responses only. ZIP uses stored entries from the already-locked zip library. Backend calculations and product report CSV/XLSX formats remain unchanged. Exact updated-head CI is confirmed separately |
+
+## ENZ-33 cleanup verification
+
+| Area | Observed result |
+| --- | --- |
+| API | Existing `just test` passed 249 native tests and111 real-TCP E2E tests, zero failures/ignored; isolated Compose PostgreSQL was removed afterward |
+| Backoffice / contracts | 67 backoffice native tests; domain3 unit/8 contract tests; configured domain WASM check and backoffice web build passed |
+| Formatting / lint | API dprint/Rust/strict Clippy, backoffice native/WASM strict Clippy and domain check passed |
+| Dependency ownership | Services, clients, repositories and middleware contain no AppState references; handlers resolve provider availability; startup/router composition retains application wiring |
+| Reduced projections | Inventory/order-report minimal-response tests failed on removed required fields before the DTO change and passed afterward; surviving client/model/service tests retain pagination, completeness and failure assertions |
+| Postman static checks | External18/internal19 requests lint with zero errors/warnings; all11 retained Shopify documents and variables match parsed executable requests |
+| Saved GraphQL envelopes | Four changed saved queries executed as identical JSON envelopes via `postman request` with status200/data/no-errors assertions; all4 passed. Inline bodies avoid the installed CLI file-body failure |
+| Saved internal requests | Inventory report, order report and accounting requests returned200 against the real local API with controlled upstreams; zero request/script failures |
+| Browser / downloads | Real local API and built UI: report CSV222 bytes/14 headers, report XLSX5699 bytes/14 headers, Fastship CSV307 bytes/22 headers, each with one synthetic row; accounting ZIP872 bytes with exactly transactions.csv/items.csv, one row each; downloaded bytes inspected |
+| Browser states | Loading skeleton, native picker cancellation, fallback filename/format dialog and focus restoration, empty accounting export suppression, sanitized upstream error and Retry verified |
+| Limits | Native picker save not automated; fallback exercised in a disposable built copy with the native capability disabled. Native GraphQL collection execution requires Postman login; no live Shopify/schema/scope/cost, carrier acceptance, email delivery, deployment or load claim |
+| Review | Author performed a separate diff/consumer review under the approved inline/no-delegation contract; independent review remains for the draft PR |

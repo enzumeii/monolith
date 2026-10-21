@@ -1,13 +1,9 @@
-use super::super::{
-    common::{shopify_client, upstream},
-    pagination::for_each_page,
-};
+use super::super::{common::upstream, pagination::for_each_page};
 use crate::{
     client::shopify::TagAction,
     client::{ClientError, ClientErrorKind},
     error::AppError,
     models::shopify::ShopifyId,
-    state::AppState,
 };
 use axum::http::StatusCode;
 use domain::dto::orders::{FulfillOrderRequest, FulfillOrderResponse};
@@ -15,11 +11,10 @@ use serde_json::{Value, json};
 use std::collections::HashSet;
 
 pub async fn fulfill(
-    state: &AppState,
+    client: &crate::client::shopify::ShopifyClient,
     id: ShopifyId,
     request: FulfillOrderRequest,
 ) -> Result<FulfillOrderResponse, AppError> {
-    let client = shopify_client(state)?;
     let mut orders = Vec::new();
     for_each_page(
         None,
