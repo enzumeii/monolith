@@ -4,7 +4,7 @@ use crate::{
 };
 use resend_rs::{
     Resend,
-    types::{CreateAttachment, CreateEmailBaseOptions, EmailId},
+    types::{CreateEmailBaseOptions, EmailId},
 };
 
 pub struct ResendClient {
@@ -43,58 +43,8 @@ impl ResendClient {
 
     pub async fn send_email(
         &self,
-        from: Option<&str>,
-        to: &[&str],
-        subject: &str,
-        email: &str,
+        options: impl Into<resend_rs::idempotent::Idempotent<CreateEmailBaseOptions>>,
     ) -> Result<EmailId, ClientError> {
-        let options = CreateEmailBaseOptions::new(
-            from.unwrap_or("shipping@enzumeii.com"),
-            to.iter().copied(),
-            subject,
-        )
-        .with_html(email);
-        let response = tokio::time::timeout(self.timeout, self.inner.emails.send(options))
-            .await
-            .map_err(|source| {
-                ClientError::new(ClientErrorKind::Upstream {
-                    source: Box::new(source),
-                    timed_out: true,
-                })
-            })??;
-        if response.id.as_ref().trim().is_empty() {
-            return Err(ClientError::new(ClientErrorKind::Protocol(
-                "email result missing",
-            )));
-        }
-        Ok(response.id)
-    }
-
-    pub async fn send_report_email(
-        &self,
-        from: &str,
-        to: &str,
-        subject: &str,
-        html: &str,
-        attachments: Vec<(String, Vec<u8>)>,
-        idempotency_key: &str,
-    ) -> Result<EmailId, ClientError> {
-        let options = CreateEmailBaseOptions::new(from, [to], subject)
-            .with_html(html)
-            .with_attachments(attachments.into_iter().map(|(filename, content)| {
-                let content_type = if std::path::Path::new(&filename)
-                    .extension()
-                    .is_some_and(|extension| extension.eq_ignore_ascii_case("xlsx"))
-                {
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                } else {
-                    "text/csv"
-                };
-                CreateAttachment::from_content(content)
-                    .with_filename(&filename)
-                    .with_content_type(content_type)
-            }))
-            .with_idempotency_key(idempotency_key);
         let response = tokio::time::timeout(self.timeout, self.inner.emails.send(options))
             .await
             .map_err(|source| {

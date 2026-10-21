@@ -1,0 +1,28 @@
+$kind: http-request
+description: List independent report audits including generation and email failures. Optional report_type, generated_from and generated_to filter by actual generation time or attempted time for failed generations. RFC3339 offsets are required; the upper bound is exclusive. page defaults to 1, per_page to 25 (1..100).
+url: "{{server}}/v1/admin/cron/reports?page=1&per_page=25"
+method: GET
+queryParams:
+  page: "1"
+  per_page: "25"
+scripts:
+  - type: afterResponse
+    code: |-
+      const responseData = pm.response.json();
+      pm.test("History metadata is returned", () => {
+        pm.response.to.have.status(200);
+        pm.expect(responseData.items).to.be.an("array");
+        for (const item of responseData.items) {
+          pm.expect(item).to.have.property("attempted_at");
+          pm.expect(item).to.have.property("status");
+          pm.expect(item).not.to.have.property("configuration_id_snapshot");
+          for (const file of item.files) pm.expect(file).not.to.have.property("storage_key");
+        }
+      });
+      const saved = responseData.items?.find(item => item.files?.length);
+      if (saved) {
+        pm.environment.set("report_result_id", saved.id);
+        pm.environment.set("report_file_url", saved.files[0].download_url);
+      }
+    language: text/javascript
+order: 7000

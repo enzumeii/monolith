@@ -11,7 +11,7 @@ min_connections = 1
 enabled = true
 poll_interval_secs = 10
 concurrency = 2
-max_generation_attempts = 5
+max_attempts = 5
 retry_backoff_secs = 60
 lease_secs = 300
 max_payload_bytes = 20971520
@@ -36,5 +36,7 @@ timeout_secs = 3
 base_url = "https://api.stripe.com/v1/"
 timeout_secs = 3
 
-[reports]
-storage_directory = "storage/reports"
+[reports.storage]
+backend = "local"
+directory = "storage/reports"
+public_base_url = "http://localhost:3001/"

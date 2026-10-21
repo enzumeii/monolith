@@ -2,24 +2,23 @@
 use super::*;
 
 #[test]
-fn scheduler_defaults_on_and_can_be_disabled_in_toml() {
-    let default: SchedulerConfig = config::Config::builder()
-        .add_source(config::File::from_str("", config::FileFormat::Toml))
+fn scheduler_and_storage_require_explicit_settings() {
+    assert!(
+        serde_json::from_value::<SchedulerConfig>(serde_json::json!({"enabled":false})).is_err()
+    );
+    assert!(serde_json::from_value::<ReportsConfig>(serde_json::json!({})).is_err());
+    assert!(
+        serde_json::from_value::<ReportStorageConfig>(serde_json::json!({"backend":"blob"}))
+            .is_err()
+    );
+    let scheduler: SchedulerConfig = Config::builder()
+        .add_source(File::with_name("application"))
         .build()
         .unwrap()
-        .try_deserialize()
+        .get("scheduler")
         .unwrap();
-    assert!(default.enabled);
-    let disabled: SchedulerConfig = config::Config::builder()
-        .add_source(config::File::from_str(
-            "enabled = false",
-            config::FileFormat::Toml,
-        ))
-        .build()
-        .unwrap()
-        .try_deserialize()
-        .unwrap();
-    assert!(!disabled.enabled);
+    assert!(scheduler.enabled);
+    assert_eq!(scheduler.max_attempts, 5);
 }
 
 #[test]
@@ -196,6 +195,8 @@ fn builder_token_precedence_and_missing_url_follow_normal_configuration() {
         let source = r#"
             server = { host = "localhost", port = 3000 }
             database = { max_connections = 1, min_connections = 1 }
+            scheduler = { enabled=false, poll_interval_secs=1, concurrency=1, max_attempts=2, retry_backoff_secs=1, lease_secs=5, max_payload_bytes=20971520, max_email_bytes=20971520 }
+            reports = { storage = { backend="local", directory="storage/test-reports", public_base_url="http://localhost:3001/" } }
             browser = { public_origin = "http://localhost:8084", insecure_local = true }
         "#;
         let builder = config::Config::builder()
@@ -464,4 +465,44 @@ fn checked_in_resend_timeout_is_three_seconds() {
         .get("client.resend.timeout_secs")
         .unwrap();
     assert_eq!(timeout, 3);
+}
+
+#[test]
+fn report_storage_urls_and_scheduler_limits_are_validated_at_startup() {
+    let settings: Settings = Config::builder()
+        .add_source(File::with_name("application"))
+        .set_override("browser.public_origin", "http://localhost:8084")
+        .unwrap()
+        .set_override("database.url", "postgres://unused")
+        .unwrap()
+        .set_override(
+            "jwt.secret",
+            "abababababababababababababababababababababababababababababababab",
+        )
+        .unwrap()
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert!(settings.validate().is_ok());
+    for url in [
+        "relative/path",
+        "file:///tmp/reports",
+        "https://user:password@example.test/",
+        "https://example.test/?token=value",
+        "https://example.test/#private",
+    ] {
+        let mut invalid = settings.clone();
+        invalid.reports.storage = ReportStorageConfig::Local {
+            directory: "storage/reports".into(),
+            public_base_url: url.into(),
+        };
+        assert!(invalid.validate().is_err());
+    }
+    let mut invalid = settings.clone();
+    invalid.scheduler.max_attempts = 0;
+    assert!(invalid.validate().is_err());
+    invalid.scheduler.max_attempts = 1;
+    invalid.scheduler.lease_secs = u64::MAX;
+    assert!(invalid.validate().is_err());
 }

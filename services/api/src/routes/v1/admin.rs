@@ -10,8 +10,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .nest("/inventories", inventories::router())
         .nest("/orders", orders::router())
-        .nest("/cron-configurations", cron_configurations::router())
-        .nest("/report-results", report_results::router())
+        .nest("/cron/configs", cron_configurations::router())
+        .nest("/cron/reports", report_results::router())
         .route(
             "/transactions",
             axum::routing::get(crate::handlers::accounting::report),

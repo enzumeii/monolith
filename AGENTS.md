@@ -71,3 +71,5 @@ These rules apply to the entire repository.
 - For API errors and diagnostics, use `.agents/skills/monolith-error-handling/SKILL.md`; reuse generic errors with descriptive safe messages, appropriate HTTP status codes and preserved source diagnostics.
 
 - For related provider protocol codes and semantic magic-string groups, use `.agents/skills/monolith-protocol-enums/SKILL.md`; preserve exact wire values and existing unknown-value behavior.
+
+- For external provider client/service boundaries, use `.agents/skills/monolith-provider-clients/SKILL.md`. Clients proxy provider operations; services own business orchestration.

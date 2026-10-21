@@ -1,0 +1,9 @@
+# Check shared report generation on native and browser targets.
+check:
+    cargo fmt --check -p report-generator
+    cargo clippy --locked -p report-generator --all-targets -- -D warnings
+    cargo check --locked -p report-generator --target wasm32-unknown-unknown
+
+# Run shared CSV and projection regressions.
+test:
+    cargo test --locked -p report-generator

@@ -1,0 +1,24 @@
+$kind: http-request
+description: Update the selected schedule. PATCH validates the complete merged configuration; null cannot clear required fields.
+url: "{{server}}/v1/admin/cron/configs/:id"
+method: PATCH
+pathVariables:
+  - key: id
+    value: "{{cron_configuration_id}}"
+    description: UUID returned by the create request.
+body:
+  type: json
+  content: |-
+    {
+      "name": "Monthly transaction report",
+      "enabled": true
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Enable patch is accepted", () => {
+        pm.response.to.have.status(200);
+        pm.expect(pm.response.json().enabled).to.eql(true);
+      });
+    language: text/javascript
+order: 5000

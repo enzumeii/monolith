@@ -116,3 +116,7 @@ fix:
 # Recreate the dev Postgres database (drop + create)
 reset-db:
     sqlx database drop -y && sqlx database create
+
+# Serve published local CSV files from explicit report-storage TOML settings.
+serve-reports:
+    python3 ../../scripts/serve-reports.py application.toml

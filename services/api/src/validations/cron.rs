@@ -1,9 +1,9 @@
 use crate::{
     error::AppError,
-    services::cron_schedule::{CronScheduleError, next_occurrence, normalize_expression},
+    services::cron::config::schedule::{CronScheduleError, next_occurrence, normalize_expression},
 };
 use axum::http::StatusCode;
-use chrono::Utc;
+use chrono::{Timelike, Utc};
 use domain::dto::{SchedulePeriodMode, ScheduleReportType};
 
 pub fn validate_report_inputs(
@@ -100,6 +100,217 @@ fn invalid(message: &'static str) -> AppError {
     AppError::new(StatusCode::BAD_REQUEST, message)
 }
 
+pub(crate) struct ValidatedPreview {
+    pub expression: String,
+    pub period: Option<crate::services::cron::config::schedule::TransactionPeriodMode>,
+}
+pub(crate) fn preview(
+    request: &domain::dto::PreviewCronConfiguration,
+) -> Result<ValidatedPreview, AppError> {
+    Ok(ValidatedPreview {
+        expression: inputs(
+            request.report_type,
+            &request.cron_expression,
+            &request.parameter,
+        )?,
+        period: if request.report_type == ScheduleReportType::Transaction {
+            Some(period(&request.parameter)?)
+        } else {
+            None
+        },
+    })
+}
+pub(crate) fn inputs(
+    kind: ScheduleReportType,
+    expression: &str,
+    parameter: &str,
+) -> Result<String, AppError> {
+    let (mode, inventory) = match kind {
+        ScheduleReportType::Transaction => {
+            let mode = match parameter {
+                "PREVIOUS_MONTH" => SchedulePeriodMode::PreviousMonth,
+                "FIRST_HALF_MONTH" => SchedulePeriodMode::FirstHalfMonth,
+                _ => {
+                    return Err(invalid(
+                        "Transaction parameter must be PREVIOUS_MONTH or FIRST_HALF_MONTH",
+                    ));
+                }
+            };
+            (Some(mode), None)
+        }
+        ScheduleReportType::Inventory => (None, Some(parameter)),
+    };
+    validate_report_inputs(kind, expression, mode, inventory)
+}
+pub(crate) fn create(
+    request: domain::dto::CreateCronConfiguration,
+) -> Result<crate::models::cron::ConfigurationInput, AppError> {
+    Ok(crate::models::cron::ConfigurationInput {
+        name: validate_name(&request.name)?,
+        receiver_email: validate_email(&request.receiver_email)?,
+        cron_expression: inputs(
+            request.report_type,
+            &request.cron_expression,
+            &request.parameter,
+        )?,
+        report_type: request.report_type,
+        parameter: request.parameter,
+        enabled: request.enabled,
+    })
+}
+pub(crate) fn patch_shape(patch: &domain::dto::PatchCronConfiguration) -> Result<(), AppError> {
+    use domain::dto::PatchField;
+    let fields = [
+        matches!(patch.name, PatchField::Missing),
+        matches!(patch.report_type, PatchField::Missing),
+        matches!(patch.cron_expression, PatchField::Missing),
+        matches!(patch.receiver_email, PatchField::Missing),
+        matches!(patch.parameter, PatchField::Missing),
+        matches!(patch.enabled, PatchField::Missing),
+    ];
+    if fields.into_iter().all(|missing| missing) {
+        return Err(invalid("PATCH body must contain at least one field"));
+    }
+    Ok(())
+}
+pub(crate) fn patch(
+    patch: domain::dto::PatchCronConfiguration,
+    current: &crate::models::cron::CronConfiguration,
+) -> Result<crate::models::cron::ConfigurationInput, AppError> {
+    create(domain::dto::CreateCronConfiguration {
+        name: merge(patch.name, current.name.clone())?,
+        report_type: merge(
+            patch.report_type,
+            crate::models::cron::report_type(&current.report_type)?,
+        )?,
+        cron_expression: merge(patch.cron_expression, current.cron_expression.clone())?,
+        receiver_email: merge(patch.receiver_email, current.receiver_email.clone())?,
+        parameter: merge(patch.parameter, current.parameter.clone())?,
+        enabled: merge(patch.enabled, current.enabled)?,
+    })
+}
+pub(crate) fn filter(
+    query: &domain::dto::ListCronConfigurationsQuery,
+) -> Result<crate::models::cron::ConfigurationFilter, AppError> {
+    let (page, per_page) = page(query.page, query.per_page)?;
+    Ok(crate::models::cron::ConfigurationFilter {
+        report_type: query.report_type,
+        enabled: query.enabled,
+        page,
+        per_page,
+    })
+}
+pub(crate) fn page(page: Option<u32>, per_page: Option<u32>) -> Result<(u32, u32), AppError> {
+    let page = page.unwrap_or(1);
+    let per_page = per_page.unwrap_or(25);
+    if page == 0 || !(1..=100).contains(&per_page) {
+        return Err(invalid(
+            "page must be positive and per_page must be between 1 and 100",
+        ));
+    }
+    Ok((page, per_page))
+}
+pub(crate) fn body<T>(
+    value: Result<axum::Json<T>, axum::extract::rejection::JsonRejection>,
+) -> Result<T, AppError> {
+    value
+        .map(|axum::Json(value)| value)
+        .map_err(|_| invalid("Invalid cron request body"))
+}
+pub(crate) fn query<T>(
+    value: Result<axum::extract::Query<T>, axum::extract::rejection::QueryRejection>,
+) -> Result<T, AppError> {
+    value
+        .map(|axum::extract::Query(value)| value)
+        .map_err(|_| invalid("Invalid cron query"))
+}
+pub(crate) fn id(
+    value: Result<axum::extract::Path<String>, axum::extract::rejection::PathRejection>,
+) -> Result<uuid::Uuid, AppError> {
+    let axum::extract::Path(value) = value.map_err(|_| invalid("Invalid cron identifier"))?;
+    value
+        .parse()
+        .map_err(|_| invalid("Invalid cron identifier"))
+}
+pub(crate) fn period(
+    value: &str,
+) -> Result<crate::services::cron::config::schedule::TransactionPeriodMode, AppError> {
+    use crate::services::cron::config::schedule::TransactionPeriodMode;
+    match value {
+        "PREVIOUS_MONTH" => Ok(TransactionPeriodMode::PreviousMonth),
+        "FIRST_HALF_MONTH" => Ok(TransactionPeriodMode::FirstHalfMonth),
+        _ => Err(invalid("Invalid transaction parameter")),
+    }
+}
+pub(crate) fn resolved(
+    kind: ScheduleReportType,
+    value: &str,
+    due: chrono::NaiveDateTime,
+) -> Result<String, AppError> {
+    if kind == ScheduleReportType::Inventory {
+        if !valid_inventory_id(value) {
+            return Err(invalid(
+                "Inventory schedules require a positive inventory ID",
+            ));
+        }
+        return Ok(value.into());
+    }
+    let window =
+        crate::services::cron::config::schedule::transaction_window(period(value)?, due.and_utc())
+            .map_err(|_| invalid("Invalid report period"))?;
+    let start = window
+        .start
+        .and_utc()
+        .with_timezone(&chrono_tz::Asia::Bangkok);
+    let end = (window.end_exclusive - chrono::Duration::seconds(1))
+        .and_utc()
+        .with_timezone(&chrono_tz::Asia::Bangkok);
+    Ok(format!(
+        "{} - {}",
+        start.to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
+        end.to_rfc3339_opts(chrono::SecondsFormat::Secs, false)
+    ))
+}
+pub(crate) fn saved_parameters(
+    kind: ScheduleReportType,
+    value: &str,
+) -> Result<Option<crate::validations::accounting::AccountingDateRange>, AppError> {
+    if kind == ScheduleReportType::Inventory {
+        return if valid_inventory_id(value) {
+            Ok(None)
+        } else {
+            Err(crate::models::cron::saved_invalid())
+        };
+    }
+    let invalid = crate::models::cron::saved_invalid;
+    let (start, end) = value.split_once(" - ").ok_or_else(invalid)?;
+    let start = chrono::DateTime::parse_from_rfc3339(start).map_err(|_| invalid())?;
+    let end = chrono::DateTime::parse_from_rfc3339(end).map_err(|_| invalid())?;
+    if start >= end
+        || start.offset().local_minus_utc() != 25200
+        || end.offset().local_minus_utc() != 25200
+        || (
+            start.hour(),
+            start.minute(),
+            start.second(),
+            start.nanosecond(),
+        ) != (0, 0, 0, 0)
+        || (end.hour(), end.minute(), end.second(), end.nanosecond()) != (23, 59, 59, 0)
+    {
+        return Err(invalid());
+    }
+    Ok(Some(crate::validations::accounting::AccountingDateRange {
+        start,
+        end: end + chrono::Duration::seconds(1) - chrono::Duration::nanoseconds(1),
+    }))
+}
+fn merge<T>(patch: domain::dto::PatchField<T>, current: T) -> Result<T, AppError> {
+    match patch {
+        domain::dto::PatchField::Missing => Ok(current),
+        domain::dto::PatchField::Set(value) => Ok(value),
+        domain::dto::PatchField::Clear => Err(invalid("This field cannot be cleared")),
+    }
+}
 #[cfg(test)]
 #[path = "../tests/validations/cron.rs"]
 mod tests;

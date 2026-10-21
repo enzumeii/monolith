@@ -136,13 +136,13 @@ impl Drop for TestFixture {
                     .execute(&pool)
                     .await
                     .expect("owned row cleanup");
-                sqlx::query("DELETE FROM report_results WHERE id = ANY($2) OR id IN (SELECT id FROM cron_jobs WHERE left(cron_name,12)=$1)")
+                sqlx::query("DELETE FROM report_results WHERE id = ANY($2) OR id IN (SELECT job.id FROM cron_jobs job JOIN cron_configurations config ON job.cron_configuration_id=config.id WHERE left(config.name,12)=$1)")
                     .bind(&prefix)
                     .bind(&report_ids)
                     .execute(&pool)
                     .await
                     .expect("owned scheduled report cleanup");
-                sqlx::query("DELETE FROM cron_jobs WHERE left(cron_name,12)=$1")
+                sqlx::query("DELETE FROM cron_jobs WHERE cron_configuration_id IN (SELECT id FROM cron_configurations WHERE left(name,12)=$1)")
                     .bind(&prefix)
                     .execute(&pool)
                     .await
@@ -172,6 +172,9 @@ pub async fn client() -> TestClient {
     }
 }
 impl TestClient {
+    pub fn storage_base(&self) -> &str {
+        &self.api.storage_base
+    }
     pub fn reports_directory(&self) -> std::path::PathBuf {
         self.api.directory.join("reports")
     }
@@ -426,6 +429,8 @@ impl Drop for TestUpstream {
 
 struct TestApi {
     process: Option<Child>,
+    static_process: Option<Child>,
+    storage_base: String,
     directory: std::path::PathBuf,
     base: String,
 }
@@ -433,6 +438,9 @@ struct TestApi {
 impl Drop for TestApi {
     fn drop(&mut self) {
         if let Some(process) = &mut self.process {
+            stop_process(process, Duration::from_secs(5));
+        }
+        if let Some(process) = &mut self.static_process {
             stop_process(process, Duration::from_secs(5));
         }
         let _ = std::fs::remove_dir_all(&self.directory);
@@ -531,10 +539,17 @@ async fn start_api(config: ProviderConfig<'_>, scheduler_backoff: Option<u64>) -
         .email_timeout_secs
         .map(|secs| format!("\n[client.resend]\ntimeout_secs = {secs}\n"))
         .unwrap_or_default();
+    let storage_port = std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("allocate static port")
+        .local_addr()
+        .unwrap()
+        .port();
     let directory = std::env::temp_dir().join(format!("monolith-api-e2e-{}", Uuid::new_v4()));
     std::fs::create_dir(&directory).expect("create owned E2E configuration directory");
     let mut api = TestApi {
         process: None,
+        static_process: None,
+        storage_base: format!("http://127.0.0.1:{storage_port}/"),
         directory,
         base: format!("http://127.0.0.1:{port}"),
     };
@@ -553,13 +568,15 @@ min_connections = 1
 enabled = {scheduler_enabled}
 poll_interval_secs = {poll_interval}
 concurrency = 1
-max_generation_attempts = 2
+max_attempts = 2
 retry_backoff_secs = {retry_backoff_secs}
 lease_secs = 5
 max_payload_bytes = 20971520
 max_email_bytes = 20971520
-[reports]
-storage_directory = {reports_directory:?}
+[reports.storage]
+backend = "local"
+directory = {reports_directory:?}
+public_base_url = "http://127.0.0.1:{storage_port}/"
 [browser]
 public_origin = "http://127.0.0.1:8084"
 insecure_local = true
@@ -571,6 +588,26 @@ insecure_local = true
         ),
     )
     .expect("write non-secret E2E configuration");
+    api.static_process = Some(
+        Command::new("python3")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../scripts/serve-reports.py"
+            ))
+            .arg(api.directory.join("application.toml"))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start owned static file host"),
+    );
+    for attempt in 0..100 {
+        if reqwest::get(&api.storage_base).await.is_ok() {
+            break;
+        }
+        assert!(attempt < 99, "static host did not start");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
     api.process = Some(
         Command::new(env!("CARGO_BIN_EXE_api"))
             .current_dir(&api.directory)

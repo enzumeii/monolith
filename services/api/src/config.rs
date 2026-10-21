@@ -92,51 +92,50 @@ pub struct Settings {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub jwt: JwtSettings,
-    #[serde(default)]
     pub scheduler: SchedulerConfig,
-    #[serde(default)]
     pub reports: ReportsConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-#[serde(default)]
 pub struct ReportsConfig {
-    pub storage_directory: std::path::PathBuf,
+    pub storage: ReportStorageConfig,
 }
-impl Default for ReportsConfig {
-    fn default() -> Self {
-        Self {
-            storage_directory: "storage/reports".into(),
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(tag = "backend", rename_all = "lowercase", deny_unknown_fields)]
+pub enum ReportStorageConfig {
+    Local {
+        directory: std::path::PathBuf,
+        public_base_url: String,
+    },
+}
+impl ReportStorageConfig {
+    #[must_use]
+    pub fn directory(&self) -> &std::path::Path {
+        match self {
+            Self::Local { directory, .. } => directory,
+        }
+    }
+    #[must_use]
+    pub fn public_base_url(&self) -> &str {
+        match self {
+            Self::Local {
+                public_base_url, ..
+            } => public_base_url,
         }
     }
 }
 
 #[derive(Debug, Deserialize, Clone)]
-#[serde(default)]
 pub struct SchedulerConfig {
     pub enabled: bool,
     pub poll_interval_secs: u64,
     pub concurrency: usize,
-    pub max_generation_attempts: u32,
+    pub max_attempts: u32,
     pub retry_backoff_secs: u64,
     pub lease_secs: u64,
     pub max_payload_bytes: usize,
     pub max_email_bytes: usize,
-}
-
-impl Default for SchedulerConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            poll_interval_secs: 10,
-            concurrency: 2,
-            max_generation_attempts: 5,
-            retry_backoff_secs: 60,
-            lease_secs: 300,
-            max_payload_bytes: 20 * 1024 * 1024,
-            max_email_bytes: 20 * 1024 * 1024,
-        }
-    }
 }
 
 impl JwtSettings {
@@ -155,16 +154,34 @@ impl JwtSettings {
 impl Settings {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.jwt.key()?;
-        if self.scheduler.poll_interval_secs == 0
+        if !(1..=86400).contains(&self.scheduler.poll_interval_secs)
             || !(1..=32).contains(&self.scheduler.concurrency)
-            || self.scheduler.max_generation_attempts == 0
-            || self.scheduler.retry_backoff_secs == 0
-            || self.scheduler.lease_secs == 0
+            || !(1..=100).contains(&self.scheduler.max_attempts)
+            || !(1..=86400).contains(&self.scheduler.retry_backoff_secs)
+            || !(1..=86400).contains(&self.scheduler.lease_secs)
             || self.scheduler.max_payload_bytes == 0
             || self.scheduler.max_email_bytes == 0
         {
             return Err(ConfigError::Message(
                 "Scheduler intervals, limits, and concurrency must be positive and bounded".into(),
+            ));
+        }
+        let storage = &self.reports.storage;
+        let url = reqwest::Url::parse(storage.public_base_url()).map_err(|_| {
+            ConfigError::Message(
+                "Report storage public_base_url must be an absolute HTTP URL".into(),
+            )
+        })?;
+        if !matches!(url.scheme(), "http" | "https")
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || storage.directory().as_os_str().is_empty()
+        {
+            return Err(ConfigError::Message(
+                "Invalid report storage configuration".into(),
             ));
         }
         if let Some(sender) = &self.shipping_sender

@@ -34,10 +34,12 @@ async fn sends_html_with_default_or_explicit_sender_and_returns_provider_id() {
         let fixture = Fixture::new(vec![Reply::json(json!({"id":"fixture-email-id"}))]).await;
         let id = client(&fixture)
             .send_email(
-                from,
-                &["delivered@resend.dev", "second@example.com"],
-                "Shipment",
-                "<p>On the way</p>",
+                CreateEmailBaseOptions::new(
+                    from.unwrap_or("shipping@enzumeii.com"),
+                    ["delivered@resend.dev", "second@example.com"],
+                    "Shipment",
+                )
+                .with_html("<p>On the way</p>"),
             )
             .await
             .unwrap();
@@ -65,7 +67,14 @@ async fn provider_failures_are_not_retried_and_preserve_sanitized_sources() {
         reply.headers.push(("retry-after".into(), "1".into()));
         let fixture = Fixture::new(vec![reply, Reply::json(json!({"id":"must-not-retry"}))]).await;
         let error = client(&fixture)
-            .send_email(None, &["delivered@resend.dev"], "Hi", "private email")
+            .send_email(
+                CreateEmailBaseOptions::new(
+                    "shipping@enzumeii.com",
+                    ["delivered@resend.dev"],
+                    "Hi",
+                )
+                .with_html("private email"),
+            )
             .await
             .unwrap_err();
         assert_eq!(fixture.requests().len(), 1);
@@ -95,7 +104,14 @@ async fn unusable_responses_are_rejected_without_retry_or_payload_leaks() {
         }])
         .await;
         let error = client(&fixture)
-            .send_email(None, &["delivered@resend.dev"], "Hi", "private email")
+            .send_email(
+                CreateEmailBaseOptions::new(
+                    "shipping@enzumeii.com",
+                    ["delivered@resend.dev"],
+                    "Hi",
+                )
+                .with_html("private email"),
+            )
             .await
             .unwrap_err();
         assert_eq!(fixture.requests().len(), 1);
@@ -106,7 +122,10 @@ async fn unusable_responses_are_rejected_without_retry_or_payload_leaks() {
     reply.status = 502;
     let fixture = Fixture::new(vec![reply]).await;
     let error = client(&fixture)
-        .send_email(None, &["delivered@resend.dev"], "Hi", "private email")
+        .send_email(
+            CreateEmailBaseOptions::new("shipping@enzumeii.com", ["delivered@resend.dev"], "Hi")
+                .with_html("private email"),
+        )
         .await
         .unwrap_err();
     assert!(matches!(
@@ -126,7 +145,10 @@ async fn transport_failure_retains_its_cause() {
     let client = client(&fixture);
     drop(fixture);
     let error = client
-        .send_email(None, &["delivered@resend.dev"], "Hi", "private email")
+        .send_email(
+            CreateEmailBaseOptions::new("shipping@enzumeii.com", ["delivered@resend.dev"], "Hi")
+                .with_html("private email"),
+        )
         .await
         .unwrap_err();
     assert!(!crate::error::client_timeout(&error));
@@ -176,31 +198,28 @@ fn missing_or_zero_deadlines_are_retained_as_client_initialization_errors() {
 }
 
 #[tokio::test]
-async fn report_attachments_keep_raw_bytes_and_selected_mime_types() {
+async fn generic_attachments_preserve_raw_bytes_and_idempotency() {
     let fixture = Fixture::new(vec![Reply::json(json!({"id":"report-email"}))]).await;
     let bytes = vec![0, 1, 2, 255];
     client(&fixture)
-        .send_report_email(
-            "sender@example.test",
-            "recipient@example.test",
-            "Report",
-            "<p>Report</p>",
-            vec![
-                ("inventory.csv".into(), bytes.clone()),
-                ("inventory.xlsx".into(), bytes.clone()),
-            ],
-            "report-result-fixture",
+        .send_email(
+            CreateEmailBaseOptions::new(
+                "sender@example.test",
+                ["recipient@example.test"],
+                "Report",
+            )
+            .with_html("<p>Report</p>")
+            .with_attachment(
+                resend_rs::types::CreateAttachment::from_content(bytes.clone())
+                    .with_filename("inventory.csv")
+                    .with_content_type("text/csv"),
+            )
+            .with_idempotency_key("report-result-fixture"),
         )
         .await
         .unwrap();
     let requests = fixture.requests();
     assert_eq!(requests[0].1["idempotency-key"], "report-result-fixture");
-    let attachments = &requests[0].2["attachments"];
-    assert_eq!(attachments[0]["content"], json!(bytes));
-    assert_eq!(attachments[1]["content"], json!(bytes));
-    assert_eq!(attachments[0]["content_type"], "text/csv");
-    assert_eq!(
-        attachments[1]["content_type"],
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    );
+    assert_eq!(requests[0].2["attachments"][0]["content"], json!(bytes));
+    assert_eq!(requests[0].2["attachments"][0]["content_type"], "text/csv");
 }

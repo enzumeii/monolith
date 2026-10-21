@@ -1,4 +1,6 @@
-use crate::{error::AppError, services, state::AppState};
+use crate::{
+    error::AppError, services::cron::config, state::AppState, validations::cron as validate,
+};
 use axum::{
     Json,
     extract::{
@@ -11,19 +13,16 @@ use domain::dto::{
     CreateCronConfiguration, ListCronConfigurationsQuery, PatchCronConfiguration,
     PreviewCronConfiguration,
 };
-use std::str::FromStr;
-use uuid::Uuid;
 
 pub async fn list(
     State(state): State<AppState>,
     query: Result<Query<ListCronConfigurationsQuery>, QueryRejection>,
 ) -> Result<Json<domain::dto::CronConfigurationListResponse>, AppError> {
-    let Query(query) = query.map_err(|_| bad_request("Invalid cron configuration query"))?;
+    let query = validate::query(query)?;
     Ok(Json(
-        services::cron_configurations::list(&state.pool, query).await?,
+        config::list(&state.pool, validate::filter(&query)?).await?,
     ))
 }
-
 pub async fn create(
     State(state): State<AppState>,
     payload: Result<Json<CreateCronConfiguration>, JsonRejection>,
@@ -35,57 +34,46 @@ pub async fn create(
     ),
     AppError,
 > {
-    let Json(payload) = payload.map_err(|_| bad_request("Invalid cron configuration body"))?;
-    let response = services::cron_configurations::create(&state.pool, payload).await?;
-    let location = HeaderValue::from_str(&format!("/v1/admin/cron-configurations/{}", response.id))
-        .map_err(|_| AppError::new(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error"))?;
-    Ok((StatusCode::CREATED, [(LOCATION, location)], Json(response)))
+    let input = validate::create(validate::body(payload)?)?;
+    let result = config::create(&state.pool, &input).await?;
+    let location = HeaderValue::from_str(&format!("/v1/admin/cron/configs/{}", result.id))
+        .map_err(anyhow::Error::new)?;
+    Ok((StatusCode::CREATED, [(LOCATION, location)], Json(result)))
 }
-
 pub async fn preview(
-    payload: Result<Json<PreviewCronConfiguration>, JsonRejection>,
+    query: Result<Query<PreviewCronConfiguration>, QueryRejection>,
 ) -> Result<Json<domain::dto::CronConfigurationPreview>, AppError> {
-    let Json(payload) = payload.map_err(|_| bad_request("Invalid cron configuration body"))?;
-    Ok(Json(services::cron_configurations::preview(&payload)?))
+    let request = validate::preview(&validate::query(query)?)?;
+    Ok(Json(config::preview(&request)?))
 }
-
 pub async fn get(
     State(state): State<AppState>,
     path: Result<Path<String>, PathRejection>,
 ) -> Result<Json<domain::dto::CronConfigurationDTO>, AppError> {
-    let id = configuration_id(path)?;
     Ok(Json(
-        services::cron_configurations::get(&state.pool, id).await?,
+        config::get(&state.pool, validate::id(path)?)
+            .await?
+            .into_dto()?,
     ))
 }
-
 pub async fn update(
     State(state): State<AppState>,
     path: Result<Path<String>, PathRejection>,
     payload: Result<Json<PatchCronConfiguration>, JsonRejection>,
 ) -> Result<Json<domain::dto::CronConfigurationDTO>, AppError> {
-    let id = configuration_id(path)?;
-    let Json(payload) =
-        payload.map_err(|_| bad_request("Invalid cron configuration PATCH body"))?;
+    let id = validate::id(path)?;
+    let changes = validate::body(payload)?;
+    validate::patch_shape(&changes)?;
+    let current = config::get(&state.pool, id).await?;
+    let input = validate::patch(changes, &current)?;
     Ok(Json(
-        services::cron_configurations::update(&state.pool, id, payload).await?,
+        config::update(&state.pool, id, current.updated_at, &input).await?,
     ))
 }
-
 pub async fn delete(
     State(state): State<AppState>,
     path: Result<Path<String>, PathRejection>,
 ) -> Result<StatusCode, AppError> {
-    let id = configuration_id(path)?;
-    services::cron_configurations::delete(&state.pool, id).await?;
+    config::delete(&state.pool, validate::id(path)?).await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-fn configuration_id(path: Result<Path<String>, PathRejection>) -> Result<Uuid, AppError> {
-    let Path(id) = path.map_err(|_| bad_request("Invalid cron configuration ID"))?;
-    Uuid::from_str(&id).map_err(|_| bad_request("Invalid cron configuration ID"))
-}
-
-fn bad_request(message: &'static str) -> AppError {
-    AppError::new(StatusCode::BAD_REQUEST, message)
 }

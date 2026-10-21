@@ -1,9 +1,0 @@
-$kind: http-request
-description: Delete one configuration. Saved report history remains available from its configuration snapshot.
-url: "{{server}}/v1/admin/cron-configurations/:id"
-method: DELETE
-pathVariables:
-  - key: id
-    value: "{{cron_configuration_id}}"
-    description: UUID returned by the create request.
-order: 6000

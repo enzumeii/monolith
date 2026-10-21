@@ -335,3 +335,20 @@ Endpoint tests use controlled Shopify/Resend servers and real PostgreSQL connect
 | CI recovery | Initial hosted runs exposed an existing reship call-count failure and then a publication-fixture race; the reship case passed on rerun. Fixture retry timing and scheduler isolation were corrected. Exact final-head CI is recorded separately |
 | Postman | Internal collection lint: 28 requests, zero errors/warnings. Isolated local execution: 9 real requests and 5 assertions passed; no cloud result upload |
 | Limits | Original unpublished migration was edited with explicit user authorization; no published database was migrated. Storage is an ignored local directory pending Vercel Blob configuration; retention and shared deployment storage remain deployment decisions. No manual UI test, live provider delivery, production deployment or merge was performed. Exact pushed-head CI is confirmed separately |
+
+
+## ENZ-29 simplified schema and services (2026-10-21)
+
+This contract supersedes the earlier ENZ-29 verification entry above.
+
+| Check | Evidence |
+| --- | --- |
+| Schema and ownership | Unpublished migration has 9 configuration, 9 job and 8 independent audit fields. Cron runtime, services/cron/{config,report,job}.rs and separate configuration/job/audit repositories match docs/cron.md. |
+| Local API | Strict check passed. Final native run passed 282 tests; the complete isolated TCP run passed 119 tests. After refining lease renewal timing, the slow-email TCP case passed again. |
+| Shared and UI | Domain native/WASM and report-generator native/WASM checks passed; 14 domain and 2 shared generator tests passed. Backoffice native/WASM checks, all 66 tests and browser build passed. Client UI strict check passed. |
+| Workflow tooling | All 60 tooling tests, actionlint, shellcheck and Bash syntax checks passed. The new provider-client skill passed its validator. |
+| Postman | All 28 internal requests linted without errors/warnings. An isolated real API/static-host run passed 9 requests and 6 assertions; direct storage requests carry no API Authorization header. No cloud result upload. |
+| Browser | Chromium exercised the actual backoffice CSV/XLSX save flow against an owned API, PostgreSQL and controlled Shopify HTTP server. Downloaded contents and filenames were inspected; XLSX has no formula cells. Accounting ZIP used a controlled API response: actual downloaded ZIP retains both CSV entries, 20/11 headers, negative refund quantity and leading-zero SKU. No page errors. |
+| Safety and recovery | Tests cover eager failures, one attempt budget, expired/fenced leases, a one-second lease renewal, immutable saved bytes/mail requests, private checkpoints, publication rollback, direct URL retention after config deletion, malformed metadata and revision-based catch-up. |
+| Isolation | API runs used dedicated enz29schema, enz29unit and enz29lease Compose projects/ports; owned containers and volumes were cleaned. Other worktrees were preserved. |
+| Limits | Native OS file picker was disabled in browser automation; the fallback save dialog was exercised. Live provider acceptance, Blob integration, production migration and deployment remain unverified. Exact pushed-head CI is recorded separately after publication. |

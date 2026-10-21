@@ -48,10 +48,10 @@ fn empty_workbook_has_only_headers() {
     assert!(!sheet.contains("r=\"2\""));
 }
 #[test]
-fn csv_encoder_keeps_existing_escaping_and_exact_values() {
+fn csv_encoder_preserves_values_and_protects_formula_text() {
     let bytes = encode_report(&[row()], ExportFormat::Csv).expect("CSV");
     let text = String::from_utf8(bytes).expect("UTF-8");
-    assert!(text.contains(",é,00123,\"=1+1\nA \"\"quote\"\", é\""));
+    assert!(text.contains(",é,00123,\"'=1+1\nA \"\"quote\"\", é\""));
     assert!(text.ends_with(",1.2300,THB,0,0.00,\r\n"));
 }
 #[test]
