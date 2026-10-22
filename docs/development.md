@@ -46,6 +46,7 @@ Run recipes from the package directory.
 | API | `just setup`, `just run`, `just test`, `just check`, `just fix`, `just db-down` |
 | Backoffice | `just setup`, `just serve`, `just build`, `just test`, `just check` |
 | Domain | `just setup`, `just test`, `just check`; library has no server |
+| Report generator | `just check`, `just test`; shared library with no setup recipe or server |
 | Client UI | `just setup`, `just run`, `just test`, `just check`; run currently reports a placeholder |
 | Workspace formatting | `cargo fmt --all -- --check` from the repository root |
 
@@ -54,7 +55,8 @@ Run recipes from the package directory.
 | `cargo test --locked -p api --lib` | Library tests and loopback transport fixtures; configured Docker PostgreSQL must be ready; no Shopify credentials |
 | `just test` | Compose PostgreSQL, native Cargo tests once, `cargo api-e2e` for TCP endpoint tests only, and Compose down with volumes removed even on failure |
 | `just check` | Formatting and strict Clippy on all API targets |
-| API E2E | Existing `e2e-test/healthz.rs` and `e2e-test/v1/{auth,admins}.rs and e2e-test/v1/admin/{inventories,orders}.rs`; real TCP endpoints |
+| API E2E | `e2e-test/healthz.rs`, `e2e-test/v1/{auth,admins}.rs`, `e2e-test/v1/admin/{inventories,orders,transactions}.rs` and `e2e-test/v1/admin/cron/{configs,report}.rs`; real TCP endpoints |
+| Process lifecycle | `e2e-test/process.rs` exercises owned-child teardown |
 | Shared harness | `e2e-test/common.rs` owns temporary TOML, local API child, readiness, and teardown |
 | Fixtures | Unique owned records; shared Compose database during a run; cleanup only test-owned data |
 | Unit layout | `src/tests/` mirrors implementation paths; test-gated child modules preserve private access |
@@ -173,7 +175,7 @@ Report queries require product, inventory, location and order access; reading un
 | Module `just test --coverage` | Native tests with an isolated report at repository `target/coverage/<crate>/lcov.info` |
 | API coverage | Includes TCP API child-process execution; graceful termination flushes profiles before bounded forced cleanup |
 | API test isolation | Optional E2E_COMPOSE_PROJECT, E2E_POSTGRES_PORT and E2E_DATABASE_URL allow independent worktrees; defaults remain e2e/5433 |
-| Coverage CI | The existing check job runs all four module suites sequentially, retains four scoped reports, and uploads them together once to Codecov |
+| Coverage CI | The existing check job runs report-generator check/test and the four instrumented module suites sequentially, retains four scoped reports, and uploads them together once to Codecov |
 | CODECOV_TOKEN | Add the Codecov repository upload token in GitHub Actions secrets; unavailable secrets skip upload with a visible notice and retain artifacts |
 | Root `just setup` / `just check` | Node 24+; setup installs the pinned Conventional Commits reference parser; check runs Node tests, actionlint 1.7.12 and shellcheck |
 | Coverage build directory | Local runs isolate builds per crate; CI sets CARGO_LLVM_COV_TARGET_DIR to target and reuses builds sequentially |
@@ -181,20 +183,21 @@ Report queries require product, inventory, location and order access; reading un
 
 | PR title | Version increment |
 | --- | --- |
-| Any type with `!`, for example `feat(api)!: remove field`, or an uppercase `BREAKING CHANGE:` / `BREAKING-CHANGE:` footer in the merged commit | Major, including 0.x → 1.0.0 |
+| Any type with `!`, for example `feat(api)!: remove field`, or an uppercase `BREAKING CHANGE:` / `BREAKING-CHANGE:` footer in any landed commit for the PR | Major, including 0.x → 1.0.0 |
 | `feat: ...` | Minor |
 | `fix: ...` | Patch |
 | Other types, including `chore`, `ci`, `docs` | No implicit version increment |
 
-Titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/), including case-insensitive types, optional scope and a nonempty description after colon-space. CI and releases share the pinned reference parser. Release classification uses the PR title plus the merged commit's body and footers.
+Titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/), including case-insensitive types, optional scope and a nonempty description after colon-space. CI and releases share the pinned reference parser. Release classification uses the PR title plus the landed commit bodies and footers for that PR.
 
 | Release rule | Behavior |
 | --- | --- |
 | Initial baseline | Virtual version 0.1.0 at commit 2f9f9101ad5348c327c75c4504a5827975497ada; earlier history is not released |
-| Trigger | pull_request_target closed, merged to main; trusted main code reconciles subsequent first-parent commits in order, including merged fork PRs |
+| Trigger | pull_request_target closed for merged PRs targeting main or a native stack with main as effective trunk; trusted main code reconciles landed first-parent history in order, including merged fork PRs |
+| Native stacks | Release only merged layers landing on main, once per PR in landed order. Merge/squash layers target their landed merge SHA; rebase commits group by PR and target its final landed SHA. Unmerged upper layers are excluded; ambiguous membership fails |
 | Version storage | GitHub vX.Y.Z tags and release notes; Cargo package versions stay unchanged |
 | Concurrency/retry | Serialized releases; deterministic replay catches queued merges, reuses existing matching tags/releases, and finishes a tag-only partial attempt |
-| Conflicts | Invalid titles, direct commits, conflicting targets, or API errors fail visibly; tags are never moved |
-| Changelog | GitHub generated notes bounded by prior tag and merge SHA; bootstrap release links qualifying and preceding unreleased PRs |
+| Conflicts | Invalid titles, direct commits, wrong-trunk or ambiguous associations, conflicting targets, or API errors fail visibly; tags are never moved |
+| Changelog | GitHub generated notes bounded by prior tag and final landed PR SHA; bootstrap release links qualifying and preceding unreleased PRs |
 | First live release | Requires a human merge; local fixtures/dry runs do not verify hosted write permissions |
 | Merge blocking | Repository rules must require the CI check names to enforce title validation before merge; workflow code does not change host rules |

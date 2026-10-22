@@ -4,5 +4,5 @@ auth:
     type: bearer
     name: Blob write token
     credentials:
-      token: "{{blob_token}}"
+      token: "{{vault:blob_token}}"
 order: 5000

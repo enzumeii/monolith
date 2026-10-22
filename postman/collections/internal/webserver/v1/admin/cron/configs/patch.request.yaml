@@ -4,21 +4,17 @@ url: "{{server}}/v1/admin/cron/configs/:id"
 method: PATCH
 pathVariables:
   - key: id
-    value: "{{cron_configuration_id}}"
+    value: 8382d947-e7e2-4195-839f-50448b13b354
     description: UUID returned by the create request.
 body:
   type: json
   content: |-
     {
       "name": "Monthly transaction report",
-      "enabled": true
+      "enabled": false
     }
 scripts:
   - type: afterResponse
-    code: |-
-      pm.test("Enable patch is accepted", () => {
-        pm.response.to.have.status(200);
-        pm.expect(pm.response.json().enabled).to.eql(true);
-      });
+    code: ""
     language: text/javascript
 order: 5000

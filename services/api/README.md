@@ -2,13 +2,15 @@
 
 ## Prerequisites
 
-Run `../../init.sh` to install the CLI packages after installing Rust, Docker, and Python 3. Python 3 is only needed by `just setup` to generate the JWT signing key and scaffold local Blob and synthetic sender settings; running the API and Blob emulator does not require Python.
+Run `../../init.sh` to install the CLI packages after installing Rust, Docker, and Python 3. Python 3 is needed by `just setup` and `just check`.
 
-`just setup` installs pinned dprint with Cargo under `.tools/`, caches its GraphQL/JSON plugins, and creates `.env` when missing. It fills missing or empty `BLOB_READ_WRITE_TOKEN` with the synthetic local emulator token, preserving nonempty values. Optional provider credentials are scaffolded empty. Supply real credentials there and use your Vercel token for production. PayPal uses the sandbox URL in `application.toml` by default.
+Optionally install [Bitwarden CLI](https://bitwarden.com/help/cli/) with `npm install -g @bitwarden/cli`, then run `bw login`. `just setup` reads same-named credential custom fields from item `87323839-368f-4288-a4a5-9b0320699892`; a locked vault prompts for your master password in your terminal. Keep passwords and session tokens in your terminal, never in chat or `.env`.
+
+Without Bitwarden CLI, setup uses local defaults. Setup installs pinned dprint under `.tools/`, caches its plugins, and fills missing/empty `.env` settings while preserving nonempty values. Bitwarden imports only `JWT_SECRET`, `SHOPIFY_ACCESS_TOKEN`, `RESEND_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and `STRIPE_SECRET_KEY`; clear an assignment before rerunning to replace it. Missing fields use local defaults: a random signing key, synthetic Blob token/sender profile, and empty optional provider credentials. Vault failures leave `.env` unchanged. Use your real sender profile and Vercel token before production use; PayPal defaults to its sandbox URL in `application.toml`.
 
 ## Run locally
 
-- `just setup` installs pinned dprint, caches plugins, and scaffolds `.env` with a random signing key and synthetic sender profile while preserving nonempty values.
+- `just setup` installs formatter tooling and fills missing/empty `.env` settings from Bitwarden when installed, otherwise local defaults.
 - `just run` starts API at `localhost:3000` and local Blob at `localhost:3001`
 
 ## Useful commands
@@ -18,7 +20,7 @@ Run `../../init.sh` to install the CLI packages after installing Rust, Docker, a
 | `just` | List recipes |
 | `RUST_LOG=info,api=debug just run` | Include API DEBUG events and original error diagnostics; error text can contain sensitive values |
 | `just test` | Start isolated PostgreSQL and Blob containers, run API and TCP E2E, then remove test resources |
-| `just check` | Rust/GraphQL/JSON formatting and strict API lint |
+| `just check` | Setup helper tests, Rust/GraphQL/JSON formatting, and strict API lint |
 | `just fix` | Apply Rust/GraphQL/JSON formatting and lint fixes and prepare SQLx metadata |
 | `just db-down` | Stop development Compose services (preserve volumes) |
 | `just reset-db` | Drop and recreate the configured database |

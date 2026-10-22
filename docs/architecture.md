@@ -24,6 +24,7 @@ flowchart LR
 | --- | --- | --- |
 | `services/api` | HTTP endpoints, authentication, authorization, persistence, outbound clients | Database objects, principals, JWT claims, and Shopify wire DTOs remain API-owned |
 | `crates/domain` | Shared request/response DTOs and wire enums, including `ErrorResponse` used by the API and backoffice | No database models, SQLx, JWT claims, or transactions |
+| `crates/report-generator` | Shared inventory/accounting table projections and CSV serialization for API scheduled reports and backoffice exports | Wire DTO inputs; no provider calls, persistence or browser download transport |
 | `apps/backoffice` | Browser pages, forms, direct API requests, session coordination | Public configuration only; Axum owns cookies, CORS, and origin checks |
 | `apps/client-ui` | Placeholder client application | No implemented service integration |
 
@@ -34,13 +35,14 @@ AppState constructs optional outbound clients once and shares their HTTP pools. 
 | API path | Responsibility |
 | --- | --- |
 | `src/lib.rs` | Module declarations and public re-exports, including `shopify_models` |
-| `src/main.rs` | Configuration, database startup, listener, maintenance task, graceful shutdown |
+| `src/main.rs` | Configuration, database startup, listener, maintenance/scheduler tasks, graceful shutdown |
 | `src/config.rs` / `src/state.rs` | Typed settings; pool, settings, and signing key in application state |
 | `src/routes/` / `src/handlers/` | Route composition; HTTP inputs, responses, and transport |
 | `src/handlers/dependencies.rs` | Resolve shared optional clients and preserve availability errors before service calls; accounting requires concrete Stripe, PayPal and Shopify references |
 | `src/middleware/cookies.rs` | Cookie helpers, session transport, origin enforcement using BrowserConfig |
 | `src/middleware/token.rs` | JWT validation and role checks using the signing key and BrowserConfig |
-| `src/services/` / `src/repositories/` | Use cases and transaction boundaries / SQL queries |
+| `src/services/` / `src/repositories/` | Business use cases and transaction boundaries / SQL queries |
+| `src/cron.rs` / `src/cron/` | Scheduler loop, dispatch, leases, technical retries, checkpoints and Blob publication; business report/configuration rules stay in services (see [scheduled reports](cron.md)) |
 | `src/models/` | Persistence/authentication models and API-owned Shopify contracts |
 | `src/validations/` / `src/utils/` | Input rules / Argon2 operations and native number parsing and multiplication |
 | `src/error.rs` | Public and upstream error mapping, retained source diagnostics and centralized boundary logging |
@@ -54,7 +56,7 @@ AppState constructs optional outbound clients once and shares their HTTP pools. 
 | --- | --- |
 | `src/lib.rs` / `src/main.rs` | Module declarations / startup and root App |
 | `src/config.rs` / `application.toml` | Single typed startup reader / published public settings |
-| `src/api.rs` / `src/api/{auth,admins}.rs` | HTTP construction, decoding, errors / endpoint calls |
+| `src/api.rs` / `src/api/` | HTTP construction, decoding, errors / endpoint calls |
 | `src/export.rs` | Shared format/filename API and encoder re-exports |
 | `src/export/{csv,xlsx,browser}.rs` | CSV encoding / XLSX encoding and row limits / browser download transport; feature-specific cells/archives remain page-owned |
 | `src/pagination.rs` | Shared cursor collection/history for Reports and Orders |
@@ -121,7 +123,7 @@ flowchart LR
 | Startup | Resolve the configuration asset against the current page URL; render pages and call APIs only after loading |
 | Failure | Configuration error/Retry view; no configured application calls until recovery |
 | Cookie-changing operations | Same-origin Web Locks serialize browser operations |
-| Stale responses | Epoch/sequence checks reject results from an earlier account state |
+| Stale responses | Session epoch/sequence checks reject earlier account state; report/trigger feature ownership keys account ID and role, preserving manual state through same-owner refresh and suppressing stale completions after an owner change |
 | Other tabs/focus | Broadcast notifications and refresh-based restoration |
 | Pagination | Dioxus resources own fetch lifecycle; disable navigation while pending |
 | Deployment configuration | Publishing selected local/prod source as one application.toml is planned; selection is not implemented |
@@ -175,7 +177,7 @@ flowchart LR
 | --- | --- |
 | Routes | Parent v1 protected route group authenticates /v1/admin once; /v1/customer reserved for future customer routes. GET /v1/admin/inventories/{inventory_id} and GET /v1/admin/orders/report?tags=TAG; existing ADMIN/SUPER_ADMIN bearer or cookie protection |
 | Contract | Domain product report DTOs only; API owns Shopify models, validation and report orchestration |
-| Service ownership | inventories.rs retrieves one inventory page; orders.rs aggregates orders; handlers/dependencies.rs resolves client availability; common.rs shares upstream-error mapping |
+| Service ownership | inventories.rs retrieves one inventory page; orders.rs aggregates orders; handlers/dependencies.rs resolves client availability; error.rs::upstream shares upstream-error mapping |
 | Inventory | Numeric location ID; active products and active inventory levels at the location; on_hand includes zero/negative quantities; missing location is 404 |
 | Metadata | Category = productType; collection = SKU characters 4–9 inclusive, null for short/missing SKU; cost and weight are current inventory metadata |
 | Orders | Literal tag; original quantities and original unit shop-money prices; merge SKU + price + currency with compatible cost/weight/category; missing SKUs stay separate |
@@ -193,7 +195,7 @@ The nested250 bound is the agreed store workload, not a Shopify platform maximum
 | Owner | Responsibility |
 | --- | --- |
 | POST /v1/admin/inventories/{inventory_id}/enable | Existing admin authentication and cookie origin checks; numeric location validation; no query parameters or body |
-| Inventory enable service | Resolve the shared client through services/common; use services/pagination for complete traversal before writing; retain item deduplication and eligibility in the service |
+| Inventory enable service | Receive the concrete shared client resolved by handlers/dependencies.rs; use services/pagination for complete traversal before writing; retain item deduplication and eligibility in the service |
 | Shopify inventory models | Eligibility: tracked, inactive, positive on_hand; validate required quantities and item/product IDs |
 | Shared Shopify client | One GraphQL operation per call; activate each variant inventory item using item/location IDs and stable retry UUID, without quantity arguments |
 | Outcome DTO | Per-item total/success/failed and optional errors with numeric product_id; partial mutation failures continue; discovery failures return ordinary API errors before writes |

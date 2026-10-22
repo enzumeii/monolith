@@ -15,15 +15,15 @@ Read the root [AGENTS.md](../../../AGENTS.md), [architecture](../../../docs/arch
 | Shared contracts | Domain dependencies and DTO consumers; persistence/claims stay API-owned |
 | Entry points | lib.rs declares/re-exports modules; main.rs owns startup and backoffice root components |
 | API layering | HTTP extraction in handlers; use cases/transactions in services; SQL in repositories |
-| Browser transport | Backoffice api.rs owns shared HTTP helpers; api/auth.rs and api/admins.rs own endpoint calls |
+| Browser transport | Backoffice api.rs owns shared HTTP helpers; endpoint-owned api/ modules contain endpoint calls |
 | Auth middleware | cookies.rs owns transport/origin checks; token.rs owns bearer/JWT authentication and role checks; preserve explicit bearer precedence |
 | Refresh lifecycle | Independent login families, atomic consume/replacement, scoped logout, update/revocation transaction |
 | Access policy | Natural JWT expiry after revocation; no promised immediate access invalidation |
 | Concurrency | Distinguish atomic writes from global issuance/revocation serialization |
 | Source organization | Exported functions before private helpers; unit files mirror core logic under src/tests, including backoffice src/tests/api.rs |
-| E2E | services/api/e2e-test/main.rs registers healthz and v1/auth/admins; common.rs owns shared fixtures, temporary TOML, secret environment, local process startup/readiness/teardown and TestClient::send |
+| E2E | services/api/e2e-test/main.rs registers healthz, process teardown and v1 modules; v1/admin.rs registers cron, inventories, orders and transactions; common.rs owns shared fixtures, temporary TOML, secret environment, local process startup/readiness/teardown and TestClient::send |
 | Test orchestration | API just test runs Compose up → cargo test → cargo api-e2e → Compose down -v, also on failure; library tests run once with PostgreSQL ready, with no ignored tests; no API environment exports or process management in justfile |
-| Configuration | API non-secret settings are TOML-only; DB/JWT secrets use env; E2E owns temporary TOML. Backoffice has one published application.toml and typed reader; verify browser asset URL resolution and startup gating; distinguish planned local/prod sources from implemented code |
+| Configuration | API non-secret settings use typed TOML configuration; sensitive values, including provider credentials and private sender profiles, use environment overrides through the existing configuration reader (see [monolith-configuration](../monolith-configuration/SKILL.md)); E2E owns temporary TOML. Backoffice has one published application.toml and typed reader; verify browser asset URL resolution and startup gating; distinguish planned local/prod sources from implemented code |
 | Modularity | Existing framework mechanisms and cohesive components; no requirement-free layers |
 
 3. Map changed behavior to existing tests and their actual assertions. Bearer E2E does not prove cookie/CORS or browser behavior; compilation does not prove UI correctness. Preserve the existing E2E layout and shared Docker PostgreSQL policy.

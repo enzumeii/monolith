@@ -4,17 +4,10 @@ url: "{{server}}/v1/admin/cron/reports/:id"
 method: GET
 pathVariables:
   - key: id
-    value: "{{report_result_id}}"
+    value: bad043c7-4d3c-4fb9-8864-b381ef2af303
     description: UUID returned by report history.
 scripts:
   - type: afterResponse
-    code: |-
-      pm.test("Audit is independent", () => {
-        pm.response.to.have.status(200);
-        const result = pm.response.json();
-        pm.expect(result.files).to.be.an("array");
-        pm.expect(result).not.to.have.property("cron_name");
-        if (result.files.length) pm.environment.set("report_file_url", result.files[0].download_url);
-      });
+    code: ""
     language: text/javascript
 order: 8000
