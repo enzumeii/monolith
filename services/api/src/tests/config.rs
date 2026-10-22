@@ -2,6 +2,21 @@
 use super::*;
 
 #[test]
+fn scheduler_requires_explicit_settings() {
+    assert!(
+        serde_json::from_value::<SchedulerConfig>(serde_json::json!({"enabled":false})).is_err()
+    );
+    let scheduler: SchedulerConfig = Config::builder()
+        .add_source(File::with_name("application"))
+        .build()
+        .unwrap()
+        .get("scheduler")
+        .unwrap();
+    assert!(scheduler.enabled);
+    assert_eq!(scheduler.max_attempts, 5);
+}
+
+#[test]
 fn new_applies_database_url_and_jwt_secret_overrides() {
     let settings = temp_env::with_vars(
         [
@@ -175,6 +190,7 @@ fn builder_token_precedence_and_missing_url_follow_normal_configuration() {
         let source = r#"
             server = { host = "localhost", port = 3000 }
             database = { max_connections = 1, min_connections = 1 }
+            scheduler = { enabled=false, poll_interval_secs=1, concurrency=1, max_attempts=2, retry_backoff_secs=1, lease_secs=5, max_payload_bytes=20971520, max_email_bytes=20971520 }
             browser = { public_origin = "http://localhost:8084", insecure_local = true }
         "#;
         let builder = config::Config::builder()
@@ -443,4 +459,52 @@ fn checked_in_resend_timeout_is_three_seconds() {
         .get("client.resend.timeout_secs")
         .unwrap();
     assert_eq!(timeout, 3);
+}
+
+#[test]
+fn scheduler_limits_are_validated_at_startup() {
+    let settings: Settings = Config::builder()
+        .add_source(File::with_name("application"))
+        .add_source(File::with_name("application.local"))
+        .set_override("browser.public_origin", "http://localhost:8084")
+        .unwrap()
+        .set_override("database.url", "postgres://unused")
+        .unwrap()
+        .set_override(
+            "jwt.secret",
+            "abababababababababababababababababababababababababababababababab",
+        )
+        .unwrap()
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert!(settings.validate().is_ok());
+    let mut invalid = settings.clone();
+    invalid.scheduler.max_attempts = 0;
+    assert!(invalid.validate().is_err());
+    invalid.scheduler.max_attempts = 1;
+    invalid.scheduler.lease_secs = u64::MAX;
+    assert!(invalid.validate().is_err());
+}
+
+#[test]
+fn blob_secret_override_keeps_file_endpoint_and_redacts_token() {
+    let settings = temp_env::with_vars(
+        [
+            ("DATABASE_URL", Some("postgres://fixture")),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
+            ("BLOB_READ_WRITE_TOKEN", Some("synthetic-env-blob-token")),
+        ],
+        Settings::new,
+    )
+    .unwrap();
+    let blob = settings.client.unwrap().vercel_blob.unwrap();
+    assert_eq!(blob.api_url, "http://localhost:3001/");
+    assert_eq!(blob.timeout_secs, 3);
+    assert_eq!(blob.token.as_deref(), Some("synthetic-env-blob-token"));
+    assert!(!format!("{blob:?}").contains("synthetic-env-blob-token"));
 }

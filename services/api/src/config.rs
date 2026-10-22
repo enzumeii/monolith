@@ -32,6 +32,7 @@ pub struct ClientConfig {
     pub shopify: Option<ShopifyConfig>,
     pub resend: Option<ResendConfig>,
     pub stripe: Option<StripeConfig>,
+    pub vercel_blob: Option<VercelBlobConfig>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -73,6 +74,18 @@ impl std::fmt::Debug for ResendConfig {
 }
 
 #[derive(Deserialize, Clone)]
+pub struct VercelBlobConfig {
+    pub api_url: String,
+    pub timeout_secs: u64,
+    pub token: Option<String>,
+}
+impl std::fmt::Debug for VercelBlobConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("VercelBlobConfig { token: [REDACTED], .. }")
+    }
+}
+
+#[derive(Deserialize, Clone)]
 pub struct StripeConfig {
     pub base_url: String,
     pub timeout_secs: u64,
@@ -92,6 +105,19 @@ pub struct Settings {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub jwt: JwtSettings,
+    pub scheduler: SchedulerConfig,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct SchedulerConfig {
+    pub enabled: bool,
+    pub poll_interval_secs: u64,
+    pub concurrency: usize,
+    pub max_attempts: u32,
+    pub retry_backoff_secs: u64,
+    pub lease_secs: u64,
+    pub max_payload_bytes: usize,
+    pub max_email_bytes: usize,
 }
 
 impl JwtSettings {
@@ -110,6 +136,18 @@ impl JwtSettings {
 impl Settings {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.jwt.key()?;
+        if !(1..=86400).contains(&self.scheduler.poll_interval_secs)
+            || !(1..=32).contains(&self.scheduler.concurrency)
+            || !(1..=100).contains(&self.scheduler.max_attempts)
+            || !(1..=86400).contains(&self.scheduler.retry_backoff_secs)
+            || !(1..=86400).contains(&self.scheduler.lease_secs)
+            || self.scheduler.max_payload_bytes == 0
+            || self.scheduler.max_email_bytes == 0
+        {
+            return Err(ConfigError::Message(
+                "Scheduler intervals, limits, and concurrency must be positive and bounded".into(),
+            ));
+        }
         if let Some(sender) = &self.shipping_sender
             && [
                 &sender.name,
@@ -195,6 +233,9 @@ impl Settings {
         }
         if let Ok(client_secret) = env::var("PAYPAL_CLIENT_SECRET") {
             builder = builder.set_override("client.paypal.client_secret", client_secret)?;
+        }
+        if let Ok(token) = env::var("BLOB_READ_WRITE_TOKEN") {
+            builder = builder.set_override("client.vercel_blob.token", token)?;
         }
         if let Ok(key) = env::var("STRIPE_SECRET_KEY") {
             builder = builder.set_override("client.stripe.secret_key", key)?;

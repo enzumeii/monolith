@@ -303,7 +303,7 @@ button.logout {
 .admins-table td {
     text-align: left;
     padding: 0.55rem 0.6rem;
-    border-bottom: 1px solid var(--panel-border);
+    border: 1px solid var(--panel-border);
     font-size: 0.92rem;
 }
 
@@ -497,3 +497,79 @@ a:focus-visible {
 .accounting-group { max-width: none; margin-top: 1.5rem; }
 .accounting-report input[type="datetime-local"] { min-width: 0; width: 100%; }
 .accounting-report td { white-space: pre-wrap; min-width: 10ch; }
+
+.schedule-tabs, .schedule-actions, .schedule-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; }
+.schedule-tabs { margin-bottom: 1.5rem; gap: .35rem; padding: .35rem; border: 1px solid var(--panel-border); background: var(--panel); width: fit-content; }
+.schedule-tabs a { display: inline-flex; align-items: center; justify-content: center; min-height: 2.75rem; padding: .65rem 1.25rem; border: 1px solid var(--ghost-border); font-weight: 600; text-decoration: none; transition: background .15s, border-color .15s; }
+.schedule-tabs a:hover, .schedule-tabs a:focus-visible { background: var(--bg); border-color: var(--heading); outline: 2px solid var(--heading); outline-offset: 2px; }
+.schedule-tabs a[aria-current="page"] { background: var(--heading); color: var(--bg); border-color: var(--heading); }
+.popup-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.popup-header .modal-title { margin: 0; font-size: 1.35rem; }
+.popup-close { font-size: 1.5rem; line-height: 1; min-width: 2.75rem; min-height: 2.75rem; }
+dialog.popup { width: min(54rem, calc(100vw - 2rem)); max-width: none; max-height: calc(100dvh - 2rem); overflow-y: auto; padding: 1.5rem; }
+.popup .schedule-editor { margin: 0; max-width: none; }
+@media (max-width: 640px) { .schedule-tabs { width: 100%; } .schedule-tabs a { flex: 1; padding: .65rem .8rem; } dialog.popup { padding: 1rem; } }
+.schedule-filters { display: flex; flex-direction: row; flex-wrap: wrap; align-items: start; gap: 1rem; max-width: none; }
+.schedule-filters > div { flex: 1 1 9rem; }
+.schedule-filters label { display: block; }
+.schedule-pagination { margin: 1rem 0; }
+.scheduled-reports-page { max-width: 1280px; min-width: 0; }
+.schedule-table { width: 100%; }
+.schedule-table td { vertical-align: top; overflow-wrap: anywhere; }
+.schedule-table a { display: inline-block; }
+.schedule-table caption { text-align: left; padding: .75rem 0; }
+.report-files-compact { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; margin: 0; padding: 0; }
+.schedule-table .report-file-download { display: inline-flex; align-items: center; justify-content: center; width: 2.75rem; height: 2.75rem; border: 1px solid var(--ghost-border); color: var(--text); text-decoration: none; }
+.report-file-download:hover { background: var(--hover-bg); }
+.report-file-download:focus-visible { outline: 2px solid var(--heading); outline-offset: 2px; }
+.schedule-editor { margin-top: 1.5rem; max-width: 54rem; }
+.schedule-editor fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: .4rem; }
+.schedule-editor input, .schedule-editor select { width: 100%; }
+.schedule-editor .schedule-checkbox { display: flex; gap: .65rem; align-items: center; }
+.schedule-editor .schedule-checkbox input { width: auto; }
+.schedule-field-error { color: var(--danger, #b42318); }
+.schedule-field-error p { margin: .2rem 0 .75rem; }
+.schedule-preview { margin-top: 1rem; }
+.schedule-preview li { margin-bottom: .75rem; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+    .schedule-filters > div { flex-basis: 100%; }
+    .schedule-actions > button { flex: 1 1 auto; }
+    .schedule-table { min-width: 48rem; }
+}
+
+dialog.modal { color: var(--text); }
+dialog.modal:not(.popup) { max-width: min(400px, calc(100% - 2rem)); }
+
+dialog.modal::backdrop {
+    background: var(--modal-overlay-bg);
+}
+
+/* Shared calendar and 24-hour time controls. */
+.date-time-picker { display: grid; gap: .35rem; min-width: 0; }
+.date-time-disclosure summary { cursor: pointer; color: var(--text); padding: .65rem .8rem; border: 1px solid var(--ghost-border); min-height: 2.75rem; }
+.date-time-disclosure summary:hover { background: var(--bg); }
+.date-time-disclosure summary:focus-visible, .calendar-day:focus-visible { outline: 2px solid var(--heading); outline-offset: 2px; }
+.date-time-panel { padding: .75rem; border: 1px solid var(--panel-border); border-top: 0; background: var(--panel); }
+.calendar-navigation { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr) 5rem 2.75rem; gap: .35rem; align-items: center; }
+.calendar-navigation button { padding: .5rem; font-size: 1.3rem; }
+.calendar-navigation select, .calendar-year { min-width: 0; padding: .5rem .3rem; }
+.calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .15rem; margin: .6rem 0; text-align: center; }
+.calendar-weekday { font-size: .75rem; color: var(--muted); padding: .3rem 0; }
+.calendar-day { padding: .35rem 0; min-width: 0; min-height: 2.75rem; border: 1px solid transparent; }
+.calendar-day:hover { background: var(--bg); border-color: var(--heading); }
+.calendar-day[aria-pressed="true"] { background: var(--heading); color: var(--bg); border-color: var(--heading); font-weight: 700; }
+.time-picker { padding: 0; margin: .65rem 0 0; border: 0; min-width: 0; }
+.time-picker legend { font-size: .9rem; color: var(--muted); }
+.time-picker-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: .65rem; align-items: end; }
+.time-picker-fields.with-seconds { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); gap: .35rem; }
+.time-picker-fields.with-seconds select { min-width: 0; padding-right: .3rem; padding-left: .3rem; }
+.time-picker-fields label { display: block; margin: .15rem 0; }
+.time-picker-separator { padding-bottom: .6rem; }
+.calendar-actions { display: flex; gap: .65rem; justify-content: space-between; margin-top: .75rem; }
+.date-time-picker .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.schedule-filters > div:has(.date-time-picker) { flex-basis: 22rem; min-width: min(100%, 20rem); }
+@media (max-width: 400px) {
+    .date-time-panel { padding: .4rem; }
+    .calendar-navigation { grid-template-columns: 2.4rem minmax(0, 1fr) 4.6rem 2.4rem; gap: .2rem; }
+    .calendar-navigation button { min-width: 0; padding: .35rem; }
+}

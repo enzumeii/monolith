@@ -22,7 +22,14 @@ pub async fn reship(
         .ok_or_else(|| AppError::new(StatusCode::CONFLICT, "Order email missing"))?;
     let (subject, html) = notice(order.number);
     let email_id = resend
-        .send_email(None, &[email], &subject, &html)
+        .send_email(
+            resend_rs::types::CreateEmailBaseOptions::new(
+                "shipping@enzumeii.com",
+                [email],
+                &subject,
+            )
+            .with_html(&html),
+        )
         .await
         .map_err(|error| upstream(error))?;
     super::edit_order_tags(shopify, &order.id, &["RETURNED"], TagAction::Add).await?;

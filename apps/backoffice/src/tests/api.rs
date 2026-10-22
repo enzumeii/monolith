@@ -98,3 +98,57 @@ async fn unreachable_api_reports_a_safe_error() {
     assert_eq!(error.status, 503);
     assert_eq!(error.to_string(), "API unavailable");
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) async fn metadata_response<T>(
+    status: u16,
+    body: &str,
+    operation: impl std::future::Future<Output = T>,
+) -> (T, String) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+    let base_url = format!("http://{}/v1/", listener.local_addr().expect("address"));
+    let body = body.to_owned();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("connection");
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .expect("timeout");
+        let mut bytes = Vec::new();
+        loop {
+            let mut chunk = [0; 4096];
+            let count = stream.read(&mut chunk).expect("request");
+            assert!(count > 0, "request was incomplete");
+            bytes.extend_from_slice(&chunk[..count]);
+            if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                let headers = String::from_utf8_lossy(&bytes[..end]);
+                let length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().expect("length"))
+                    })
+                    .unwrap_or(0);
+                if bytes.len() >= end + 4 + length {
+                    break;
+                }
+            }
+        }
+        write!(
+            stream,
+            "HTTP/1.1 {status} Fixture\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .expect("response");
+        String::from_utf8(bytes).expect("UTF8 request")
+    });
+    let dom = VirtualDom::new(|| rsx! {}).with_root_context(Settings {
+        api: ApiConfig { base_url },
+    });
+    let mut operation = std::pin::pin!(operation);
+    let result =
+        futures::future::poll_fn(|cx| dom.in_scope(ScopeId::ROOT, || operation.as_mut().poll(cx)))
+            .await;
+    (result, server.join().expect("server"))
+}

@@ -333,3 +333,79 @@ fn accounting_has_no_navigation_entry_and_former_route_is_not_found() {
         crate::route::Route::NotFound { .. }
     ));
 }
+
+#[test]
+fn returning_to_convention_restores_inventory_controls() {
+    use dioxus::dioxus_core::Mutation;
+    dioxus::html::set_event_converter(Box::new(FormEventConverter));
+    let mut dom = VirtualDom::new(Reports);
+    let initial = dom.rebuild_to_vec();
+    let selector = initial
+        .edits
+        .iter()
+        .find_map(|edit| match edit {
+            Mutation::NewEventListener { name, id } if name == "change" => Some(*id),
+            _ => None,
+        })
+        .expect("report selector");
+    change(&dom, selector, "picklist");
+    pump(&mut dom);
+    change(&dom, selector, "convention");
+    pump(&mut dom);
+    let rendered = ReportRender::read(&dom);
+    for id in ["inventory-id", "report-page-size"] {
+        assert!(
+            rendered
+                .attributes
+                .iter()
+                .any(|(name, value)| name == "id" && value == id),
+            "missing {id}"
+        );
+    }
+    assert!(
+        !rendered
+            .attributes
+            .iter()
+            .any(|(name, value)| name == "id" && value == "report-tags")
+    );
+}
+
+#[test]
+fn invalid_inventory_submission_shows_recoverable_error() {
+    use dioxus::dioxus_core::Mutation;
+    dioxus::html::set_event_converter(Box::new(FormEventConverter));
+    let mut dom = VirtualDom::new(Reports);
+    dom.in_scope(ScopeId::ROOT, || {
+        *session::SESSION.write() = Some(viewer(1, u64::MAX));
+    });
+    let initial = dom.rebuild_to_vec();
+    let submit = initial
+        .edits
+        .iter()
+        .find_map(|edit| match edit {
+            Mutation::NewEventListener { name, id } if name == "submit" => Some(*id),
+            _ => None,
+        })
+        .expect("report form");
+    let data = dioxus::html::PlatformEventData::new(Box::new(String::new()));
+    dom.runtime().handle_event(
+        "submit",
+        Event::new(Rc::new(data) as Rc<dyn std::any::Any>, true),
+        submit,
+    );
+    pump(&mut dom);
+    let rendered = ReportRender::read(&dom);
+    assert!(
+        rendered
+            .text
+            .iter()
+            .any(|text| text.contains("Enter a positive numeric inventory ID"))
+    );
+    assert!(rendered.text.iter().any(|text| text == "Retry"));
+    assert!(
+        !rendered
+            .text
+            .iter()
+            .any(|text| text == "No products found.")
+    );
+}

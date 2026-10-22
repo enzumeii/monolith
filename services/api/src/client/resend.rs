@@ -43,17 +43,8 @@ impl ResendClient {
 
     pub async fn send_email(
         &self,
-        from: Option<&str>,
-        to: &[&str],
-        subject: &str,
-        email: &str,
+        options: impl Into<resend_rs::idempotent::Idempotent<CreateEmailBaseOptions>>,
     ) -> Result<EmailId, ClientError> {
-        let options = CreateEmailBaseOptions::new(
-            from.unwrap_or("shipping@enzumeii.com"),
-            to.iter().copied(),
-            subject,
-        )
-        .with_html(email);
         let response = tokio::time::timeout(self.timeout, self.inner.emails.send(options))
             .await
             .map_err(|source| {
@@ -84,4 +75,4 @@ impl From<resend_rs::Error> for ClientError {
 
 #[cfg(test)]
 #[path = "../tests/client/resend.rs"]
-mod tests;
+pub(crate) mod tests;

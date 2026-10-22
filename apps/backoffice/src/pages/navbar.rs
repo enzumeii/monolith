@@ -30,6 +30,7 @@ pub fn Navbar() -> Element {
                 Link { class: "tab", to: Route::Reports {}, "Reports" }
                 Link { class: "tab", to: Route::Orders {}, "Orders" }
                 Link { class: "tab", to: Route::Triggers {}, "Triggers" }
+                Link { class: "tab", to: Route::ScheduledReports { query: String::new() }, "Scheduled reports" }
                 Link { class: "tab", to: Route::Profile {}, "Profile" }
             }
             div { class: "topbar-actions",

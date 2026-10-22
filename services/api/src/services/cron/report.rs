@@ -1,0 +1,158 @@
+use crate::{
+    client::{ClientError, paypal::PaypalClient, shopify::ShopifyClient, stripe::StripeClient},
+    error::AppError,
+    models::{
+        cron::{
+            report::{ReportResult, ResultFilter},
+            report_type,
+        },
+        shopify::{Connection, PageRequest, ShopifyId},
+    },
+    repositories, services,
+};
+use axum::http::StatusCode;
+use chrono::NaiveDateTime;
+use chrono_tz::Asia::Bangkok;
+use domain::dto::{
+    AccountingReportResponse, ProductReportRow, ReportResultDTO, ScheduleReportType,
+};
+use sqlx::PgPool;
+use uuid::Uuid;
+
+pub(crate) enum Providers<'a> {
+    Inventory(&'a ShopifyClient),
+    Transaction {
+        shopify: &'a ShopifyClient,
+        stripe: &'a StripeClient,
+        paypal: &'a PaypalClient,
+    },
+}
+pub(crate) enum ReportData {
+    Inventory(Vec<ProductReportRow>),
+    Transaction(AccountingReportResponse),
+}
+#[derive(serde::Serialize)]
+pub struct ReportPage {
+    pub items: Vec<ReportResultDTO>,
+    pub page: u32,
+    pub per_page: u32,
+    pub has_next: bool,
+}
+pub(crate) async fn list(pool: &PgPool, filter: ResultFilter) -> Result<ReportPage, AppError> {
+    let mut records = repositories::report_results::list(pool, filter).await?;
+    let has_next = records.len() > filter.per_page as usize;
+    records.truncate(filter.per_page as usize);
+    Ok(ReportPage {
+        items: records
+            .into_iter()
+            .map(ReportResult::into_dto)
+            .collect::<Result<_, _>>()?,
+        page: filter.page,
+        per_page: filter.per_page,
+        has_next,
+    })
+}
+pub(crate) async fn detail(pool: &PgPool, id: Uuid) -> Result<ReportResultDTO, AppError> {
+    repositories::report_results::find(pool, id)
+        .await?
+        .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Report result not found"))?
+        .into_dto()
+}
+pub(crate) async fn generate(
+    audit: &ReportResult,
+    providers: Providers<'_>,
+) -> Result<ReportData, AppError> {
+    generate_report(audit, providers).await
+}
+
+pub(crate) fn storage_prefix(
+    kind: ScheduleReportType,
+    generated_at: NaiveDateTime,
+    id: Uuid,
+) -> String {
+    let day = generated_at
+        .and_utc()
+        .with_timezone(&Bangkok)
+        .format("%Y%m%d");
+    let report_type = match kind {
+        ScheduleReportType::Inventory => "inventory",
+        ScheduleReportType::Transaction => "transaction",
+    };
+    format!("{report_type}/{day}/{id}")
+}
+
+async fn generate_report(
+    audit: &ReportResult,
+    providers: Providers<'_>,
+) -> Result<ReportData, AppError> {
+    match (report_type(&audit.report_type)?, providers) {
+        (
+            ScheduleReportType::Transaction,
+            Providers::Transaction {
+                shopify,
+                stripe,
+                paypal,
+            },
+        ) => {
+            let range = crate::validations::cron::report::validate_saved_parameters(
+                ScheduleReportType::Transaction,
+                &audit.parameters,
+            )?
+            .ok_or_else(crate::models::cron::saved_invalid)?;
+            Ok(ReportData::Transaction(
+                services::accounting::report(shopify, stripe, paypal, range).await?,
+            ))
+        }
+        (ScheduleReportType::Inventory, Providers::Inventory(shopify)) => {
+            let id = &audit.parameters;
+            crate::validations::cron::report::validate_saved_parameters(
+                ScheduleReportType::Inventory,
+                id,
+            )?;
+            let location =
+                ShopifyId::new(format!("gid://shopify/Location/{id}")).map_err(|error| {
+                    AppError::new(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Saved inventory location is invalid",
+                    )
+                    .with_source(error)
+                })?;
+            let mut products = Vec::new();
+            services::pagination::for_each_page(
+                None,
+                async |after| {
+                    let page = services::inventories::inventory_report(
+                        shopify,
+                        location.clone(),
+                        PageRequest { first: 250, after },
+                    )
+                    .await?;
+                    if page.page_info.has_next_page && page.page_info.end_cursor.is_none() {
+                        return Err(AppError::new(
+                            StatusCode::BAD_GATEWAY,
+                            "Shopify inventory pagination cursor is missing",
+                        ));
+                    }
+                    Ok(Connection {
+                        nodes: page.products,
+                        page_info: page.page_info,
+                    })
+                },
+                |rows| {
+                    products.extend(rows);
+                    Ok(())
+                },
+                |error: ClientError| {
+                    AppError::new(
+                        StatusCode::BAD_GATEWAY,
+                        "Shopify inventory pagination cursor did not advance",
+                    )
+                    .with_source(error)
+                },
+            )
+            .await?;
+            Ok(ReportData::Inventory(products))
+        }
+        _ => Err(crate::models::cron::saved_invalid()),
+    }
+}

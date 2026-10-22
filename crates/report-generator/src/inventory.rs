@@ -1,5 +1,8 @@
-use crate::export::encode_table;
+use crate::csv::encode_table;
 use domain::dto::ProductReportRow;
+
+const NUMERIC_COLUMNS: &[usize] = &[5, 7, 9, 11, 12, 13];
+
 pub const HEADERS: [&str; 14] = [
     "category",
     "collection",
@@ -16,6 +19,7 @@ pub const HEADERS: [&str; 14] = [
     "total_selling_price",
     "total_weight",
 ];
+
 pub fn cells(row: &ProductReportRow) -> [String; 14] {
     [
         row.category.clone().unwrap_or_default(),
@@ -43,11 +47,13 @@ pub fn cells(row: &ProductReportRow) -> [String; 14] {
             .unwrap_or_default(),
     ]
 }
+
+#[must_use]
 pub fn encode(rows: &[ProductReportRow]) -> String {
     let rows = rows.iter().map(|row| cells(row).into()).collect::<Vec<_>>();
-    encode_table(&HEADERS, &rows)
+    encode_table(&HEADERS, &rows, NUMERIC_COLUMNS)
 }
 
 #[cfg(test)]
-#[path = "../../tests/pages/reports/csv.rs"]
+#[path = "tests/inventory.rs"]
 mod tests;

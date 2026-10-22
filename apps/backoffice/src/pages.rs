@@ -21,3 +21,8 @@ pub use reports::Reports;
 
 mod triggers;
 pub use triggers::Triggers;
+
+mod scheduled_reports;
+pub use scheduled_reports::{
+    ScheduledReportDetail, ScheduledReportHistory, ScheduledReports, use_scheduled_reports_history,
+};

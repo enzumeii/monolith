@@ -1,7 +1,7 @@
 use crate::{
     client::{
         ClientError, paypal::PaypalClient, resend::ResendClient, shopify::ShopifyClient,
-        stripe::StripeClient,
+        stripe::StripeClient, vercel_blob::VercelBlobClient,
     },
     config::Settings,
 };
@@ -15,6 +15,7 @@ pub struct AppState {
     pub paypal: Result<Option<Arc<PaypalClient>>, Arc<ClientError>>,
     pub resend: Result<Option<Arc<ResendClient>>, Arc<ClientError>>,
     pub stripe: Result<Option<Arc<StripeClient>>, Arc<ClientError>>,
+    pub vercel_blob: Result<Option<Arc<VercelBlobClient>>, Arc<ClientError>>,
     pub jwt_key: Arc<Vec<u8>>,
     pub settings: Arc<Settings>,
 }
@@ -40,9 +41,29 @@ pub fn app_state(pool: PgPool, settings: Settings) -> Result<AppState, config::C
             clients.and_then(|client| client.stripe.as_ref()),
             StripeClient::new,
         ),
+        vercel_blob: optional_client(
+            clients.and_then(|client| client.vercel_blob.as_ref()),
+            VercelBlobClient::new,
+        ),
         jwt_key,
         settings: Arc::new(settings),
     })
+}
+
+pub(crate) fn required_client<'a, T>(
+    client: &'a Result<Option<Arc<T>>, Arc<ClientError>>,
+    message: &'static str,
+) -> Result<&'a T, crate::error::AppError> {
+    client
+        .as_ref()
+        .map_err(|error| {
+            crate::error::AppError::new(axum::http::StatusCode::SERVICE_UNAVAILABLE, message)
+                .with_source(error.clone())
+        })?
+        .as_deref()
+        .ok_or_else(|| {
+            crate::error::AppError::new(axum::http::StatusCode::SERVICE_UNAVAILABLE, message)
+        })
 }
 
 fn optional_client<C, T>(

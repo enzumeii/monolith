@@ -3,21 +3,20 @@ use dioxus::prelude::*;
 use super::ErrorMessage;
 use crate::export::{ExportFormat, download, encode_table, encode_table_xlsx};
 
-#[derive(Clone, PartialEq)]
-pub struct TableData {
-    pub headers: &'static [&'static str],
-    pub rows: Vec<Vec<String>>,
-}
+pub use report_generator::Table as TableData;
 
 #[component]
 pub fn DataTable(
     table: TableData,
     children: Option<Element>,
     #[props(default = "Order report table".to_string())] label: String,
+    #[props(default)] caption: String,
+    #[props(default)] class: String,
 ) -> Element {
     rsx! {
         div { class: "report-scroll", tabindex: "0", role: "region", aria_label: "{label}",
-            table { class: "admins-table report-table",
+            table { class: "admins-table report-table {class}",
+                if !caption.is_empty() { caption { "{caption}" } }
                 thead { tr { for header in table.headers { th { "{header}" } } } }
                 if let Some(children) = children {
                     {children}

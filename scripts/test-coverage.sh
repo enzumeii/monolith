@@ -4,8 +4,8 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 crate=${1:?Expected crate name}
 mode=${2:-}
 case "$crate" in
-  api) module=services/api; excluded='apps/|crates/domain/';;
-  backoffice) module=apps/backoffice; excluded='services/|apps/client-ui/|crates/domain/';;
+  api) module=services/api; excluded='apps/|crates/domain/|crates/report-generator/';;
+  backoffice) module=apps/backoffice; excluded='services/|apps/client-ui/|crates/domain/|crates/report-generator/';;
   client-ui) module=apps/client-ui; excluded='services/|apps/backoffice/|crates/domain/';;
   domain) module=crates/domain; excluded='services/|apps/';;
   *) echo "Unknown crate: $crate" >&2; exit 2;;
