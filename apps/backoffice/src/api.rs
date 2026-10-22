@@ -1,8 +1,10 @@
 pub mod accounting;
 pub mod admins;
 pub mod auth;
+pub mod cron_configurations;
 pub mod inventories;
 pub mod orders;
+pub mod report_results;
 pub mod reports;
 pub use admins::{create_admin, delete_admin, list_admins, update_admin};
 pub use auth::{login, logout, refresh_session};
@@ -46,6 +48,20 @@ fn request(method: Method, path: &str) -> ApiResult<RequestBuilder> {
     #[cfg(target_arch = "wasm32")]
     let request = request.fetch_credentials_include();
     Ok(request)
+}
+fn uuid_request(method: Method, path: &str, id: &str) -> ApiResult<RequestBuilder> {
+    let valid = id.len() == 36
+        && id.bytes().enumerate().all(|(index, value)| match index {
+            8 | 13 | 18 | 23 => value == b'-',
+            _ => value.is_ascii_hexdigit(),
+        });
+    if !valid {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "Enter a valid record ID",
+        ));
+    }
+    request(method, &format!("{path}/{id}"))
 }
 async fn send(request: RequestBuilder) -> ApiResult<Response> {
     let response = request

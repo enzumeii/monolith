@@ -2,7 +2,10 @@ use dioxus::prelude::*;
 
 use crate::{
     components::NavLayout,
-    pages::{Accounting, Admins, Home, NotFound, Orders, Profile, Reports, Triggers},
+    pages::{
+        Accounting, Admins, Home, NotFound, Orders, Profile, Reports, ScheduledReportDetail,
+        ScheduledReportHistory, ScheduledReports, Triggers,
+    },
 };
 
 #[derive(Clone, Debug, PartialEq, Routable)]
@@ -20,6 +23,12 @@ pub enum Route {
     Orders {},
     #[route("/triggers")]
     Triggers {},
+    #[route("/scheduled-reports?:..query")]
+    ScheduledReports { query: String },
+    #[route("/scheduled-reports/history?:..query")]
+    ScheduledReportHistory { query: String },
+    #[route("/scheduled-reports/history/:id?:..query")]
+    ScheduledReportDetail { id: String, query: String },
     #[route("/profile")]
     Profile {},
     #[route("/:..segments")]

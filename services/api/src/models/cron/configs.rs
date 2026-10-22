@@ -29,7 +29,7 @@ impl CronConfiguration {
             receiver_email: self.receiver_email,
             parameter: self.parameter,
             enabled: self.enabled,
-            schedule_timezone: "Asia/Bangkok",
+            schedule_timezone: "Asia/Bangkok".into(),
             created_at: timestamp(self.created_at),
             updated_at: timestamp(self.updated_at),
         })

@@ -20,7 +20,7 @@ pub use cron::{
     SchedulePeriodMode, ScheduleReportType,
 };
 pub use error::ErrorResponse;
-pub use report_results::{ListReportResultsQuery, ReportFileDTO, ReportResultDTO};
+pub use report_results::{ListReportResultsQuery, ReportFileDTO, ReportResultDTO, ReportStatus};
 
 pub mod products;
 pub use products::ProductReportRow;
@@ -38,3 +38,7 @@ pub use pagination::PageInfo;
 #[cfg(test)]
 #[path = "tests/dto/cron.rs"]
 mod cron_tests;
+
+#[cfg(test)]
+#[path = "tests/dto/report_results.rs"]
+mod report_results_tests;
