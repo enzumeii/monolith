@@ -3,11 +3,7 @@ use dioxus::prelude::*;
 use super::ErrorMessage;
 use crate::export::{ExportFormat, download, encode_table, encode_table_xlsx};
 
-#[derive(Clone, PartialEq)]
-pub struct TableData {
-    pub headers: &'static [&'static str],
-    pub rows: Vec<Vec<String>>,
-}
+pub use report_generator::Table as TableData;
 
 #[component]
 pub fn DataTable(

@@ -1,0 +1,20 @@
+$kind: http-request
+description: Get independent audit metadata, one overall status, safe error and resolved parameters, and saved-file download URLs. Failed or pending reports can have no files.
+url: "{{server}}/v1/admin/cron/reports/:id"
+method: GET
+pathVariables:
+  - key: id
+    value: "{{report_result_id}}"
+    description: UUID returned by report history.
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Audit is independent", () => {
+        pm.response.to.have.status(200);
+        const result = pm.response.json();
+        pm.expect(result.files).to.be.an("array");
+        pm.expect(result).not.to.have.property("cron_name");
+        if (result.files.length) pm.environment.set("report_file_url", result.files[0].download_url);
+      });
+    language: text/javascript
+order: 8000

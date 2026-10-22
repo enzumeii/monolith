@@ -56,9 +56,13 @@ pub struct TestFixture {
     pool: PgPool,
     lock: Option<sqlx::PgConnection>,
     root: i64,
+    report_ids: std::sync::Mutex<Vec<Uuid>>,
     _api: Arc<TestApi>,
 }
 impl TestFixture {
+    pub fn own_report(&self, id: Uuid) {
+        self.report_ids.lock().unwrap().push(id);
+    }
     pub fn prefix(&self) -> &str {
         &self.prefix
     }
@@ -91,6 +95,7 @@ pub async fn fixture() -> TestFixture {
         prefix: format!("e{}", &Uuid::new_v4().simple().to_string()[..11]),
         lock: Some(lock),
         root: 0,
+        report_ids: std::sync::Mutex::new(Vec::new()),
         _api: api,
     };
     fixture.root = seed_admin(
@@ -106,6 +111,7 @@ impl Drop for TestFixture {
     fn drop(&mut self) {
         let url = self.url.clone();
         let prefix = self.prefix.clone();
+        let report_ids = self.report_ids.lock().unwrap().clone();
         let lock = self.lock.take();
         std::thread::spawn(move || {
             let runtime = tokio::runtime::Runtime::new().expect("cleanup runtime");
@@ -130,6 +136,22 @@ impl Drop for TestFixture {
                     .execute(&pool)
                     .await
                     .expect("owned row cleanup");
+                sqlx::query("DELETE FROM report_results WHERE id = ANY($2) OR id IN (SELECT job.id FROM cron_jobs job JOIN cron_configurations config ON job.cron_configuration_id=config.id WHERE left(config.name,12)=$1)")
+                    .bind(&prefix)
+                    .bind(&report_ids)
+                    .execute(&pool)
+                    .await
+                    .expect("owned scheduled report cleanup");
+                sqlx::query("DELETE FROM cron_jobs WHERE cron_configuration_id IN (SELECT id FROM cron_configurations WHERE left(name,12)=$1)")
+                    .bind(&prefix)
+                    .execute(&pool)
+                    .await
+                    .expect("owned scheduler job cleanup");
+                sqlx::query("DELETE FROM cron_configurations WHERE left(name,12)=$1")
+                    .bind(&prefix)
+                    .execute(&pool)
+                    .await
+                    .expect("owned schedule cleanup");
                 pool.close().await;
                 drop(lock);
             });
@@ -150,6 +172,9 @@ pub async fn client() -> TestClient {
     }
 }
 impl TestClient {
+    pub fn storage_base(&self) -> &str {
+        &self.api.storage_base
+    }
     pub fn logs(&self) -> String {
         std::fs::read_to_string(self.api.directory.join("api.log")).unwrap()
     }
@@ -401,6 +426,7 @@ impl Drop for TestUpstream {
 
 struct TestApi {
     process: Option<Child>,
+    storage_base: String,
     directory: std::path::PathBuf,
     base: String,
 }
@@ -424,7 +450,7 @@ async fn test_api() -> Arc<TestApi> {
     if let Some(api) = shared.upgrade() {
         return api;
     }
-    let api = start_api(ProviderConfig::default()).await;
+    let api = start_api(ProviderConfig::default(), None).await;
     *shared = Arc::downgrade(&api);
     api
 }
@@ -432,10 +458,13 @@ async fn test_api() -> Arc<TestApi> {
 pub async fn client_with_shopify(url: &str) -> TestClient {
     TestClient {
         http: reqwest::Client::new(),
-        api: start_api(ProviderConfig {
-            shopify_url: Some(url),
-            ..Default::default()
-        })
+        api: start_api(
+            ProviderConfig {
+                shopify_url: Some(url),
+                ..Default::default()
+            },
+            None,
+        )
         .await,
     }
 }
@@ -456,12 +485,25 @@ pub async fn client_with_providers(config: ProviderConfig<'_>) -> TestClient {
             .timeout(Duration::from_secs(45))
             .build()
             .unwrap(),
-        api: start_api(config).await,
+        api: start_api(config, None).await,
     }
 }
 
-async fn start_api(config: ProviderConfig<'_>) -> Arc<TestApi> {
+pub async fn client_with_scheduler(
+    config: ProviderConfig<'_>,
+    retry_backoff_secs: u64,
+) -> TestClient {
+    TestClient {
+        http: reqwest::Client::new(),
+        api: start_api(config, Some(retry_backoff_secs)).await,
+    }
+}
+
+async fn start_api(config: ProviderConfig<'_>, scheduler_backoff: Option<u64>) -> Arc<TestApi> {
     let shopify_url = config.shopify_url;
+    let poll_interval = if scheduler_backoff.is_some() { 1 } else { 3600 };
+    let scheduler_enabled = scheduler_backoff.is_some();
+    let retry_backoff_secs = scheduler_backoff.unwrap_or(1);
     let port = if shopify_url.is_some()
         || config.resend_url.is_some()
         || std::env::var("E2E_API_PORT").is_err()
@@ -490,10 +532,12 @@ async fn start_api(config: ProviderConfig<'_>) -> Arc<TestApi> {
         .email_timeout_secs
         .map(|secs| format!("\n[client.resend]\ntimeout_secs = {secs}\n"))
         .unwrap_or_default();
+    let storage_port = std::env::var("E2E_BLOB_PORT").unwrap_or_else(|_| "5434".into());
     let directory = std::env::temp_dir().join(format!("monolith-api-e2e-{}", Uuid::new_v4()));
     std::fs::create_dir(&directory).expect("create owned E2E configuration directory");
     let mut api = TestApi {
         process: None,
+        storage_base: format!("http://127.0.0.1:{storage_port}/"),
         directory,
         base: format!("http://127.0.0.1:{port}"),
     };
@@ -507,6 +551,18 @@ port = {port}
 [database]
 max_connections = 1
 min_connections = 1
+[scheduler]
+enabled = {scheduler_enabled}
+poll_interval_secs = {poll_interval}
+concurrency = 1
+max_attempts = 2
+retry_backoff_secs = {retry_backoff_secs}
+lease_secs = 5
+max_payload_bytes = 20971520
+max_email_bytes = 20971520
+[client.vercel_blob]
+api_url = "http://127.0.0.1:{storage_port}/"
+timeout_secs = 3
 [browser]
 public_origin = "http://127.0.0.1:8084"
 insecure_local = true
@@ -518,23 +574,46 @@ insecure_local = true
         ),
     )
     .expect("write non-secret E2E configuration");
+    assert!(
+        reqwest::get(format!("{}health", api.storage_base))
+            .await
+            .expect("Docker Blob health connection")
+            .status()
+            .is_success()
+    );
+
     api.process = Some(
         Command::new(env!("CARGO_BIN_EXE_api"))
             .current_dir(&api.directory)
             .env("DATABASE_URL", database_url())
             .env("JWT_SECRET", JWT_SECRET)
+            .env("BLOB_READ_WRITE_TOKEN", "vercel_blob_rw_local_synthetic")
             .env("RUST_LOG", "info")
-            .envs([
-                ("SHIPPING_SENDER_NAME", "Synthetic Sender"),
-                ("SHIPPING_SENDER_PHONE", "0000000000"),
-                ("SHIPPING_SENDER_EMAIL", "sender@example.test"),
-                ("SHIPPING_SENDER_ADDRESS", "123 Synthetic Street"),
-                ("SHIPPING_SENDER_SUB_DISTRICT", "Synthetic Subdistrict"),
-                ("SHIPPING_SENDER_DISTRICT", "Synthetic District"),
-                ("SHIPPING_SENDER_PROVINCE", "Synthetic Province"),
-                ("SHIPPING_SENDER_POSTCODE", "10100"),
-                ("SHIPPING_SENDER_COUNTRY_CODE", "TH"),
-            ])
+            .env_remove("SHIPPING_SENDER_NAME")
+            .env_remove("SHIPPING_SENDER_PHONE")
+            .env_remove("SHIPPING_SENDER_EMAIL")
+            .env_remove("SHIPPING_SENDER_ADDRESS")
+            .env_remove("SHIPPING_SENDER_SUB_DISTRICT")
+            .env_remove("SHIPPING_SENDER_DISTRICT")
+            .env_remove("SHIPPING_SENDER_PROVINCE")
+            .env_remove("SHIPPING_SENDER_POSTCODE")
+            .env_remove("SHIPPING_SENDER_COUNTRY_CODE")
+            .envs(
+                (!scheduler_enabled)
+                    .then_some([
+                        ("SHIPPING_SENDER_NAME", "Synthetic Sender"),
+                        ("SHIPPING_SENDER_PHONE", "0000000000"),
+                        ("SHIPPING_SENDER_EMAIL", "sender@example.test"),
+                        ("SHIPPING_SENDER_ADDRESS", "123 Synthetic Street"),
+                        ("SHIPPING_SENDER_SUB_DISTRICT", "Synthetic Subdistrict"),
+                        ("SHIPPING_SENDER_DISTRICT", "Synthetic District"),
+                        ("SHIPPING_SENDER_PROVINCE", "Synthetic Province"),
+                        ("SHIPPING_SENDER_POSTCODE", "10100"),
+                        ("SHIPPING_SENDER_COUNTRY_CODE", "TH"),
+                    ])
+                    .into_iter()
+                    .flatten(),
+            )
             .env_remove("SHOPIFY_ACCESS_TOKEN")
             .env_remove("RESEND_API_KEY")
             .env_remove("RESEND_BASE_URL")

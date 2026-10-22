@@ -29,7 +29,8 @@ pub fn router(state: AppState) -> Router {
             axum::http::header::CONTENT_TYPE,
             axum::http::header::AUTHORIZATION,
             axum::http::HeaderName::from_static(crate::middleware::cookies::MODE_HEADER),
-        ]);
+        ])
+        .expose_headers([axum::http::header::CONTENT_DISPOSITION]);
     Router::new()
         .merge(healthz::router())
         .nest("/v1", v1::router(&state))

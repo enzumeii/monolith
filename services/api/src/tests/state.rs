@@ -3,7 +3,7 @@ use super::*;
 use axum::http::StatusCode;
 use serde_json::json;
 fn settings(shopify: &serde_json::Value) -> Settings {
-    serde_json::from_value(json!({"client":{"shopify":shopify},"browser":{"public_origin":"http://localhost:8084","insecure_local":true},"server":{"host":"localhost","port":3000},"database":{"url":"unused","max_connections":1,"min_connections":1},"jwt":{"secret":"1111111111111111111111111111111111111111111111111111111111111111"}})).unwrap()
+    serde_json::from_value(json!({"client":{"shopify":shopify},"browser":{"public_origin":"http://localhost:8084","insecure_local":true},"server":{"host":"localhost","port":3000},"database":{"url":"unused","max_connections":1,"min_connections":1},"scheduler":{"enabled":false,"poll_interval_secs":1,"concurrency":1,"max_attempts":2,"retry_backoff_secs":1,"lease_secs":5,"max_payload_bytes":20_971_520,"max_email_bytes":20_971_520},"jwt":{"secret":"1111111111111111111111111111111111111111111111111111111111111111"}})).unwrap()
 }
 #[tokio::test]
 async fn state_reuses_shopify_client_and_preserves_optional_initialization_failures() {

@@ -1,3 +1,4 @@
+mod cron;
 mod inventories;
 mod orders;
 
@@ -8,6 +9,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .nest("/inventories", inventories::router())
         .nest("/orders", orders::router())
+        .nest("/cron", cron::router())
         .route(
             "/transactions",
             axum::routing::get(crate::handlers::accounting::report),

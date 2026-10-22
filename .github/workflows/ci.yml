@@ -61,6 +61,7 @@ jobs:
             api:
               - 'services/api/**'
               - 'crates/domain/**'
+              - 'crates/report-generator/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
@@ -69,6 +70,7 @@ jobs:
             backoffice:
               - 'apps/backoffice/**'
               - 'crates/domain/**'
+              - 'crates/report-generator/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
@@ -98,6 +100,11 @@ jobs:
         if: steps.changes.outputs.client-ui == 'true'
         working-directory: apps/client-ui
         run: just check
+      - name: Shared report generation check and test
+        working-directory: crates/report-generator
+        run: |
+          just check
+          just test
       - name: domain check
         working-directory: crates/domain
         run: just check

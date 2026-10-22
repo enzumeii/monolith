@@ -9,6 +9,7 @@ pub mod paypal;
 pub mod resend;
 pub mod shopify;
 pub mod stripe;
+pub mod vercel_blob;
 
 pub struct ClientError {
     kind: ClientErrorKind,

@@ -1,0 +1,17 @@
+$kind: http-request
+description: Calculate the next five Bangkok executions and reporting windows without writing records or calling providers.
+url: "{{server}}/v1/admin/cron/configs/preview?report_type=TRANSACTION&cron_expression=0%209%201%20*%20*&parameter=PREVIOUS_MONTH"
+method: GET
+queryParams:
+  report_type: TRANSACTION
+  cron_expression: "0 9 1 * *"
+  parameter: PREVIOUS_MONTH
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Preview has five occurrences", () => {
+        pm.response.to.have.status(200);
+        pm.expect(pm.response.json().occurrences).to.have.length(5);
+      });
+    language: text/javascript
+order: 3000

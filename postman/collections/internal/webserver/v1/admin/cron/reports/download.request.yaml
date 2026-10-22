@@ -1,0 +1,15 @@
+$kind: http-request
+description: Open the exact published CSV using the direct storage URL returned in files. No API authentication is sent. Start the local static host for local storage; storage errors are returned by that host.
+url: "{{report_file_url}}"
+method: GET
+auth:
+  type: noauth
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Direct stored CSV is available", () => {
+        pm.response.to.have.status(200);
+        pm.expect(pm.response.headers.get("Content-Type")).to.include("text/csv");
+      });
+    language: text/javascript
+order: 10000

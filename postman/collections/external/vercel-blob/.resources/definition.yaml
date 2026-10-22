@@ -1,0 +1,8 @@
+$kind: collection
+auth:
+  - id: 8025d452-33d8-4f58-98bb-ec4b2560b940
+    type: bearer
+    name: Blob write token
+    credentials:
+      token: "{{blob_token}}"
+order: 5000

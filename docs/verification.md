@@ -320,3 +320,35 @@ Endpoint tests use controlled Shopify/Resend servers and real PostgreSQL connect
 | Saved accounting request | Actual Postman HTTP collection request ran with inherited synthetic bearer token: populated200, empty200 and missing-PayPal503; each CLI exit0/zero request failures. Separate real-HTTP assertions checked populated/empty shapes and exact safe provider error; collection itself contains no test scripts |
 | Final local verification | Independent combined diff/consumer review found no gaps. Strict API check, workspace formatting, patch whitespace and Postman lint passed (19 internal/18 external, zero warnings/errors); six saved examples and all 11 external GraphQL query/variable pairs verified. CI for the final pushed source SHA is recorded separately |
 | Limits | Controlled localhost providers only; no live provider compatibility, merchant scope, cost, load, email or deployment claim. Native picker save/cancellation/focus remain manual/unverified this run: permitted tab Escape did not dismiss the native dialog. Browser fallback was exercised only in a disposable capability-disabled bundle |
+
+## ENZ-29 saved report history review remediation (2026-10-21)
+
+| Check | Evidence |
+| --- | --- |
+| Local checks | Strict API, domain native/WASM and backoffice native/WASM checks passed; backoffice tests passed (66 app, 14 domain unit/contract tests) and its browser bundle built |
+| API regression | 281 library tests and 120 real TCP E2E cases passed against controlled providers and Compose PostgreSQL; owned Compose services were removed afterwards |
+| Audit | Independent report metadata has no cron foreign key. Generation/email states and safe errors are checkpointed eagerly; failed generation retains attempted_at and a null generated_at. History filters, pagination, authorization, file selection, missing/corrupt files and obsolete query/route rejection are covered |
+| Files | Inventory CSV and transaction CSVs retain established columns, both transaction providers, currencies and items. Actual XLSX ZIP/XML checks cover named sheets and string/formula safety. Filesystem tests cover immutable bytes, partial directories, checksum errors and recovery/adoption |
+| Delivery recovery | Controlled SDK HTTP verifies CSV/XLSX attachment MIME and exact saved/downloaded bytes. Publication retry does not regenerate or repeat an accepted email. PostgreSQL tests cover audit rollback, stale tokens, frozen format/cursor, lease renewal, in-flight uncertainty, final-attempt expiry and audit-commit recovery |
+| Review regressions | Four new regressions were observed failing before fixes, then passed. Cancellation recovery uses the stored lease-expiry instant rather than wall-clock scheduling assumptions |
+| Fixture isolation | Ordinary E2E API processes explicitly disable scheduling; worker fixtures enable it. Scheduler defaults remain enabled. Publication retry retains its second attempt behind a controlled delay, then becomes due only after the storage blocker is removed |
+| CI recovery | Initial hosted runs exposed an existing reship call-count failure and then a publication-fixture race; the reship case passed on rerun. Fixture retry timing and scheduler isolation were corrected. Exact final-head CI is recorded separately |
+| Postman | Internal collection lint: 28 requests, zero errors/warnings. Isolated local execution: 9 real requests and 5 assertions passed; no cloud result upload |
+| Limits | Original unpublished migration was edited with explicit user authorization; no published database was migrated. Storage is an ignored local directory pending Vercel Blob configuration; retention and shared deployment storage remain deployment decisions. No manual UI test, live provider delivery, production deployment or merge was performed. Exact pushed-head CI is confirmed separately |
+
+
+## ENZ-29 simplified schema and services (2026-10-21)
+
+This contract supersedes the earlier ENZ-29 verification entry above.
+
+| Check | Evidence |
+| --- | --- |
+| Schema and ownership | Unpublished migration has 9 configuration, 9 job and 8 independent audit fields. Cron runtime, services/cron/{config,report,job}.rs and separate configuration/job/audit repositories match docs/cron.md. |
+| Local API | Strict check passed. Final native run passed 282 tests; the complete isolated TCP run passed 119 tests. After refining lease renewal timing, the slow-email TCP case passed again. |
+| Shared and UI | Domain native/WASM and report-generator native/WASM checks passed; 14 domain and 2 shared generator tests passed. Backoffice native/WASM checks, all 66 tests and browser build passed. Client UI strict check passed. |
+| Workflow tooling | All 60 tooling tests, actionlint, shellcheck and Bash syntax checks passed. The new provider-client skill passed its validator. |
+| Postman | All 28 internal requests linted without errors/warnings. An isolated real API/static-host run passed 9 requests and 6 assertions; direct storage requests carry no API Authorization header. No cloud result upload. |
+| Browser | Chromium exercised the actual backoffice CSV/XLSX save flow against an owned API, PostgreSQL and controlled Shopify HTTP server. Downloaded contents and filenames were inspected; XLSX has no formula cells. Accounting ZIP used a controlled API response: actual downloaded ZIP retains both CSV entries, 20/11 headers, negative refund quantity and leading-zero SKU. No page errors. |
+| Safety and recovery | Tests cover eager failures, one attempt budget, expired/fenced leases, a one-second lease renewal, immutable saved bytes/mail requests, private checkpoints, publication rollback, direct URL retention after config deletion, malformed metadata and revision-based catch-up. |
+| Isolation | API runs used dedicated enz29schema, enz29unit and enz29lease Compose projects/ports; owned containers and volumes were cleaned. Other worktrees were preserved. |
+| Limits | Native OS file picker was disabled in browser automation; the fallback save dialog was exercised. Live provider acceptance, Blob integration, production migration and deployment remain unverified. Exact pushed-head CI is recorded separately after publication. |

@@ -1,0 +1,8 @@
+$kind: http-request
+description: List admin scheduled report configurations. Pagination uses page=1 and per_page=25 by default; per_page is bounded to 100.
+url: "{{server}}/v1/admin/cron/configs?page=1&per_page=25"
+method: GET
+queryParams:
+  page: "1"
+  per_page: "25"
+order: 1000
