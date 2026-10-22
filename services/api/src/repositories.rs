@@ -8,18 +8,7 @@ use crate::config::Settings;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
 pub async fn create_pool(settings: &Settings) -> Result<PgPool, crate::error::AppError> {
-    tracing::info!(
-        max_connections = settings.database.max_connections,
-        min_connections = settings.database.min_connections,
-        "Initializing PostgreSQL connection pool..."
-    );
-
-    let pool = PgPoolOptions::new()
-        .max_connections(settings.database.max_connections)
-        .min_connections(settings.database.min_connections)
-        .connect(&settings.database.url)
-        .await
-        .map_err(|error| crate::error::AppError::from(error).context("connect database"))?;
+    let pool = connect_pool(settings).await?;
 
     sqlx::migrate!("./migrations")
         .run(&pool)
@@ -29,4 +18,19 @@ pub async fn create_pool(settings: &Settings) -> Result<PgPool, crate::error::Ap
     tracing::info!("Database migrations ran successfully");
 
     Ok(pool)
+}
+
+pub async fn connect_pool(settings: &Settings) -> Result<PgPool, crate::error::AppError> {
+    tracing::info!(
+        max_connections = settings.database.max_connections,
+        min_connections = settings.database.min_connections,
+        "Initializing PostgreSQL connection pool..."
+    );
+
+    PgPoolOptions::new()
+        .max_connections(settings.database.max_connections)
+        .min_connections(settings.database.min_connections)
+        .connect(&settings.database.url)
+        .await
+        .map_err(|error| crate::error::AppError::from(error).context("connect database"))
 }

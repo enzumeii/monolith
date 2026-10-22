@@ -1,5 +1,6 @@
 [package]
 name = "api"
+default-run = "api"
 version = "0.1.0"
 edition.workspace = true
 
@@ -42,7 +43,6 @@ zip = { version = "9.0", default-features = false, features = ["deflate"] }
 reqwest.workspace = true
 http-body-util = "0.1"
 temp-env = "0.3.6"
-tower = { version = "0.5", features = ["util"] }
 
 [[test]]
 name = "e2e"

@@ -1,42 +1,51 @@
+use std::fmt::Write;
+
 #[must_use]
 pub fn encode_table(headers: &[&str], rows: &[Vec<String>], numeric_columns: &[usize]) -> String {
-    let mut csv = format!(
-        "{}\r\n",
-        headers
-            .iter()
-            .map(|value| escape(value, false))
-            .collect::<Vec<_>>()
-            .join(",")
-    );
+    let mut csv = String::new();
+    let _ = write_row(&mut csv, headers, &[]);
     for row in rows {
-        csv.push_str(
-            &row.iter()
-                .enumerate()
-                .map(|(column, value)| escape(value, numeric_columns.contains(&column)))
-                .collect::<Vec<_>>()
-                .join(","),
-        );
-        csv.push_str("\r\n");
+        let _ = write_row(&mut csv, row, numeric_columns);
     }
     csv
 }
 
-fn escape(value: &str, numeric: bool) -> String {
-    let numeric = numeric && value.parse::<f64>().is_ok_and(f64::is_finite);
-    let guarded;
-    let value = if !numeric
-        && (value.starts_with(['\t', '\r']) || value.trim_start().starts_with(['=', '+', '-', '@']))
-    {
-        guarded = format!("'{value}");
-        &guarded
-    } else {
-        value
-    };
+pub fn write_row(
+    output: &mut impl Write,
+    values: impl IntoIterator<Item = impl AsRef<str>>,
+    numeric_columns: &[usize],
+) -> std::fmt::Result {
+    for (column, value) in values.into_iter().enumerate() {
+        if column != 0 {
+            output.write_char(',')?;
+        }
+        write_cell(output, value.as_ref(), numeric_columns.contains(&column))?;
+    }
+    output.write_str("\r\n")
+}
 
-    if value.contains([',', '\"', '\n', '\r']) {
-        format!("\"{}\"", value.replace('\"', "\"\""))
+fn write_cell(output: &mut impl Write, value: &str, numeric: bool) -> std::fmt::Result {
+    let numeric = numeric && value.parse::<f64>().is_ok_and(f64::is_finite);
+    let guarded = !numeric
+        && (value.starts_with(['\t', '\r'])
+            || value.trim_start().starts_with(['=', '+', '-', '@']));
+    let quoted = value.contains([',', '\"', '\n', '\r']);
+    if quoted {
+        output.write_char('"')?;
+    }
+    if guarded {
+        output.write_char('\'')?;
+    }
+    if quoted {
+        for (index, part) in value.split('"').enumerate() {
+            if index != 0 {
+                output.write_str("\"\"")?;
+            }
+            output.write_str(part)?;
+        }
+        output.write_char('"')
     } else {
-        value.to_owned()
+        output.write_str(value)
     }
 }
 

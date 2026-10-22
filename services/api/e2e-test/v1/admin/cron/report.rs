@@ -5,6 +5,35 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 #[tokio::test]
+async fn cron_consumes_invalid_oldest_job_and_completes_valid_work_in_one_invocation() {
+    let fixture = fixture().await;
+    let (url, _upstream) = inventory_upstream().await;
+    let mail = ReportMail::start("ok").await;
+    let client = worker(&url, &mail.url, 10).await;
+    let bad = queue(&fixture, &client, false).await;
+    sqlx::query("UPDATE cron_jobs SET scheduled_for=scheduled_for-INTERVAL '1 minute' WHERE cron_configuration_id=$1").bind(bad).execute(&fixture.pool()).await.unwrap();
+    sqlx::query("UPDATE cron_configurations SET parameter='invalid' WHERE id=$1")
+        .bind(bad)
+        .execute(&fixture.pool())
+        .await
+        .unwrap();
+    let good = queue(&fixture, &client, false).await;
+    assert_eq!(trigger(&client).await.status(), 400);
+    let bad_state: (String, Option<chrono::NaiveDateTime>) =
+        sqlx::query_as("SELECT status,lease_until FROM cron_jobs WHERE cron_configuration_id=$1")
+            .bind(bad)
+            .fetch_one(&fixture.pool())
+            .await
+            .unwrap();
+    assert_eq!(bad_state.0, "FAILED");
+    assert!(bad_state.1.is_none());
+    let (id, status): (Uuid, Option<String>) = sqlx::query_as("SELECT job.id,audit.status FROM cron_jobs job LEFT JOIN report_results audit ON audit.id=job.id WHERE job.cron_configuration_id=$1").bind(good).fetch_one(&fixture.pool()).await.unwrap();
+    fixture.own_report(id);
+    assert_eq!(status.as_deref(), Some("SUCCESS"));
+    assert_eq!(mail.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn email_failure_is_eager_and_retry_reuses_the_frozen_request_and_files() {
     let fixture = fixture().await;
     let (url, upstream) = inventory_upstream().await;
@@ -23,7 +52,7 @@ async fn email_failure_is_eager_and_retry_reuses_the_frozen_request_and_files() 
     let patched = client
         .send(authed_json(
             "PATCH",
-            &format!("/v1/admin/cron/configs/{config}"),
+            &format!("/api/v1/admin/cron/configs/{config}"),
             fixture.root_id(),
             AdminRole::SuperAdmin,
             &json!({"receiver_email":"changed@example.test","parameter":"999"}),
@@ -97,7 +126,7 @@ async fn dispatch_without_next_run_persists_generation_failure_and_delete_cancel
     client
         .send(authed_json(
             "DELETE",
-            &format!("/v1/admin/cron/configs/{config}"),
+            &format!("/api/v1/admin/cron/configs/{config}"),
             fixture.root_id(),
             AdminRole::SuperAdmin,
             &json!({}),
@@ -117,7 +146,7 @@ async fn dispatch_without_next_run_persists_generation_failure_and_delete_cancel
     let audit = body_json(
         get(
             &client,
-            &format!("/v1/admin/cron/reports/{id}"),
+            &format!("/api/v1/admin/cron/reports/{id}"),
             fixture.root_id(),
         )
         .await,
@@ -139,7 +168,7 @@ async fn history_has_one_status_and_direct_urls_for_multiple_saved_csv_files() {
     let detail = body_json(
         get(
             &client,
-            &format!("/v1/admin/cron/reports/{id}"),
+            &format!("/api/v1/admin/cron/reports/{id}"),
             fixture.root_id(),
         )
         .await,
@@ -171,13 +200,13 @@ async fn history_has_one_status_and_direct_urls_for_multiple_saved_csv_files() {
         );
         assert!(response.text().await.unwrap().contains("original"));
     }
-    let listed=body_json(get(&client,"/v1/admin/cron/reports?report_type=TRANSACTION&generated_from=2026-10-01T00%3A00%3A00%2B07%3A00&generated_to=2026-11-02T00%3A00%3A00%2B07%3A00&per_page=1",fixture.root_id()).await).await;
+    let listed=body_json(get(&client,"/api/v1/admin/cron/reports?report_type=TRANSACTION&generated_from=2026-10-01T00%3A00%3A00%2B07%3A00&generated_to=2026-11-02T00%3A00%3A00%2B07%3A00&per_page=1",fixture.root_id()).await).await;
     assert_eq!(listed["items"][0]["id"], id.to_string());
     assert_eq!(listed["has_next"], false);
     assert_eq!(
         get(
             &client,
-            &format!("/v1/admin/cron/reports/{id}/download"),
+            &format!("/api/v1/admin/cron/reports/{id}/download"),
             fixture.root_id()
         )
         .await
@@ -212,7 +241,7 @@ async fn history_query_validation_covers_invalid_dates_bounds_and_legacy_fields(
         assert_eq!(
             get(
                 &client,
-                &format!("/v1/admin/cron/reports?{query}"),
+                &format!("/api/v1/admin/cron/reports?{query}"),
                 fixture.root_id()
             )
             .await
@@ -224,7 +253,7 @@ async fn history_query_validation_covers_invalid_dates_bounds_and_legacy_fields(
     assert_eq!(
         get(
             &client,
-            "/v1/admin/cron/reports/not-a-uuid",
+            "/api/v1/admin/cron/reports/not-a-uuid",
             fixture.root_id()
         )
         .await
@@ -234,7 +263,7 @@ async fn history_query_validation_covers_invalid_dates_bounds_and_legacy_fields(
     assert_eq!(
         get(
             &client,
-            &format!("/v1/admin/cron/reports/{}", Uuid::new_v4()),
+            &format!("/api/v1/admin/cron/reports/{}", Uuid::new_v4()),
             fixture.root_id()
         )
         .await
@@ -242,11 +271,369 @@ async fn history_query_validation_covers_invalid_dates_bounds_and_legacy_fields(
         404
     );
     assert_eq!(
-        get(&client, "/v1/admin/report-results", fixture.root_id())
+        get(&client, "/api/v1/admin/report-results", fixture.root_id())
             .await
             .status(),
         404
     );
+}
+
+#[tokio::test]
+async fn cron_provider_failures_return_errors_and_persist_retryable_audits() {
+    let fixture = fixture().await;
+    for (failure, expected) in [
+        ("http", 502),
+        ("graphql", 502),
+        ("malformed", 502),
+        ("missing", 502),
+        ("shape", 502),
+        ("timeout", 504),
+    ] {
+        let (url, upstream) = crate::common::scripted_upstream(vec![], failure).await;
+        let client = crate::common::client_with_scheduler(
+            crate::common::ProviderConfig {
+                shopify_url: Some(&url),
+                ..Default::default()
+            },
+            60,
+        )
+        .await;
+        let config = queue(&fixture, &client, false).await;
+        let response = client
+            .send(
+                axum::http::Request::builder()
+                    .uri("/_cron")
+                    .header("authorization", "Bearer e2e-cron-secret")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), expected, "{failure}");
+        let body = body_json(response).await;
+        assert!(!body.to_string().contains("private"));
+        let (id, status, attempts): (Uuid, String, i32) = sqlx::query_as("SELECT job.id,job.status,job.attempts FROM cron_jobs job WHERE cron_configuration_id=$1")
+            .bind(config).fetch_one(&fixture.pool()).await.unwrap();
+        fixture.own_report(id);
+        assert_eq!(status, "FAILED", "{failure}");
+        assert_eq!(attempts, 1, "{failure}");
+        assert_ne!(upstream.requests().len(), 0);
+    }
+}
+
+#[tokio::test]
+async fn overlapping_cron_requests_share_claims_and_preserve_lease_renewal() {
+    let fixture = fixture().await;
+    let (url, _upstream) = inventory_upstream().await;
+    let mail = ReportMail::start("slow").await;
+    let client = worker(&url, &mail.url, 10).await;
+    let config = queue(&fixture, &client, false).await;
+    let (one, two) = tokio::join!(trigger(&client), trigger(&client));
+    assert_eq!(one.status(), 204);
+    assert_eq!(two.status(), 204);
+    let (id, count): (Uuid, i32) =
+        sqlx::query_as("SELECT id,attempts FROM cron_jobs WHERE cron_configuration_id=$1")
+            .bind(config)
+            .fetch_one(&fixture.pool())
+            .await
+            .unwrap();
+    fixture.own_report(id);
+    assert_eq!(count, 1);
+    assert_eq!(mail.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn invocation_deadline_cancels_work_and_later_http_trigger_recovers_checkpoint() {
+    let fixture = fixture().await;
+    let (url, _upstream) = inventory_upstream().await;
+    let mail = ReportMail::start("slow").await;
+    let limited = crate::common::client_with_scheduler(
+        crate::common::ProviderConfig {
+            shopify_url: Some(&url),
+            resend_url: Some(&mail.url),
+            resend_key: Some("re_e2e-fixture"),
+            email_timeout_secs: Some(10),
+            invocation_budget_secs: Some(6),
+            ..Default::default()
+        },
+        60,
+    )
+    .await;
+    let config = queue(&fixture, &limited, false).await;
+    let response = trigger(&limited).await;
+    assert_eq!(response.status(), 503);
+    assert!(
+        body_json(response).await["error"]
+            .as_str()
+            .unwrap()
+            .contains("invocation capacity")
+    );
+    let (id, initial_attempts): (Uuid, i32) =
+        sqlx::query_as("SELECT id,attempts FROM cron_jobs WHERE cron_configuration_id=$1")
+            .bind(config)
+            .fetch_one(&fixture.pool())
+            .await
+            .unwrap();
+    fixture.own_report(id);
+    assert_eq!(initial_attempts, 1);
+    // No worker may mark success after the invocation has returned.
+    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+    let status: String = sqlx::query_scalar("SELECT status FROM cron_jobs WHERE id=$1")
+        .bind(id)
+        .fetch_one(&fixture.pool())
+        .await
+        .unwrap();
+    assert_eq!(status, "PENDING");
+    let client = worker(&url, &mail.url, 10).await;
+    assert_eq!(trigger(&client).await.status(), 204);
+    assert_eq!(attempts(&fixture, id).await, 2);
+    let requests = mail.requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        requests[0].0["idempotency-key"],
+        requests[1].0["idempotency-key"]
+    );
+    assert_eq!(requests[0].1, requests[1].1);
+}
+
+#[tokio::test]
+async fn cron_blob_operation_failures_preserve_checkpoints_and_never_send_email() {
+    let fixture = fixture().await;
+    for (operation, failure, expected) in [
+        ("metadata", "http", 502),
+        ("metadata", "malformed", 502),
+        ("metadata", "timeout", 504),
+        ("upload", "http", 502),
+        ("upload", "malformed", 502),
+        ("upload", "timeout", 504),
+        ("recovery", "http", 502),
+        ("recovery", "malformed", 502),
+        ("recovery", "timeout", 504),
+        ("download", "http", 502),
+        ("download", "timeout", 504),
+        ("download", "checksum", 409),
+    ] {
+        let (url, upstream) = inventory_upstream().await;
+        let mail = ReportMail::start("ok").await;
+        let blob = crate::blob_fixture::Fixture::new().await;
+        blob.data.lock().unwrap().failure = Some((operation, failure));
+        let client = crate::common::client_with_scheduler(
+            crate::common::ProviderConfig {
+                shopify_url: Some(&url),
+                resend_url: Some(&mail.url),
+                resend_key: Some("re_e2e-fixture"),
+                email_timeout_secs: Some(10),
+                blob_url: Some(&blob.base),
+                ..Default::default()
+            },
+            86400,
+        )
+        .await;
+        let config = queue(&fixture, &client, false).await;
+        let response = trigger(&client).await;
+        assert_eq!(
+            response.status().as_u16(),
+            expected,
+            "{operation}/{failure}"
+        );
+        assert!(!body_json(response).await.to_string().contains("private"));
+        let (id, status, checkpoint): (Uuid, String, serde_json::Value) = sqlx::query_as(
+            "SELECT id,status,execution_checkpoint FROM cron_jobs WHERE cron_configuration_id=$1",
+        )
+        .bind(config)
+        .fetch_one(&fixture.pool())
+        .await
+        .unwrap();
+        fixture.own_report(id);
+        assert_eq!(status, "FAILED");
+        assert!(checkpoint.is_object());
+        let audit: (Option<chrono::NaiveDateTime>, serde_json::Value, String) =
+            sqlx::query_as("SELECT generated_at,files,error FROM report_results WHERE id=$1")
+                .bind(id)
+                .fetch_one(&fixture.pool())
+                .await
+                .unwrap();
+        assert!(audit.0.is_some());
+        assert_eq!(audit.1, json!([]));
+        assert_eq!(audit.2, "Stored report publication failed");
+        assert_eq!(mail.requests.lock().unwrap().len(), 0);
+        assert_eq!(upstream.requests().len(), 4);
+        let calls = blob.data.lock().unwrap().calls.clone();
+        let observed = if operation == "recovery" {
+            "metadata"
+        } else {
+            operation
+        };
+        assert!(calls.iter().any(|call| call == observed));
+        if operation == "upload" {
+            assert_eq!(calls, ["metadata", "upload", "metadata"]);
+        }
+    }
+}
+
+#[tokio::test]
+async fn cron_transaction_success_publishes_both_csvs_and_commits_mail_checkpoint() {
+    let fixture = fixture().await;
+    let (upstream, calls) = crate::v1::admin::transactions::Server::accounting(None).await;
+    let mail = ReportMail::start("ok").await;
+    let blob = crate::blob_fixture::Fixture::new().await;
+    let client = transaction_worker(&upstream.url, &mail.url, &blob.base).await;
+    let config = queue_transaction(&fixture, &client).await;
+    let response = trigger(&client).await;
+    let status = response.status();
+    let body = if status.is_success() {
+        Value::Null
+    } else {
+        body_json(response).await
+    };
+    assert_eq!(status, 204, "{body}; {}", client.logs());
+    let (id, status, checkpoint): (Uuid, String, Value) = sqlx::query_as(
+        "SELECT id,status,execution_checkpoint FROM cron_jobs WHERE cron_configuration_id=$1",
+    )
+    .bind(config)
+    .fetch_one(&fixture.pool())
+    .await
+    .unwrap();
+    fixture.own_report(id);
+    assert_eq!(status, "SUCCESS");
+    assert_eq!(checkpoint["mail"]["state"], "accepted", "{checkpoint}");
+    let audit: (String, Option<chrono::NaiveDateTime>, Value, Option<String>) =
+        sqlx::query_as("SELECT status,generated_at,files,error FROM report_results WHERE id=$1")
+            .bind(id)
+            .fetch_one(&fixture.pool())
+            .await
+            .unwrap();
+    assert_eq!(audit.0, "SUCCESS");
+    assert!(audit.1.is_some());
+    assert!(audit.3.is_none());
+    assert_eq!(audit.2.as_array().unwrap().len(), 2);
+    let data = blob.data.lock().unwrap();
+    assert_eq!(data.puts.len(), 2);
+    let transaction_csv = data
+        .objects
+        .iter()
+        .find(|(key, _)| key.ends_with("/transactions.csv"))
+        .unwrap()
+        .1;
+    let item_csv = data
+        .objects
+        .iter()
+        .find(|(key, _)| key.ends_with("/items.csv"))
+        .unwrap()
+        .1;
+    let transaction_csv = String::from_utf8(transaction_csv.clone()).unwrap();
+    let item_csv = String::from_utf8(item_csv.clone()).unwrap();
+    assert!(transaction_csv.starts_with("gateway,type,po_number,"));
+    assert!(transaction_csv.contains("STRIPE,SALE,") && transaction_csv.contains("PAYPAL,SALE,"));
+    assert!(transaction_csv.contains("ch_123") && transaction_csv.contains("pp_sale"));
+    assert!(item_csv.starts_with("quantity,price,currency,") && item_csv.contains("Keychain"));
+    drop(data);
+    let requests = mail.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let attachments = requests[0].1["attachments"].as_array().unwrap();
+    assert_eq!(attachments.len(), 2);
+    assert_eq!(attachments[0]["filename"], "transactions.csv");
+    assert_eq!(attachments[1]["filename"], "items.csv");
+    drop(requests);
+    assert_eq!(upstream.finish().await.len(), calls);
+}
+
+#[tokio::test]
+async fn cron_transaction_payment_failures_stop_before_checkpoint_publication_and_mail() {
+    let fixture = fixture().await;
+    for operation in [
+        "/payouts",
+        "/balance_transactions",
+        "/charges/ch_123",
+        "/refunds/re_123",
+        "/v1/oauth2/token",
+        "/v1/reporting/transactions",
+    ] {
+        for fault in [
+            "http",
+            "timeout",
+            "malformed",
+            "missing",
+            "shape",
+            "disconnect",
+            "refused",
+        ] {
+            let (upstream, calls) =
+                crate::v1::admin::transactions::Server::accounting(Some((operation, fault))).await;
+            let mail = ReportMail::start("ok").await;
+            let blob = crate::blob_fixture::Fixture::new().await;
+            let client = transaction_worker(&upstream.url, &mail.url, &blob.base).await;
+            let config = queue_transaction(&fixture, &client).await;
+            let response = trigger(&client).await;
+            assert_eq!(
+                response.status().as_u16(),
+                if fault == "timeout" { 504 } else { 502 },
+                "{operation}/{fault}"
+            );
+            assert_eq!(
+                body_json(response).await["error"],
+                "Upstream request failed"
+            );
+            let (id, status, checkpoint, attempts): (Uuid, String, Option<Value>, i32) = sqlx::query_as("SELECT id,status,execution_checkpoint,attempts FROM cron_jobs WHERE cron_configuration_id=$1").bind(config).fetch_one(&fixture.pool()).await.unwrap();
+            fixture.own_report(id);
+            assert_eq!(status, "FAILED", "{operation}/{fault}");
+            assert_eq!(attempts, 1);
+            assert!(checkpoint.is_none(), "{operation}/{fault}");
+            let audit: (String, Option<chrono::NaiveDateTime>, Value, String) = sqlx::query_as(
+                "SELECT status,generated_at,files,error FROM report_results WHERE id=$1",
+            )
+            .bind(id)
+            .fetch_one(&fixture.pool())
+            .await
+            .unwrap();
+            assert_eq!(audit.0, "FAILED");
+            assert!(audit.1.is_none());
+            assert_eq!(audit.2, json!([]));
+            assert_eq!(audit.3, "Report generation failed");
+            assert!(blob.data.lock().unwrap().calls.is_empty());
+            assert!(mail.requests.lock().unwrap().is_empty());
+            assert_eq!(upstream.finish().await.len(), calls, "{operation}/{fault}");
+        }
+    }
+}
+
+async fn transaction_worker(upstream: &str, mail: &str, blob: &str) -> TestClient {
+    crate::common::client_with_scheduler(
+        crate::common::ProviderConfig {
+            shopify_url: Some(&format!("{upstream}/graphql.json")),
+            stripe_url: Some(upstream),
+            paypal_url: Some(upstream),
+            resend_url: Some(mail),
+            resend_key: Some("re_e2e-fixture"),
+            email_timeout_secs: Some(10),
+            blob_url: Some(blob),
+            ..Default::default()
+        },
+        86400,
+    )
+    .await
+}
+
+async fn queue_transaction(fixture: &TestFixture, client: &TestClient) -> Uuid {
+    let response = client.send(authed_json("POST", "/api/v1/admin/cron/configs", fixture.root_id(), AdminRole::SuperAdmin,
+        &json!({"name":format!("{}-transaction",fixture.prefix()),"report_type":"TRANSACTION","cron_expression":"0 0 1 * *","receiver_email":"reports@example.test","parameter":"PREVIOUS_MONTH","enabled":false}))).await.unwrap();
+    assert_eq!(response.status(), 201);
+    let config = Uuid::parse_str(body_json(response).await["id"].as_str().unwrap()).unwrap();
+    sqlx::query("INSERT INTO cron_jobs (cron_configuration_id,scheduled_for) VALUES ($1,'2026-10-31 17:00:00')").bind(config).execute(&fixture.pool()).await.unwrap();
+    config
+}
+
+async fn trigger(client: &TestClient) -> axum::response::Response {
+    client
+        .send(
+            axum::http::Request::builder()
+                .uri("/_cron")
+                .header("authorization", "Bearer e2e-cron-secret")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
 }
 
 async fn inventory_upstream() -> (String, crate::common::ScriptedUpstream) {
@@ -275,7 +662,7 @@ async fn worker(url: &str, mail: &str, timeout: u64) -> TestClient {
     .await
 }
 async fn queue(fixture: &TestFixture, client: &TestClient, dispatch: bool) -> Uuid {
-    let response=client.send(authed_json("POST","/v1/admin/cron/configs",fixture.root_id(),AdminRole::SuperAdmin,&json!({
+    let response=client.send(authed_json("POST","/api/v1/admin/cron/configs",fixture.root_id(),AdminRole::SuperAdmin,&json!({
         "name":format!("{}-pipeline",fixture.prefix()),"report_type":"INVENTORY","cron_expression":"* * * * *",
         "receiver_email":"reports@example.test","parameter":"12345","enabled":dispatch
     }))).await.unwrap();
@@ -289,6 +676,21 @@ async fn queue(fixture: &TestFixture, client: &TestClient, dispatch: bool) -> Uu
     config
 }
 async fn wait(fixture: &TestFixture, client: &TestClient, config: Uuid, status: &str) -> Value {
+    let response = client
+        .send(
+            axum::http::Request::builder()
+                .uri("/_cron")
+                .header("authorization", "Bearer e2e-cron-secret")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        response.status().is_success() || response.status().is_server_error(),
+        "cron status: {}",
+        response.status()
+    );
     for _ in 0..400 {
         let id:Option<Uuid>=sqlx::query_scalar("SELECT id FROM cron_jobs WHERE cron_configuration_id=$1 ORDER BY scheduled_for LIMIT 1").bind(config).fetch_optional(&fixture.pool()).await.unwrap();
         if let Some(id) = id {
@@ -303,7 +705,7 @@ async fn wait(fixture: &TestFixture, client: &TestClient, config: Uuid, status: 
                 return body_json(
                     get(
                         client,
-                        &format!("/v1/admin/cron/reports/{id}"),
+                        &format!("/api/v1/admin/cron/reports/{id}"),
                         fixture.root_id(),
                     )
                     .await,

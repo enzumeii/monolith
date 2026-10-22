@@ -8,7 +8,11 @@ flowchart TD
   B["GET /v1/admin/cron/reports<br/>GET /{id}"] --> H
   H --> C["services/cron/config.rs"]
   H --> R["services/cron/report.rs"]
-  W["cron runtime<br/>polling · dispatch · leases · retry timing"] --> J["cron/job.rs<br/>claim · checkpoint · delivery"]
+  TRIGGER["Vercel: daily authenticated GET /_cron"] --> VERCEL["VercelCron: bounded awaited tick"]
+  VPS["VPS: periodic scheduler"] --> VPSCRON["VpsCron: normal tick"]
+  VERCEL --> W["Shared dispatch · leases · retries · executor"]
+  VPSCRON --> W
+  W --> J["cron/job.rs<br/>claim · checkpoint · delivery"]
   W --> C
   J --> R
   J --> E["services/cron/email.rs<br/>pure report email content"]
@@ -29,6 +33,7 @@ flowchart TD
 
 | Contract | Meaning |
 | --- | --- |
+| Invocation | Selected VPS or Vercel cron implementation shares one queue/executor. VPS polls every 10 seconds and retains hourly; Vercel has an authenticated daily UTC wake-up with 240-second budget and five-second retention reserve. Both evaluate stored Bangkok schedules. |
 | Config parameter | Transaction recurrence policy, or decimal inventory location ID. |
 | Report parameters | Resolved Bangkok range, or inventory ID. Range text is converted to a half-open interval internally. |
 | Status | One PENDING/SUCCESS/FAILED value per job/audit. SUCCESS requires generation, email provider acceptance and publication. |
@@ -37,6 +42,17 @@ flowchart TD
 | Formats | Scheduled output is CSV only. Backoffice manual XLSX remains a separate wrapper over shared projected rows. |
 | Config edits | Every edit starts a future revision; undispatched older backlog is discarded. Unstarted jobs use current configuration, started reports retain frozen context. |
 | Deletion | Cascade deletes jobs and cancels incomplete audits. Independent audits/published files remain. In-flight external sends cannot be recalled. |
+
+## Cron implementation selection
+
+| Cron contract | Behavior |
+| --- | --- |
+| Configuration | One existing typed reader composes application.toml and the local/prod overlay with trusted metadata and secret overrides; local configuration can select either cron implementation, while production selects Vercel |
+| VPS lifecycle | Startup owns scheduler and independent retention task handles; shutdown stops and awaits both before closing the database |
+| Vercel lifecycle | No background loops; VercelCron awaits shared bounded invocation through Vercel-only `/_cron` |
+| Disabled scheduler | Skip report dispatch/drain; shared refresh-token retention continues |
+| Settings | scheduler.implementation selects vps/vercel; poll_interval_secs, retention_interval_secs, invocation_budget_secs and retention_reserve_secs remain in the existing scheduler configuration; no extra application runtime/profile files |
+| Capacity | No new claims after deadline; owned async work is cancelled/joined. Partial provider acquisition is not resumable; repeated oversized jobs can exhaust attempts |
 
 ## Database fields
 

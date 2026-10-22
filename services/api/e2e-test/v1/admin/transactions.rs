@@ -22,7 +22,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-const URI: &str = "/v1/admin/transactions?date_from=2026-10-01T00%3A00%3A00%2B07%3A00&date_to=2026-10-31T23%3A59%3A59%2B07%3A00";
+const URI: &str = "/api/v1/admin/transactions?date_from=2026-10-01T00%3A00%3A00%2B07%3A00&date_to=2026-10-31T23%3A59%3A59%2B07%3A00";
 
 #[tokio::test]
 async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp() {
@@ -247,7 +247,7 @@ async fn transactions_rejects_each_query_rule_and_auth_before_provider_calls() {
         let response = client
             .send(authed(
                 "GET",
-                &format!("/v1/admin/transactions?{query}"),
+                &format!("/api/v1/admin/transactions?{query}"),
                 fixture.root_id(),
                 AdminRole::Admin,
             ))
@@ -359,7 +359,7 @@ async fn transactions_unavailable_configuration_is_safe() {
             client
                 .send(authed(
                     "GET",
-                    "/v1/admins",
+                    "/api/v1/admins",
                     fixture.root_id(),
                     AdminRole::SuperAdmin
                 ))
@@ -676,7 +676,7 @@ async fn transactions_paypal_long_ranges_exhaust_each_window_and_page_without_fx
     let response = client
         .send(authed(
             "GET",
-            "/v1/admin/transactions?date_from=2026-09-01T00:00:00Z&date_to=2026-11-15T00:00:00Z",
+            "/api/v1/admin/transactions?date_from=2026-09-01T00:00:00Z&date_to=2026-11-15T00:00:00Z",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -807,13 +807,40 @@ impl Step {
         self
     }
 }
-struct Server {
-    url: String,
+pub(crate) struct Server {
+    pub(crate) url: String,
     task: Option<JoinHandle<()>>,
     requests: Arc<Mutex<Vec<String>>>,
     stop: Option<oneshot::Sender<()>>,
 }
 impl Server {
+    pub(crate) async fn accounting(failure: Option<(&str, &'static str)>) -> (Self, usize) {
+        let mut steps = flow(true, true, false, false);
+        for step in &mut steps {
+            if step.path == "/v1/reporting/transactions" {
+                step.query
+                    .insert("end_date".into(), "2026-10-31T16:59:59.999999999Z".into());
+            }
+            if step.path == "/graphql.json" {
+                step.search_bounds = Some((
+                    "2026-10-01T00:00:00+07:00",
+                    "2026-10-31T23:59:59.999999999+07:00",
+                ));
+            }
+        }
+
+        if let Some((operation, fault)) = failure {
+            let stage = steps
+                .iter()
+                .position(|step| step.path == operation)
+                .unwrap();
+            steps.truncate(stage + 1);
+            steps[stage].reply = Reply::Fault(fault);
+        }
+        let calls = steps.len() - usize::from(failure.is_some_and(|(_, fault)| fault == "refused"));
+        (Self::start(steps).await, calls)
+    }
+
     async fn start(steps: Vec<Step>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -952,7 +979,7 @@ impl Server {
         })
         .await
     }
-    async fn finish(mut self) -> Vec<String> {
+    pub(crate) async fn finish(mut self) -> Vec<String> {
         let _ = self.stop.take().unwrap().send(());
         tokio::time::timeout(Duration::from_secs(3), self.task.take().unwrap())
             .await

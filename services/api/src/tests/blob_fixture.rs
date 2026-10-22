@@ -21,6 +21,8 @@ pub(crate) struct Data {
     pub fail_key: Option<String>,
     pub lost_response: bool,
     pub malformed: bool,
+    pub failure: Option<(&'static str, &'static str)>,
+    pub calls: Vec<String>,
 }
 #[derive(Clone)]
 struct Shared {
@@ -30,6 +32,10 @@ struct Shared {
 pub(crate) struct Fixture {
     pub base: String,
     pub data: Arc<Mutex<Data>>,
+    #[allow(
+        dead_code,
+        reason = "TCP tests exercise the running application client instead"
+    )]
     pub client: VercelBlobClient,
     task: tokio::task::JoinHandle<()>,
 }
@@ -75,6 +81,9 @@ async fn metadata(
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
 ) -> axum::response::Response {
+    if let Some(response) = failure(&shared, "metadata").await {
+        return response;
+    }
     assert_eq!(headers["authorization"], "Bearer synthetic-blob-token");
     assert_eq!(headers["x-api-version"], "13");
     let key = &query["url"];
@@ -90,6 +99,9 @@ async fn upload(
     Query(query): Query<HashMap<String, String>>,
     bytes: Bytes,
 ) -> axum::response::Response {
+    if let Some(response) = failure(&shared, "upload").await {
+        return response;
+    }
     assert_eq!(headers["authorization"], "Bearer synthetic-blob-token");
     assert_eq!(headers["x-api-version"], "13");
     assert_eq!(headers["x-vercel-blob-access"], "public");
@@ -122,6 +134,9 @@ async fn download(
     Path(key): Path<String>,
     headers: HeaderMap,
 ) -> axum::response::Response {
+    if let Some(response) = failure(&shared, "download").await {
+        return response;
+    }
     assert!(!headers.contains_key("authorization"));
     match shared.data.lock().unwrap().objects.get(&key) {
         Some(bytes) => {
@@ -129,4 +144,40 @@ async fn download(
         }
         None => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+async fn failure(shared: &Shared, operation: &str) -> Option<axum::response::Response> {
+    let fault = {
+        let mut data = shared.data.lock().unwrap();
+        data.calls.push(operation.to_owned());
+        data.failure
+    };
+    let (stage, kind) = fault?;
+    if stage == "recovery" {
+        if operation == "upload" {
+            return Some(StatusCode::SERVICE_UNAVAILABLE.into_response());
+        }
+        let uploaded = shared
+            .data
+            .lock()
+            .unwrap()
+            .calls
+            .iter()
+            .any(|call| call == "upload");
+        if operation != "metadata" || !uploaded {
+            return None;
+        }
+    } else if stage != operation {
+        return None;
+    }
+    Some(match kind {
+        "http" => (StatusCode::SERVICE_UNAVAILABLE, "private Blob failure").into_response(),
+        "malformed" => "{".into_response(),
+        "checksum" => "corrupt report bytes".into_response(),
+        "timeout" => {
+            tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+        _ => panic!("unknown Blob fixture failure"),
+    })
 }

@@ -1,0 +1,7 @@
+[application]
+name = "client-ui"
+out_dir = "dist"
+asset_dir = "assets"
+
+[web.app]
+title = "Enzumeii"

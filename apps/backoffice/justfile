@@ -47,3 +47,7 @@ _test:
     cargo test --locked -p domain --no-default-features
     env -u RUSTC_WRAPPER -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS cargo check --locked -p domain --no-default-features --target {{web_target}}
     cargo test --locked -p backoffice
+
+# Build the prefixed static Vercel bundle with production settings; optionally pass an owned public TOML.
+build-vercel config="application.prod.toml":
+    bash ../../scripts/build-vercel-ui.sh backoffice backoffice {{quote(config)}}

@@ -2,6 +2,35 @@
 
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
 
+## ENZ-27 static services and cron implementations — 2026-10-22 / 23
+
+The approved scope uses static CSR frontends and a single application configuration path. Only the cron implementation differs between VPS and Vercel. Earlier BFF, frontend-container and application-runtime-profile results are superseded. All results are local; no cloud link, deployment, production migration or publication was performed.
+
+| Evidence | Scope |
+| --- | --- |
+| Pinned Vercel 65.1.0 parser/resolver | Actual JSON resolves two `@vercel/static-build` services plus one `@vercel/container`, public API/app routes, zero bindings, service-local SPA/asset rules and one daily cron |
+| API final checks | Existing check recipe passes: 19 Python setup tests, dprint, Rust formatting and strict Clippy. Existing full test recipe exits 0: 311 native tests and 135 real-TCP tests, zero failed/ignored; TCP phase 602.84s and owned Compose database/Blob/network/volume removed |
+| Independent review | Final scoped source review found zero Important/Critical findings; all 271 backend freeze fingerprints match. Earlier build-host PATH finding was fixed and rechecked through the public helper and actual AL2023 builds |
+| Postman | CLI lint passes all 49 requests and the 28-request internal collection. Final owned local health/cron execution passes 2 requests and 3 assertions, zero failed; its Compose project removed and no cloud results uploaded |
+| Frontend checks | Both existing app check/test recipes and ordinary web-only builds pass; 117 backoffice tests, 8 client tests and 17 domain tests. No frontend API binding is required |
+| Production CSR outputs | Both shared-script builds pass; actual JS/WASM/CSS/config paths use `/backoffice/assets/` or `/user/assets/`. Output contains only public files, production `/api/v1` and no native server. Local TOML restored after success and forced builder failure |
+| Amazon Linux compatibility | AL2023, aarch64, glibc 2.34, Rust 1.99.0 and source-built dx 0.7.10. Under two-CPU/8GiB limits: fresh dx source compilation/install 5m43s, uncached backoffice 49.5s and client 28.4s; peak memory 3.08GiB, exit 0 and no OOM |
+| Compatibility limits | Rust toolchain and registry sources were cached for the constrained run; dx executable and app builds were fresh. Local image installed compiler/development prerequisites. Vercel's exact image, hosted x86 build and deployment remain unverified |
+| Actual unlinked services | Static roots/nested routes/config 200, every generated asset's HTTP bytes match local output, missing assets 404 and unknown `/api/*` 404. Development-only static commands read the same route configuration; deployed services remain static |
+| Public API transport | Actual local cookie login/refresh/logout, HttpOnly/Path=/SameSite=Lax, bearer access/rotation, bad bearer 401, foreign-origin 403, ADMIN create 403; authenticated cron 204/no-store and missing/wrong authorization 401, POST 405. The same checks pass again against final cron-only API image sha256:249c1290f8534d7fa6a0d06b868d0b93efd7b8cf7444f29869a75bca81defc04 |
+| Final API image | Non-root UID10001, CA/OpenSSL libraries resolved, common/prod TOML readable and RUN_ENV=prod; command api server connects without migrations. All 271 final backend source fingerprints match |
+| Final v11 browser | Actual unlinked Vercel: SUPER_ADMIN login displays owned report metadata; nested history reload restores session and authenticated row; logout returns login. Prior static CSR checks include invalid configuration → Retry → restored configuration and direct download |
+| Root checks | Final actionlint, shellcheck, Bash syntax, 92 Node policy tests and pinned Vercel parser/resolver pass; final diff whitespace check passes |
+| Manual Release deployment | Nine controlled local regressions pass: separate release/deployment concurrency groups, manual/main/commit/permission isolation, all three missing secrets fail before any command, one root production CLI call for all services, and install/config/build failures propagate without a success summary. Existing release publication tests pass unchanged; no hosted dispatch/deployment, cloud link or secret setup was performed |
+| Public schema boundary | Current public schema includes services but declares draft04; installed AJV cannot load its meta-schema. CLI validation passes independently; full public-schema validation is not asserted |
+| Download | API metadata returns controlled direct storage URL; downloaded 33-byte CSV and attachment header match SHA256 d3967d5fadc4ac3b928d5f9c108c427ac411753891674dada51416d328e5b136 |
+| Build limits | Official Basic machine: 2vCPU/8GB, 32GB disk; build step 45min. Local artifact footprint fits below 32GB, but disk quota was not enforced and hosted resource behavior is unverified |
+| Root routing limit | Unlinked dev can serve repository directory HTML 200 at `/`; hosted production 404 remains unverified |
+| Cleanup | Owned local Vercel/CSV processes stopped, browser database and resource-proof container removed; no owned verification ports/listeners remain. Synthetic root env and credentials removed only after hash checks; images, caches, artifacts and unrelated containers preserved |
+| Evidence files | Commands, exits, source snapshots and detailed limits are retained under ignored `.superpowers/sdd/2026-10-22-ENZ-27-vercel-services/v10/platform/`; final API/cron suite and browser receipts are under v11/backend and v11/verification |
+
+Compatibility boundaries follow the official [build-image documentation](https://vercel.com/docs/builds/build-image), [build machines](https://vercel.com/docs/builds/managing-builds) and [build limits](https://vercel.com/docs/limits). Local builds, parser validation and unlinked development do not establish hosted deployment behavior.
+
 ## ENZ-26 — 2026-10-20 / 21
 
 | Local evidence | Result |
@@ -317,7 +346,7 @@ Endpoint tests use controlled Shopify/Resend servers and real PostgreSQL connect
 | Static scope | Domain `just check`, workspace formatting and patch whitespace checks passed; shared DTOs and feature-specific export mappings are unchanged |
 | Browser accounting | Real built UI and real API with controlled Stripe/PayPal/Shopify: populated Stripe1/PayPal0/Items1, all-empty export disabled, sanitized failure/Retry, loading/export disabled. Actual ZIP872 bytes has exactly transactions.csv/items.csv,20/11 headers and one row each |
 | Browser XLSX | Reports fallback Save report as, filename/format selection and restored button focus verified in a disposable capability-disabled bundle. Actual XLSX5700 bytes:14headers/one row, expected shared strings, string headers and zero formula cells |
-| Saved accounting request | Actual Postman HTTP collection request ran with inherited synthetic bearer token: populated200, empty200 and missing-PayPal503; each CLI exit0/zero request failures. Separate real-HTTP assertions checked populated/empty shapes and exact safe provider error; collection itself contains no test scripts |
+| Saved accounting request | Actual Postman HTTP collection request ran with inherited synthetic bearer token: populated200, empty200 and missing-PayPal503; each CLI exit 0/zero request failures. Separate real-HTTP assertions checked populated/empty shapes and exact safe provider error; collection itself contains no test scripts |
 | Final local verification | Independent combined diff/consumer review found no gaps. Strict API check, workspace formatting, patch whitespace and Postman lint passed (19 internal/18 external, zero warnings/errors); six saved examples and all 11 external GraphQL query/variable pairs verified. CI for the final pushed source SHA is recorded separately |
 | Limits | Controlled localhost providers only; no live provider compatibility, merchant scope, cost, load, email or deployment claim. Native picker save/cancellation/focus remain manual/unverified this run: permitted tab Escape did not dismiss the native dialog. Browser fallback was exercised only in a disposable capability-disabled bundle |
 

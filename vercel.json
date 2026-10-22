@@ -1,0 +1,94 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "backoffice": {
+      "root": "apps/backoffice/vercel",
+      "installCommand": "true",
+      "buildCommand": "bash ../../../scripts/build-vercel-ui.sh backoffice backoffice",
+      "outputDirectory": "public",
+      "routes": [
+        {
+          "handle": "filesystem"
+        },
+        {
+          "src": "/backoffice/assets/.*",
+          "status": 404
+        },
+        {
+          "src": "/backoffice(?:/.*)?",
+          "dest": "/backoffice/index.html"
+        }
+      ],
+      "devCommand": "node ../../../scripts/serve-vercel-ui.mjs backoffice"
+    },
+    "client-ui": {
+      "root": "apps/client-ui/vercel",
+      "installCommand": "true",
+      "buildCommand": "bash ../../../scripts/build-vercel-ui.sh client-ui user",
+      "outputDirectory": "public",
+      "routes": [
+        {
+          "handle": "filesystem"
+        },
+        {
+          "src": "/user/assets/.*",
+          "status": 404
+        },
+        {
+          "src": "/user(?:/.*)?",
+          "dest": "/user/index.html"
+        }
+      ],
+      "devCommand": "node ../../../scripts/serve-vercel-ui.mjs client-ui"
+    },
+    "api": {
+      "root": ".",
+      "runtime": "container",
+      "entrypoint": "Dockerfile.api.vercel"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/_cron",
+      "destination": {
+        "service": "api"
+      }
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": {
+        "service": "api"
+      }
+    },
+    {
+      "source": "/backoffice",
+      "destination": {
+        "service": "backoffice"
+      }
+    },
+    {
+      "source": "/backoffice/(.*)",
+      "destination": {
+        "service": "backoffice"
+      }
+    },
+    {
+      "source": "/user",
+      "destination": {
+        "service": "client-ui"
+      }
+    },
+    {
+      "source": "/user/(.*)",
+      "destination": {
+        "service": "client-ui"
+      }
+    }
+  ],
+  "crons": [
+    {
+      "path": "/_cron",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}

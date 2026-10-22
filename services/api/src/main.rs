@@ -22,30 +22,31 @@ async fn main() -> std::process::ExitCode {
     }
 }
 async fn run() -> Result<(), AppError> {
+    let command = api::startup::Command::parse(std::env::args().skip(1))?;
+    let deployed = command.deployed;
     let settings =
         Settings::new().map_err(|error| AppError::from(error).context("load API configuration"))?;
-    let pool = repositories::create_pool(&settings).await?;
+    let pool = if deployed {
+        repositories::connect_pool(&settings).await?
+    } else {
+        repositories::create_pool(&settings).await?
+    };
     tracing::info!("Database connection pool established");
-    let address = format!("{}:{}", settings.server.host, settings.server.port);
+    let port = if deployed {
+        std::env::var("PORT")
+            .map_or(Ok(80), |port| port.parse::<u16>())
+            .map_err(|error| {
+                AppError::from(anyhow::Error::new(error)).context("read server PORT")
+            })?
+    } else {
+        settings.server.port
+    };
+    let address = format!("{}:{port}", settings.server.host);
     let listener = TcpListener::bind(&address)
         .await
         .map_err(|error| AppError::from(error).context("bind API listener"))?;
     let state = app_state(pool.clone(), settings)?;
-    let maintenance_pool = pool.clone();
-    let maintenance = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
-        loop {
-            interval.tick().await;
-            if let Err(failure) = api::cleanup_refresh_tokens(&maintenance_pool).await {
-                error::log_background_error("refresh token retention", &failure);
-            }
-        }
-    });
-    let scheduler = state
-        .settings
-        .scheduler
-        .enabled
-        .then(|| tokio::spawn(api::run_scheduler(state.clone())));
+    let cron = api::CronTasks::start(&state);
     let router = routes::router(state);
     tracing::info!(%address,"API listening");
     let result = axum::serve(listener, router)
@@ -55,15 +56,8 @@ async fn run() -> Result<(), AppError> {
             }
         })
         .await;
-    maintenance.abort();
-    let _ = maintenance.await;
-    if let Some(scheduler) = scheduler {
-        scheduler.abort();
-        let _ = scheduler.await;
-    }
-    if result.is_ok() {
-        pool.close().await;
-    }
+    cron.shutdown().await;
+    pool.close().await;
     result.map_err(|error| AppError::from(error).context("serve API"))?;
     Ok(())
 }

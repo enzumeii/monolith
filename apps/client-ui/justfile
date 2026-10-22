@@ -1,11 +1,14 @@
-# Default target
+web_target := "wasm32-unknown-unknown"
+
+# List available client commands.
 default:
     @just --list
 
-# Check: format check + lint check (no changes)
+# Check formatting and strict native/WASM lint.
 check:
     cargo fmt --check -p client-ui
     cargo clippy --locked -p client-ui --all-targets -- -D warnings
+    cargo clippy --locked -p client-ui --target {{web_target}} --all-targets -- -D warnings
 
 # Fix: apply format fix + lint fix
 fix:
@@ -20,3 +23,22 @@ test coverage="":
 [private]
 _test:
     cargo test --locked -p client-ui
+
+# Build the prefixed static Vercel bundle with production settings; optionally pass an owned public TOML.
+build-vercel config="application.prod.toml":
+    bash ../../scripts/build-vercel-ui.sh client-ui user {{quote(config)}}
+
+# Build the client-only web bundle for local use.
+build:
+    dx build --web --package client-ui
+
+# Serve the client shell using the local public application.toml.
+serve:
+    dx serve --web --addr 127.0.0.1 --port 8085
+
+# Check pinned Dioxus and the installed WASM target before local development.
+setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v dx >/dev/null || { echo 'Install dioxus-cli 0.7.10 first'; exit 1; }
+    rustup target list --installed | rg -q '^{{web_target}}$' || { echo 'Run rustup target add {{web_target}} first'; exit 1; }

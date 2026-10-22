@@ -1,17 +1,17 @@
 name: Release
 
 on:
+  workflow_dispatch:
   pull_request_target:
     types: [closed]
     branches: [main]
 
-concurrency:
-  group: main-releases
-  cancel-in-progress: false
-
 jobs:
   release:
-    if: github.event.pull_request.merged == true
+    concurrency:
+      group: main-releases
+      cancel-in-progress: false
+    if: github.event_name == 'pull_request_target' && github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -41,3 +41,46 @@ jobs:
             const {publishReleases} = require('./.github/scripts/release.cjs');
             const result = await publishReleases({github, ...context.repo, commits});
             core.info(JSON.stringify(result));
+
+  deploy:
+    concurrency:
+      group: vercel-production-deployments
+      cancel-in-progress: false
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Validate Vercel deployment credentials
+        shell: bash
+        run: |
+          for name in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
+            if [ -z "${!name}" ]; then
+              printf '::error::Missing required GitHub Actions secret: %s\n' "$name" >&2
+              exit 1
+            fi
+          done
+      - name: Check out the selected main commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install pinned Vercel CLI and validate services
+        shell: bash
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run check:vercel
+      - name: Deploy all services to production
+        shell: bash
+        run: |
+          deployment_url="$(./node_modules/.bin/vercel deploy --prod --yes)"
+          printf '### Vercel production deployment\n\n%s\n\nServices: backoffice, client-ui, api.\n' "$deployment_url" >> "$GITHUB_STEP_SUMMARY"

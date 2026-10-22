@@ -1,7 +1,7 @@
 name: Local
 values:
   - key: server
-    value: 'localhost:3000'
+    value: 'http://localhost:3000/api'
   - key: shopify
     value: 'https://enzumeii.myshopify.com/admin/api/2026-10'
   - key: resend
@@ -12,3 +12,9 @@ values:
     value: 'https://api.stripe.com/v1'
   - key: blob_api
     value: ''
+  - key: cron_server
+    value: 'http://localhost:3000'
+  - key: cron_secret
+    value: ''
+  - key: api_server
+    value: 'http://localhost:3000'

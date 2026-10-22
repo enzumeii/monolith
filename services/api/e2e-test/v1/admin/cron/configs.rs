@@ -18,7 +18,7 @@ async fn admin_can_create_preview_list_patch_and_delete_new_contract() {
         .fetch_one(&fixture.pool())
         .await
         .unwrap();
-    let preview=client.send(authed_json("GET","/v1/admin/cron/configs/preview?report_type=TRANSACTION&cron_expression=0%209%201%20*%20*&parameter=PREVIOUS_MONTH",admin,AdminRole::Admin,&json!({}))).await.unwrap();
+    let preview=client.send(authed_json("GET","/api/v1/admin/cron/configs/preview?report_type=TRANSACTION&cron_expression=0%209%201%20*%20*&parameter=PREVIOUS_MONTH",admin,AdminRole::Admin,&json!({}))).await.unwrap();
     assert_eq!(preview.status(), 200);
     assert_eq!(
         body_json(preview).await["occurrences"]
@@ -34,7 +34,7 @@ async fn admin_can_create_preview_list_patch_and_delete_new_contract() {
             .unwrap(),
         before
     );
-    let created=client.send(authed_json("POST","/v1/admin/cron/configs",admin,AdminRole::Admin,&json!({
+    let created=client.send(authed_json("POST","/api/v1/admin/cron/configs",admin,AdminRole::Admin,&json!({
         "name":format!("{}-config",fixture.prefix()),"report_type":"TRANSACTION","cron_expression":"0 9 1 * *",
         "receiver_email":"reports@example.test","parameter":"PREVIOUS_MONTH"
     }))).await.unwrap();
@@ -52,13 +52,13 @@ async fn admin_can_create_preview_list_patch_and_delete_new_contract() {
     ] {
         assert!(created.get(removed).is_none());
     }
-    let patched=client.send(authed_json("PATCH",&format!("/v1/admin/cron/configs/{id}"),admin,AdminRole::Admin,&json!({"report_type":"INVENTORY","parameter":"123","cron_expression":"0 9 * * *","enabled":true}))).await.unwrap();
+    let patched=client.send(authed_json("PATCH",&format!("/api/v1/admin/cron/configs/{id}"),admin,AdminRole::Admin,&json!({"report_type":"INVENTORY","parameter":"123","cron_expression":"0 9 * * *","enabled":true}))).await.unwrap();
     assert_eq!(patched.status(), 200);
     assert_eq!(body_json(patched).await["enabled"], true);
     let listed = client
         .send(authed_json(
             "GET",
-            "/v1/admin/cron/configs?enabled=true&report_type=INVENTORY&per_page=1",
+            "/api/v1/admin/cron/configs?enabled=true&report_type=INVENTORY&per_page=1",
             admin,
             AdminRole::Admin,
             &json!({}),
@@ -70,7 +70,7 @@ async fn admin_can_create_preview_list_patch_and_delete_new_contract() {
     let got = client
         .send(authed_json(
             "GET",
-            &format!("/v1/admin/cron/configs/{id}"),
+            &format!("/api/v1/admin/cron/configs/{id}"),
             admin,
             AdminRole::Admin,
             &json!({}),
@@ -82,7 +82,7 @@ async fn admin_can_create_preview_list_patch_and_delete_new_contract() {
         let response = client
             .send(authed_json(
                 method,
-                &format!("/v1/admin/cron/configs/{id}"),
+                &format!("/api/v1/admin/cron/configs/{id}"),
                 admin,
                 AdminRole::Admin,
                 &json!({}),
@@ -112,7 +112,7 @@ async fn configuration_validation_rejects_each_invalid_input_before_writing() {
         let response = client
             .send(authed_json(
                 "GET",
-                &format!("/v1/admin/cron/configs?{query}"),
+                &format!("/api/v1/admin/cron/configs?{query}"),
                 fixture.root_id(),
                 AdminRole::SuperAdmin,
                 &json!({}),
@@ -124,7 +124,7 @@ async fn configuration_validation_rejects_each_invalid_input_before_writing() {
     let response = client
         .send(authed_json(
             "POST",
-            "/v1/admin/cron/configs",
+            "/api/v1/admin/cron/configs",
             fixture.root_id(),
             AdminRole::SuperAdmin,
             &valid,
@@ -146,7 +146,7 @@ async fn configuration_validation_rejects_each_invalid_input_before_writing() {
         let response = client
             .send(authed_json(
                 "PATCH",
-                &format!("/v1/admin/cron/configs/{id}"),
+                &format!("/api/v1/admin/cron/configs/{id}"),
                 fixture.root_id(),
                 AdminRole::SuperAdmin,
                 &patch,
@@ -156,8 +156,8 @@ async fn configuration_validation_rejects_each_invalid_input_before_writing() {
         assert_eq!(response.status(), 400, "{patch}");
     }
     for path in [
-        "/v1/admin/cron/configs/not-a-uuid",
-        "/v1/admin/cron/configs/preview?report_type=INVENTORY&cron_expression=bad&parameter=123",
+        "/api/v1/admin/cron/configs/not-a-uuid",
+        "/api/v1/admin/cron/configs/preview?report_type=INVENTORY&cron_expression=bad&parameter=123",
     ] {
         assert_eq!(
             client
@@ -178,7 +178,7 @@ async fn configuration_validation_rejects_each_invalid_input_before_writing() {
         client
             .send(authed_json(
                 "POST",
-                "/v1/admin/cron/configs/preview",
+                "/api/v1/admin/cron/configs/preview",
                 fixture.root_id(),
                 AdminRole::SuperAdmin,
                 &valid
@@ -192,7 +192,7 @@ async fn configuration_validation_rejects_each_invalid_input_before_writing() {
         client
             .send(authed_json(
                 "GET",
-                "/v1/admin/cron-configurations",
+                "/api/v1/admin/cron-configurations",
                 fixture.root_id(),
                 AdminRole::SuperAdmin,
                 &json!({})
@@ -228,7 +228,7 @@ async fn reject_create_fields(
         let response = client
             .send(authed_json(
                 "POST",
-                "/v1/admin/cron/configs",
+                "/api/v1/admin/cron/configs",
                 fixture.root_id(),
                 AdminRole::SuperAdmin,
                 &body,

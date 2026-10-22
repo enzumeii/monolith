@@ -1,3 +1,6 @@
+[scheduler]
+implementation = "vps"
+
 [browser]
 public_origin = "http://localhost:8084"
 

@@ -1,0 +1,12 @@
+{
+  "devDependencies": {
+    "vercel": "65.1.0"
+  },
+  "name": "monolith-deployment",
+  "private": true,
+  "scripts": {
+    "check:vercel": "node scripts/check-vercel.mjs",
+    "dev:vercel": "bash scripts/build-vercel-ui.sh backoffice backoffice && bash scripts/build-vercel-ui.sh client-ui user && vercel dev --local --listen 18027 --queue-port 55461 --runtime-cache-port 55462 --schedules-port 55463",
+    "build:containers": "bash scripts/build-vercel-containers.sh"
+  }
+}

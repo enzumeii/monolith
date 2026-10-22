@@ -1,0 +1,10 @@
+name: Vercel Local
+values:
+  - key: server
+    value: 'http://localhost:3000/api'
+  - key: cron_server
+    value: 'http://localhost:3000'
+  - key: cron_secret
+    value: ''
+  - key: api_server
+    value: 'http://localhost:3000'

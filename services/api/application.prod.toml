@@ -1,0 +1,10 @@
+[scheduler]
+implementation = "vercel"
+
+[database]
+max_connections = 2
+min_connections = 0
+
+[browser]
+public_origin = ""
+insecure_local = false

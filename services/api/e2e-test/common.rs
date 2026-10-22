@@ -171,9 +171,21 @@ pub async fn client() -> TestClient {
         api: test_api().await,
     }
 }
+
 impl TestClient {
     pub fn storage_base(&self) -> &str {
         &self.api.storage_base
+    }
+    pub fn shutdown(self) -> (bool, String) {
+        let mut api = Arc::try_unwrap(self.api)
+            .unwrap_or_else(|_| panic!("shutdown requires an owned test API"));
+        let process = api.process.as_mut().unwrap();
+        stop_process(process, Duration::from_secs(5));
+        let success = process.try_wait().unwrap().unwrap().success();
+        (
+            success,
+            std::fs::read_to_string(api.directory.join("api.log")).unwrap(),
+        )
     }
     pub fn logs(&self) -> String {
         std::fs::read_to_string(self.api.directory.join("api.log")).unwrap()
@@ -440,7 +452,7 @@ impl Drop for TestApi {
     }
 }
 
-fn database_url() -> String {
+pub fn database_url() -> String {
     std::env::var("E2E_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://e2e:e2e@127.0.0.1:5433/e2e".into())
 }
@@ -450,6 +462,9 @@ async fn test_api() -> Arc<TestApi> {
     if let Some(api) = shared.upgrade() {
         return api;
     }
+    let pool = PgPool::connect(&database_url()).await.unwrap();
+    sqlx::migrate!().run(&pool).await.unwrap();
+    pool.close().await;
     let api = start_api(ProviderConfig::default(), None).await;
     *shared = Arc::downgrade(&api);
     api
@@ -477,6 +492,14 @@ pub struct ProviderConfig<'a> {
     pub resend_url: Option<&'a str>,
     pub resend_key: Option<&'a str>,
     pub email_timeout_secs: Option<u64>,
+    pub cron_secret: Option<&'a str>,
+    pub invocation_budget_secs: Option<u64>,
+    pub database_url: Option<&'a str>,
+    pub vps_cron: bool,
+    pub scheduler_enabled: Option<bool>,
+    pub poll_interval_secs: Option<u64>,
+    pub retention_interval_secs: Option<u64>,
+    pub blob_url: Option<&'a str>,
 }
 
 pub async fn client_with_providers(config: ProviderConfig<'_>) -> TestClient {
@@ -501,8 +524,8 @@ pub async fn client_with_scheduler(
 
 async fn start_api(config: ProviderConfig<'_>, scheduler_backoff: Option<u64>) -> Arc<TestApi> {
     let shopify_url = config.shopify_url;
-    let poll_interval = if scheduler_backoff.is_some() { 1 } else { 3600 };
-    let scheduler_enabled = scheduler_backoff.is_some();
+    let invocation_budget_secs = config.invocation_budget_secs.unwrap_or(30);
+    let scheduler_enabled = config.scheduler_enabled.unwrap_or(true);
     let retry_backoff_secs = scheduler_backoff.unwrap_or(1);
     let port = if shopify_url.is_some()
         || config.resend_url.is_some()
@@ -532,7 +555,12 @@ async fn start_api(config: ProviderConfig<'_>, scheduler_backoff: Option<u64>) -
         .email_timeout_secs
         .map(|secs| format!("\n[client.resend]\ntimeout_secs = {secs}\n"))
         .unwrap_or_default();
+    let blob_timeout_secs = if config.blob_url.is_some() { 1 } else { 3 };
     let storage_port = std::env::var("E2E_BLOB_PORT").unwrap_or_else(|_| "5434".into());
+    let blob_url = config.blob_url.map_or_else(
+        || format!("http://127.0.0.1:{storage_port}/"),
+        str::to_owned,
+    );
     let directory = std::env::temp_dir().join(format!("monolith-api-e2e-{}", Uuid::new_v4()));
     std::fs::create_dir(&directory).expect("create owned E2E configuration directory");
     let mut api = TestApi {
@@ -553,7 +581,6 @@ max_connections = 1
 min_connections = 1
 [scheduler]
 enabled = {scheduler_enabled}
-poll_interval_secs = {poll_interval}
 concurrency = 1
 max_attempts = 2
 retry_backoff_secs = {retry_backoff_secs}
@@ -561,8 +588,8 @@ lease_secs = 5
 max_payload_bytes = 20971520
 max_email_bytes = 20971520
 [client.vercel_blob]
-api_url = "http://127.0.0.1:{storage_port}/"
-timeout_secs = 3
+api_url = "{blob_url}"
+timeout_secs = {blob_timeout_secs}
 [browser]
 public_origin = "http://127.0.0.1:8084"
 insecure_local = true
@@ -582,12 +609,37 @@ insecure_local = true
             .is_success()
     );
 
+    let implementation = if config.vps_cron { "vps" } else { "vercel" };
+    std::fs::write(
+        api.directory.join("application.local.toml"),
+        format!(
+            "[scheduler]\nimplementation={implementation:?}\npoll_interval_secs={}\nretention_interval_secs={}\ninvocation_budget_secs={invocation_budget_secs}\nretention_reserve_secs=5\n",
+            config.poll_interval_secs.unwrap_or(1),
+            config.retention_interval_secs.unwrap_or(1)
+        ),
+    ).unwrap();
+
     api.process = Some(
         Command::new(env!("CARGO_BIN_EXE_api"))
+            .arg("server")
             .current_dir(&api.directory)
-            .env("DATABASE_URL", database_url())
+            .env(
+                "DATABASE_URL",
+                config.database_url.map_or_else(database_url, str::to_owned),
+            )
             .env("JWT_SECRET", JWT_SECRET)
-            .env("BLOB_READ_WRITE_TOKEN", "vercel_blob_rw_local_synthetic")
+            .env(
+                "CRON_SECRET",
+                config.cron_secret.unwrap_or("e2e-cron-secret"),
+            )
+            .env(
+                "BLOB_READ_WRITE_TOKEN",
+                if config.blob_url.is_some() {
+                    "synthetic-blob-token"
+                } else {
+                    "vercel_blob_rw_local_synthetic"
+                },
+            )
             .env("RUST_LOG", "info")
             .env_remove("SHIPPING_SENDER_NAME")
             .env_remove("SHIPPING_SENDER_PHONE")
@@ -599,7 +651,7 @@ insecure_local = true
             .env_remove("SHIPPING_SENDER_POSTCODE")
             .env_remove("SHIPPING_SENDER_COUNTRY_CODE")
             .envs(
-                (!scheduler_enabled)
+                (scheduler_backoff.is_none())
                     .then_some([
                         ("SHIPPING_SENDER_NAME", "Synthetic Sender"),
                         ("SHIPPING_SENDER_PHONE", "0000000000"),
@@ -618,7 +670,8 @@ insecure_local = true
             .env_remove("RESEND_API_KEY")
             .env_remove("RESEND_BASE_URL")
             .env_remove("RESEND_RATE_LIMIT")
-            .env_remove("RUN_ENV")
+            .env("RUN_ENV", "local")
+            .env("PORT", port.as_str())
             .envs(config.resend_key.map(|key| ("RESEND_API_KEY", key)))
             .envs(config.resend_url.map(|url| ("RESEND_BASE_URL", url)))
             .envs(config.resend_url.map(|_| ("RESEND_RATE_LIMIT", "1000")))

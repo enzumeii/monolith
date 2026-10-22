@@ -12,3 +12,11 @@ target/
 /services/api/.tools/
 
 /.github/scripts/node_modules/
+
+# Local Vercel dependencies and generated deployment bundles.
+/node_modules/
+/.vercel/
+/apps/*/deploy-public/
+/apps/*/deploy-bundle/
+/.tools/
+/apps/*/vercel/public/

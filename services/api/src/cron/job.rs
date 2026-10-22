@@ -22,7 +22,25 @@ pub(crate) struct ClaimedJob {
     pub token: Uuid,
     pub recipient: String,
 }
-pub(crate) async fn claim(state: &AppState) -> Result<Option<ClaimedJob>, AppError> {
+#[derive(Debug)]
+pub(crate) struct ClaimFailure {
+    pub consumed: bool,
+    pub error: AppError,
+}
+impl From<AppError> for ClaimFailure {
+    fn from(error: AppError) -> Self {
+        Self {
+            consumed: false,
+            error,
+        }
+    }
+}
+impl From<sqlx::Error> for ClaimFailure {
+    fn from(error: sqlx::Error) -> Self {
+        AppError::from(error).into()
+    }
+}
+pub(crate) async fn claim(state: &AppState) -> Result<Option<ClaimedJob>, ClaimFailure> {
     let now = Utc::now().naive_utc();
     let Some(configuration) =
         repositories::cron_jobs::candidate(&state.pool, now, max_attempts(state)).await?
@@ -77,7 +95,10 @@ pub(crate) async fn claim(state: &AppState) -> Result<Option<ClaimedJob>, AppErr
             )
             .await?;
             transaction.commit().await?;
-            return Err(error);
+            return Err(ClaimFailure {
+                consumed: true,
+                error,
+            });
         }
     };
     repositories::report_results::start(&mut transaction, job.id, &kind, &parameters, now).await?;

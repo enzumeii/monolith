@@ -12,20 +12,20 @@ async fn orders_auth_validation_and_unconfigured_shopify() {
     let fixture = fixture().await;
     let client = client().await;
     let (configured, upstream) = client_with_upstream_script(vec![], "http").await;
-    assert_report_auth(&configured, "/v1/admin/orders/report?tags=report").await;
+    assert_report_auth(&configured, "/api/v1/admin/orders/report?tags=report").await;
     for role in [AdminRole::Admin, AdminRole::SuperAdmin] {
         for uri in [
-            "/v1/admin/orders/report",
-            "/v1/admin/orders/report?tags=",
-            "/v1/admin/orders/report?tags=%20",
-            "/v1/admin/orders/report?tags=,",
-            "/v1/admin/orders/report?tags=SHIPPING,",
-            "/v1/admin/orders/report?tags=,SHIPPING",
-            "/v1/admin/orders/report?tags=SHIPPING,%20,TEST",
-            "/v1/admin/orders/report?tags=report&page_size=1",
-            "/v1/admin/orders/report?tags=report&cursor=next",
-            "/v1/admin/orders/report?tags=report&unknown=x",
-            "/v1/admin/orders/report?tags=report&tags=other",
+            "/api/v1/admin/orders/report",
+            "/api/v1/admin/orders/report?tags=",
+            "/api/v1/admin/orders/report?tags=%20",
+            "/api/v1/admin/orders/report?tags=,",
+            "/api/v1/admin/orders/report?tags=SHIPPING,",
+            "/api/v1/admin/orders/report?tags=,SHIPPING",
+            "/api/v1/admin/orders/report?tags=SHIPPING,%20,TEST",
+            "/api/v1/admin/orders/report?tags=report&page_size=1",
+            "/api/v1/admin/orders/report?tags=report&cursor=next",
+            "/api/v1/admin/orders/report?tags=report&unknown=x",
+            "/api/v1/admin/orders/report?tags=report&tags=other",
         ] {
             let response = configured
                 .send(authed("GET", uri, fixture.root_id(), role))
@@ -40,7 +40,7 @@ async fn orders_auth_validation_and_unconfigured_shopify() {
         }
         assert_report_unavailable(
             &client,
-            "/v1/admin/orders/report?tags=report",
+            "/api/v1/admin/orders/report?tags=report",
             fixture.root_id(),
             role,
         )
@@ -73,7 +73,7 @@ async fn order_dependency_failures_return_safe_errors_over_tcp() {
     let response = client
         .send(authed(
             "GET",
-            "/v1/admin/orders/report?tags=report",
+            "/api/v1/admin/orders/report?tags=report",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -100,7 +100,7 @@ async fn assert_order_failure(admin_id: i64, later: bool, failure: &'static str)
     let response = client
         .send(authed(
             "GET",
-            "/v1/admin/orders/report?tags=report",
+            "/api/v1/admin/orders/report?tags=report",
             admin_id,
             AdminRole::Admin,
         ))
@@ -137,7 +137,7 @@ async fn orders_invalid_shopify_configuration_returns_503() {
     let client = crate::common::client_with_shopify("invalid-url").await;
     assert_report_unavailable(
         &client,
-        "/v1/admin/orders/report?tags=report",
+        "/api/v1/admin/orders/report?tags=report",
         fixture.root_id(),
         AdminRole::Admin,
     )
@@ -229,7 +229,7 @@ async fn comma_separated_tags_require_all_tags_across_every_order_page() {
     let response = client
         .send(authed(
             "GET",
-            "/v1/admin/orders/report?tags=%20SHIPPING%20,%20TEST%20",
+            "/api/v1/admin/orders/report?tags=%20SHIPPING%20,%20TEST%20",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -264,7 +264,7 @@ async fn complete_order_reports_use_real_tcp() {
     let response = client
         .send(authed(
             "GET",
-            "/v1/admin/orders/report?tags=report",
+            "/api/v1/admin/orders/report?tags=report",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -286,7 +286,7 @@ async fn complete_order_reports_use_real_tcp() {
     let response = client
         .send(authed(
             "GET",
-            "/v1/admin/orders/report?tags=too-many",
+            "/api/v1/admin/orders/report?tags=too-many",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -297,7 +297,7 @@ async fn complete_order_reports_use_real_tcp() {
     let response = client
         .send(authed(
             "GET",
-            "/v1/admin/orders/report?tags=a%3Ab%2Cc%20d",
+            "/api/v1/admin/orders/report?tags=a%3Ab%2Cc%20d",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -308,7 +308,7 @@ async fn complete_order_reports_use_real_tcp() {
     let response = client
         .send(authed(
             "GET",
-            "/v1/admin/orders/report?tags=empty",
+            "/api/v1/admin/orders/report?tags=empty",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -325,7 +325,7 @@ async fn fulfillment_workflow_routes_have_real_tcp_contracts() {
         json!({"orders":page(vec![json!({"id":"gid://shopify/Order/42","number":1234,"shippingAddress":{"countryCodeV2":"TH"},"email":"buyer@example.test","customer":{"firstName":"Jane","lastName":"Doe"}})],Some("next"))}),
         json!({"orders":page(vec![],None)}),
     ], "http").await;
-    let response = client.send(authed("GET", "/v1/admin/orders?tag=SHIPPING,FASTSHIP&page_size=1&cursor=prev&fulfillment=UNFULFILLED", fixture.root_id(), AdminRole::Admin)).await.unwrap();
+    let response = client.send(authed("GET", "/api/v1/admin/orders?tag=SHIPPING,FASTSHIP&page_size=1&cursor=prev&fulfillment=UNFULFILLED", fixture.root_id(), AdminRole::Admin)).await.unwrap();
     assert_eq!(response.status(), 200);
     assert_eq!(
         body_json(response).await,
@@ -334,7 +334,7 @@ async fn fulfillment_workflow_routes_have_real_tcp_contracts() {
     let response = client
         .send(authed(
             "POST",
-            "/v1/admin/orders/shipping_label",
+            "/api/v1/admin/orders/shipping_label",
             fixture.root_id(),
             AdminRole::SuperAdmin,
         ))
@@ -401,7 +401,7 @@ async fn shipping_labels_route_preserves_reference_carriers_and_tag_order() {
     let response = client
         .send(authed(
             "POST",
-            "/v1/admin/orders/shipping_label",
+            "/api/v1/admin/orders/shipping_label",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -445,7 +445,7 @@ async fn fulfill_route_fulfills_remaining_lines_before_removing_shipping() {
     let (client,upstream)=client_with_upstream_script(vec![fulfillable_order(None),json!({"fulfillmentCreate":{"fulfillment":{"id":"gid://shopify/Fulfillment/10"},"userErrors":[]}}),tag_read(42, true), tags_result(true,42)],"http").await;
     let mut request = authed(
         "POST",
-        "/v1/admin/orders/42/fulfill",
+        "/api/v1/admin/orders/42/fulfill",
         fixture.root_id(),
         AdminRole::Admin,
     );
@@ -477,7 +477,7 @@ fn fulfill_request(
 ) -> axum::http::Request<axum::body::Body> {
     let mut request = authed(
         "POST",
-        &format!("/v1/admin/orders/{id}/fulfill"),
+        &format!("/api/v1/admin/orders/{id}/fulfill"),
         admin,
         role,
     );
@@ -512,7 +512,7 @@ async fn fulfillment_workflow_validation_rejects_before_business_calls() {
         let response = client
             .send(authed(
                 "GET",
-                &format!("/v1/admin/orders{query}"),
+                &format!("/api/v1/admin/orders{query}"),
                 fixture.root_id(),
                 AdminRole::Admin,
             ))
@@ -577,9 +577,9 @@ async fn fulfillment_workflow_auth_and_optional_dependency_over_tcp() {
     let fixture = fixture().await;
     let client = client().await;
     for (method, uri) in [
-        ("GET", "/v1/admin/orders?tag=X"),
-        ("POST", "/v1/admin/orders/shipping_label"),
-        ("POST", "/v1/admin/orders/42/fulfill"),
+        ("GET", "/api/v1/admin/orders?tag=X"),
+        ("POST", "/api/v1/admin/orders/shipping_label"),
+        ("POST", "/api/v1/admin/orders/42/fulfill"),
     ] {
         for token in [None, Some("Bearer invalid")] {
             let mut request = axum::http::Request::builder().method(method).uri(uri);
@@ -657,7 +657,7 @@ async fn fulfillment_workflow_each_upstream_operation_maps_failures_and_stops() 
                 let request = match flow {
                     "labels" => authed(
                         "POST",
-                        "/v1/admin/orders/shipping_label",
+                        "/api/v1/admin/orders/shipping_label",
                         fixture.root_id(),
                         AdminRole::Admin,
                     ),
@@ -669,7 +669,7 @@ async fn fulfillment_workflow_each_upstream_operation_maps_failures_and_stops() 
                     ),
                     _ => authed(
                         "GET",
-                        "/v1/admin/orders?tag=X",
+                        "/api/v1/admin/orders?tag=X",
                         fixture.root_id(),
                         AdminRole::Admin,
                     ),
@@ -697,13 +697,13 @@ async fn fulfillment_workflow_connection_failures_over_tcp() {
     for request in [
         authed(
             "GET",
-            "/v1/admin/orders?tag=X",
+            "/api/v1/admin/orders?tag=X",
             fixture.root_id(),
             AdminRole::Admin,
         ),
         authed(
             "POST",
-            "/v1/admin/orders/shipping_label",
+            "/api/v1/admin/orders/shipping_label",
             fixture.root_id(),
             AdminRole::Admin,
         ),
@@ -736,7 +736,7 @@ async fn shipping_labels_validates_all_pages_before_writes_and_handles_later_pag
             client
                 .send(authed(
                     "POST",
-                    "/v1/admin/orders/shipping_label",
+                    "/api/v1/admin/orders/shipping_label",
                     fixture.root_id(),
                     AdminRole::Admin,
                 ))
@@ -761,7 +761,7 @@ async fn shipping_labels_validates_all_pages_before_writes_and_handles_later_pag
         client
             .send(authed(
                 "POST",
-                "/v1/admin/orders/shipping_label",
+                "/api/v1/admin/orders/shipping_label",
                 fixture.root_id(),
                 AdminRole::Admin,
             ))
@@ -819,7 +819,7 @@ async fn fulfillment_workflow_domain_outcomes_and_mutation_rejections() {
             let request = if flow == "labels" {
                 authed(
                     "POST",
-                    "/v1/admin/orders/shipping_label",
+                    "/api/v1/admin/orders/shipping_label",
                     fixture.root_id(),
                     AdminRole::Admin,
                 )
@@ -864,7 +864,7 @@ async fn shipping_labels_root_pagination_precedes_mutations() {
     let response = client
         .send(authed(
             "POST",
-            "/v1/admin/orders/shipping_label",
+            "/api/v1/admin/orders/shipping_label",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -928,9 +928,9 @@ async fn fulfillment_workflow_rejects_expired_tokens_on_each_route() {
     )
     .unwrap();
     for (method, uri) in [
-        ("GET", "/v1/admin/orders?tag=X"),
-        ("POST", "/v1/admin/orders/shipping_label"),
-        ("POST", "/v1/admin/orders/42/fulfill"),
+        ("GET", "/api/v1/admin/orders?tag=X"),
+        ("POST", "/api/v1/admin/orders/shipping_label"),
+        ("POST", "/api/v1/admin/orders/42/fulfill"),
     ] {
         let request = axum::http::Request::builder()
             .method(method)
@@ -954,13 +954,13 @@ async fn fulfillment_workflow_invalid_configuration_stays_unavailable() {
     for request in [
         authed(
             "GET",
-            "/v1/admin/orders?tag=X",
+            "/api/v1/admin/orders?tag=X",
             fixture.root_id(),
             AdminRole::Admin,
         ),
         authed(
             "POST",
-            "/v1/admin/orders/shipping_label",
+            "/api/v1/admin/orders/shipping_label",
             fixture.root_id(),
             AdminRole::Admin,
         ),
@@ -993,7 +993,7 @@ async fn fulfillment_list_default_and_boundary_pages_return_upstream_metadata() 
         let response = client
             .send(authed(
                 "GET",
-                &format!("/v1/admin/orders?{query}"),
+                &format!("/api/v1/admin/orders?{query}"),
                 fixture.root_id(),
                 AdminRole::SuperAdmin,
             ))
@@ -1087,7 +1087,7 @@ async fn review_regression_rejects_bad_carrier_contact_and_dot_tracking_before_w
         let response = client
             .send(authed(
                 "POST",
-                "/v1/admin/orders/shipping_label",
+                "/api/v1/admin/orders/shipping_label",
                 fixture.root_id(),
                 AdminRole::Admin,
             ))
@@ -1129,7 +1129,7 @@ async fn review_regression_unknown_shipping_code_never_changes_tags() {
     let response = client
         .send(authed(
             "POST",
-            "/v1/admin/orders/shipping_label",
+            "/api/v1/admin/orders/shipping_label",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -1178,7 +1178,7 @@ async fn combined_queries_read_250_items_and_shipping_lines_without_continuation
     let response = client
         .send(authed(
             "POST",
-            "/v1/admin/orders/shipping_label?x=1",
+            "/api/v1/admin/orders/shipping_label?x=1",
             fixture.root_id(),
             AdminRole::Admin,
         ))
@@ -1280,7 +1280,12 @@ fn reship_order() -> Value {
     json!({"orders":page(vec![json!({"id":"gid://shopify/Order/42","number":1085,"email":"recipient@example.test"})],None)})
 }
 fn reship_request() -> axum::http::Request<axum::body::Body> {
-    authed("POST", "/v1/admin/orders/1085/reship", 1, AdminRole::Admin)
+    authed(
+        "POST",
+        "/api/v1/admin/orders/1085/reship",
+        1,
+        AdminRole::Admin,
+    )
 }
 async fn reship_client(shopify_url: &str, mail: &ReshipMailServer) -> crate::common::TestClient {
     crate::common::client_with_providers(crate::common::ProviderConfig {
@@ -1290,6 +1295,7 @@ async fn reship_client(shopify_url: &str, mail: &ReshipMailServer) -> crate::com
         resend_url: Some(&mail.url),
         resend_key: Some("re_e2e-fixture"),
         email_timeout_secs: Some(1),
+        ..Default::default()
     })
     .await
 }
@@ -1323,7 +1329,7 @@ async fn reship_sends_reference_notice_before_tagging_and_each_explicit_post() {
         .enumerate()
     {
         let response = client
-            .send(authed("POST", "/v1/admin/orders/1085/reship", 1, role))
+            .send(authed("POST", "/api/v1/admin/orders/1085/reship", 1, role))
             .await
             .unwrap();
         assert_eq!(response.status(), 200);
@@ -1391,7 +1397,7 @@ async fn reship_rejects_each_invalid_input_without_provider_calls() {
         let response = client
             .send(authed(
                 "POST",
-                &format!("/v1/admin/orders/{id}/reship"),
+                &format!("/api/v1/admin/orders/{id}/reship"),
                 1,
                 AdminRole::Admin,
             ))
@@ -1407,7 +1413,7 @@ async fn reship_rejects_each_invalid_input_without_provider_calls() {
     for (query, body) in [("?x=1", ""), ("", "{}"), ("", "{"), ("", " ")] {
         let mut request = authed(
             "POST",
-            &format!("/v1/admin/orders/1085/reship{query}"),
+            &format!("/api/v1/admin/orders/1085/reship{query}"),
             1,
             AdminRole::Admin,
         );
@@ -1437,7 +1443,7 @@ async fn reship_auth_and_cookie_origin_rejections_precede_providers() {
     for token in [None, Some("invalid".to_owned()), Some(expired)] {
         let mut request = axum::http::Request::builder()
             .method("POST")
-            .uri("/v1/admin/orders/1085/reship");
+            .uri("/api/v1/admin/orders/1085/reship");
         if let Some(token) = token {
             request = request.header("authorization", format!("Bearer {token}"));
         }
@@ -1456,7 +1462,7 @@ async fn reship_auth_and_cookie_origin_rejections_precede_providers() {
     for origin in [None, Some("https://untrusted.example.test")] {
         let mut request = axum::http::Request::builder()
             .method("POST")
-            .uri("/v1/admin/orders/1085/reship")
+            .uri("/api/v1/admin/orders/1085/reship")
             .header("cookie", &cookie);
         if let Some(origin) = origin {
             request = request.header("origin", origin);
@@ -1560,6 +1566,7 @@ async fn reship_optional_clients_and_settings_fail_before_lookup() {
             resend_url: Some(&mail.url),
             resend_key: key,
             email_timeout_secs: timeout,
+            ..Default::default()
         })
         .await;
         assert_report_error(client.send(reship_request()).await.unwrap(), 503, message).await;
@@ -1798,6 +1805,7 @@ async fn reship_connection_refusal_and_disconnect_map_at_each_dependency_stage()
             resend_url: Some(&fault.url),
             resend_key: Some("re_e2e-fixture"),
             email_timeout_secs: Some(1),
+            ..Default::default()
         })
         .await;
         assert_report_error(
@@ -1829,7 +1837,7 @@ async fn review_connection_faults_stop_at_every_workflow_operation() {
             let request = match *flow {
                 "labels" => authed(
                     "POST",
-                    "/v1/admin/orders/shipping_label",
+                    "/api/v1/admin/orders/shipping_label",
                     1,
                     AdminRole::Admin,
                 ),
@@ -1839,7 +1847,7 @@ async fn review_connection_faults_stop_at_every_workflow_operation() {
                     1,
                     AdminRole::Admin,
                 ),
-                _ => authed("GET", "/v1/admin/orders?tag=X", 1, AdminRole::Admin),
+                _ => authed("GET", "/api/v1/admin/orders?tag=X", 1, AdminRole::Admin),
             };
             assert_report_error(
                 client.send(request).await.unwrap(),
@@ -1964,7 +1972,7 @@ async fn review_plan_reship_resolves_merchant_number_and_returns_acceptance_id()
     let response = client
         .send(authed(
             "POST",
-            "/v1/admin/orders/1085/reship",
+            "/api/v1/admin/orders/1085/reship",
             1,
             AdminRole::Admin,
         ))
@@ -2022,7 +2030,7 @@ async fn review_plan_listing_without_tag_uses_an_empty_search() {
     let (client, upstream) =
         client_with_upstream_script(vec![json!({"orders":page(vec![],None)})], "http").await;
     let response = client
-        .send(authed("GET", "/v1/admin/orders", 1, AdminRole::Admin))
+        .send(authed("GET", "/api/v1/admin/orders", 1, AdminRole::Admin))
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
@@ -2044,7 +2052,7 @@ async fn reship_uses_one_filtered_query_for_boundary_order_numbers() {
         let response = client
             .send(authed(
                 "POST",
-                &format!("/v1/admin/orders/{number}/reship"),
+                &format!("/api/v1/admin/orders/{number}/reship"),
                 1,
                 AdminRole::Admin,
             ))
@@ -2086,7 +2094,7 @@ async fn shipping_declaration_markup_accepts_any_selected_price_currency() {
         let response = client
             .send(authed(
                 "POST",
-                "/v1/admin/orders/shipping_label",
+                "/api/v1/admin/orders/shipping_label",
                 1,
                 AdminRole::Admin,
             ))
@@ -2127,7 +2135,7 @@ async fn listing_selection_flags_satisfy_provider_variable_contract_over_tcp() {
     let response = client
         .send(authed(
             "GET",
-            "/v1/admin/orders?tag=shipping&fulfillment=UNFULFILLED&page_size=1",
+            "/api/v1/admin/orders?tag=shipping&fulfillment=UNFULFILLED&page_size=1",
             1,
             AdminRole::Admin,
         ))
@@ -2181,7 +2189,7 @@ async fn tag_lookup_unusable_results_stop_each_workflow_over_tcp() {
             let request = match flow {
                 "labels" => authed(
                     "POST",
-                    "/v1/admin/orders/shipping_label",
+                    "/api/v1/admin/orders/shipping_label",
                     1,
                     AdminRole::Admin,
                 ),
@@ -2224,7 +2232,7 @@ async fn case_insensitive_tag_transitions_preserve_workflow_order_over_tcp() {
     let response = client
         .send(authed(
             "POST",
-            "/v1/admin/orders/shipping_label",
+            "/api/v1/admin/orders/shipping_label",
             1,
             AdminRole::Admin,
         ))
@@ -2277,7 +2285,7 @@ async fn order_listing_returns_nullable_customer_contacts_and_preserves_paginati
     let response = client
         .send(authed(
             "GET",
-            "/v1/admin/orders?tag=shipping&fulfillment=UNFULFILLED&page_size=4&cursor=prev",
+            "/api/v1/admin/orders?tag=shipping&fulfillment=UNFULFILLED&page_size=4&cursor=prev",
             1,
             AdminRole::Admin,
         ))
@@ -2340,7 +2348,7 @@ async fn order_listing_rejects_incomplete_or_malformed_selected_contacts() {
         let response = client
             .send(authed(
                 "GET",
-                "/v1/admin/orders?tag=shipping",
+                "/api/v1/admin/orders?tag=shipping",
                 1,
                 AdminRole::Admin,
             ))

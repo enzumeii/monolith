@@ -16,15 +16,7 @@ pub(crate) async fn prepare(
     data: ReportData,
     max_payload_bytes: usize,
 ) -> Result<PreparedReport, AppError> {
-    let files = tokio::task::spawn_blocking(move || encode(data))
-        .await
-        .map_err(anyhow::Error::new)?;
-    if files.iter().map(|file| file.bytes.len()).sum::<usize>() > max_payload_bytes {
-        return Err(AppError::new(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "Report files exceed configured size limit",
-        ));
-    }
+    let files = encode(data, max_payload_bytes).await?;
     let generated_at = chrono::Utc::now().naive_utc().trunc_subsecs(6);
     let storage_prefix = report::storage_prefix(kind, generated_at, id);
     let checkpoint = ExecutionCheckpoint {
@@ -47,36 +39,110 @@ pub(crate) async fn prepare(
     Ok(PreparedReport { checkpoint, files })
 }
 
-fn encode(data: ReportData) -> Vec<GeneratedFile> {
-    let pairs = match data {
+async fn encode(data: ReportData, limit: usize) -> Result<Vec<GeneratedFile>, AppError> {
+    use report_generator::{accounting, inventory};
+    let mut files = Vec::new();
+    match data {
         ReportData::Inventory(rows) => {
-            vec![("inventory.csv", report_generator::inventory::encode(&rows))]
+            let mut csv = String::new();
+            encode_csv(
+                &mut csv,
+                &inventory::HEADERS,
+                rows.iter().map(inventory_cells),
+                inventory::NUMERIC_COLUMNS,
+                limit,
+            )
+            .await?;
+            files.push(generated_file("inventory.csv", csv));
         }
         ReportData::Transaction(report) => {
-            vec![
-                (
-                    "transactions.csv",
-                    report_generator::accounting::encode_transactions(
-                        report
-                            .transactions
-                            .stripe
-                            .iter()
-                            .chain(&report.transactions.paypal),
-                    ),
-                ),
-                (
-                    "items.csv",
-                    report_generator::accounting::encode_items(&report.items),
-                ),
-            ]
+            let mut csv = String::new();
+            encode_csv(
+                &mut csv,
+                accounting::TRANSACTION_HEADERS,
+                report
+                    .transactions
+                    .stripe
+                    .iter()
+                    .chain(&report.transactions.paypal)
+                    .map(transaction_cells),
+                accounting::TRANSACTION_NUMERIC_COLUMNS,
+                limit,
+            )
+            .await?;
+            let remaining = limit - csv.len();
+            files.push(generated_file("transactions.csv", csv));
+            let mut csv = String::new();
+            encode_csv(
+                &mut csv,
+                accounting::ITEM_HEADERS,
+                report.items.iter().map(accounting::item_cells),
+                accounting::ITEM_NUMERIC_COLUMNS,
+                remaining,
+            )
+            .await?;
+            files.push(generated_file("items.csv", csv));
         }
-    };
-    pairs
-        .into_iter()
-        .map(|(filename, csv)| GeneratedFile {
-            filename: filename.into(),
-            content_type: CSV_CONTENT_TYPE.into(),
-            bytes: csv.into_bytes(),
-        })
-        .collect()
+    }
+    Ok(files)
 }
+
+fn inventory_cells(row: &domain::dto::ProductReportRow) -> Vec<String> {
+    report_generator::inventory::cells(row).into()
+}
+
+fn transaction_cells(row: &domain::dto::accounting::AccountingTransaction) -> Vec<String> {
+    report_generator::accounting::transaction_cells(row, "")
+}
+
+async fn encode_csv(
+    csv: &mut String,
+    headers: &[&str],
+    rows: impl Iterator<Item = Vec<String>> + Send,
+    numeric_columns: &[usize],
+    limit: usize,
+) -> Result<(), AppError> {
+    let mut output = BoundedCsv { csv, limit };
+    report_generator::csv::write_row(&mut output, headers, &[]).map_err(|_| payload_error())?;
+    for (index, row) in rows.enumerate() {
+        report_generator::csv::write_row(&mut output, row, numeric_columns)
+            .map_err(|_| payload_error())?;
+        if index % 32 == 31 {
+            tokio::task::yield_now().await;
+        }
+    }
+    Ok(())
+}
+
+fn generated_file(filename: &str, csv: String) -> GeneratedFile {
+    GeneratedFile {
+        filename: filename.into(),
+        content_type: CSV_CONTENT_TYPE.into(),
+        bytes: csv.into_bytes(),
+    }
+}
+
+fn payload_error() -> AppError {
+    AppError::new(
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "Report files exceed configured size limit",
+    )
+}
+
+struct BoundedCsv<'a> {
+    csv: &'a mut String,
+    limit: usize,
+}
+impl std::fmt::Write for BoundedCsv<'_> {
+    fn write_str(&mut self, value: &str) -> std::fmt::Result {
+        if value.len() > self.limit.saturating_sub(self.csv.len()) {
+            return Err(std::fmt::Error);
+        }
+        self.csv.push_str(value);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/cron/report.rs"]
+mod tests;

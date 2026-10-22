@@ -20,7 +20,7 @@ fn App() -> Element {
             Some(Ok(settings)) => rsx! { Application { settings: settings.clone() } },
             Some(Err(message)) => rsx! {
                 p { role: "alert", "{message}" }
-                button { onclick: move |_| settings.restart(), "Retry" }
+                button { onclick: move |_| { settings.restart(); }, "Retry" }
             },
             None => rsx! { p { "Loading configuration…" } },
         }

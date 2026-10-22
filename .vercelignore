@@ -1,0 +1,14 @@
+.git
+**/.env
+**/.env.*
+**/node_modules
+**/target
+**/deploy-public
+**/deploy-bundle
+**/.superpowers
+**/docs/superpowers
+**/.vercel
+**/.DS_Store
+**/*.profraw
+**/.tools
+**/vercel/public

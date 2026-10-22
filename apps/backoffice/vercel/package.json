@@ -1,0 +1,7 @@
+{
+  "name": "monolith-backoffice-static",
+  "private": true,
+  "scripts": {
+    "build": "bash ../../../scripts/build-vercel-ui.sh backoffice backoffice"
+  }
+}

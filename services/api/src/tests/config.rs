@@ -1,5 +1,160 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+use config::{Config, File, FileFormat};
+
+#[test]
+fn vercel_development_metadata_uses_only_explicit_loopback_http() {
+    for host in ["localhost:18037", "127.0.0.1:18037", "[::1]:18037"] {
+        let settings = temp_env::with_vars(
+            [
+                ("RUN_ENV", Some("prod")),
+                ("VERCEL_ENV", Some("development")),
+                ("VERCEL_URL", Some(host)),
+                (
+                    "JWT_SECRET",
+                    Some("abababababababababababababababababababababababababababababababab"),
+                ),
+                (
+                    "DATABASE_URL",
+                    Some("postgres://synthetic:secret@localhost/runtime"),
+                ),
+            ],
+            Settings::new,
+        )
+        .unwrap();
+        assert_eq!(settings.browser.public_origin, format!("http://{host}"));
+        assert!(settings.browser.insecure_local);
+    }
+    for host in [
+        "evil.example:18037",
+        "localhost",
+        "localhost:0",
+        "localhost:65536",
+        "localhost:18037/path",
+        "user@localhost:18037",
+        "https://localhost:18037",
+        "127.0.0.2:18037",
+        "localhost:18037?x=1",
+        "localhost:18037#x",
+    ] {
+        assert!(
+            temp_env::with_vars(
+                [
+                    ("RUN_ENV", Some("prod")),
+                    ("VERCEL_ENV", Some("development")),
+                    ("VERCEL_URL", Some(host))
+                ],
+                Settings::new
+            )
+            .is_err(),
+            "{host}"
+        );
+    }
+    for mode in ["production", "preview"] {
+        assert!(
+            temp_env::with_vars(
+                [
+                    ("RUN_ENV", Some("prod")),
+                    ("VERCEL_ENV", Some(mode)),
+                    ("VERCEL_URL", Some("localhost:18037")),
+                    ("VERCEL_PROJECT_PRODUCTION_URL", None)
+                ],
+                Settings::new
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn production_overlay_and_metadata_use_central_secret_overrides() {
+    let settings = temp_env::with_vars(
+        [
+            ("RUN_ENV", Some("prod")),
+            ("VERCEL_URL", Some("synthetic-deployment.vercel.app")),
+            ("VERCEL_ENV", Some("preview")),
+            ("CRON_SECRET", Some("synthetic-cron-secret")),
+            (
+                "DATABASE_URL",
+                Some("postgres://synthetic:secret@localhost/runtime"),
+            ),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
+        ],
+        Settings::new,
+    )
+    .unwrap();
+    assert_eq!(
+        settings.browser.public_origin,
+        "https://synthetic-deployment.vercel.app"
+    );
+    assert!(!format!("{settings:?}").contains("synthetic-cron-secret"));
+    assert!(!settings.browser.insecure_local);
+    assert_eq!(settings.database.max_connections, 2);
+    assert_eq!(settings.database.min_connections, 0);
+    assert_eq!(
+        settings.database.url,
+        "postgres://synthetic:secret@localhost/runtime"
+    );
+    assert_eq!(
+        settings.client.unwrap().vercel_blob.unwrap().api_url,
+        "https://vercel.com/api/blob"
+    );
+}
+
+#[test]
+fn vercel_public_origin_uses_generated_production_alias_and_preview_host() {
+    for (mode, expected) in [
+        ("production", "https://project.vercel.app"),
+        ("preview", "https://unique-preview.vercel.app"),
+    ] {
+        let settings = temp_env::with_vars(
+            [
+                ("RUN_ENV", Some("prod")),
+                ("VERCEL_ENV", Some(mode)),
+                ("VERCEL_URL", Some("unique-preview.vercel.app")),
+                ("VERCEL_PROJECT_PRODUCTION_URL", Some("project.vercel.app")),
+                (
+                    "JWT_SECRET",
+                    Some("abababababababababababababababababababababababababababababababab"),
+                ),
+                (
+                    "DATABASE_URL",
+                    Some("postgres://synthetic:secret@localhost/runtime"),
+                ),
+            ],
+            Settings::new,
+        )
+        .unwrap();
+        assert_eq!(settings.browser.public_origin, expected);
+    }
+}
+
+#[test]
+fn vercel_metadata_rejects_untrusted_origins_and_missing_host() {
+    for host in [
+        None,
+        Some("evil.example"),
+        Some("https://project.vercel.app"),
+        Some("project.vercel.app/path"),
+        Some("user@project.vercel.app"),
+        Some("project.vercel.app:443"),
+    ] {
+        assert!(
+            temp_env::with_vars(
+                [
+                    ("RUN_ENV", Some("prod")),
+                    ("VERCEL_ENV", Some("preview")),
+                    ("VERCEL_URL", host)
+                ],
+                Settings::new
+            )
+            .is_err()
+        );
+    }
+}
 
 #[test]
 fn scheduler_requires_explicit_settings() {
@@ -190,7 +345,7 @@ fn builder_token_precedence_and_missing_url_follow_normal_configuration() {
         let source = r#"
             server = { host = "localhost", port = 3000 }
             database = { max_connections = 1, min_connections = 1 }
-            scheduler = { enabled=false, poll_interval_secs=1, concurrency=1, max_attempts=2, retry_backoff_secs=1, lease_secs=5, max_payload_bytes=20971520, max_email_bytes=20971520 }
+            scheduler = { implementation="vps", poll_interval_secs=1, retention_interval_secs=3600, invocation_budget_secs=240, retention_reserve_secs=5, enabled=false, concurrency=1, max_attempts=2, retry_backoff_secs=1, lease_secs=5, max_payload_bytes=20971520, max_email_bytes=20971520 }
             browser = { public_origin = "http://localhost:8084", insecure_local = true }
         "#;
         let builder = config::Config::builder()
@@ -507,4 +662,106 @@ fn blob_secret_override_keeps_file_endpoint_and_redacts_token() {
     assert_eq!(blob.timeout_secs, 3);
     assert_eq!(blob.token.as_deref(), Some("synthetic-env-blob-token"));
     assert!(!format!("{blob:?}").contains("synthetic-env-blob-token"));
+}
+
+fn settings_builder() -> ConfigBuilder<DefaultState> {
+    Config::builder()
+        .add_source(File::from_str(
+            include_str!("../../application.toml"),
+            FileFormat::Toml,
+        ))
+        .add_source(File::from_str(
+            include_str!("../../application.local.toml"),
+            FileFormat::Toml,
+        ))
+        .set_override("database.url", "postgres://unused")
+        .unwrap()
+        .set_override("jwt.secret", "ab".repeat(32))
+        .unwrap()
+}
+
+#[test]
+fn scheduler_implementation_is_typed_and_cadence_and_budget_are_bounded() {
+    assert!(serde_json::from_str::<CronImplementation>("\"unknown\"").is_err());
+    let settings = Settings::load(settings_builder(), "local").unwrap();
+    assert_eq!(settings.scheduler.implementation, CronImplementation::Vps);
+    assert_eq!(settings.scheduler.poll_interval_secs, 10);
+    assert_eq!(settings.scheduler.retention_interval_secs, 3600);
+    assert_eq!(settings.scheduler.invocation_budget_secs, 240);
+    assert_eq!(settings.scheduler.retention_reserve_secs, 5);
+    for (budget, reserve) in [(0, 5), (5, 1), (241, 5), (240, 0), (240, 240), (6, 7)] {
+        let mut invalid = settings.clone();
+        invalid.scheduler.invocation_budget_secs = budget;
+        invalid.scheduler.retention_reserve_secs = reserve;
+        assert!(invalid.validate().is_err());
+    }
+    for (poll, retention) in [(0, 3600), (10, 0), (86401, 3600), (10, 86401)] {
+        let mut invalid = settings.clone();
+        invalid.scheduler.poll_interval_secs = poll;
+        invalid.scheduler.retention_interval_secs = retention;
+        assert!(invalid.validate().is_err());
+    }
+}
+
+#[test]
+fn local_toml_can_choose_either_cron_without_deployment_metadata() {
+    temp_env::with_vars([("VERCEL_ENV", None::<&str>), ("VERCEL_URL", None)], || {
+        for (value, expected) in [
+            ("vps", CronImplementation::Vps),
+            ("vercel", CronImplementation::Vercel),
+        ] {
+            let overlay = format!(
+                "[scheduler]\nimplementation={value:?}\npoll_interval_secs=1\nretention_interval_secs=2"
+            );
+            let settings = Settings::load(
+                settings_builder().add_source(File::from_str(&overlay, FileFormat::Toml)),
+                "local",
+            )
+            .unwrap();
+            assert_eq!(settings.scheduler.implementation, expected);
+            assert_eq!(settings.scheduler.poll_interval_secs, 1);
+            assert_eq!(settings.scheduler.retention_interval_secs, 2);
+            assert_eq!(settings.browser.public_origin, "http://localhost:8084");
+        }
+    });
+}
+
+#[test]
+fn production_forces_vercel_even_when_toml_selects_vps() {
+    temp_env::with_vars(
+        [
+            ("VERCEL_ENV", Some("production")),
+            ("VERCEL_URL", Some("preview.vercel.app")),
+            ("VERCEL_PROJECT_PRODUCTION_URL", Some("project.vercel.app")),
+        ],
+        || {
+            let settings = Settings::load(settings_builder(), "prod").unwrap();
+            assert_eq!(
+                settings.scheduler.implementation,
+                CronImplementation::Vercel
+            );
+            assert_eq!(settings.browser.public_origin, "https://project.vercel.app");
+            assert!(!settings.browser.insecure_local);
+        },
+    );
+}
+
+#[test]
+fn production_requires_a_supported_deployment_environment() {
+    for environment in [None, Some("unknown"), Some("")] {
+        temp_env::with_vars(
+            [
+                ("VERCEL_ENV", environment),
+                ("VERCEL_URL", Some("project.vercel.app")),
+            ],
+            || assert!(Settings::load(settings_builder(), "prod").is_err()),
+        );
+    }
+}
+
+#[test]
+fn unsupported_environment_mode_is_rejected_by_central_reader() {
+    temp_env::with_var("RUN_ENV", Some("unknown"), || {
+        assert!(Settings::new().is_err());
+    });
 }
