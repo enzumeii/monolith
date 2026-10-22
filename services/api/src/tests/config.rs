@@ -3,6 +3,46 @@ use super::*;
 use config::{Config, File, FileFormat};
 
 #[test]
+fn local_vercel_development_preserves_selected_scheduler_and_uses_gateway_origin() {
+    for implementation in ["vps", "vercel"] {
+        let settings = temp_env::with_vars(
+            [
+                ("VERCEL_ENV", Some("development")),
+                ("VERCEL_URL", Some("localhost:18027")),
+                (
+                    "DATABASE_URL",
+                    Some("postgres://synthetic:synthetic@localhost/runtime"),
+                ),
+                (
+                    "JWT_SECRET",
+                    Some("abababababababababababababababababababababababababababababababab"),
+                ),
+            ],
+            || {
+                Settings::load(
+                    Config::builder()
+                        .add_source(File::with_name("application"))
+                        .set_override("scheduler.implementation", implementation)
+                        .unwrap(),
+                    "local",
+                )
+            },
+        )
+        .unwrap();
+        assert_eq!(settings.browser.public_origin, "http://localhost:18027");
+        assert!(settings.browser.insecure_local);
+        assert_eq!(
+            settings.scheduler.implementation,
+            if implementation == "vps" {
+                CronImplementation::Vps
+            } else {
+                CronImplementation::Vercel
+            }
+        );
+    }
+}
+
+#[test]
 fn vercel_development_metadata_uses_only_explicit_loopback_http() {
     for host in ["localhost:18037", "127.0.0.1:18037", "[::1]:18037"] {
         let settings = temp_env::with_vars(

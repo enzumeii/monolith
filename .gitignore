@@ -20,3 +20,5 @@ target/
 /apps/*/deploy-bundle/
 /.tools/
 /apps/*/vercel/public/
+
+.vercel-dev-*.json

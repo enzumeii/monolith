@@ -17,7 +17,6 @@ Run `../../init.sh` to install the CLI packages after installing Rust.
 | --- | --- |
 | `just` | List recipes |
 | `just build` | Build the client web bundle |
-| `just build-vercel` | Build static production assets under /backoffice |
 | `just test` | Shared contracts, domain WASM check and native backoffice tests |
 | `just check` | Formatting and strict native/WASM lint |
 | `just fix` | Apply formatting and native/WASM lint fixes |

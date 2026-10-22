@@ -28,7 +28,10 @@ for (const [name, prefix] of [['backoffice', 'backoffice'], ['client-ui', 'user'
   assert.ok(!metadata.dependencies && !metadata.devDependencies);
   assert.equal(resolved.services.find(service => service.name === name).builder.use, '@vercel/static-build');
 }
-assert.deepEqual(config.services.api, { root: '.', runtime: 'container', entrypoint: 'Dockerfile.api.vercel' });
+assert.deepEqual(config.services.api, {
+  root: '.', runtime: 'container', entrypoint: 'Dockerfile.api.vercel',
+  devCommand: 'cd services/api && cargo run --locked -p api -- server',
+});
 assert.equal(resolved.services.find(service => service.name === 'api').builder.use, '@vercel/container');
 for (const service of Object.values(config.services)) assert.ok(!('bindings' in service));
 const dockerfile = await readFile('Dockerfile.api.vercel', 'utf8');

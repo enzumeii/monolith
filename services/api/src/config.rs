@@ -225,6 +225,8 @@ impl Settings {
         }
         if mode == "prod" {
             builder = builder.set_override("scheduler.implementation", "vercel")?;
+        }
+        if mode == "prod" || env::var("VERCEL_ENV").as_deref() == Ok("development") {
             let (origin, insecure_local) = deployment_origin()?;
             builder = builder
                 .set_override("browser.public_origin", origin)?

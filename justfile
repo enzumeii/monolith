@@ -21,6 +21,6 @@ vercel-build:
     bash scripts/build-vercel-ui.sh client-ui user
     bash scripts/build-vercel-containers.sh
 
-# Prebuild static bundles and run local Vercel services on port 18027; invoke cron manually.
+# Run all services on port 18027 using API .env and local TOML cron selection.
 vercel-dev:
     npm run dev:vercel

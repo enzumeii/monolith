@@ -44,7 +44,8 @@
     "api": {
       "root": ".",
       "runtime": "container",
-      "entrypoint": "Dockerfile.api.vercel"
+      "entrypoint": "Dockerfile.api.vercel",
+      "devCommand": "cd services/api && cargo run --locked -p api -- server"
     }
   },
   "rewrites": [

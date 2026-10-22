@@ -20,7 +20,6 @@ Without Bitwarden CLI, setup uses local defaults. Setup installs pinned dprint u
 | --- | --- |
 | `just` | List recipes |
 | `RUST_LOG=info,api=debug just run` | Include API DEBUG events and original error diagnostics; error text can contain sensitive values |
-| `just server` | Run with existing dependencies without migrations |
 | `just test` | Start isolated PostgreSQL and Blob containers, run API and TCP E2E, then remove test resources |
 | `just check` | Setup helper tests, Rust/GraphQL/JSON formatting, and strict API lint |
 | `just fix` | Apply Rust/GraphQL/JSON formatting and lint fixes and prepare SQLx metadata |

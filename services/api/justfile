@@ -44,10 +44,6 @@ run:
     done
     wait "$api_pid"
 
-# Run the API with existing dependencies and no migrations; RUN_ENV selects local/prod overrides.
-server:
-    cargo run --locked -p api -- server
-
 # Stop the dev Postgres container
 db-down:
     docker compose -f docker-compose.yml down

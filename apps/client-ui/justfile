@@ -24,10 +24,6 @@ test coverage="":
 _test:
     cargo test --locked -p client-ui
 
-# Build the prefixed static Vercel bundle with production settings; optionally pass an owned public TOML.
-build-vercel config="application.prod.toml":
-    bash ../../scripts/build-vercel-ui.sh client-ui user {{quote(config)}}
-
 # Build the client-only web bundle for local use.
 build:
     dx build --web --package client-ui

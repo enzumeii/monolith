@@ -20,7 +20,7 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | Frontend environments | Selected local/prod file published as `application.toml` | Production uses `/api/v1`; build restores local source file, including after failure |
 | Frontend hosting | Static CSR HTML/WASM/assets under `/backoffice/` and `/user/` | Browser loads public settings before application calls and session restoration |
 | Cron authorization | Environment `CRON_SECRET` | Backend only; never embedded in browser assets |
-| Local Vercel environment | Ignored repository-root `.env` | The pinned services CLI reads `.env`, not `.env.local`; provide local `DATABASE_URL`, `JWT_SECRET`, `CRON_SECRET` and an empty `VERCEL_URL=` key, which the CLI fills with its actual loopback host. No frontend API binding or secret is required |
+| Local Vercel environment | Inherited environment → ignored root `.env` → ignored API `.env` | `just vercel-dev` checks DATABASE_URL, JWT_SECRET and CRON_SECRET, sets local development metadata and uses the API native dev command through an owned temporary config. The API loads its local TOML overlay and cron choice; production still uses the container |
 
 Inherited environment variables keep dotenvy's normal precedence. Normal API settings remain file-based; container port and trusted generated-host metadata are narrow platform exceptions. Absent Shopify configuration is optional when no token override is supplied. A token override requires the admin URL from file configuration; missing required fields produce normal configuration errors. Explicit client construction parses the trusted URL and validates the token/header. just setup scaffolds an empty SHOPIFY_ACCESS_TOKEN only in new .env files and preserves existing files.
 
@@ -220,7 +220,7 @@ Titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/e
 | `just setup` | Install pinned local Vercel CLI and existing CI parser dependencies |
 | `just check` | Workflow, shell, policy tests and pinned CLI configuration/service resolution |
 | `just vercel-build` | Build both static CSR bundles and the API Docker image |
-| `just vercel-dev` | Prebuild static bundles, then run unlinked services on localhost:18027; invoke cron manually |
+| `just vercel-dev` | Load local API secrets, prebuild static bundles, then run all three services on localhost:18027; local TOML selects VPS polling or manual Vercel cron |
 | `vercel.json` | Static filesystem-first routes, asset404 guards, own-prefix SPA fallbacks, public API and daily cron |
 | `scripts/install-vercel-dx.sh` | Compile pinned Dioxus 0.7.10 with the repository Rust toolchain into writable `.tools/vercel-dx`; reuse verified cached version |
 | `scripts/build-vercel-ui.sh` | Select public production TOML, build web-only WASM, restore local TOML and copy only public assets under the app prefix |

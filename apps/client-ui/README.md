@@ -12,7 +12,6 @@ Run `just serve`, then open http://localhost:8085. Local public API settings are
 | --- | --- |
 | `just setup` | Check CLI and installed WASM target |
 | `just build` | Build the local browser bundle |
-| `just build-vercel` | Build static production assets under /user |
 | `just test` | Run configuration and rendered shell tests |
 | `just check` | Check formatting and strict native/WASM lint |
 | `just fix` | Apply formatting and lint fixes |
