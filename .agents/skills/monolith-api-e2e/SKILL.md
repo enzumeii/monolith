@@ -13,8 +13,10 @@ For every new endpoint, also use [monolith-endpoint-test-coverage](../monolith-e
 | --- | --- |
 | healthz | `services/api/e2e-test/healthz.rs` |
 | v1 auth | `services/api/e2e-test/v1/auth.rs` |
-| v1 admin reports | `services/api/e2e-test/v1/admin/{inventories,orders}.rs` |
+| v1 admin inventory, orders and transactions | `services/api/e2e-test/v1/admin/{inventories,orders,transactions}.rs` |
+| v1 admin cron configurations and report history | `services/api/e2e-test/v1/admin/cron/{configs,report}.rs` |
 | v1 admins | `services/api/e2e-test/v1/admins.rs` |
+| Owned-process teardown | `services/api/e2e-test/process.rs` |
 | Shared fixtures/HTTP utilities | `services/api/e2e-test/common.rs` |
 
 The API Cargo manifest registers `e2e-test/main.rs` as the `e2e` test target; preserve that registration.

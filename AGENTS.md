@@ -41,7 +41,7 @@ These rules apply to the entire repository.
 - Keep database models, JWT claims, authenticated principals, SQLx queries and transactions in `services/api`.
 - Backoffice is a client-only Dioxus app calling Axum directly. Axum owns browser credential cookies, CORS and origin checks.
 - Keep `lib.rs` for module declarations and re-exports. Put application startup and backoffice root App components in `main.rs`.
-- Keep backoffice shared HTTP construction/decoding/errors in `src/api.rs`, with endpoint calls in `src/api/{auth,admins}.rs`.
+- Keep backoffice shared HTTP construction/decoding/errors in `src/api.rs`, with endpoint calls in their owning `src/api/` modules.
 - Keep API cookie transport/origin checks in `middleware/cookies.rs` and bearer/JWT authentication/role checks in `middleware/token.rs`. Login/refresh/logout transactions remain in `services/auth.rs`.
 - Keep local UI/API URLs on the same hostname (`localhost` in the checked-in application TOML files); exact Origin checks and SameSite cookies require consistent host spelling. E2E keeps its own configured loopback origin.
 - Keep non-sensitive application settings in `application.toml`; supply secrets, credentials, tokens and private personal contact/address data through environment variables. Load typed settings through the existing generic `config.rs` reader. E2E writes an owned temporary `application.toml` for its local API and deletes it during teardown.
@@ -60,10 +60,11 @@ These rules apply to the entire repository.
 
 ## Documentation and repository skills
 
-- Keep `docs/` focused on tables and Mermaid diagrams with brief supporting prose. Record verification results separately from architecture and state coverage limits explicitly.
+- Keep `docs/` focused on tables and Mermaid diagrams with brief supporting prose. Update existing architecture and operations references as a cohesive description of the current system; keep local plans and execution artifacts ignored. Record verification results separately from architecture and state coverage limits explicitly.
 - For API endpoint testing, use `.agents/skills/monolith-api-e2e/SKILL.md`.
 - For every new API endpoint, also use `.agents/skills/monolith-endpoint-test-coverage/SKILL.md` for isolated dependency services, real connection checks and the required success/validation/dependency-failure matrix.
 - For architecture reviews, use `.agents/skills/monolith-architecture-review/SKILL.md`.
+- For CI, coverage and release maintenance, use the existing commands and policy references in `docs/development.md` and the owning `.github/scripts/` implementations and tests.
 
 - For internal API endpoints and external HTTP/GraphQL dependencies, use `.agents/skills/monolith-api-postman/SKILL.md`; keep matching Postman requests synchronized in the same change.
 - For reusable runtime dependencies, use `.agents/skills/monolith-dependency-injection/SKILL.md`; construct clients once in AppState and inject shared instances.

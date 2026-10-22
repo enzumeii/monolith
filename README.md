@@ -19,5 +19,6 @@ Rustup uses the repository's `rust-toolchain.toml` for Rust, Clippy, rustfmt and
 | Backoffice | [apps/backoffice](apps/backoffice/README.md) |
 | Client UI | [apps/client-ui](apps/client-ui/README.md) |
 | Domain | [crates/domain](crates/domain/README.md) |
+| Report generator | [crates/report-generator](crates/report-generator/README.md) |
 
 See [docs/](docs/) for architecture, development and verification documentation.
