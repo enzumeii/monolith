@@ -107,6 +107,7 @@ def local_defaults():
         'RUN_ENV': 'local',
         'DATABASE_URL': 'postgres://user:pass@127.0.0.1:5432/core',
         'JWT_SECRET': secrets.token_hex(32),
+        'CRON_SECRET': secrets.token_hex(32),
         'SHOPIFY_ACCESS_TOKEN': '', 'RESEND_API_KEY': '',
         'PAYPAL_CLIENT_ID': '', 'PAYPAL_CLIENT_SECRET': '', 'STRIPE_SECRET_KEY': '',
         'BLOB_READ_WRITE_TOKEN': 'vercel_blob_rw_local_synthetic',

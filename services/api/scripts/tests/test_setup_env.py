@@ -101,6 +101,19 @@ class SetupEnvTests(unittest.TestCase):
         self.assertIn('BLOB_READ_WRITE_TOKEN="vercel_blob_rw_local_synthetic"', text)
         self.assertIn('SHIPPING_SENDER_NAME="Synthetic Sender ', text)
         self.assertRegex(text, r'JWT_SECRET="[0-9a-f]{64}"')
+        self.assertRegex(text, r'CRON_SECRET="[0-9a-f]{64}"')
+
+    def test_cron_secret_is_generated_when_missing_or_empty_and_preserved(self):
+        for initial in ('', 'CRON_SECRET=\n', 'CRON_SECRET="kept-cron-secret"\n'):
+            with self.subTest(initial=initial):
+                (self.cwd / '.env').write_text(initial)
+                text = self.assert_success(self.run_setup())
+                if initial.endswith('"kept-cron-secret"\n'):
+                    self.assertIn('CRON_SECRET="kept-cron-secret"', text)
+                else:
+                    self.assertRegex(text, r'CRON_SECRET="[0-9a-f]{64}"')
+                self.assertEqual((self.cwd / '.env').stat().st_mode & 0o777, 0o600)
+                self.assertEqual(self.assert_success(self.run_setup()), text)
 
     def test_mode_arguments_are_not_supported(self):
         for argument in ('local', 'bitwarden', 'bad'):
