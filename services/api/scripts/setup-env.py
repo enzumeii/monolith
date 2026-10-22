@@ -14,7 +14,7 @@ import tempfile
 
 ITEM_ID = '87323839-368f-4288-a4a5-9b0320699892'
 KEYS = (
-    'JWT_SECRET', 'SHOPIFY_ACCESS_TOKEN', 'RESEND_API_KEY',
+    'JWT_SECRET', 'CRON_SECRET', 'SHOPIFY_ACCESS_TOKEN', 'RESEND_API_KEY',
     'PAYPAL_CLIENT_ID', 'PAYPAL_CLIENT_SECRET', 'STRIPE_SECRET_KEY',
 )
 ASSIGNMENT = re.compile(r'^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_.]*)[ \t]*=(.*)', re.S)

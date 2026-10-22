@@ -115,6 +115,17 @@ class SetupEnvTests(unittest.TestCase):
                 self.assertEqual((self.cwd / '.env').stat().st_mode & 0o777, 0o600)
                 self.assertEqual(self.assert_success(self.run_setup()), text)
 
+    def test_cron_secret_imports_vault_value_and_preserves_existing(self):
+        self.fields([{'name': 'CRON_SECRET', 'value': 'synthetic-vault-cron', 'type': 1}])
+        for initial, expected in (('', 'synthetic-vault-cron'),
+                                  ('CRON_SECRET=\n', 'synthetic-vault-cron'),
+                                  ('CRON_SECRET="existing-cron"\n', 'existing-cron')):
+            with self.subTest(initial=initial):
+                (self.cwd / '.env').write_text(initial)
+                text = self.assert_success(self.run_setup())
+                self.assertIn(f'CRON_SECRET="{expected}"', text)
+                self.assertNotIn('synthetic-vault-cron', self.run_setup().stdout)
+
     def test_mode_arguments_are_not_supported(self):
         for argument in ('local', 'bitwarden', 'bad'):
             result = self.run_setup(argument)
