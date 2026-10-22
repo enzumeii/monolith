@@ -16,7 +16,7 @@ type AccountingAction =
     Action<(ReportRequest,), (ReportRequest, api::ApiResult<AccountingReportResponse>)>;
 
 #[component]
-pub fn Accounting() -> Element {
+pub(super) fn AccountingReport() -> Element {
     let mut start = use_signal(String::new);
     let mut end = use_signal(String::new);
     let mut submitted = use_signal(|| None::<ReportRequest>);
@@ -61,8 +61,7 @@ pub fn Accounting() -> Element {
     );
 
     rsx! {
-        main { class: "page accounting-page",
-            h2 { "Accounting" }
+        div { class: "accounting-report",
             form { class: "panel report-form",
                 onsubmit: move |event| {
                     event.prevent_default();
@@ -172,5 +171,5 @@ fn AccountingDownload(transactions: TableData, items: TableData) -> Element {
 }
 
 #[cfg(test)]
-#[path = "../tests/pages/accounting.rs"]
+#[path = "../../tests/pages/reports/accounting.rs"]
 mod tests;

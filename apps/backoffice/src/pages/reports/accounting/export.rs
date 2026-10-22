@@ -23,5 +23,5 @@ pub fn encode_archive(transactions: &TableData, items: &TableData) -> Result<Vec
 }
 
 #[cfg(test)]
-#[path = "../../tests/pages/accounting/export.rs"]
+#[path = "../../../tests/pages/reports/accounting/export.rs"]
 mod tests;

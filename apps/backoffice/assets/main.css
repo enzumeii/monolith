@@ -495,8 +495,8 @@ a:focus-visible {
 .trigger-errors p { margin-top: 0.25rem; }
 
 .accounting-group { max-width: none; margin-top: 1.5rem; }
-.accounting-page input[type="datetime-local"] { min-width: 0; width: 100%; }
-.accounting-page td { white-space: pre-wrap; min-width: 10ch; }
+.accounting-report input[type="datetime-local"] { min-width: 0; width: 100%; }
+.accounting-report td { white-space: pre-wrap; min-width: 10ch; }
 
 .schedule-tabs, .schedule-actions, .schedule-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; }
 .schedule-tabs { margin-bottom: 1.5rem; gap: .35rem; padding: .35rem; border: 1px solid var(--panel-border); background: var(--panel); width: fit-content; }

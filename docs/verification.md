@@ -321,6 +321,25 @@ Endpoint tests use controlled Shopify/Resend servers and real PostgreSQL connect
 | Final local verification | Independent combined diff/consumer review found no gaps. Strict API check, workspace formatting, patch whitespace and Postman lint passed (19 internal/18 external, zero warnings/errors); six saved examples and all 11 external GraphQL query/variable pairs verified. CI for the final pushed source SHA is recorded separately |
 | Limits | Controlled localhost providers only; no live provider compatibility, merchant scope, cost, load, email or deployment claim. Native picker save/cancellation/focus remain manual/unverified this run: permitted tab Escape did not dismiss the native dialog. Browser fallback was exercised only in a disposable capability-disabled bundle |
 
+
+## ENZ-34 Accounting inside Reports (2026-10-22)
+
+| Area | Observed result / coverage |
+| --- | --- |
+| Local implementation checks | Backoffice check/test/build passed at a2234ae: strict native/WASM lint and formatting, 70 backoffice tests, 11 domain tests, domain WASM check and browser bundle. Independent implementation review reported no actionable findings |
+| Post-merge coverage recovery | Backoffice `check` and `test --coverage` pass: 115 backoffice tests, 9 domain unit tests, 8 domain contracts and domain WASM check. Three rendered native Reports flows exercise real TCP HTTP, Convention next/previous/All, Picklist results/edit clearing/empty state and failed generation/Retry recovery. Four realistic mutations fail the relevant regressions. |
+| Local coverage estimate | Exact CI39736868921 artifact union is 7,798/9,222 lines (84.5587%). Replacing its backoffice LCOV with fresh local LCOV gives 7,856/9,222 (85.1876%); Reports improves 81/136 to 134/136. Deduplicated by source path/line; hosted Codecov at the new commit remains unverified. |
+| Browser setup | Real built UI localhost:18084, real API localhost:33034 and isolated Compose PostgreSQL port 55434; synthetic cookie login and controlled external provider HTTP services; no internal endpoint stubs or production credentials |
+| Navigation | One Reports heading; Convention/Picklist/Accounting selector defaults to Convention; no Accounting navbar entry. Browser reload returns Convention controls with no Accounting date field; former /accounting renders NotFound |
+| Accounting generation | UTC+07:00 date controls; success shows Stripe 1 / PayPal 1 / Items 2. Reversed dates show Start must be before end. All-empty results disable ZIP; transaction-only Stripe 1 / PayPal 1 / Items 0 enables ZIP |
+| Provider failure / retry | Controlled provider 503 produces safe Upstream request failed and Retry; subsequent generation recovers with transaction-only results |
+| Downloaded ZIP | Actual browser download accounting-report.zip inspected with Python zipfile/csv: 1120 bytes, exactly transactions.csv/items.csv, 20/11 columns and 2 rows each; comma/quote-containing title Fixture, "Keychain" preserved |
+| Type lifecycle | During a 5-second delayed Accounting request, Generating appears; switching to Picklist prevents a stale Stripe region after the response. Picklist FIXTURE generates 1 row; returning to Accounting clears dates/results and disables ZIP |
+| Existing product reports | Convention location 1 first/next/previous pages verified; All awaited both Fixture Product 1 and Fixture Product 2 and reported 2 rows. Supported fallback save downloaded Picklist CSV (224 bytes, 14 columns, 1 row, quoted Fixture, "Keychain" title) and Convention CSV (317 bytes, 14 columns, 2 rows, Fixture Product 1/2); actual bytes parsed with Python csv. Save and Cancel close the fallback dialog; Save re-enables |
+| Presentation | Light and actual system Dark appearance inspected at normal size and 390x844 narrow viewport with generated Accounting results. Dark background rgb(29,34,40), text rgb(237,242,246); controls fit (client width 375, start-input bounds 37–338). Original system Auto setting confirmed restored and viewport reset |
+
+Item-only results cannot be produced through the unchanged real backend; existing native item-only export coverage remains. Existing native serialization/save and session ownership/refresh/date/archive regressions passed in the implementation suite; they do not establish browser coverage of those unexercised paths. Native FileSystem picker save remains unverified because the automation surface could not access its dialog. Product CSV fallback was exercised using a disposable serving-page injection disabling showSaveFilePicker before the unchanged app module, matching browsers without that capability; no product code changed. No live provider, production, deployment or hosted CI claim; confirm exact published-head CI separately.
+
 ## ENZ-29 saved report history review remediation (2026-10-21)
 
 | Check | Evidence |
