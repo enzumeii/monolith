@@ -151,40 +151,7 @@ impl ReportRender {
     }
 }
 
-struct FormEventConverter;
-
-struct TestFormValue(String);
-impl dioxus::html::HasFileData for TestFormValue {
-    fn files(&self) -> Vec<dioxus::html::FileData> {
-        vec![]
-    }
-}
-impl dioxus::html::HasFormData for TestFormValue {
-    fn value(&self) -> String {
-        self.0.clone()
-    }
-    fn valid(&self) -> bool {
-        true
-    }
-    fn values(&self) -> Vec<(String, dioxus::html::FormValue)> {
-        vec![]
-    }
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-}
-macro_rules! form_event_converter {
-    (enum Event { $(#[convert = $converter:ident] #[events = [$($(#[$attr:meta])* $name:ident => $raw:ident,)*]] $(#[raw = [$($raw_only:ident),* $(,)?]])? $group:ident($data:ident),)* }) => {
-        impl dioxus::html::HtmlEventConverter for FormEventConverter {
-            $(fn $converter(&self, _event: &dioxus::html::PlatformEventData) -> dioxus::html::$data {
-                form_event_converter!(@data $data, _event)
-            })*
-        }
-    };
-    (@data FormData, $event:ident) => { dioxus::html::FormData::new(TestFormValue($event.downcast::<String>().expect("form value").clone())) };
-    (@data $other:ident, $event:ident) => { panic!("unexpected non-form event: {}", stringify!($other)) };
-}
-dioxus::html::with_html_event_groups!(form_event_converter);
+use crate::test_events::FormEventConverter;
 
 fn change(dom: &VirtualDom, id: ElementId, value: &str) {
     let data = dioxus::html::PlatformEventData::new(Box::new(value.to_owned()));
@@ -408,4 +375,254 @@ fn invalid_inventory_submission_shows_recoverable_error() {
             .iter()
             .any(|text| text == "No products found.")
     );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+mod interaction {
+    use super::*;
+    use dioxus::dioxus_core::{Mutation, Mutations};
+    use std::{
+        io::{Read, Write},
+        net::{TcpListener, TcpStream},
+    };
+
+    fn mount() -> (VirtualDom, TcpListener, Mutations) {
+        dioxus::html::set_event_converter(Box::new(FormEventConverter));
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        listener
+            .set_nonblocking(true)
+            .expect("nonblocking listener");
+        let mut dom = VirtualDom::new(Reports).with_root_context(crate::config::Settings {
+            api: crate::config::ApiConfig {
+                base_url: format!("http://{}/v1", listener.local_addr().expect("address")),
+            },
+        });
+        dom.in_scope(ScopeId::ROOT, || {
+            *session::SESSION.write() = Some(viewer(1, u64::MAX));
+        });
+        let initial = dom.rebuild_to_vec();
+        (dom, listener, initial)
+    }
+
+    fn listeners(mutations: &Mutations, event: &str) -> Vec<ElementId> {
+        mutations
+            .edits
+            .iter()
+            .filter_map(|edit| match edit {
+                Mutation::NewEventListener { name, id } if *name == event => Some(*id),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn event(dom: &VirtualDom, id: ElementId, name: &str, value: &str) {
+        let data = dioxus::html::PlatformEventData::new(Box::new(value.to_owned()));
+        dom.runtime().handle_event(
+            name,
+            Event::new(Rc::new(data) as Rc<dyn std::any::Any>, true),
+            id,
+        );
+    }
+
+    struct HttpRequest {
+        stream: TcpStream,
+        headers: String,
+    }
+
+    async fn request(dom: &mut VirtualDom, listener: &TcpListener) -> HttpRequest {
+        for _ in 0..300 {
+            pump(dom);
+            if let Ok((mut stream, _)) = listener.accept() {
+                stream.set_nonblocking(true).expect("nonblocking stream");
+                let mut bytes = Vec::new();
+                for _ in 0..300 {
+                    let mut chunk = [0; 4096];
+                    match stream.read(&mut chunk) {
+                        Ok(count) if count > 0 => bytes.extend_from_slice(&chunk[..count]),
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                        other => panic!("reading HTTP headers: {other:?}"),
+                    }
+                    if bytes.windows(4).any(|part| part == b"\r\n\r\n") {
+                        stream.set_nonblocking(false).expect("blocking response");
+                        return HttpRequest {
+                            stream,
+                            headers: String::from_utf8(bytes).expect("HTTP headers"),
+                        };
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                    pump(dom);
+                }
+                panic!("incomplete HTTP headers");
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        panic!("report did not request data");
+    }
+
+    fn respond(request: HttpRequest, status: u16, body: &str) {
+        let mut stream = request.stream;
+        write!(stream, "HTTP/1.1 {status} Response\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).expect("response");
+    }
+
+    async fn visible(dom: &mut VirtualDom, expected: &str) {
+        for _ in 0..300 {
+            pump(dom);
+            if ReportRender::read(dom)
+                .text
+                .iter()
+                .any(|text| text == expected)
+            {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        panic!("missing {expected}: {:?}", ReportRender::read(dom).text);
+    }
+
+    fn absent(dom: &VirtualDom, text: &str) {
+        assert!(
+            !ReportRender::read(dom)
+                .text
+                .iter()
+                .any(|value| value == text),
+            "unexpected {text}"
+        );
+    }
+
+    fn product(title: &str) -> String {
+        format!(
+            r#"{{"category":"Books","collection":"Fair","sku":"BOOK-1","title":"{title}","variant":null,"cost":10,"cost_currency":"THB","weight":1,"unit":"kg","selling_price":20,"selling_price_currency":"THB","quantity":2,"total_selling_price":40,"total_weight":2}}"#
+        )
+    }
+
+    fn inventory(title: &str, next: bool, cursor: &str) -> String {
+        format!(
+            r#"{{"products":[{}],"page_info":{{"has_next_page":{next},"end_cursor":"{cursor}"}}}}"#,
+            product(title)
+        )
+    }
+
+    fn inventory_page(request: HttpRequest, first: &str, second: &str, cursor: &str) {
+        let is_second = request
+            .headers
+            .lines()
+            .next()
+            .expect("request line")
+            .contains(&format!("cursor={cursor}"));
+        let body = inventory(if is_second { second } else { first }, !is_second, cursor);
+        respond(request, 200, &body);
+    }
+
+    #[tokio::test]
+    async fn convention_navigation_replaces_rows_and_all_collects_every_page() {
+        let (mut dom, listener, initial) = mount();
+        let changes = listeners(&initial, "change");
+        let clicks = listeners(&initial, "click");
+        let input = listeners(&initial, "input")[0];
+        event(&dom, input, "input", "123");
+        pump(&mut dom);
+        event(&dom, listeners(&initial, "submit")[0], "submit", "");
+        let stream = request(&mut dom, &listener).await;
+        absent(&dom, "No products found.");
+        inventory_page(stream, "First page", "Second page", "second");
+        visible(&mut dom, "First page").await;
+        visible(&mut dom, "1 rows").await;
+        visible(&mut dom, "Save report…").await;
+        event(&dom, clicks[1], "click", "");
+        let stream = request(&mut dom, &listener).await;
+        inventory_page(stream, "First page", "Second page", "second");
+        visible(&mut dom, "Second page").await;
+        absent(&dom, "First page");
+        event(&dom, clicks[0], "click", "");
+        let stream = request(&mut dom, &listener).await;
+        inventory_page(stream, "First page", "Second page", "second");
+        visible(&mut dom, "First page").await;
+        event(&dom, changes[1], "change", "all");
+        let stream = request(&mut dom, &listener).await;
+        inventory_page(stream, "All first", "All second", "more");
+        let stream = request(&mut dom, &listener).await;
+        inventory_page(stream, "All first", "All second", "more");
+        visible(&mut dom, "2 rows").await;
+        visible(&mut dom, "All first").await;
+        visible(&mut dom, "All second").await;
+        absent(&dom, "Previous");
+        absent(&dom, "Next");
+        event(&dom, input, "input", "456");
+        pump(&mut dom);
+        absent(&dom, "All first");
+        absent(&dom, "Save report…");
+    }
+
+    #[tokio::test]
+    async fn picklist_displays_products_and_editing_tags_clears_the_previous_report() {
+        let (mut dom, listener, initial) = mount();
+        change(&dom, listeners(&initial, "change")[0], "picklist");
+        let picklist = dom.render_immediate_to_vec();
+        let input = listeners(&picklist, "input")[0];
+        let submit = listeners(&picklist, "submit")[0];
+        event(&dom, input, "input", "fair");
+        pump(&mut dom);
+        event(&dom, submit, "submit", "");
+        let stream = request(&mut dom, &listener).await;
+        respond(
+            stream,
+            200,
+            &format!(r#"{{"products":[{}]}}"#, product("Picklist book")),
+        );
+        visible(&mut dom, "Picklist book").await;
+        visible(&mut dom, "1 rows").await;
+        visible(&mut dom, "Save report…").await;
+        absent(&dom, "Rows per page");
+        event(&dom, input, "input", "empty");
+        pump(&mut dom);
+        absent(&dom, "Picklist book");
+        absent(&dom, "Save report…");
+        event(&dom, submit, "submit", "");
+        let stream = request(&mut dom, &listener).await;
+        respond(stream, 200, r#"{"products":[]}"#);
+        visible(&mut dom, "No products found.").await;
+        visible(&mut dom, "0 rows").await;
+    }
+
+    #[tokio::test]
+    async fn retry_recovers_a_failed_report_and_input_clears_the_error() {
+        let (mut dom, listener, initial) = mount();
+        let input = listeners(&initial, "input")[0];
+        event(&dom, input, "input", "123");
+        pump(&mut dom);
+        let submit = listeners(&initial, "submit")[0];
+        event(&dom, submit, "submit", "");
+        let stream = request(&mut dom, &listener).await;
+        respond(
+            stream,
+            503,
+            r#"{"error":"Inventory is temporarily unavailable"}"#,
+        );
+        // Capture the newly rendered Retry listener while waiting for the response.
+        let mut retry = None;
+        for _ in 0..300 {
+            let _ = dom.wait_for_work().now_or_never();
+            let mutations = dom.render_immediate_to_vec();
+            retry = retry.or_else(|| listeners(&mutations, "click").first().copied());
+            if retry.is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        visible(&mut dom, "Inventory is temporarily unavailable").await;
+        event(&dom, retry.expect("Retry button"), "click", "");
+        let stream = request(&mut dom, &listener).await;
+        respond(stream, 200, &inventory("Recovered book", false, "last"));
+        visible(&mut dom, "Recovered book").await;
+        absent(&dom, "Inventory is temporarily unavailable");
+        absent(&dom, "Retry");
+        event(&dom, input, "input", "");
+        pump(&mut dom);
+        event(&dom, submit, "submit", "");
+        visible(&mut dom, "Enter a positive numeric inventory ID").await;
+        event(&dom, input, "input", "456");
+        pump(&mut dom);
+        absent(&dom, "Enter a positive numeric inventory ID");
+        absent(&dom, "Retry");
+    }
 }

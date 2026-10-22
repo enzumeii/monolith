@@ -209,40 +209,7 @@ fn same_owner_refresh_preserves_pending_and_completed_work_without_replay() {
     assert_eq!(harness.calls.get(), 1);
 }
 
-struct FormEventConverter;
-
-struct TestFormValue(String);
-impl dioxus::html::HasFileData for TestFormValue {
-    fn files(&self) -> Vec<dioxus::html::FileData> {
-        vec![]
-    }
-}
-impl dioxus::html::HasFormData for TestFormValue {
-    fn value(&self) -> String {
-        self.0.clone()
-    }
-    fn valid(&self) -> bool {
-        true
-    }
-    fn values(&self) -> Vec<(String, dioxus::html::FormValue)> {
-        vec![]
-    }
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-}
-macro_rules! form_event_converter {
-    (enum Event { $(#[convert = $converter:ident] #[events = [$($(#[$attr:meta])* $name:ident => $raw:ident,)*]] $(#[raw = [$($raw_only:ident),* $(,)?]])? $group:ident($data:ident),)* }) => {
-        impl dioxus::html::HtmlEventConverter for FormEventConverter {
-            $(fn $converter(&self, _event: &dioxus::html::PlatformEventData) -> dioxus::html::$data {
-                form_event_converter!(@data $data, _event)
-            })*
-        }
-    };
-    (@data FormData, $event:ident) => { dioxus::html::FormData::new(TestFormValue($event.downcast::<String>().expect("form value").clone())) };
-    (@data $other:ident, $event:ident) => { panic!("unexpected non-form event: {}", stringify!($other)) };
-}
-dioxus::html::with_html_event_groups!(form_event_converter);
+use crate::test_events::FormEventConverter;
 
 fn triggers_page() -> Element {
     let pending = use_signal(|| false);

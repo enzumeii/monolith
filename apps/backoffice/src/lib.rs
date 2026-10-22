@@ -10,3 +10,7 @@ pub mod route;
 pub mod session;
 
 pub use components::SITE_LOGO;
+
+#[cfg(test)]
+#[path = "tests/events.rs"]
+mod test_events;
