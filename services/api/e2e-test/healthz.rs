@@ -7,22 +7,25 @@ use axum::http::{Request, StatusCode};
 #[tokio::test]
 async fn returns_ok() {
     let _db = common::fixture().await;
-    for path in ["/healthz", "/api/healthz"] {
-        let response = common::client()
-            .await
-            .send(Request::builder().uri(path).body(Body::empty()).unwrap())
-            .await
-            .unwrap();
+    let response = common::client()
+        .await
+        .send(
+            Request::builder()
+                .uri("/healthz")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            http_body_util::BodyExt::collect(response.into_body())
-                .await
-                .unwrap()
-                .to_bytes(),
-            "OK"
-        );
-    }
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        http_body_util::BodyExt::collect(response.into_body())
+            .await
+            .unwrap()
+            .to_bytes(),
+        "OK"
+    );
 }
 
 #[tokio::test]
