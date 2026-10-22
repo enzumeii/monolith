@@ -320,3 +320,20 @@ Endpoint tests use controlled Shopify/Resend servers and real PostgreSQL connect
 | Saved accounting request | Actual Postman HTTP collection request ran with inherited synthetic bearer token: populated200, empty200 and missing-PayPal503; each CLI exit0/zero request failures. Separate real-HTTP assertions checked populated/empty shapes and exact safe provider error; collection itself contains no test scripts |
 | Final local verification | Independent combined diff/consumer review found no gaps. Strict API check, workspace formatting, patch whitespace and Postman lint passed (19 internal/18 external, zero warnings/errors); six saved examples and all 11 external GraphQL query/variable pairs verified. CI for the final pushed source SHA is recorded separately |
 | Limits | Controlled localhost providers only; no live provider compatibility, merchant scope, cost, load, email or deployment claim. Native picker save/cancellation/focus remain manual/unverified this run: permitted tab Escape did not dismiss the native dialog. Browser fallback was exercised only in a disposable capability-disabled bundle |
+
+
+## ENZ-34 Accounting inside Reports (2026-10-22)
+
+| Area | Observed result / coverage |
+| --- | --- |
+| Local implementation checks | Backoffice check/test/build passed at a2234ae: strict native/WASM lint and formatting, 70 backoffice tests, 11 domain tests, domain WASM check and browser bundle. Independent implementation review reported no actionable findings |
+| Browser setup | Real built UI localhost:18084, real API localhost:33034 and isolated Compose PostgreSQL port 55434; synthetic cookie login and controlled external provider HTTP services; no internal endpoint stubs or production credentials |
+| Navigation | One Reports heading; Convention/Picklist/Accounting selector defaults to Convention; no Accounting navbar entry. Browser reload returns Convention controls with no Accounting date field; former /accounting renders NotFound |
+| Accounting generation | UTC+07:00 date controls; success shows Stripe 1 / PayPal 1 / Items 2. Reversed dates show Start must be before end. All-empty results disable ZIP; transaction-only Stripe 1 / PayPal 1 / Items 0 enables ZIP |
+| Provider failure / retry | Controlled provider 503 produces safe Upstream request failed and Retry; subsequent generation recovers with transaction-only results |
+| Downloaded ZIP | Actual browser download accounting-report.zip inspected with Python zipfile/csv: 1120 bytes, exactly transactions.csv/items.csv, 20/11 columns and 2 rows each; comma/quote-containing title Fixture, "Keychain" preserved |
+| Type lifecycle | During a 5-second delayed Accounting request, Generating appears; switching to Picklist prevents a stale Stripe region after the response. Picklist FIXTURE generates 1 row; returning to Accounting clears dates/results and disables ZIP |
+| Existing product reports | Convention location 1 first/next/previous pages verified; All awaited both Fixture Product 1 and Fixture Product 2 and reported 2 rows. Product CSV save opened the native picker; saved bytes were not inspected |
+| Presentation | Light appearance inspected at normal size and 390x844 narrow viewport; controls fit (client width 375, start-input bounds 37–338). Viewport restored; dark appearance was not separately exercised |
+
+Item-only results cannot be produced through the unchanged real backend; existing native item-only export coverage remains. Existing native serialization/save and session ownership/refresh/date/archive regressions passed in the implementation suite; they do not establish browser coverage of those unexercised paths. Native product save could not be inspected because the automation surface could not access its dialog. No live provider, production, deployment or hosted CI claim; confirm exact published-head CI separately.
