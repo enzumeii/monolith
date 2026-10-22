@@ -4,14 +4,14 @@ url: "{{server}}/v1/admin/cron/configs/:id"
 method: PATCH
 pathVariables:
   - key: id
-    value: ""
+    value: 8382d947-e7e2-4195-839f-50448b13b354
     description: UUID returned by the create request.
 body:
   type: json
   content: |-
     {
       "name": "Monthly transaction report",
-      "enabled": true
+      "enabled": false
     }
 scripts:
   - type: afterResponse

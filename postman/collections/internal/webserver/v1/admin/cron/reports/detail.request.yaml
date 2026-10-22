@@ -4,7 +4,7 @@ url: "{{server}}/v1/admin/cron/reports/:id"
 method: GET
 pathVariables:
   - key: id
-    value: ""
+    value: bad043c7-4d3c-4fb9-8864-b381ef2af303
     description: UUID returned by report history.
 scripts:
   - type: afterResponse
