@@ -1,11 +1,8 @@
 $kind: http-request
-url: "{{api_server}}/api/healthz"
+url: "{{server}}/healthz"
 method: GET
 order: 2000
-description: >-
-  Public API health on the same generated hostname as static frontends. api_server
-  is the root URL without /api. Native /healthz remains a standalone compatibility
-  alias. No authentication or business dependencies; successful response is 200 OK.
+description: Public API health on the same generated hostname as static frontends. api_server is the root URL without /api. Native /healthz remains a standalone compatibility alias. No authentication or business dependencies; successful response is 200 OK.
 scripts:
   - type: afterResponse
     code: |-

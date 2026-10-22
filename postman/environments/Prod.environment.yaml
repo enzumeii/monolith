@@ -10,9 +10,5 @@ values:
     value: 'https://api-m.paypal.com'
   - key: stripe
     value: 'https://api.stripe.com/v1'
-  - key: cron_server
-    value: 'https://deployment-name.vercel.app'
-  - key: cron_secret
+  - key: blob_api
     value: ''
-  - key: api_server
-    value: 'https://deployment-name.vercel.app'

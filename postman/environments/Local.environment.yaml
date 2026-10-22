@@ -12,9 +12,3 @@ values:
     value: 'https://api.stripe.com/v1'
   - key: blob_api
     value: ''
-  - key: cron_server
-    value: 'http://localhost:3000'
-  - key: cron_secret
-    value: ''
-  - key: api_server
-    value: 'http://localhost:3000'
