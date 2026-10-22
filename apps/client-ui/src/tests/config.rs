@@ -34,7 +34,7 @@ fn config_asset_rejects_invalid_page_url() {
 #[test]
 fn deployment_configs_select_public_api_without_changing_local_urls() {
     let local: super::Settings =
-        toml::from_str(include_str!("../../application.local.toml")).expect("local settings");
+        toml::from_str(include_str!("../../application.toml")).expect("local settings");
     let production: super::Settings =
         toml::from_str(include_str!("../../application.prod.toml")).expect("production settings");
     assert_eq!(local.api.base_url, "http://localhost:3000/v1");

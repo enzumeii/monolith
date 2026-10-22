@@ -26,7 +26,7 @@ fn configuration_failure_exposes_alert_and_retry() {
 
 #[test]
 fn configured_shell_renders_without_inventing_customer_features() {
-    let settings = toml::from_str(include_str!("../../application.local.toml")).expect("settings");
+    let settings = toml::from_str(include_str!("../../application.toml")).expect("settings");
     let html = render(Some(Ok(settings)));
     assert!(html.contains("Enzumeii"));
     assert!(html.contains("Client application"));
