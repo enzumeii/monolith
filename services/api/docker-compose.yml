@@ -22,7 +22,7 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 3000
-      BLOB_READ_WRITE_TOKEN: vercel_blob_rw_local_synthetic
+      BLOB_READ_WRITE_TOKEN: ${BLOB_READ_WRITE_TOKEN:-vercel_blob_rw_local_synthetic}
       VERCEL_BLOB_LOCAL_DIR: /data
       VERCEL_BLOB_LOCAL_PUBLIC_URL: ${LOCAL_BLOB_PUBLIC_URL:-http://localhost:3001}
     ports:

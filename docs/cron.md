@@ -141,7 +141,7 @@ flowchart LR
 
 ## Local commands
 
-Configure client.vercel_blob endpoint/timeout in application.local.toml; provide BLOB_READ_WRITE_TOKEN as a secret for production. `just run` uses a synthetic local token, starts Compose services and waits for readiness. The local-blob volume survives ordinary shutdown; E2E owns separate resources and deletes its test volume. No Python file server or legacy filesystem import is used. Existing files remain untouched; old local static-server URLs are not migrated automatically.
+Configure client.vercel_blob endpoint/timeout in application.local.toml; provide BLOB_READ_WRITE_TOKEN as a secret for production. `just setup` fills missing or empty BLOB_READ_WRITE_TOKEN in .env with the synthetic local emulator token while preserving nonempty values. `just run` loads that token from .env for both the API and local Blob emulator, starts Compose services and waits for readiness. The local-blob volume survives ordinary shutdown; E2E owns separate resources and deletes its test volume. No Python file server or legacy filesystem import is used. Existing files remain untouched; old local static-server URLs are not migrated automatically.
 
 The emulator image is pinned to ghcr.io/lafittemehdy/vercel-blob-local@sha256:9e85fdc2c7ff691bdd4b6d5457e4d8cb3a0beb010724adc594786cd76395a31c. Its Docker host binding is loopback. LOCAL_BLOB_PORT and LOCAL_BLOB_PUBLIC_URL must match the API's typed local endpoint when changing ports. Production Vercel credentials, CDN behavior and deployment are unverified; private execution metadata requires PostgreSQL, while all generated files live in Blob.
 

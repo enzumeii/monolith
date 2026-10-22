@@ -2,9 +2,9 @@
 
 ## Prerequisites
 
-Run `../../init.sh` to install the CLI packages after installing Rust, Docker, and Python 3. Python 3 is only needed by `just setup` to generate the JWT signing key and scaffold synthetic sender settings; running the API and Blob emulator does not require Python.
+Run `../../init.sh` to install the CLI packages after installing Rust, Docker, and Python 3. Python 3 is only needed by `just setup` to generate the JWT signing key and scaffold local Blob and synthetic sender settings; running the API and Blob emulator does not require Python.
 
-`just setup` installs pinned dprint with Cargo under `.tools/`, caches its GraphQL/JSON plugins, and creates `.env` when missing. It adds empty `RESEND_API_KEY`, `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` and `BLOB_READ_WRITE_TOKEN` entries if absent. Supply optional provider credentials there; PayPal uses the sandbox URL in `application.toml` by default.
+`just setup` installs pinned dprint with Cargo under `.tools/`, caches its GraphQL/JSON plugins, and creates `.env` when missing. It fills missing or empty `BLOB_READ_WRITE_TOKEN` with the synthetic local emulator token, preserving nonempty values. Optional provider credentials are scaffolded empty. Supply real credentials there and use your Vercel token for production. PayPal uses the sandbox URL in `application.toml` by default.
 
 ## Run locally
 

@@ -29,7 +29,7 @@ setup:
     else
       echo '→ .env already exists, preserving its values.'
     fi
-    for key in RESEND_API_KEY PAYPAL_CLIENT_ID PAYPAL_CLIENT_SECRET STRIPE_SECRET_KEY BLOB_READ_WRITE_TOKEN; do
+    for key in RESEND_API_KEY PAYPAL_CLIENT_ID PAYPAL_CLIENT_SECRET STRIPE_SECRET_KEY; do
       if ! rg -q "^[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=" .env; then
         printf '\n%s=\n' "$key" >> .env
       fi
@@ -52,8 +52,9 @@ setup:
         'POSTCODE': f'10{secrets.randbelow(1000):03d}',
         'COUNTRY_CODE': 'TH',
     }
-    for field, value in sender.items():
-        key = f'SHIPPING_SENDER_{field}'
+    defaults = {f'SHIPPING_SENDER_{field}': value for field, value in sender.items()}
+    defaults['BLOB_READ_WRITE_TOKEN'] = 'vercel_blob_rw_local_synthetic'
+    for key, value in defaults.items():
         pattern = re.compile(rf'(?m)^[ \t]*(?:export[ \t]+)?{key}[ \t]*=(.*)$')
         matches = list(pattern.finditer(text))
         empty = ('', "''", '""')
@@ -62,6 +63,7 @@ setup:
         text = pattern.sub(lambda match: line if match.group(1).strip() in empty else match.group(0), text) if matches else text.rstrip('\n') + '\n' + line + '\n'
     path.write_text(text)
     PY_SENDER
+    printf '%s\n' 'Local Blob token is scaffolded in .env; replace it with your Vercel token for production.'
     printf '%s\n' 'Synthetic local sender values are scaffolded in .env; replace them with your shipping sender profile before real use.'
     printf '%s\n' 'Optional Resend client: set RESEND_API_KEY in .env to your Resend API key before sending email.'
     printf '%s\n' 'Optional Shopify client: set SHOPIFY_ACCESS_TOKEN in .env and client.shopify.admin_api_url in application.toml.'
@@ -83,7 +85,7 @@ run:
     docker compose -f docker-compose.yml up -d --wait postgres local-blob
     cargo sqlx migrate run
     cargo build --locked -p api --bin api
-    BLOB_READ_WRITE_TOKEN=vercel_blob_rw_local_synthetic ../../target/debug/api &
+    ../../target/debug/api &
     api_pid=$!
     while kill -0 "$api_pid" 2>/dev/null; do
       if [[ -z "$(docker compose -f docker-compose.yml ps --status running -q local-blob)" ]]; then
