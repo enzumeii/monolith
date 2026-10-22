@@ -4,6 +4,6 @@ url: "{{server}}/v1/admin/cron/configs/:id"
 method: DELETE
 pathVariables:
   - key: id
-    value: "{{cron_configuration_id}}"
+    value: ""
     description: UUID returned by the create request.
 order: 6000

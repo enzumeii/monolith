@@ -1,1 +1,4 @@
 $kind: collection
+variables:
+  blob_download_url: ""
+  blob_pathname: ""

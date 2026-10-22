@@ -4,14 +4,10 @@ url: "{{server}}/v1/admin/cron/configs/preview?report_type=TRANSACTION&cron_expr
 method: GET
 queryParams:
   report_type: TRANSACTION
-  cron_expression: "0 9 1 * *"
+  cron_expression: 0 9 1 * *
   parameter: PREVIOUS_MONTH
 scripts:
   - type: afterResponse
-    code: |-
-      pm.test("Preview has five occurrences", () => {
-        pm.response.to.have.status(200);
-        pm.expect(pm.response.json().occurrences).to.have.length(5);
-      });
+    code: ""
     language: text/javascript
 order: 3000

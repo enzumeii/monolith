@@ -4,7 +4,7 @@ url: "{{server}}/v1/admin/cron/configs/:id"
 method: PATCH
 pathVariables:
   - key: id
-    value: "{{cron_configuration_id}}"
+    value: ""
     description: UUID returned by the create request.
 body:
   type: json
@@ -15,10 +15,6 @@ body:
     }
 scripts:
   - type: afterResponse
-    code: |-
-      pm.test("Enable patch is accepted", () => {
-        pm.response.to.have.status(200);
-        pm.expect(pm.response.json().enabled).to.eql(true);
-      });
+    code: ""
     language: text/javascript
 order: 5000

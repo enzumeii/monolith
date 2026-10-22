@@ -10,3 +10,5 @@ values:
     value: 'https://api-m.paypal.com'
   - key: stripe
     value: 'https://api.stripe.com/v1'
+  - key: blob_api
+    value: ''
