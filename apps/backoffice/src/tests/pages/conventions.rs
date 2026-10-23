@@ -1,6 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 use super::*;
-use crate::api::tests::metadata_responses;
+use crate::{api::tests::metadata_responses, session};
 use dioxus::history::{MemoryHistory, provide_history_context};
 use futures::FutureExt;
 use std::rc::Rc;
@@ -71,7 +71,11 @@ async fn mounted_convention_list_renders_async_success_and_failure_without_other
     let list = format!(r#"{{"items":[{RECORD}],"page":1,"per_page":25,"has_next":false}}"#);
     let html = mounted_response("/conventions", &[(200, &list)], "Loaded event").await;
     assert!(html.contains("No logo preview"), "{html}");
-    assert!(html.contains("button-link ghost convention-name-action"));
+    assert!(!html.contains("convention-name-action"));
+    assert!(html.contains("convention-list-heading"));
+    assert!(html.contains(">Edit</a>"));
+    assert!(html.contains("Delete Loaded event"));
+    assert!(html.contains("Actions"));
     assert!(html.contains("convention-status is-disabled"));
     let logo_list = list.replace("\"logo_preview_url\":null", "\"logo_preview_url\":\"https://s3.test/logo.png?signature=one\",\"logo_preview_url_expires_at\":\"2099-01-01T00:00:00Z\"");
     let html = mounted_response(
@@ -115,4 +119,71 @@ async fn mounted_convention_detail_renders_async_success_and_failure_without_oth
         "Convention unavailable",
     )
     .await;
+}
+
+#[tokio::test]
+async fn list_deletion_requires_confirmation_preserves_errors_and_refreshes_after_success() {
+    use crate::test_events::{
+        FormEventConverter, element_id, form_event, listeners, render_changes,
+    };
+    let list = format!(r#"{{"items":[{RECORD}],"page":1,"per_page":25,"has_next":false}}"#);
+    let ((), requests) = metadata_responses(
+        &[
+            (200, &list),
+            (409, r#"{"error":"Delete failed"}"#),
+            (204, ""),
+            (
+                200,
+                r#"{"items":[],"page":1,"per_page":25,"has_next":false}"#,
+            ),
+        ],
+        async {
+            dioxus::html::set_event_converter(Box::new(FormEventConverter));
+            let settings = consume_context::<crate::config::Settings>();
+            let mut dom = VirtualDom::new(app)
+                .with_root_context("/conventions".to_owned())
+                .with_root_context(settings);
+            dom.in_scope(ScopeId::ROOT, || {
+                *session::SESSION.write() = Some(session::Session {
+                    admin_id: 1,
+                    username: "fixture".into(),
+                    role: domain::AdminRole::Admin,
+                    expires_at: u64::MAX,
+                });
+            });
+            let mut edits = dom.rebuild_to_vec();
+            let initial_clicks = listeners(&edits, "click");
+            let confirm = *initial_clicks.last().expect("confirm delete");
+            let cancel = initial_clicks[initial_clicks.len() - 2];
+            for _ in 0..40 {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                edits.edits.extend(render_changes(&mut dom).edits);
+            }
+            let delete = element_id(&edits, &format!("delete-convention-{ID}"));
+            form_event(&dom, delete, "click", "");
+            render_changes(&mut dom);
+            form_event(&dom, cancel, "click", "");
+            render_changes(&mut dom);
+            for expected in ["Delete failed", "No conventions match this filter."] {
+                form_event(&dom, delete, "click", "");
+                render_changes(&mut dom);
+                form_event(&dom, confirm, "click", "");
+                for _ in 0..40 {
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                    render_changes(&mut dom);
+                }
+                let html = dioxus_ssr::render(&dom);
+                assert!(html.contains(expected), "{html}");
+                if expected == "Delete failed" {
+                    assert!(html.contains("Loaded event"));
+                }
+            }
+        },
+    )
+    .await;
+    assert_eq!(requests.len(), 4, "cancel must not send a deletion request");
+    for request in &requests[1..3] {
+        assert!(request.starts_with(&format!("DELETE /v1/admin/conventions/{ID} HTTP/1.1")));
+    }
+    assert!(requests[3].starts_with("GET /v1/admin/conventions?"));
 }

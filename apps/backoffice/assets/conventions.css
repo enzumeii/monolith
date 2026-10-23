@@ -26,7 +26,6 @@
 .convention-value { color: var(--text); font-size: 1rem; font-weight: 700; }
 .conventions-page .convention-table th { color: var(--muted); font-size: .85rem; font-weight: 600; }
 .convention-actions button, .convention-actions .button-link { margin-top: 0; }
-.convention-name-action { text-align: left; justify-content: flex-start; overflow-wrap: anywhere; }
 .convention-status { display: inline-flex; align-items: center; gap: .4rem; padding: .2rem .65rem; border: 1px solid; border-radius: 1rem; font-size: .85rem; font-weight: 700; white-space: nowrap; }
 .convention-status.is-enabled { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
 .convention-status.is-disabled { background: var(--error-bg); color: var(--error-text); border-color: var(--heading); }
@@ -66,3 +65,8 @@
     .convention-logo-file-box { grid-template-columns: minmax(0, 1fr); }
     .convention-logo-file-box .convention-file-discard { grid-column: 1; grid-row: auto; justify-self: start; }
 }
+
+.convention-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.convention-list-heading h2, .convention-list-heading .button-link { margin: 0; }
+.convention-row-actions { display: flex; justify-content: flex-end; gap: .5rem; flex-wrap: wrap; }
+.convention-list-table th:last-child { text-align: right; }

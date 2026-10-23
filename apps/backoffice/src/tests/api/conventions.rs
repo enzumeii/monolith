@@ -281,3 +281,20 @@ async fn invalid_display_field_types_fail_instead_of_exposing_a_partial_selectio
         assert!(result.is_err(), "invalid {extra}");
     }
 }
+
+#[tokio::test]
+async fn deletion_uses_existing_cookie_transport_and_surfaces_failures() {
+    let (result, request) = metadata_response(204, "", delete(ID)).await;
+    result.expect("deleted");
+    assert!(request.starts_with(&format!("DELETE /v1/admin/conventions/{ID} HTTP/1.1")));
+    assert!(request.contains("x-session-mode: cookie"));
+    assert!(request.ends_with("\r\n\r\n"));
+    let (result, _) = metadata_response(
+        409,
+        r#"{"error":"Convention cannot be deleted"}"#,
+        delete(ID),
+    )
+    .await;
+    assert!(result.is_err());
+    assert!(delete("invalid").await.is_err());
+}

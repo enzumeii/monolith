@@ -51,6 +51,15 @@ pub async fn create(input: CreateConvention) -> ApiResult<ConventionDTO> {
 pub async fn update(id: &str, input: PatchConvention) -> ApiResult<ConventionDTO> {
     super::decode(super::uuid_request(Method::PATCH, "/admin/conventions", id)?.json(&input)).await
 }
+pub async fn delete(id: &str) -> ApiResult<()> {
+    super::send(super::uuid_request(
+        Method::DELETE,
+        "/admin/conventions",
+        id,
+    )?)
+    .await?;
+    Ok(())
+}
 pub async fn variants(id: &str, page: u32) -> ApiResult<SelectedVariantPage> {
     let request = child_request(Method::GET, id, "variants")?;
     super::decode(request.query(&ListConventionVariantsQuery {
