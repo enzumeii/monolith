@@ -4,7 +4,7 @@ Results describe this revision's exercised scope, separately from [architecture]
 
 ## ENZ-35 + ENZ-36 convention configuration and catalogue — local verification (2026-10-23)
 
-Combined source `a9bf7b0` on `feat/ENZ-35` merges `origin/main` `b3cc7a7` (single browser origin allowlist) with feature source `e57bfb4` and documentation `7597077`. Results are local. The complete API regression below covers this merged source, including the strict request-validation follow-up. Domain/frontend and outbound GraphQL query sources are unchanged from their separately verified revisions. The final review follow-up below has separate scoped evidence; the full recipe remains tied to frozen `a9bf7b0`.
+Earlier combined source `a9bf7b0` on `feat/ENZ-35` merges `origin/main` `b3cc7a7` (single browser origin allowlist) with feature source `e57bfb4` and documentation `7597077`. Results are local. The complete API regression below covers this merged source, including the strict request-validation follow-up. Domain/frontend and outbound GraphQL query sources are unchanged from their separately verified revisions. The final review follow-up below has separate scoped evidence; the full recipe remains tied to frozen `a9bf7b0`.
 
 | Check / contract | Actual evidence |
 | --- | --- |
@@ -32,6 +32,20 @@ The scoped follow-up after `a9bf7b0` changes only the catalogue nested-overflow 
 | Postman | Local lint exits 0: 66 entities, zero errors, same existing cron FMT209 warning. Both executable catalogue descriptions contain exact safe overflow/generic examples; both outbound GraphQL query bytes and variable sets remain identical to source |
 | Isolation/cleanup | Reused owned target and synthetic `enz35` ports 15435/15436 after the full-suite owner released them. Compose used `--env-file /dev/null`; recipe check used `--no-dotenv`. `down -v` exits 0; independent queries find no owned containers, volumes, networks or API process |
 | Detailed evidence | Ignored `final-fix-report.md` and `final-fix-*.log` beside the integration evidence record exact commands, exits and scoped changed paths |
+
+### Publication refresh against upstream draft-order client
+
+Merged source `ddaf159` integrates feature head `d2e337f` with upstream `1622b23` (provider draft-order proxy). The sole textual conflict appended Shopify client tests; both complete parent additions are retained. Production client/models auto-merged unchanged: existing operations keep retries, draft creation uses `execute_once`, and both catalogue identity checks and the upstream DraftOrder ID type remain intact. The fresh results below apply to this merged source. The earlier full 345-native/176-TCP run remains tied to `a9bf7b0`; no full 178-TCP local rerun is claimed.
+
+| Check / contract | Actual evidence |
+| --- | --- |
+| Strict/static | `just --no-dotenv --justfile services/api/justfile check` exits 0: 21 setup-helper tests, dprint, API formatting and strict native/E2E Clippy. Workspace `cargo fmt --all -- --check` and final whitespace/document checks exit 0 |
+| Full native API suite | `cargo test --locked -p api` exits 0 with Compose PostgreSQL ready: 355 passed, zero failed/ignored, 22.39s. Includes both merged Shopify test additions and database-dependent tests |
+| Affected real-TCP matrices | `cargo api-e2e catalogue`: 9 passed / 169 filtered, 45.95s; `cargo api-e2e conventions`: 19 passed / 159 filtered, 29.40s; zero failed/ignored. Existing real API harness, SQLx and controlled Shopify connections retained |
+| Postman parity | New upstream draft request plus both feature requests match source GraphQL bytes and executable variable keys exactly. Prior feature lint remains the separately recorded 66-entity result; no fresh workspace lint or provider execution is claimed |
+| Isolation/cleanup | Owned target and Compose `enz35`, ports 15435/15436; synthetic credentials, `--env-file /dev/null`, no private environment file reads. EXIT-trapped `down -v` exits 0; independent queries confirm no owned containers, volumes, networks or API process |
+| Remaining full-suite boundary | Mechanical test-append integration and unchanged endpoint production logic warranted focused TCP verification. Exact merged-head full 178-TCP CI remains publication-owned and is not established by these local results |
+| Detailed evidence | Ignored `refresh-report.md`, `refresh-verify.sh` and `refresh-*.log` retain identity, exact commands/exits, 355/9/19 counts, conflict preservation proof and cleanup audit |
 
 Controlled responses establish exercised transport/contracts, not live Shopify schema compatibility, merchant permissions/capabilities, query cost or a real payment. No production migration/deployment, live provider mutation/charge, manual browser UI acceptance or hosted CI is asserted. Public APIs (ENZ-38), routing (ENZ-41), quotes, checkout and historical order snapshots/protection remain future work; parent deletion currently cascades current memberships.
 
