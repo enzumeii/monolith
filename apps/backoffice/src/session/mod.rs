@@ -33,7 +33,7 @@ pub async fn restore() -> api::ApiResult<()> {
     let ticket = request();
     let result = async {
         let _lock = sync::lock().await?;
-        refresh_session_from_cookie().await
+        restore_session_from_cookie().await
     }
     .await;
     match result {
@@ -61,7 +61,7 @@ pub async fn sign_in(username: String, password: String) -> api::ApiResult<()> {
 pub async fn sign_out() -> api::ApiResult<()> {
     let ticket = transition();
     let _lock = sync::lock().await?;
-    if refresh_session_from_cookie().await?.is_some() {
+    if restore_session_from_cookie().await?.is_some() {
         api::logout().await?;
     }
     apply(ticket, None);
@@ -74,7 +74,7 @@ pub async fn update_self(
 ) -> api::ApiResult<domain::dto::AdminDTO> {
     let ticket = transition();
     let _lock = sync::lock().await?;
-    let current = refresh_session_from_cookie()
+    let current = restore_session_from_cookie()
         .await?
         .ok_or_else(|| api::ApiError::new(StatusCode::UNAUTHORIZED, "not signed in"))?;
     if current.admin_id != id {
@@ -155,7 +155,13 @@ fn apply(ticket: Ticket, session: Option<Session>) {
     }
 }
 
-async fn refresh_session_from_cookie() -> api::ApiResult<Option<Session>> {
+async fn restore_session_from_cookie() -> api::ApiResult<Option<Session>> {
+    match api::current_session().await {
+        Ok(session) if session.expires_at > now_unix() + 3 => return Ok(Some(session)),
+        Ok(_) => {}
+        Err(error) if error.status == 401 => {}
+        Err(error) => return Err(error),
+    }
     match api::refresh_session().await {
         Ok(session) => Ok(Some(session)),
         Err(error) if error.status == 401 => Ok(None),

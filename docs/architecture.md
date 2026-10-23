@@ -84,10 +84,13 @@ sequenceDiagram
     UI->>API: Login with cookie mode and Origin
     API->>DB: Verify account and create refresh family
     API-->>UI: Safe identity response and HttpOnly cookies
+    UI->>API: GET /api/v1/auth/session on load or focus
+    API->>API: Validate access JWT
+    API-->>UI: Safe identity and expiry; no credential changes
     UI->>API: Authenticated request with cookies
     API->>API: Validate JWT and authorize operation
     API-->>UI: Response DTO
-    UI->>API: Refresh with cookie and Origin
+    UI->>API: Refresh expired or nearly expired access with cookie and Origin
     API->>DB: Atomically consume token and insert replacement
     API-->>UI: Rotated credentials
 ```
@@ -96,6 +99,7 @@ sequenceDiagram
 | --- | --- |
 | Login | Argon2 verification; independent refresh family for each login |
 | Access token | JWT validation; 10-minute lifetime and 60-second validation leeway |
+| Session restoration | GET /api/v1/auth/session returns validated access claims without database calls, cookie writes or refresh rotation; renew on 401 or access expiry within three seconds |
 | Refresh | Single-use consumption and replacement in one transaction; seven-day refresh lifetime |
 | Logout | Revoke the current authenticated account's refresh family |
 | Account/password changes | Update and account-wide refresh revocation in one transaction |
@@ -134,7 +138,7 @@ flowchart LR
 | Failure | Configuration error/Retry view; no configured application calls until recovery |
 | Cookie-changing operations | Same-origin Web Locks serialize browser operations |
 | Stale responses | Session epoch/sequence checks reject earlier account state; report/trigger feature ownership keys account ID and role, preserving manual state through same-owner refresh and suppressing stale completions after an owner change |
-| Other tabs/focus | Broadcast notifications and refresh-based restoration |
+| Other tabs/focus | Broadcast notifications and read-only session restoration; renew expired or nearly expired access |
 | Pagination | Dioxus resources own fetch lifecycle; disable navigation while pending |
 | Deployment configuration | Build helper publishes selected local/prod source as one application.toml; restores source configuration after build |
 
