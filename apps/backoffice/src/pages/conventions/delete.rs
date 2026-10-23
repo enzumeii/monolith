@@ -24,6 +24,7 @@ pub(super) fn DeleteConvention(
         confirmation.set(false);
         error.set(None);
     });
+    let confirm_id = id.clone();
     rsx! {
         div { class: "convention-delete-action",
             button { id: "delete-convention-{id}", r#type: "button", class: "danger", aria_label: "Delete {name}", disabled: disabled || request.read().pending() || owner().is_none(), onclick: move |_| { error.set(None); confirmation.set(true); }, if request.read().pending() { "Deleting…" } else { "Delete" } }
@@ -38,7 +39,7 @@ pub(super) fn DeleteConvention(
                 if disabled || !confirmation() { return; }
                 let Some(ticket) = request.write().begin() else { return; };
                 confirmation.set(false); error.set(None);
-                let id = id.clone(); let request_owner = owner();
+                let id = confirm_id.clone(); let request_owner = owner();
                 spawn(async move {
                     let result = session::with_session(|| api::conventions::delete(&id)).await;
                     if owner() != request_owner || !request.write().finish(ticket) { return; }
