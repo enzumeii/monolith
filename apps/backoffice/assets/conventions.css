@@ -25,16 +25,11 @@
 .conventions-page label, .conventions-page legend, .convention-label { color: var(--muted); font-size: .85rem; font-weight: 600; }
 .convention-value { color: var(--text); font-size: 1rem; font-weight: 700; }
 .conventions-page .convention-table th { color: var(--muted); font-size: .85rem; font-weight: 600; }
-.conventions-page button:not(:disabled):not(.danger), .conventions-page .button-link:not(.danger) { border-color: var(--status-enabled-border); color: var(--status-enabled-text); background: var(--status-enabled-bg); }
-.conventions-page button.primary:not(:disabled), .conventions-page .button-link.primary { font-weight: 700; border-width: 2px; }
-.conventions-page button:not(:disabled):not(.danger):hover, .conventions-page .button-link:not(.danger):hover { box-shadow: inset 0 0 0 1px var(--status-enabled-border); filter: brightness(.96); }
-.conventions-page button:disabled { opacity: 1; color: var(--status-disabled-text); border-color: var(--status-disabled-border); background: var(--status-disabled-bg); cursor: not-allowed; }
-.conventions-page input:disabled, .conventions-page select:disabled, .conventions-page textarea:disabled { color: var(--status-disabled-text); border-color: var(--status-disabled-border); background: var(--status-disabled-bg); }
 .convention-actions button, .convention-actions .button-link { margin-top: 0; }
 .convention-name-action { text-align: left; justify-content: flex-start; overflow-wrap: anywhere; }
 .convention-status { display: inline-flex; align-items: center; gap: .4rem; padding: .2rem .65rem; border: 1px solid; border-radius: 1rem; font-size: .85rem; font-weight: 700; white-space: nowrap; }
-.convention-status.is-enabled { background: var(--status-enabled-bg); color: var(--status-enabled-text); border-color: var(--status-enabled-border); }
-.convention-status.is-disabled { background: var(--status-disabled-bg); color: var(--status-disabled-text); border-color: var(--status-disabled-border); }
+.convention-status.is-enabled { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
+.convention-status.is-disabled { background: var(--error-bg); color: var(--error-text); border-color: var(--heading); }
 .convention-thumbnail { display: block; width: 56px; height: 56px; max-width: 100%; object-fit: contain; }
 .convention-thumbnail-fallback, .convention-thumbnail-placeholder { display: flex; align-items: center; justify-content: center; width: 56px; min-height: 56px; font-size: .75rem; line-height: 1.2; color: var(--muted); }
 .convention-result-images { display: flex; align-items: flex-start; gap: .5rem; }
@@ -45,9 +40,8 @@
 .convention-result-details { margin: .35rem 0; font-size: .9rem; }
 .convention-result-details .convention-label { display: block; }
 .convention-result-details .convention-value { font-size: .95rem; }
-@media (prefers-reduced-motion: reduce) { .conventions-page button:hover, .conventions-page .button-link:hover { filter: none; } }
 
 .convention-saved-summary { display: flex; gap: .5rem .75rem; align-items: center; flex-wrap: wrap; padding: .75rem 0; }
 
-.conventions-page input[type="file"]::file-selector-button { cursor: pointer; min-height: 2.75rem; margin-right: .75rem; padding: .5rem .9rem; border: 1px solid var(--status-enabled-border); border-radius: 0; color: var(--status-enabled-text); background: var(--status-enabled-bg); font: inherit; font-weight: 700; }
-.conventions-page input[type="file"]:disabled::file-selector-button { cursor: not-allowed; border-color: var(--status-disabled-border); color: var(--status-disabled-text); background: var(--status-disabled-bg); }
+.conventions-page input[type="file"]::file-selector-button { cursor: pointer; min-height: 2.75rem; margin-right: .75rem; padding: .5rem .9rem; border: 1px solid var(--primary); border-radius: 0; color: var(--primary-text); background: var(--primary); font: inherit; font-weight: 700; }
+.conventions-page input[type="file"]:disabled::file-selector-button { cursor: not-allowed; opacity: .5; }

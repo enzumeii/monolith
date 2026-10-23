@@ -35,12 +35,6 @@
     --modal-overlay-bg: rgba(96, 26, 22, 0.55);
     --table-heading-bg: rgba(255, 217, 101, 0.35);
     --table-row-hover-bg: rgba(255, 152, 78, 0.08);
-    --status-enabled-bg: #e4f3e8;
-    --status-enabled-text: #14552b;
-    --status-enabled-border: #438358;
-    --status-disabled-bg: #fbe8e8;
-    --status-disabled-text: #8a2424;
-    --status-disabled-border: #b85b5b;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -65,12 +59,6 @@
         --modal-overlay-bg: rgba(4, 8, 12, 0.72);
         --table-heading-bg: rgba(255, 157, 77, 0.18);
         --table-row-hover-bg: rgba(255, 157, 77, 0.1);
-        --status-enabled-bg: #173c2a;
-        --status-enabled-text: #b1ebc4;
-        --status-enabled-border: #6db58a;
-        --status-disabled-bg: #482729;
-        --status-disabled-text: #ffc2c2;
-        --status-disabled-border: #d38989;
     }
 }
 
