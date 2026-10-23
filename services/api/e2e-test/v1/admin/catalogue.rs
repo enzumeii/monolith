@@ -5,7 +5,7 @@ use crate::common::{
 use domain::dto::AdminRole;
 use serde_json::{Value, json};
 
-const URI: &str = "/api/v1/admin/catalogue/products?location_id=gid://shopify/Location/1";
+const URI: &str = "/api/v1/admin/conventions/catalogue?location_id=gid://shopify/Location/1";
 const INVALID: &str = "Expected a Location GID, page_size between 1 and 250, and nonblank cursor/search up to 2048 bytes";
 fn location() -> Value {
     json!({"location":{"id":"gid://shopify/Location/1"}})
@@ -33,6 +33,10 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
     continuing["inventoryPolicy"] = json!("CONTINUE");
     let mut archived = product(vec![variant()]);
     archived["status"] = json!("ARCHIVED");
+    let mut draft = product(vec![variant()]);
+    draft["status"] = json!("DRAFT");
+    let mut only_untracked = variant();
+    only_untracked["inventoryItem"]["tracked"] = json!(false);
     let (client, upstream) = client_with_upstream_script(
         vec![
             location(),
@@ -40,11 +44,13 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
                 vec![
                     product(vec![variant(), missing, inactive, untracked, continuing]),
                     archived,
+                    draft,
+                    product(vec![only_untracked]),
                 ],
                 Some("next"),
             ),
             location(),
-            products(vec![], None),
+            products(vec![product(vec![])], Some("filtered-next")),
         ],
         "http",
     )
@@ -53,7 +59,7 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
         .send(authed(
             "GET",
             &format!(
-                "{URI}&search=collection_id%3A123%20AND%20title%3Ahead*&page_size=1&cursor=opaque"
+                "{URI}&search=collection_id%3A123%20OR%20title%3Ahead*&page_size=1&cursor=opaque"
             ),
             fixture.root_id(),
             AdminRole::Admin,
@@ -78,34 +84,36 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
     for (index, reason) in [
         (1, "missing_inventory_level"),
         (2, "inactive_inventory_level"),
-        (3, "untracked_inventory"),
-        (4, "continue_inventory_policy"),
+        (3, "continue_inventory_policy"),
     ] {
         assert_eq!(p["variants"][index]["eligible"], false);
         assert_eq!(p["variants"][index]["unavailable_reason"], reason);
     }
     assert!(p["variants"][1]["available_quantity"].is_null());
     assert!(p["variants"][2]["available_quantity"].is_null());
-    assert_eq!(
-        body["products"][1]["variants"][0]["unavailable_reason"],
-        "inactive_product"
-    );
+    assert_eq!(body["products"].as_array().unwrap().len(), 1);
+    assert_eq!(p["variants"].as_array().unwrap().len(), 4);
     assert!(!body.to_string().contains("unitCost"));
     let response = client
         .send(authed("GET", URI, fixture.root_id(), AdminRole::SuperAdmin))
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
-    assert_eq!(body_json(response).await["products"], json!([]));
+    let empty = body_json(response).await;
+    assert_eq!(empty["products"], json!([]));
+    assert_eq!(
+        empty["page_info"],
+        json!({"has_next_page":true,"end_cursor":"filtered-next"})
+    );
     let requests = upstream.requests();
     assert_eq!(requests.len(), 4);
     assert_eq!(
         requests[1]["variables"],
-        json!({"locationId":"gid://shopify/Location/1","first":1,"after":"opaque","search":"collection_id:123 AND title:head*"})
+        json!({"locationId":"gid://shopify/Location/1","first":1,"after":"opaque","search":"status:active AND (collection_id:123 OR title:head*)"})
     );
     assert_eq!(
         requests[3]["variables"],
-        json!({"locationId":"gid://shopify/Location/1","first":25,"after":null,"search":null})
+        json!({"locationId":"gid://shopify/Location/1","first":25,"after":null,"search":"status:active"})
     );
 }
 
@@ -131,7 +139,7 @@ async fn catalogue_validation_authentication_and_unavailable_clients() {
         "Invalid or expired token",
     )
     .await;
-    let mut invalid = vec!["/api/v1/admin/catalogue/products".to_owned()];
+    let mut invalid = vec!["/api/v1/admin/conventions/catalogue".to_owned()];
     for location in [
         "",
         "1",
@@ -141,7 +149,7 @@ async fn catalogue_validation_authentication_and_unavailable_clients() {
         "gid://shopify/Location/18446744073709551616",
     ] {
         invalid.push(format!(
-            "/api/v1/admin/catalogue/products?location_id={location}"
+            "/api/v1/admin/conventions/catalogue?location_id={location}"
         ));
     }
     for query in [
@@ -412,7 +420,7 @@ async fn catalogue_accepts_maximum_boundaries_and_opaque_search_without_normaliz
         let (client, upstream) =
             client_with_upstream_script(vec![location(), products(vec![], None)], "http").await;
         let query = reqwest::Url::parse_with_params(
-            "http://example.test/api/v1/admin/catalogue/products",
+            "http://example.test/api/v1/admin/conventions/catalogue",
             [
                 ("location_id", "gid://shopify/Location/1"),
                 ("page_size", &size.to_string()),
@@ -432,7 +440,7 @@ async fn catalogue_accepts_maximum_boundaries_and_opaque_search_without_normaliz
         );
         assert_eq!(
             upstream.requests()[1]["variables"],
-            json!({"locationId":"gid://shopify/Location/1","first":size,"after":cursor,"search":search})
+            json!({"locationId":"gid://shopify/Location/1","first":size,"after":cursor,"search":format!("status:active AND ({search})")})
         );
     }
 }
@@ -484,4 +492,22 @@ async fn catalogue_invalid_location_response_is_upstream_failure_before_browsing
         .await;
         assert_eq!(upstream.requests().len(), 1);
     }
+}
+
+#[tokio::test]
+async fn catalogue_old_path_is_absent() {
+    let f = fixture().await;
+    let c = client().await;
+    assert_eq!(
+        c.send(authed(
+            "GET",
+            "/api/v1/admin/catalogue/products?location_id=gid://shopify/Location/1",
+            f.root_id(),
+            AdminRole::Admin
+        ))
+        .await
+        .unwrap()
+        .status(),
+        404
+    );
 }

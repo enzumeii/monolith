@@ -82,7 +82,7 @@ impl Metadata {
             );
         }
         if self.currency.is_empty() || self.methods.is_empty() {
-            return Err("Choose a configured currency and at least one payment method".into());
+            return Err("Choose a supported currency and at least one payment method".into());
         }
         Ok(CreateConvention {
             slug: self.slug.clone(),
@@ -150,11 +150,11 @@ pub struct Selection {
     pub loaded: bool,
 }
 impl Selection {
-    pub fn from_saved(items: &[ConventionVariantDTO]) -> Self {
+    pub fn from_saved<'a>(items: impl IntoIterator<Item = &'a ConventionVariantDTO>) -> Self {
         Self {
             loaded: true,
             items: items
-                .iter()
+                .into_iter()
                 .map(|item| {
                     (
                         item.shopify_variant_id.clone(),
@@ -196,6 +196,51 @@ impl Selection {
         })
     }
 }
+#[derive(Clone, Default, PartialEq)]
+pub struct VariantDetails {
+    pub product_title: Option<String>,
+    pub variant_title: Option<String>,
+    pub sku: Option<String>,
+    pub variant_image: Option<(String, String)>,
+    pub available: Option<i64>,
+    pub stock_location: Option<String>,
+}
+impl VariantDetails {
+    pub fn apply_saved(&mut self, row: &crate::api::conventions::SelectedVariant) {
+        apply_patch(&mut self.product_title, &row.product_title);
+        apply_patch(&mut self.variant_title, &row.variant_title);
+        apply_patch(&mut self.sku, &row.sku);
+        match &row.variant_image {
+            PatchField::Missing => {}
+            PatchField::Clear => self.variant_image = None,
+            PatchField::Set(image) => {
+                self.variant_image = Some((
+                    image.url.clone(),
+                    image.alt_text.clone().unwrap_or_default(),
+                ));
+            }
+        }
+        if !row.available_quantity.is_missing() {
+            apply_patch(&mut self.available, &row.available_quantity);
+            self.stock_location = None;
+        }
+    }
+}
+pub fn merge_saved_details(
+    details: &mut BTreeMap<String, VariantDetails>,
+    rows: &[crate::api::conventions::SelectedVariant],
+) {
+    details.retain(|id, _| {
+        rows.iter()
+            .any(|row| row.membership.shopify_variant_id == *id)
+    });
+    for row in rows {
+        details
+            .entry(row.membership.shopify_variant_id.clone())
+            .or_default()
+            .apply_saved(row);
+    }
+}
 pub fn method_label(method: ConventionPaymentMethod) -> &'static str {
     match method {
         ConventionPaymentMethod::Stripe => "Stripe",
@@ -213,6 +258,13 @@ pub fn positive_decimal(value: &str) -> bool {
             .is_none_or(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
         && parts.next().is_none()
         && value.bytes().any(|b| matches!(b, b'1'..=b'9'))
+}
+fn apply_patch<T: Clone>(target: &mut Option<T>, value: &PatchField<T>) {
+    match value {
+        PatchField::Missing => {}
+        PatchField::Clear => *target = None,
+        PatchField::Set(value) => *target = Some(value.clone()),
+    }
 }
 #[cfg(test)]
 #[path = "../../tests/pages/conventions/state.rs"]

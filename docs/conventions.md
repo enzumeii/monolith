@@ -6,10 +6,13 @@
 | --- | --- |
 | Identity and currency | Slug and one convention currency are immutable after creation; final prices are exact decimal strings backed by PostgreSQL NUMERIC |
 | Preorders | New conventions are disabled; administrators explicitly enable or disable the single preorder flag. Event calendar dates do not schedule sales |
-| Currency/payment choices | Authenticated options endpoint exposes configured backend capabilities; an empty list disables creation without inventing supported payment accounts |
+| Currency/payment choices | Authenticated options endpoint derives supported currencies and payment methods from the existing currency precision and provider rules; no runtime currency allowlist is required |
 | Metadata, selection and logo | Separate save operations and persisted snapshots; failed requests retain drafts. Creation may upload a logo before inserting metadata; retries retain its uploaded location |
 | Membership replacement | Load every saved membership page before editing or saving; catalogue search/pagination never replace the selected map. Backend replaces up to250 memberships atomically |
-| Source information | Catalogue displays source currency/price and location-specific available stock. Off-page selected items without observed source data are labeled as not loaded; source stock is informational |
+| Source information | Catalogue displays product title, variant title, SKU, actual variant image, source currency/price and available quantity at the submitted location. Missing images and SKUs have explicit placeholders; source stock is informational |
+| Selected variant display | Readonly details are separate from editable membership and exact overridden prices. Search/page changes and legacy saves retain observed details in the current editor; explicit null clears stale details. Enriched saved responses populate fresh views; legacy reloads show unavailable fields truthfully |
+| Quantity provenance | Catalogue observations retain their submitted location. Saved-response quantities have no invented location. Missing saved quantities show “Not available”; zero and negative quantities remain numeric. No live refresh or per-row provider requests |
+| Backend dependency | The UI accepts optional saved display fields ahead of the deferred PR #57 rebase. The pinned merged backend does not yet persist or return those fields or selected quantities; current-editor observations are not persisted by this change |
 | Navigation | Shared session-scoped draft guard preserves the active editor, confirms departure, and restores native history before proceeding; unsupported browser history protection is reported |
 | Markdown | Shared CommonMark preview escapes raw HTML and sanitizes a strict element/attribute/link allowlist; no executable embedded HTML, CSS, images or unsafe schemes |
 | Shared presentation | Both applications use the same common stylesheet and form/error/loading primitives; feature requests and drafts remain backoffice-owned |

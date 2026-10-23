@@ -95,7 +95,7 @@ fn Editor(record: ConventionDTO, options: Capabilities, on_reload: EventHandler<
             h3 { "Convention metadata" }
             form { novalidate: true, onsubmit: move |event| {
                 event.prevent_default(); if metadata_request.read().pending() { return; }
-                if !allowed { metadata_error.set(Some("Restore currency and payment capabilities before enabling preorders or changing payment methods".into())); return; }
+                if !allowed { metadata_error.set(Some("Choose supported currency and payment methods before enabling preorders or changing payment methods".into())); return; }
                 let snapshot = draft(); if snapshot == saved() { return; } let input = match snapshot.patch(&saved()) { Ok(value) => value, Err(error) => { metadata_error.set(Some(error)); return; } };
                 let Some(ticket) = metadata_request.write().begin() else { return; }; let id = id.clone(); let request_owner = owner();
                 metadata_error.set(None); metadata_notice.set(None);

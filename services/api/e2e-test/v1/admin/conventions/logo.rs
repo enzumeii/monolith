@@ -434,19 +434,38 @@ async fn logo_optional_signer_degradation_and_attachment_database_failure_are_sa
     );
 }
 #[tokio::test]
-async fn options_empty_config_authentication_and_unexpected_body() {
+async fn options_intrinsic_policy_authentication_and_unexpected_body() {
     let f = fixture().await;
-    let c = client_with_providers(ProviderConfig {
-        convention_currencies: Some("[]"),
-        ..Default::default()
-    })
-    .await;
+    let c = client_with_providers(ProviderConfig::default()).await;
     let path = format!("{URI}/options");
     let response = c
         .send(authed("GET", &path, f.root_id(), AdminRole::Admin))
         .await
         .unwrap();
-    assert_eq!(body_json(response).await, json!({"currencies":[]}));
+    assert_eq!(response.status(), 200);
+    let result = body_json(response).await;
+    let currencies = result["currencies"].as_array().unwrap();
+    let find = |code: &str| {
+        currencies
+            .iter()
+            .find(|currency| currency["code"] == code)
+            .unwrap()
+    };
+    assert_eq!(
+        find("THB")["payment_methods"],
+        json!(["stripe", "paypal", "promptpay"])
+    );
+    assert_eq!(find("USD")["payment_methods"], json!(["stripe", "paypal"]));
+    assert_eq!(find("KWD")["payment_methods"], json!(["stripe"]));
+    assert!(currencies.iter().all(|currency| currency["code"] != "ZZZ"));
+    let unknown_query = format!("{path}?unused=true");
+    assert_eq!(
+        c.send(authed("GET", &unknown_query, f.root_id(), AdminRole::Admin))
+            .await
+            .unwrap()
+            .status(),
+        400
+    );
     let mut request = authed("GET", &path, f.root_id(), AdminRole::Admin);
     *request.body_mut() = axum::body::Body::from("{}");
     assert_eq!(c.send(request).await.unwrap().status(), 400);

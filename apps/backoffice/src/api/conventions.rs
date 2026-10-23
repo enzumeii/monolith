@@ -1,10 +1,40 @@
 use super::{ApiResult, valid_uuid_id};
 use domain::dto::{
-    ConventionDTO, ConventionListResponse, ConventionOptionsResponse, ConventionVariantDTO,
-    ConventionVariantListResponse, ConventionVariantsResponse, CreateConvention,
-    ListConventionVariantsQuery, ListConventionsQuery, PatchConvention, ReplaceConventionVariants,
+    CatalogueImage, ConventionDTO, ConventionListResponse, ConventionOptionsResponse,
+    ConventionVariantDTO, CreateConvention, ListConventionVariantsQuery, ListConventionsQuery,
+    PatchConvention, PatchField, ReplaceConventionVariants,
 };
 use reqwest::Method;
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+pub struct SelectedVariant {
+    #[serde(flatten)]
+    pub membership: ConventionVariantDTO,
+    #[serde(default)]
+    pub product_title: PatchField<String>,
+    #[serde(default)]
+    pub variant_title: PatchField<String>,
+    #[serde(default)]
+    pub sku: PatchField<String>,
+    #[serde(default, rename = "product_image")]
+    pub _product_image: PatchField<CatalogueImage>,
+    #[serde(default)]
+    pub variant_image: PatchField<CatalogueImage>,
+    #[serde(default)]
+    pub available_quantity: PatchField<i64>,
+}
+#[derive(Debug, Deserialize)]
+pub struct SelectedVariantPage {
+    pub items: Vec<SelectedVariant>,
+    pub page: u32,
+    pub per_page: u32,
+    pub has_next: bool,
+}
+#[derive(Debug, Deserialize)]
+pub struct SelectedVariants {
+    pub items: Vec<SelectedVariant>,
+}
 
 pub async fn list(query: ListConventionsQuery) -> ApiResult<ConventionListResponse> {
     super::decode(super::request(Method::GET, "/admin/conventions")?.query(&query)).await
@@ -21,7 +51,7 @@ pub async fn create(input: CreateConvention) -> ApiResult<ConventionDTO> {
 pub async fn update(id: &str, input: PatchConvention) -> ApiResult<ConventionDTO> {
     super::decode(super::uuid_request(Method::PATCH, "/admin/conventions", id)?.json(&input)).await
 }
-pub async fn variants(id: &str, page: u32) -> ApiResult<ConventionVariantListResponse> {
+pub async fn variants(id: &str, page: u32) -> ApiResult<SelectedVariantPage> {
     let request = child_request(Method::GET, id, "variants")?;
     super::decode(request.query(&ListConventionVariantsQuery {
         page: Some(page),
@@ -29,14 +59,17 @@ pub async fn variants(id: &str, page: u32) -> ApiResult<ConventionVariantListRes
     }))
     .await
 }
-pub async fn all_variants(id: &str) -> ApiResult<Vec<ConventionVariantDTO>> {
+pub async fn all_variants(id: &str) -> ApiResult<Vec<SelectedVariant>> {
     let mut items = Vec::new();
     for page in 1..=3 {
         let response = variants(id, page).await?;
         if response.page != page
             || response.per_page != 100
             || response.items.len() > 100
-            || response.items.iter().any(|item| item.convention_id != id)
+            || response
+                .items
+                .iter()
+                .any(|item| item.membership.convention_id != id)
             || (response.has_next && response.items.is_empty())
         {
             return Err(super::ApiError::new(
@@ -45,8 +78,10 @@ pub async fn all_variants(id: &str) -> ApiResult<Vec<ConventionVariantDTO>> {
             ));
         }
         items.extend(response.items);
-        let unique: std::collections::HashSet<_> =
-            items.iter().map(|item| &item.shopify_variant_id).collect();
+        let unique: std::collections::HashSet<_> = items
+            .iter()
+            .map(|item| &item.membership.shopify_variant_id)
+            .collect();
         if items.len() > 250 || unique.len() != items.len() {
             return Err(super::ApiError::new(
                 reqwest::StatusCode::BAD_GATEWAY,
@@ -65,7 +100,7 @@ pub async fn all_variants(id: &str) -> ApiResult<Vec<ConventionVariantDTO>> {
 pub async fn replace_variants(
     id: &str,
     input: ReplaceConventionVariants,
-) -> ApiResult<ConventionVariantsResponse> {
+) -> ApiResult<SelectedVariants> {
     super::decode(child_request(Method::PUT, id, "variants")?.json(&input)).await
 }
 pub fn logo_url(value: &str) -> Option<String> {

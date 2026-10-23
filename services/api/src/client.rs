@@ -134,6 +134,17 @@ impl HttpClient {
         self.request_with_retry(method, url, headers, body, true, |_| false)
             .await
     }
+    pub async fn request_form<B: Serialize + ?Sized, R: DeserializeOwned>(
+        &self,
+        method: Method,
+        url: Url,
+        headers: HeaderMap,
+        body: &B,
+    ) -> Result<R, ClientError> {
+        let request = self.inner.request(method, url).headers(headers).form(body);
+        self.execute(request, |_| false, |_| false).await
+    }
+
     async fn request_with_retry<B: Serialize, R: DeserializeOwned>(
         &self,
         method: Method,

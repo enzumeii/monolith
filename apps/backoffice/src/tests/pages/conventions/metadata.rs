@@ -46,7 +46,7 @@ fn unsupported_saved_capabilities_are_preserved_and_explained() {
     );
     assert!(html.contains("<option value=\"\">Choose currency</option>"));
     assert!(html.contains("PayPal"));
-    assert!(html.contains("stored method no longer configured"));
+    assert!(html.contains("stored method is unsupported"));
     assert!(html.contains("You can edit metadata or disable preorders"));
     let methods = html
         .split("Payment methods")

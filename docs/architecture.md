@@ -179,6 +179,17 @@ flowchart LR
 | Platform limits | No snapshot isolation, bulk-export guarantee, or bypass of Shopify limits. Actual query cost remains unverified against the 1,000-point maximum; non-throttle cost errors propagate without retry |
 | Compatibility | Discovery retains Shopify's supported deprecated singular inventory-item `variant` field |
 
+## Stripe payment provider boundary
+
+| Layer | Responsibility |
+| --- | --- |
+| Shared Stripe client | One pooled provider operation per call: create/retrieve/expire hosted Checkout Session, retrieve PaymentIntent/current direct account, and existing Charge/accounting reads. Integer minor-unit money; mutation idempotency stays caller-owned |
+| `client::stripe::payment` | Compare authoritative current Session, PaymentIntent and Charge with trusted caller account/environment/money/correlation expectations; return explicit pending, expired/unpaid or verified paid outcome. No Shopify dependency |
+| `client::stripe::webhook` | Authenticate timestamp and exact signed bytes before typed decoding; expose event identity/version without treating signature/event type as proof of paid |
+| Consumer boundary | Trusted callers own return destinations, durable operation identities, refund policy, replay handling and stored business state. This provider slice has no application payment routes, webhook ingestion, persistence or fulfillment side effects |
+
+[Stripe operations](development.md#stripe-hosted-checkout) describes privileged caller inputs, direct Postman requests and manual verification limits.
+
 ## Errors and operational boundaries
 
 | Area | Contract |
@@ -212,11 +223,12 @@ The nested250 bound is the agreed store workload, not a Shopify platform maximum
 
 ## Convention configuration and selection catalogue
 
-All eight operations use the existing ADMIN/SUPER_ADMIN protected group and browser cookie/origin rules. Paths below use `/api/v1/admin`; native `/v1/admin` aliases expose the same handlers.
+These operations use the existing ADMIN/SUPER_ADMIN protected group and browser cookie/origin rules. Paths below use `/api/v1/admin`; native `/v1/admin` aliases expose the same handlers.
 
 | Method and suffix | Contract |
 | --- | --- |
 | `GET /conventions` | Page/per-page list with optional `preorder_enabled` filter |
+| `GET /conventions/options` | Supported currency/payment choices derived from intrinsic precision and provider policy |
 | `POST /files` | Upload a bounded PNG/JPEG to a requested convention slug folder; return a versioned object location and short-lived signed preview |
 | `POST /conventions` | Create immutable slug/currency, metadata/payment methods and an optional validated logo location; server sets `preorder_enabled=false` |
 | `GET /conventions/{id}` | Read one UUID-identified convention |
@@ -224,7 +236,7 @@ All eight operations use the existing ADMIN/SUPER_ADMIN protected group and brow
 | `DELETE /conventions/{id}` | Delete convention and cascade its current variant memberships |
 | `GET /conventions/{id}/variants` | Page/per-page current selections with exact `final_price` strings |
 | `PUT /conventions/{id}/variants` | Atomically replace all selections, at most 250 unique Shopify variant IDs |
-| `GET /catalogue/products` | One Shopify product page for a required location GID, optional raw search and root cursor |
+| `GET /conventions/catalogue` | One Shopify product page for a required location GID, active-product search guard and root cursor; return tracked variants only |
 
 ```mermaid
 flowchart LR
@@ -241,21 +253,20 @@ flowchart LR
 | Ownership / state | Current behavior |
 | --- | --- |
 | Shared DTOs | `domain::dto::conventions` owns wire contracts; `dto::common::PatchField` preserves missing/null/value semantics and the root `domain::dto::PatchField` export; cron uses the same type |
-| API persistence | `conventions` stores UUID, unique slug, name/logo location, country, event dates, description Markdown, manual enable flag, currency, payment methods and timestamps. `convention_variants` stores UUID, parent, Shopify product/variant GIDs, positive finite `NUMERIC` final price and timestamps; parent+variant is unique |
-| Immutable identity | API excludes slug/currency from PATCH; a database trigger also rejects changes. One convention has one currency |
+| API persistence | `TIMESTAMPTZ` timestamps decode and serialize in UTC; event dates remain calendar dates. `conventions` stores UUID, unique slug, name/logo location, country, event dates, description Markdown, manual enable flag, currency, payment methods and timestamps. `convention_variants` stores UUID, parent, Shopify product/variant GIDs, positive finite `NUMERIC` final price and timestamps; parent+variant is unique |
+| Immutable identity | API excludes slug/currency from PATCH; a database trigger also rejects changes. One convention has one user-supplied currency stored in the database; no currency allowlist configuration |
 | Price representation | Major-unit decimal strings such as `"12.99"` pass through exact decimal validation and PostgreSQL `NUMERIC`, without floating point. Responses use currency precision; positive amounts must fit signed 64-bit minor units and selected payment-method precision |
 | Writes | Services own transactions and parent-row locks; repositories own SQL. Shopify validation precedes the transaction; changed selection/payment assumptions are rechecked under the lock and conflicting validation returns 409 |
 | Eligibility validation | New/changed selections use direct Shopify variant reads; every selection is revalidated while enabled and when enabling. Product must exist, match the submitted product, be ACTIVE, track inventory and use DENY. This does not reserve or check location stock |
 | Manual enablement | Enabling requires nonempty eligible selections and supported currency/methods/prices; clearing an enabled convention is rejected until disabled. Event dates are metadata, without scheduling, lifecycle, version, readiness or display-order fields |
-| Capabilities | Typed `[conventions]` currency/payment-method allowlist defaults empty. It constrains configuration and selection changes; it does not prove merchant onboarding, provider readiness or a live charge |
-| Future consumers | Enabled-only repository/service lookups support later work. Public APIs (ENZ-38), routing (ENZ-41), quotes, checkout and historical order snapshots/protection remain future work; current deletion cascades only current membership |
+| Future consumers | Current reads use the list service with its optional enabled filter and the UUID lookup; manual enable/disable remains on PATCH. Public APIs (ENZ-38), routing (ENZ-41), quotes, checkout and historical order snapshots/protection remain future work; current deletion cascades only current membership |
 
 | Catalogue contract | Behavior |
 | --- | --- |
 | Content | Current Shopify product title/status/description/image, variant title/SKU/image/options and inventory-item ID; no invented variant description or supplier cost |
 | Source price | Exact current contextual Shopify amount string and currency; distinct from persisted convention final prices |
-| Available quantity | Requested location `available` integer; active zero/negative values remain numbers and zero remains eligible. Missing/inactive levels return null with an ineligibility reason; untracked, CONTINUE and inactive products are ineligible |
-| Search / paging | Raw Shopify search, including collection/title/combined syntax, forwards unchanged. One root page with opaque cursor; variants fixed `first:250`, without child paging. Any nested overflow or incomplete provider page fails safely with 502 |
+| Available quantity | Requested location `available` integer; active zero/negative values remain numbers and zero remains eligible. Missing/inactive levels return null with an ineligibility reason; CONTINUE variants remain visible as ineligible; inactive products and untracked variants are omitted |
+| Search / paging | The service supplies `status:active`, grouping optional raw search as `status:active AND (<search>)`; products with no tracked variants are omitted. One root page with opaque cursor and unchanged upstream metadata, including empty filtered pages; variants fixed `first:250`, without child paging. Any nested overflow or incomplete provider page fails safely with 502 |
 | Failure / inventory boundary | Missing location 404; unavailable client 503; upstream 502/timeout 504. Catalogue reads do not change stock. Existing inventory/report `on_hand`, filtering, supplier-cost and numeric-total semantics remain unchanged |
 
 ## Inventory enablement

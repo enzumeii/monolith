@@ -233,3 +233,286 @@ async fn request_paths_preserve_base_with_or_without_trailing_slash() {
         assert_eq!(requests[1].0, "/v1/refunds/re_one");
     }
 }
+
+fn checkout_request() -> crate::models::stripe::CreateCheckoutSession {
+    crate::models::stripe::CreateCheckoutSession {
+        amount: 1200,
+        currency: "THB".into(),
+        product_name: "Test purchase".into(),
+        success_url: "https://example.com/success?session_id={CHECKOUT_SESSION_ID}".into(),
+        cancel_url: "https://example.com/cancel".into(),
+        idempotency_key: "checkout_fixture_1".into(),
+        metadata: [("reference".into(), "fixture_1".into())].into(),
+    }
+}
+fn session_response() -> serde_json::Value {
+    json!({"id":"cs_test_one","object":"checkout.session","mode":"payment","status":"open","payment_status":"unpaid","livemode":false,"amount_total":1200,"currency":"thb","metadata":{"reference":"fixture_1"},"payment_intent":null,"url":"https://checkout.stripe.com/test"})
+}
+#[tokio::test]
+async fn creates_card_checkout_with_exact_form_money_and_stable_key() {
+    let fixture = Fixture::new(vec![Reply::json(session_response())]).await;
+    let result = client(&fixture)
+        .create_checkout_session(&checkout_request())
+        .await
+        .unwrap();
+    assert_eq!(result.id, "cs_test_one");
+    assert_eq!(
+        result.url.as_deref(),
+        Some("https://checkout.stripe.com/test")
+    );
+    let requests = fixture.requests();
+    assert_eq!(requests[0].0, "/v1/checkout/sessions");
+    assert_eq!(fixture.methods()[0], reqwest::Method::POST);
+    assert_eq!(requests[0].1["idempotency-key"], "checkout_fixture_1");
+    assert_eq!(
+        requests[0].1["content-type"],
+        "application/x-www-form-urlencoded"
+    );
+    let raw = fixture.raw_bodies();
+    let form: std::collections::BTreeMap<_, _> = reqwest::Url::parse(&format!(
+        "https://fixture/?{}",
+        String::from_utf8_lossy(&raw[0])
+    ))
+    .unwrap()
+    .query_pairs()
+    .map(|(k, v)| (k.into_owned(), v.into_owned()))
+    .collect();
+    assert_eq!(form["mode"], "payment");
+    assert_eq!(form["payment_method_types[0]"], "card");
+    assert_eq!(form["line_items[0][price_data][unit_amount]"], "1200");
+    assert_eq!(form["line_items[0][price_data][currency]"], "thb");
+    assert_eq!(form["line_items[0][quantity]"], "1");
+    assert_eq!(form["metadata[reference]"], "fixture_1");
+    assert_eq!(
+        form["payment_intent_data[metadata][reference]"],
+        "fixture_1"
+    );
+    assert_eq!(form["adaptive_pricing[enabled]"], "false");
+    assert_eq!(form["success_url"], checkout_request().success_url);
+}
+#[tokio::test]
+async fn checkout_mutations_never_automatically_replay_rejections() {
+    for status in [400, 401, 402, 404, 409, 429, 500] {
+        let fixture =
+            Fixture::new(vec![Reply::status(status), Reply::json(session_response())]).await;
+        let error = client(&fixture)
+            .create_checkout_session(&checkout_request())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error.kind(), crate::client::ClientErrorKind::Http {status: actual,..} if *actual == status)
+        );
+        assert_eq!(fixture.requests().len(), 1);
+        let fixture =
+            Fixture::new(vec![Reply::status(status), Reply::json(session_response())]).await;
+        assert!(
+            client(&fixture)
+                .expire_checkout_session("cs_test_one", "expire_fixture")
+                .await
+                .is_err()
+        );
+        assert_eq!(fixture.requests().len(), 1);
+    }
+}
+#[tokio::test]
+async fn retrieves_sessions_intents_account_and_expires_by_real_paths() {
+    let fixture = Fixture::new(vec![Reply::json(session_response()), Reply::json(json!({"id":"pi_one","object":"payment_intent","status":"succeeded","amount":1200,"amount_received":1200,"currency":"thb","livemode":false,"metadata":{},"latest_charge":"ch_one"})), Reply::json(json!({"id":"acct_one","object":"account"})), Reply::json(session_response())]).await;
+    let c = client(&fixture);
+    c.get_checkout_session("cs_test_one").await.unwrap();
+    assert_eq!(
+        c.get_payment_intent("pi_one")
+            .await
+            .unwrap()
+            .latest_charge
+            .unwrap()
+            .id(),
+        "ch_one"
+    );
+    assert_eq!(c.get_account().await.unwrap().id, "acct_one");
+    c.expire_checkout_session("cs_test_one", "expire_fixture")
+        .await
+        .unwrap();
+    let requests = fixture.requests();
+    assert_eq!(
+        requests.iter().map(|r| r.0.as_str()).collect::<Vec<_>>(),
+        [
+            "/v1/checkout/sessions/cs_test_one",
+            "/v1/payment_intents/pi_one",
+            "/v1/account",
+            "/v1/checkout/sessions/cs_test_one/expire"
+        ]
+    );
+    assert_eq!(
+        fixture.methods(),
+        [
+            reqwest::Method::GET,
+            reqwest::Method::GET,
+            reqwest::Method::GET,
+            reqwest::Method::POST
+        ]
+    );
+    assert_eq!(requests[3].1["idempotency-key"], "expire_fixture");
+}
+#[tokio::test]
+async fn rejects_invalid_checkout_inputs_before_sending() {
+    let fixture = Fixture::new(vec![]).await;
+    let c = client(&fixture);
+    for amount in [0, -1, 100_000_000] {
+        let mut r = checkout_request();
+        r.amount = amount;
+        assert!(c.create_checkout_session(&r).await.is_err());
+    }
+    for currency in ["", "usd!", "TH", "123"] {
+        let mut r = checkout_request();
+        r.currency = currency.into();
+        assert!(c.create_checkout_session(&r).await.is_err());
+    }
+    for url in [
+        "javascript:alert(1)",
+        "http://example.com/",
+        "https://user:pass@example.com/",
+        "invalid",
+    ] {
+        let mut r = checkout_request();
+        r.success_url = url.into();
+        assert!(c.create_checkout_session(&r).await.is_err());
+    }
+    for key in [String::new(), "x".repeat(256), "key\ninvalid".into()] {
+        let mut r = checkout_request();
+        r.idempotency_key = key;
+        assert!(c.create_checkout_session(&r).await.is_err());
+    }
+    let mut r = checkout_request();
+    r.metadata.insert("bad[key]".into(), "value".into());
+    assert!(c.create_checkout_session(&r).await.is_err());
+    for id in ["", "../x", &"x".repeat(256)] {
+        assert!(c.get_checkout_session(id).await.is_err());
+        assert!(c.get_payment_intent(id).await.is_err());
+        assert!(
+            c.expire_checkout_session(id, "expire_fixture")
+                .await
+                .is_err()
+        );
+    }
+    assert_eq!(fixture.requests(), []);
+}
+
+#[tokio::test]
+async fn checkout_operations_reject_malformed_success_without_replay() {
+    for body in ["invalid", "{}", "{\"id\":null}"] {
+        for operation in 0..5 {
+            let fixture = Fixture::new(vec![
+                Reply {
+                    status: 200,
+                    body: body.into(),
+                    headers: vec![],
+                },
+                Reply::json(session_response()),
+            ])
+            .await;
+            let c = client(&fixture);
+            let result = match operation {
+                0 => c
+                    .create_checkout_session(&checkout_request())
+                    .await
+                    .map(|_| ()),
+                1 => c.get_checkout_session("cs_test_one").await.map(|_| ()),
+                2 => c
+                    .expire_checkout_session("cs_test_one", "expire_fixture")
+                    .await
+                    .map(|_| ()),
+                3 => c.get_payment_intent("pi_one").await.map(|_| ()),
+                _ => c.get_account().await.map(|_| ()),
+            };
+            assert!(matches!(
+                result.unwrap_err().kind(),
+                crate::client::ClientErrorKind::Decode { .. }
+            ));
+            assert_eq!(fixture.requests().len(), 1);
+        }
+    }
+}
+#[tokio::test]
+async fn checkout_mutation_timeouts_and_connection_failures_are_not_replayed() {
+    for expire in [false, true] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let c = StripeClient::new(&StripeConfig {
+            base_url: format!("http://{}/v1/", listener.local_addr().unwrap()),
+            timeout_secs: 1,
+            secret_key: Some("fixture".into()),
+        })
+        .unwrap();
+        let error = if expire {
+            c.expire_checkout_session("cs_test_one", "expire_fixture")
+                .await
+                .unwrap_err()
+        } else {
+            c.create_checkout_session(&checkout_request())
+                .await
+                .unwrap_err()
+        };
+        assert!(
+            matches!(error.kind(),crate::client::ClientErrorKind::Transport {source} if source.is_timeout())
+        );
+        listener.accept().await.unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(30), listener.accept())
+                .await
+                .is_err()
+        );
+        drop(listener);
+        let error = if expire {
+            c.expire_checkout_session("cs_test_one", "expire_fixture")
+                .await
+                .unwrap_err()
+        } else {
+            c.create_checkout_session(&checkout_request())
+                .await
+                .unwrap_err()
+        };
+        assert!(
+            matches!(error.kind(),crate::client::ClientErrorKind::Transport {source} if source.is_connect())
+        );
+    }
+}
+
+#[tokio::test]
+async fn creation_requires_an_actual_hosted_session_url() {
+    for url in [json!(null), json!(""), json!("javascript:alert(1)")] {
+        let mut response = session_response();
+        response["url"] = url;
+        let fixture = Fixture::new(vec![Reply::json(response)]).await;
+        assert!(
+            client(&fixture)
+                .create_checkout_session(&checkout_request())
+                .await
+                .is_err()
+        );
+        assert_eq!(fixture.requests().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn creation_rejects_provider_money_mode_and_correlation_mismatches() {
+    for (field, value) in [
+        ("amount_total", json!(1199)),
+        ("amount_total", json!(null)),
+        ("currency", json!("usd")),
+        ("mode", json!("subscription")),
+        ("metadata", json!({"reference":"another_attempt"})),
+        ("object", json!("payment_intent")),
+        ("id", json!("")),
+    ] {
+        let mut response = session_response();
+        response[field] = value;
+        let fixture = Fixture::new(vec![Reply::json(response)]).await;
+        assert!(
+            client(&fixture)
+                .create_checkout_session(&checkout_request())
+                .await
+                .is_err(),
+            "{field}"
+        );
+        assert_eq!(fixture.requests().len(), 1);
+    }
+}

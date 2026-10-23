@@ -10,11 +10,10 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | API listener | TOML; platform `PORT` in container server mode | Container listener uses the platform port |
 | API browser | Required nonempty `browser.allowed_origins` and `browser.insecure_local` in TOML | CORS and cookie mutations share exact origin membership; HTTPS is allowed; explicit loopback HTTP requires insecure_local |
 | Database | `DATABASE_URL` from ignored `.env` or environment | Secret PostgreSQL connection URL |
-| Convention logos | Existing private S3 client and bucket; no public bucket policy | Bounded admin PNG/JPEG upload; database stores a durable `/api/v1/conventions/{id}/logo/{asset_id}` reference; public API serves only the current logo |
-| Report storage | Common/local/prod client.s3 TOML; S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY from private environment | Private reports bucket, region ap-southeast-1; independent of database credentials; local setup supplies synthetic missing/empty values. No signed URL persistence. |
+| Convention logos | Existing private S3 client and bucket; no public bucket policy | Bounded admin PNG/JPEG upload; database stores an object location and responses return a short-lived signed image URL |
+| Report storage | Common/local/qa/prod client.s3 TOML; S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY from private environment | Private reports bucket, region ap-southeast-1; independent of database credentials; local setup supplies synthetic missing/empty values. No signed URL persistence. |
 | Signing key | `JWT_SECRET` from ignored `.env` or environment | Hex-encoded random key of at least 32 bytes |
 | Shopify URL | `client.shopify.admin_api_url` in `services/api/application.toml` | Full `https://<shop>.myshopify.com/admin/api/2026-10/graphql.json`; local overlay does not replace it |
-| Convention capabilities | `[conventions].currencies` in API `application.toml`, typed through `config.rs` | Defaults to `[]`; explicitly list allowed uppercase currency codes and payment methods before creating/enabling conventions. No credentials or merchant-readiness assertion |
 | Shopify token | `SHOPIFY_ACCESS_TOKEN` from ignored API `.env` or environment | ConfigBuilder overrides client.shopify.access_token before one deserialization; standard file values apply when there is no environment override; Debug redacts credentials |
 | Backoffice | Public `application.toml`, `[api] base_url` | Default `http://localhost:3000/v1`; loaded once by typed `Settings`/`ApiConfig` |
 | Local browser | UI `http://localhost:8084`, API `http://localhost:3000` | Same hostname is required for exact origins and SameSite cookies |
@@ -26,7 +25,20 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | Cron authorization | Environment `CRON_SECRET` | Backend only; never embedded in browser assets |
 | Local Vercel environment | Inherited environment → ignored root `.env` → ignored API `.env` | `just vercel-dev` checks DATABASE_URL, JWT_SECRET, CRON_SECRET and S3 credentials, starts/initializes local S3, sets local development metadata and uses the API native dev command through an owned temporary config. The API loads its local TOML overlay and cron choice; production still uses the container |
 
-Inherited environment variables keep dotenvy's normal precedence. Normal API settings remain file-based; container port and trusted preview/development host metadata are narrow platform exceptions. Absent Shopify configuration is optional when no token override is supplied. A token override requires the admin URL from file configuration; missing required fields produce normal configuration errors. Explicit client construction parses the trusted URL and validates the token/header. just setup scaffolds an empty SHOPIFY_ACCESS_TOKEN only in new .env files and preserves existing files.
+Inherited environment variables keep dotenvy's normal precedence, including `RUN_ENV` and provider credentials. Normal API settings remain file-based; container port and trusted preview/development host metadata are narrow platform exceptions. Absent Shopify configuration is optional when no token override is supplied. A token override requires the admin URL from file configuration; missing required fields produce normal configuration errors. Explicit client construction parses the trusted URL and validates the token/header.
+
+| API development mode | Setup command / selected Bitwarden item | Runtime selection |
+| --- | --- | --- |
+| Local (default) | `just setup` or `just setup --local`; item `87323839-368f-4288-a4a5-9b0320699892` | Writes `RUN_ENV=local` in ignored `.env`; `just run` loads `application.local.toml` |
+| QA | `just setup --qa`; item `0a291e2c-4ae4-436d-8730-ddf301a544d7` | Writes `RUN_ENV=qa` in the same `.env`; `just run` loads required `application.qa.toml` |
+| Shared local services | PostgreSQL and S3 use the existing development lifecycle | Browser `allowed_origins = ["http://localhost:8084"]`, S3 endpoint `http://localhost:3001`, VPS scheduler by default |
+| Stripe endpoint | `https://api.stripe.com/v1/` in both modes | QA explicitly retains this URL; use the selected item's sandbox credential for test payments |
+| Vault fields | `JWT_SECRET`, `CRON_SECRET`, `SHOPIFY_ACCESS_TOKEN`, `RESEND_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `STRIPE_SECRET_KEY` | No database, S3 or private sender profile import |
+| Same-mode setup | Preserve nonempty values; fill missing/empty values | Secure atomic `.env` write with mode `0600`; RUN_ENV always reflects the selected mode |
+| Mode switch | Replace only imported fields with selected-item values or defaults | Clear missing optional provider fields; generate missing signing/cron defaults; preserve database, S3, sender, unrelated values and dotenv records |
+| Missing Bitwarden CLI | Apply the same preservation/switch policy using defaults | Optional providers may remain unconfigured; vault retrieval failures leave the file unchanged |
+
+QA mode alone does not establish payment readiness or select sandbox resources. Provider credentials select their account/environment; other provider URLs retain their configured behavior, including the common production PayPal URL. Keep credentials and private profiles out of tracked files. The runner retains ordinary inherited-environment precedence and uses the single `just run` command.
 
 ```mermaid
 flowchart LR
@@ -51,7 +63,7 @@ Run recipes from the package directory.
 
 | Package | Recipes |
 | --- | --- |
-| API | `just setup`, `just run`, `just test`, `just check`, `just fix`, `just db-down` |
+| API | `just setup [--local/--qa]`, `just run`, `just test`, `just check`, `just fix`, `just db-down` |
 | Backoffice | `just setup`, `just serve`, `just build`, `just test`, `just check` |
 | Domain | `just setup`, `just test`, `just check`; library has no server |
 | Shared UI | `just check`, `just test`, `just test --coverage`; shared library with no server |
@@ -101,6 +113,25 @@ Inventory returns one caller-selected product page with active inventory levels;
 | Budget | Shared HTTP/GraphQL attempt count; 30-second total sleep budget |
 | Fail without retry | HTTP 5xx and other errors, ambiguous network failures, decoding/partial-data errors, mutation user errors |
 | Stored inventory | Enablement sends no initial quantity arguments; live provider quantity behavior remains unverified |
+
+## Stripe-hosted Checkout
+
+The existing Stripe client exposes provider operations to trusted Rust callers. Postman requests in `postman/collections/external/stripe/` call Stripe directly; there is no application checkout/status/webhook endpoint or payment persistence. Shopify is not required.
+
+| Input / operation | Operator contract |
+| --- | --- |
+| Credentials / version | Existing `stripe` environment URL includes `/v1`; inherited `vault:stripe_secret_key` supplies the selected credential. For a sandbox exercise, select the QA item’s test secret explicitly in Postman; API `.env` is not automatically loaded by Postman. No Connect `Stripe-Account` or `Stripe-Version` override: requests use the direct account and its default API version. Record that effective version for any manual exercise; signed events expose their own `api_version` where supplied. Fixtures describe tested object shapes, not live version compatibility |
+| Create Checkout Session | Set folder variables for positive integer minor-unit amount, lowercase currency, fixed success/cancel URLs, non-personal `correlation_id`, product name and operation idempotency key. One line item with quantity1 and card payment method; account/device support determines wallet presentation. Keep tax, shipping, discounts and adaptive pricing disabled |
+| Retrieve resources | Copy the actual Session ID into `stripe_checkout_session_id`, its PaymentIntent ID into `stripe_payment_intent_id`, and the actual latest Charge ID into the existing Retrieve charge request's `charge_id`. Session `expand[]=payment_intent.latest_charge` and PaymentIntent `expand[]=latest_charge` can return expanded objects; string references remain valid |
+| Expected identity | Trusted caller supplies Session ID, merchant account ID, environment, exact money and correlation independently. Retrieve current account must match that merchant; all payment resources must match the expected test/live mode and money. Session and PaymentIntent metadata must retain the correlation |
+| Paid verification | Use `api::client::stripe::payment::verify_payment` with trusted expectations for an application decision. It returns `ClientError`; application callers own HTTP error mapping. It retrieves current provider objects and requires matching context, payment Session paid status, succeeded PaymentIntent with exact received amount and its successful captured Charge. A redirect, completed Session, event name, `no_payment_required` or valid signature alone does not prove paid |
+| Expiry / ambiguity | Expire only an open Session with its own stable idempotency key. New create/expire operations are sent once without automatic retries. Re-read state after an expiry race. After ambiguous create/expire transport failure, reconcile the same operation; never blindly issue a new key. Stripe can prune keys after at least24 hours, so replay after retention needs external reconciliation |
+| Errors / refunds | Provider rejections, malformed objects, unknown statuses and mismatched account/mode/money/correlation never produce verified paid. Original successful payment verification does not assert an unrefunded balance; refund policy belongs to a consumer |
+| Signed events | Pass exact raw bytes, signature header, endpoint secret, trusted time and bounded tolerance to the Rust verifier before decoding. Signature authentication does not deduplicate events or establish payment success; use current resource verification and consumer-owned replay/state handling |
+
+For a sandbox exercise, prepare and run the backend with `just setup --qa` then `just run`. In the existing Stripe Postman requests, select the QA test key, retrieve current account and compare the expected merchant → create a test Session → open the returned Stripe-hosted URL and complete the payer flow using [Stripe test payment details](https://docs.stripe.com/testing) → retrieve Session, PaymentIntent and Charge → require `livemode=false`, exact expected minor-unit money and actual returned references, then invoke the existing Rust payment-result verifier from a trusted Rust caller. The backend has no payment initiation endpoint. These requests mutate the selected account when creating/expiring; do not run the external collection wholesale against a provider. Example IDs and bodies are synthetic and must be replaced with returned values. Local tests do not verify the actual Bitwarden item, Stripe-hosted payment flow, wallet availability or live acceptance.
+
+Provider references: [Session creation](https://docs.stripe.com/api/checkout/sessions/create), [Session retrieval](https://docs.stripe.com/api/checkout/sessions/retrieve), [PaymentIntent retrieval](https://docs.stripe.com/api/payment_intents/retrieve), [direct-account SDK operation](https://github.com/stripe/stripe-dotnet/blob/master/src/Stripe.net/Services/Accounts/AccountService.cs), [idempotency](https://docs.stripe.com/api/idempotent_requests).
 
 ## Runtime, failures, and administration
 
@@ -154,8 +185,8 @@ Report queries require product, inventory, location and order access; reading un
 
 | Setting / request | Usage |
 | --- | --- |
-| Currency capabilities | Replace `currencies = []` under `[conventions]` with `currencies = [{ code = "USD", payment_methods = ["stripe", "paypal"] }]`, for example. Default empty configuration permits no convention currency. Codes/method combinations are validated at startup; duplicate currencies/methods are invalid; PromptPay requires THB and PayPal has its supported currency/precision restrictions |
-| Provider readiness | Capabilities are an operator allowlist. Supply provider credentials privately and establish merchant support separately before later payment work; this feature performs no charge, reservation or Shopify mutation |
+| Convention currency | Supply the currency and payment methods in each convention create request; they are stored in the database with no currency configuration section. Intrinsic currency/method restrictions remain: PromptPay requires THB; PayPal supports its established currency and precision set |
+| Provider readiness | Supply provider credentials privately and establish merchant support separately before later payment work; this feature performs no charge, reservation or Shopify mutation |
 | Authenticated base | `/api/v1/admin` (native `/v1/admin` alias); ADMIN and SUPER_ADMIN bearer/cookie authentication, existing origin guard and CORS including PUT |
 | Create / read | `POST /conventions`, `GET /conventions`, `GET /conventions/{id}`. Create requires slug/name/country/event dates/description/currency/methods; optional HTTPS logo. Slug is lowercase hyphen-separated text, 1–63 bytes, excluding reserved paths. Country is assigned ISO alpha-2; dates are valid YYYY-MM-DD with start<=end |
 | List / selections | Convention and variant lists use `page=1&per_page=25` defaults; page positive and `per_page` 1–100, responses include `has_next`. Conventions accept optional `preorder_enabled=true/false` |
@@ -163,12 +194,12 @@ Report queries require product, inventory, location and order access; reading un
 | Strict request shapes | Only the convention/variant list routes accept their documented query parameters; create/detail/PATCH/DELETE/PUT reject extra query strings. DELETE requires an empty body, including no `{}` or whitespace payload |
 | Selection replacement | `PUT /conventions/{id}/variants` with `{"items":[{"shopify_product_id":"gid://shopify/Product/1","shopify_variant_id":"gid://shopify/ProductVariant/1","final_price":"12.99"}]}`. Replaces the entire set atomically, at most 250 unique variants; `items:[]` clears only while disabled |
 | Exact price | Send positive unsigned plain decimal strings, not JSON numbers/exponents/signs; <=24 input bytes, bounded to signed 64-bit minor units, with currency/method precision. Prices persist in major units without floating-point conversion; USD `"12.99"` round-trips as `"12.99"` |
-| Manual flag | Create always stores false. PATCH `preorder_enabled:true` revalidates nonempty selection/capabilities; dates do not schedule opening/closing. Changing methods revalidates existing prices; disabling does not require Shopify availability |
-| Catalogue request | `GET /catalogue/products?location_id=gid://shopify/Location/1&page_size=25`; `page_size` 1–250, default 25. Optional `search`/`cursor` must be nonblank and <=2048 UTF-8 bytes. Unknown/duplicate/malformed parameters are rejected 400 |
-| Search / continuation | Pass Shopify syntax unchanged, e.g. `collection_id:123 AND title:Sticker`; URL-encode the query value for transport. Follow returned `page_info.end_cursor` when `has_next_page`; cursors remain opaque. Changing search starts a new traversal |
-| Catalogue completeness | One root page and fixed 250 variants per product; nested `hasNextPage` or malformed required provider data returns 502, never a partial catalogue. Active zero available quantity differs from missing/inactive null; catalogue price/content are current Shopify values |
+| Manual flag | Create always stores false. PATCH `preorder_enabled:true` revalidates nonempty eligible selection; dates do not schedule opening/closing. Changing methods revalidates existing prices; disabling does not require Shopify availability |
+| Catalogue request | `GET /conventions/catalogue?location_id=gid://shopify/Location/1&page_size=25`; `page_size` 1–250, default 25. Optional `search`/`cursor` must be nonblank and <=2048 UTF-8 bytes. Unknown/duplicate/malformed parameters are rejected 400 |
+| Search / continuation | Pass raw Shopify syntax, e.g. `collection_id:123 AND title:Sticker`; URL-encode the query value for transport. The service supplies `status:active AND (<search>)`, or `status:active` without user search. Follow returned `page_info.end_cursor` when `has_next_page`; cursors remain opaque. Changing search starts a new traversal. Filtering can return an empty page with `has_next_page=true`; no additional upstream page is fetched |
+| Catalogue completeness | One root page and fixed 250 variants per product; nested `hasNextPage` or malformed required provider data returns 502, never a partial catalogue. Only active products with tracked-inventory variants are returned; products with no tracked variants are omitted. Tracked zero available quantity differs from missing/inactive null; catalogue price/content are current Shopify values |
 | Safe failures | Invalid input 400, authentication 401/role 403, missing convention/location 404, duplicate slug or changed validation assumptions 409, optional Shopify unavailable 503, upstream 502/timeout 504. Failed replacements preserve the prior membership |
-| Postman examples | Internal `conventions/{list,create,get,patch,delete,list-variants,replace-variants}` and `catalogue/{products,continue}` use synthetic IDs/prices and workspace variables. External `catalogue_products` / `convention_variant` query text and variables match API documents; inherited credentials remain private |
+| Postman examples | Internal `conventions/{list,create,get,patch,delete,list-variants,replace-variants}` and `conventions/catalogue/{products,continue}` use synthetic IDs/prices and workspace variables. External `catalogue_products` / `convention_variant` query text and variables match API documents; inherited credentials remain private |
 | Local checks | Use package `just check` / `just test` recipes and root `cargo fmt --all -- --check`. Local-only `/Users/wphongphanpa/.local/bin/postman workspace lint` validates the checked-in workspace; do not run synthetic mutation examples against production |
 | Isolation | Use an owned `CARGO_TARGET_DIR` per worktree. API full recipe accepts `E2E_COMPOSE_PROJECT`, `E2E_POSTGRES_PORT`, `E2E_S3_PORT` and `E2E_DATABASE_URL`; preserve its Compose cleanup. Controlled provider matrices may serialize behind the fixture advisory lock |
 | Current limit | No public convention page, quote/order endpoint or historical order protection is delivered here. Public APIs (ENZ-38), routing (ENZ-41), quotes and order persistence remain subsequent work |
@@ -269,7 +300,7 @@ Titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/e
 | --- | --- |
 | `api` | Existing local configuration and migration behavior; local configuration selects VPS or Vercel cron |
 | `api server` | Existing container command; connect only, no automatic migrations; RUN_ENV=prod uses the scheduler selected by application.prod.toml (checked in as vercel) |
-| Configuration files | Only application.toml, application.local.toml and application.prod.toml; API image copies common/prod files and sets RUN_ENV=prod; no runtime profiles/CLI flag |
+| Configuration files | Common application.toml plus application.local.toml, required application.qa.toml or application.prod.toml selected by RUN_ENV; API image copies common/prod files and sets RUN_ENV=prod |
 | Cron lifecycle | VPS owns periodic scheduler and independent hourly retention; Vercel awaits authenticated HTTP ticks without background tasks |
 
 The daily `0 0 * * *` schedule is UTC: Hobby execution falls approximately between 07:00 and 07:59 Bangkok. It wakes stored Bangkok cron expressions. Production deployments alone receive scheduled calls; local dev does not schedule them. The backend authenticates `Authorization: Bearer CRON_SECRET`, awaits a bounded 240-second pass and reserves five seconds for retention. Missed/failed invocations await later recovery. Oversized jobs can repeat and exhaust attempts; backlog duration depends on workload.

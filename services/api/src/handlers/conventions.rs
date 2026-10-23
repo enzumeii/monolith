@@ -22,18 +22,14 @@ pub async fn list(
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     let q = validate::query(query)?;
     let (page, per_page) = validate_page(q.page, q.per_page)?;
-    let response = if q.preorder_enabled == Some(true) {
-        service::enabled_list(&state.pool, optional_s3(&state), page, per_page).await?
-    } else {
-        service::list(
-            &state.pool,
-            optional_s3(&state),
-            page,
-            per_page,
-            q.preorder_enabled,
-        )
-        .await?
-    };
+    let response = service::list(
+        &state.pool,
+        optional_s3(&state),
+        page,
+        per_page,
+        q.preorder_enabled,
+    )
+    .await?;
     Ok((no_store(), Json(response)))
 }
 pub async fn create(
@@ -51,7 +47,7 @@ pub async fn create(
     Ok((
         StatusCode::CREATED,
         no_store(),
-        Json(service::create(&state.pool, s3, &state.settings.conventions, &input).await?),
+        Json(service::create(&state.pool, s3, &input).await?),
     ))
 }
 pub async fn get(
@@ -86,8 +82,7 @@ pub async fn patch(
     } else {
         optional_s3(&state)
     };
-    let prepared =
-        service::prepare_patch(&state.pool, s3, &state.settings.conventions, id, changes).await?;
+    let prepared = service::prepare_patch(&state.pool, s3, id, changes).await?;
     if !prepared.checks.is_empty() {
         service::validate_selection(
             super::dependencies::shopify_client(&state)?,
@@ -97,15 +92,7 @@ pub async fn patch(
     }
     Ok((
         no_store(),
-        Json(
-            service::finish_patch(
-                &state.pool,
-                optional_s3(&state),
-                &state.settings.conventions,
-                prepared,
-            )
-            .await?,
-        ),
+        Json(service::finish_patch(&state.pool, optional_s3(&state), prepared).await?),
     ))
 }
 pub async fn delete(
@@ -140,8 +127,7 @@ pub async fn replace(
     validate::no_query(uri.query())?;
     let id = validate::id(path)?;
     let items = validate::variants(validate::body(body)?)?;
-    let prepared =
-        service::prepare_save(&state.pool, &state.settings.conventions, id, items).await?;
+    let prepared = service::prepare_save(&state.pool, id, items).await?;
     if !prepared.checks.is_empty() {
         service::validate_selection(
             super::dependencies::shopify_client(&state)?,
@@ -149,9 +135,7 @@ pub async fn replace(
         )
         .await?;
     }
-    Ok(Json(
-        service::finish_save(&state.pool, &state.settings.conventions, prepared).await?,
-    ))
+    Ok(Json(service::finish_save(&state.pool, prepared).await?))
 }
 
 #[derive(serde::Deserialize)]
@@ -159,7 +143,6 @@ pub async fn replace(
 pub(crate) struct EmptyQuery {}
 
 pub async fn options(
-    State(state): State<AppState>,
     query: Result<Query<EmptyQuery>, QueryRejection>,
     body: Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
 ) -> Result<Json<domain::dto::ConventionOptionsResponse>, AppError> {
@@ -169,18 +152,7 @@ pub async fn options(
     if !body.is_empty() {
         return Err(validate::invalid("Unexpected request body"));
     }
-    Ok(Json(domain::dto::ConventionOptionsResponse {
-        currencies: state
-            .settings
-            .conventions
-            .currencies
-            .iter()
-            .map(|currency| domain::dto::ConventionCurrencyOption {
-                code: currency.code.clone(),
-                payment_methods: currency.payment_methods.clone(),
-            })
-            .collect(),
-    }))
+    Ok(Json(service::options()))
 }
 
 fn no_store() -> [(axum::http::HeaderName, &'static str); 1] {

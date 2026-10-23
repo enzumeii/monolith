@@ -1,4 +1,4 @@
-use super::state::Selection;
+use super::state::{Selection, VariantDetails, merge_saved_details};
 use crate::{
     api,
     components::{
@@ -9,6 +9,7 @@ use crate::{
 };
 use dioxus::prelude::*;
 use domain::dto::{CatalogueQuery, CatalogueResponse};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Default, PartialEq)]
 struct BrowseQuery {
@@ -34,6 +35,7 @@ struct SourceVariant {
     product_status: String,
     id: String,
     title: String,
+    sku: Option<String>,
     image: Option<(String, String)>,
     options: String,
     price: String,
@@ -56,7 +58,6 @@ impl BrowsePage {
                 let image = variant
                     .image
                     .as_ref()
-                    .or(product.featured_image.as_ref())
                     .filter(|image| safe_image_url(&image.url))
                     .map(|image| {
                         (
@@ -74,6 +75,7 @@ impl BrowsePage {
                     product_status: product.status.clone(),
                     id: variant.id,
                     title: variant.title,
+                    sku: variant.sku,
                     image,
                     options: variant
                         .selected_options
@@ -108,6 +110,7 @@ pub fn SelectionEditor(
     let owner = use_owner();
     let mut selection = use_signal(Selection::default);
     let mut saved = use_signal(Selection::default);
+    let mut details = use_signal(BTreeMap::<String, VariantDetails>::new);
     let mut retry = use_signal(|| 0_u64);
     let load_id = id.clone();
     let memberships = use_resource(move || {
@@ -119,7 +122,8 @@ pub fn SelectionEditor(
         if let Some(result) = memberships.read().as_ref() {
             match result {
                 Ok(items) => {
-                    let value = Selection::from_saved(items);
+                    let value = Selection::from_saved(items.iter().map(|item| &item.membership));
+                    merge_saved_details(&mut details.write(), items);
                     selection.set(value.clone());
                     saved.set(value);
                 }
@@ -175,7 +179,20 @@ pub fn SelectionEditor(
         .and_then(|(_, result)| result.as_ref().err())
         .map(ToString::to_string);
     let current = selection();
-    let rows: Vec<_> = current.items.values().cloned().collect();
+    let rows: Vec<_> = current
+        .items
+        .values()
+        .map(|row| {
+            (
+                row.clone(),
+                details
+                    .read()
+                    .get(&row.shopify_variant_id)
+                    .cloned()
+                    .unwrap_or_default(),
+            )
+        })
+        .collect();
     let save_id = id;
     let next_cursor = page
         .as_ref()
@@ -192,23 +209,29 @@ pub fn SelectionEditor(
             div { class: "convention-table-scroll",
                 table { class: "convention-table",
                     caption { "Selected memberships and convention prices" }
-                    thead { tr { th { "Variant" } th { "Current source details" } th { "Final convention price" } th { "Action" } } }
-                    tbody { for row in rows { tr { key: "{row.shopify_variant_id}",
-                        td { "Variant {row.shopify_variant_id}" p { "Product {row.shopify_product_id}" } }
+                    thead { tr { th { "Variant" } th { "Variant image and stock" } th { "Final convention price" } th { "Action" } } }
+                    tbody { for (row, detail) in rows { tr { key: "{row.shopify_variant_id}",
                         td {
-                            if let Some(source) = page.as_ref().and_then(|page| page.items.iter().find(|source| source.id == row.shopify_variant_id)) {
-                                strong { "{source.product_title} · {source.title}" }
-                                p { "Source price: {source.price} {source.currency}" }
-                                p { "Available stock: {stock_label(source.available)}" }
-                                p { if source.eligible { "Eligible" } else { "Unavailable: {source.reason}" } }
-                            } else { "Source details not loaded" }
+                            strong { {detail_text(detail.product_title.as_deref(), "Product title unavailable")} }
+                            p { {detail_text(detail.variant_title.as_deref(), "Variant title unavailable")} }
+                            p { "SKU: " {detail_text(detail.sku.as_deref(), "SKU unavailable")} }
+                            p { "Variant {row.shopify_variant_id} · Product {row.shopify_product_id}" }
+                        }
+                        td {
+                            if let Some((url, alt)) = detail.variant_image.filter(|(url, _)| safe_image_url(url)) {
+                                img { class: "convention-variant-image", src: url, alt, loading: "lazy" }
+                            } else { p { "No variant image" } }
+                            p { "Available stock: {selected_stock_label(detail.available)}" }
+                            if let Some(location) = detail.stock_location {
+                                p { "Last loaded at location {location}" }
+                            }
                         }
                         td { label { r#for: "variant-price-{row.shopify_variant_id}", "Final price ({currency})" }
                             input { id: "variant-price-{row.shopify_variant_id}", r#type: "text", inputmode: "decimal", value: row.final_price.clone(), disabled: !current.loaded || saving.read().pending(),
                                 oninput: { let variant_id = row.shopify_variant_id.clone(); move |event| { if let Some(item) = selection.write().items.get_mut(&variant_id) { item.final_price = event.value(); } save_notice.set(None); } }
                             }
                         }
-                        td { button { r#type: "button", class: "ghost", disabled: !current.loaded || saving.read().pending(), onclick: { let variant_id = row.shopify_variant_id.clone(); move |_| { selection.write().items.remove(&variant_id); save_notice.set(None); } }, "Remove" } }
+                        td { button { r#type: "button", class: "ghost", disabled: !current.loaded || saving.read().pending(), onclick: { let variant_id = row.shopify_variant_id.clone(); move |_| { selection.write().items.remove(&variant_id); details.write().remove(&variant_id); save_notice.set(None); } }, "Remove" } }
                     } } }
                 }
             }
@@ -221,7 +244,7 @@ pub fn SelectionEditor(
                     let Some(ticket) = saving.write().begin() else { return; }; let id = save_id.clone(); let request_owner = owner(); save_error.set(None); save_notice.set(None);
                     spawn(async move { let result = session::with_session(|| api::conventions::replace_variants(&id, input)).await;
                         if owner() != request_owner || !saving.write().finish(ticket) { return; }
-                        match result { Ok(value) => { let saved_value = Selection::from_saved(&value.items); saved.set(saved_value.clone()); if selection() == snapshot { selection.set(saved_value); } save_notice.set(Some("Selected variants and prices saved".into())); }, Err(error) => save_error.set(Some(error.to_string())) }
+                        match result { Ok(value) => { let saved_value = Selection::from_saved(value.items.iter().map(|item| &item.membership)); merge_saved_details(&mut details.write(), &value.items); saved.set(saved_value.clone()); if selection() == snapshot { selection.set(saved_value); } save_notice.set(Some("Selected variants and prices saved".into())); }, Err(error) => save_error.set(Some(error.to_string())) }
                     });
                 }, if saving.read().pending() { "Saving variants…" } else { "Save selected variants and prices" }
             }
@@ -242,13 +265,18 @@ pub fn SelectionEditor(
                 if page.items.is_empty() { p { "No variants match this search at this location." } }
                 div { class: "convention-catalogue-grid",
                     for source in page.items { article { class: "convention-product", key: "{source.id}",
-                        if let Some((url, alt)) = source.image { img { src: url, alt, loading: "lazy" } }
-                        h4 { "{source.product_title} · {source.title}" }
+                        if let Some((url, alt)) = source.image.clone() { img { src: url, alt, loading: "lazy" } } else { p { "No variant image" } }
+                        h4 { "{source.product_title}" }
+                        p { "Variant: {source.title}" }
+                        p { "SKU: " {detail_text(source.sku.as_deref(), "SKU unavailable")} }
                         p { "{source.description}" } p { "{source.options}" } p { "Product status: {source.product_status}" }
                         p { "Source price: {source.price} {source.currency}" } p { "Available stock: {stock_label(source.available)}" }
                         p { if source.eligible { "Eligible" } else { "Unavailable: {source.reason}" } }
                         button { r#type: "button", class: "ghost", disabled: !current.loaded || memberships.pending() || saving.read().pending() || !source.eligible || current.items.contains_key(&source.id) || current.items.len() >= 250,
-                            onclick: move |_| { selection.write().insert(source.product_id.clone(), source.id.clone()); save_notice.set(None); },
+                            onclick: move |_| { details.write().insert(source.id.clone(), VariantDetails {
+                                product_title: Some(source.product_title.clone()), variant_title: Some(source.title.clone()), sku: source.sku.clone(), variant_image: source.image.clone(), available: source.available,
+                                stock_location: submitted().map(|query| query.location),
+                            }); selection.write().insert(source.product_id.clone(), source.id.clone()); save_notice.set(None); },
                             if current.items.contains_key(&source.id) { "Already selected" } else { "Select variant" }
                         }
                     } }
@@ -259,6 +287,14 @@ pub fn SelectionEditor(
             }
         }
     }
+}
+fn detail_text<'a>(value: Option<&'a str>, unavailable: &'a str) -> &'a str {
+    value
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(unavailable)
+}
+fn selected_stock_label(available: Option<i64>) -> String {
+    available.map_or_else(|| "Not available".into(), |value| value.to_string())
 }
 fn stock_label(available: Option<i64>) -> String {
     available.map_or_else(

@@ -184,3 +184,61 @@ async fn membership_pages_must_match_the_record_page_and_page_size() {
         );
     }
 }
+
+#[tokio::test]
+async fn selected_variants_decode_enrichment_and_presence_on_get_and_put_without_changing_requests()
+{
+    let extra = r#", "product_title":"Fox shirt", "variant_title":"Blue / M", "sku":null, "product_image":{"url":"https://cdn.test/product.png","altText":"Product"}, "variant_image":{"url":"https://cdn.test/blue.png","alt_text":"Blue"}, "available_quantity":-2"#;
+    let enriched = format!("{}{extra}}}", row(2).trim_end_matches('}'));
+    let page = format!(r#"{{"items":[{enriched}],"page":1,"per_page":100,"has_next":false}}"#);
+    let put = format!(r#"{{"items":[{enriched}]}}"#);
+    let (rows, _) = metadata_response(200, &page, all_variants(ID)).await;
+    let rows = rows.expect("valid fixture value");
+    assert_eq!(rows[0].variant_title, PatchField::Set("Blue / M".into()));
+    assert_eq!(rows[0].sku, PatchField::Clear);
+    assert_eq!(rows[0].available_quantity, PatchField::Set(-2));
+    assert!(
+        matches!(&rows[0].variant_image, PatchField::Set(image) if image.url == "https://cdn.test/blue.png")
+    );
+    let input = ReplaceConventionVariants {
+        items: vec![ConventionVariantInput {
+            shopify_product_id: "1".into(),
+            shopify_variant_id: "2".into(),
+            final_price: "12.990".into(),
+        }],
+    };
+    let (result, request) = metadata_response(200, &put, replace_variants(ID, input)).await;
+    assert_eq!(
+        result.expect("valid fixture value").items[0].product_title,
+        PatchField::Set("Fox shirt".into())
+    );
+    assert!(request.ends_with(
+        r#"{"items":[{"shopify_product_id":"1","shopify_variant_id":"2","final_price":"12.990"}]}"#
+    ));
+    let legacy = format!(
+        r#"{{"items":[{}],"page":1,"per_page":100,"has_next":false}}"#,
+        row(2)
+    );
+    let (result, _) = metadata_response(200, &legacy, all_variants(ID)).await;
+    let row = result.expect("valid fixture value").remove(0);
+    assert!(row.product_title.is_missing());
+    assert!(row.sku.is_missing());
+    assert!(row.variant_image.is_missing());
+    assert!(row.available_quantity.is_missing());
+}
+
+#[tokio::test]
+async fn invalid_display_field_types_fail_instead_of_exposing_a_partial_selection() {
+    for extra in [
+        r#", "sku":42"#,
+        r#", "variant_image":"url""#,
+        r#", "product_image":"url""#,
+        r#", "available_quantity":"0""#,
+        r#", "variant_title":false"#,
+    ] {
+        let row = format!("{}{extra}}}", row(2).trim_end_matches('}'));
+        let body = format!(r#"{{"items":[{row}],"page":1,"per_page":100,"has_next":false}}"#);
+        let (result, _) = metadata_response(200, &body, all_variants(ID)).await;
+        assert!(result.is_err(), "invalid {extra}");
+    }
+}

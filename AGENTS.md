@@ -50,6 +50,7 @@ These rules apply to the entire repository.
 - Put exported functions before private helpers, including within inherent impl blocks.
 - Put unit tests in each crate's `src/tests/` directory, mirroring implementation module paths. Use test-gated child-module declarations to preserve private access, and put those declarations after all production items at the bottom of the owning file. Use `.agents/skills/monolith-rust-file-layout/SKILL.md` for item ordering and test-module placement.
 - Keep transaction boundaries in services and SQL queries in repositories.
+- For SQL queries, migrations and database fixtures, use `.agents/skills/monolith-sql-formatting/SKILL.md`; format every statement introduced or touched in the requested change while preserving its semantics.
 
 ## Preserve agreed behavior
 

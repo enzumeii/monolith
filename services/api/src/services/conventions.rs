@@ -2,7 +2,6 @@ pub(crate) mod logo;
 pub(crate) mod money;
 use crate::{
     client::{s3::S3Client, shopify::ShopifyClient},
-    config::ConventionsConfig,
     error::{AppError, upstream},
     models::{
         conventions::{Convention, ConventionInput, ConventionVariant},
@@ -18,43 +17,31 @@ use domain::dto::{
 };
 use sqlx::PgPool;
 use uuid::Uuid;
-pub(crate) async fn enabled_list(
-    pool: &PgPool,
-    s3: Option<&S3Client>,
-    page: u32,
-    per_page: u32,
-) -> Result<ConventionListResponse, AppError> {
-    let (page, per_page) =
-        crate::validations::cron::configs::validate_page(Some(page), Some(per_page))?;
-    list(pool, s3, page, per_page, Some(true)).await
-}
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "Shared enabled-only lookup for the preorder flow")
-)]
-pub(crate) async fn enabled_by_id(
-    pool: &PgPool,
-    s3: Option<&S3Client>,
-    id: Uuid,
-) -> Result<Option<ConventionDTO>, AppError> {
-    match repo::find(pool, id, true).await? {
-        Some(record) => Ok(Some(logo::project(record, s3).await?)),
-        None => Ok(None),
+pub(crate) fn options() -> domain::dto::ConventionOptionsResponse {
+    let mut currencies = Vec::new();
+    for first in b'A'..=b'Z' {
+        for second in b'A'..=b'Z' {
+            for third in b'A'..=b'Z' {
+                let code = String::from_utf8_lossy(&[first, second, third]).into_owned();
+                if money::precision(&code).is_err() {
+                    continue;
+                }
+                let payment_methods = [
+                    ConventionPaymentMethod::Stripe,
+                    ConventionPaymentMethod::Paypal,
+                    ConventionPaymentMethod::Promptpay,
+                ]
+                .into_iter()
+                .filter(|method| money::methods(&code, std::slice::from_ref(method)).is_ok())
+                .collect();
+                currencies.push(domain::dto::ConventionCurrencyOption {
+                    code,
+                    payment_methods,
+                });
+            }
+        }
     }
-}
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "Shared enabled-only lookup for the preorder flow")
-)]
-pub(crate) async fn enabled_by_slug(
-    pool: &PgPool,
-    s3: Option<&S3Client>,
-    slug: &str,
-) -> Result<Option<ConventionDTO>, AppError> {
-    match repo::enabled_slug(pool, slug).await? {
-        Some(record) => Ok(Some(logo::project(record, s3).await?)),
-        None => Ok(None),
-    }
+    domain::dto::ConventionOptionsResponse { currencies }
 }
 pub(crate) async fn list(
     pool: &PgPool,
@@ -78,15 +65,13 @@ pub(crate) async fn list(
     })
 }
 pub(crate) async fn get(pool: &PgPool, id: Uuid) -> Result<Convention, AppError> {
-    repo::find(pool, id, false).await?.ok_or_else(missing)
+    repo::find(pool, id).await?.ok_or_else(missing)
 }
 pub(crate) async fn create(
     pool: &PgPool,
     s3: Option<&S3Client>,
-    config: &ConventionsConfig,
     input: &ConventionInput,
 ) -> Result<ConventionDTO, AppError> {
-    capability(config, &input.currency_code, &input.payment_methods)?;
     if let Some(location) = &input.logo_location {
         logo::attach(s3, location, &input.slug).await?;
     }
@@ -127,7 +112,6 @@ pub(crate) struct PreparedPatch {
 pub(crate) async fn prepare_patch(
     pool: &PgPool,
     s3: Option<&S3Client>,
-    config: &ConventionsConfig,
     id: Uuid,
     patch: PatchConvention,
 ) -> Result<PreparedPatch, AppError> {
@@ -140,7 +124,6 @@ pub(crate) async fn prepare_patch(
     let enabling = matches!(patch.preorder_enabled, PatchField::Set(true));
     let changing_methods = !patch.payment_methods.is_missing();
     if enabling || changing_methods {
-        capability(config, &input.currency_code, &input.payment_methods)?;
         prices(&selection, &input.currency_code, &input.payment_methods)?;
     }
     if enabling && selection.is_empty() {
@@ -160,7 +143,6 @@ pub(crate) async fn prepare_patch(
 pub(crate) async fn finish_patch(
     pool: &PgPool,
     s3: Option<&S3Client>,
-    config: &ConventionsConfig,
     prepared: PreparedPatch,
 ) -> Result<ConventionDTO, AppError> {
     let mut tx = pool.begin().await?;
@@ -178,7 +160,6 @@ pub(crate) async fn finish_patch(
                 "Convention selection or payment methods changed during validation; retry",
             ));
         }
-        capability(config, &input.currency_code, &input.payment_methods)?;
         if selection.is_empty() {
             return Err(conflict(
                 "Select eligible variants before enabling preorders",
@@ -186,7 +167,6 @@ pub(crate) async fn finish_patch(
         }
     }
     if !prepared.patch.payment_methods.is_missing() {
-        capability(config, &input.currency_code, &input.payment_methods)?;
         prices(&selection, &input.currency_code, &input.payment_methods)?;
     }
     let saved = repo::update(&mut tx, prepared.id, &input).await?;
@@ -201,7 +181,6 @@ pub(crate) struct PreparedSave {
 }
 pub(crate) async fn prepare_save(
     pool: &PgPool,
-    config: &ConventionsConfig,
     id: Uuid,
     items: Vec<ConventionVariantInput>,
 ) -> Result<PreparedSave, AppError> {
@@ -218,9 +197,6 @@ pub(crate) async fn prepare_save(
         .filter(|item| observed.preorder_enabled || !existing.contains(item))
         .cloned()
         .collect();
-    if !checks.is_empty() {
-        capability(config, &observed.currency_code, &observed.methods()?)?;
-    }
     Ok(PreparedSave {
         id,
         observed,
@@ -258,7 +234,6 @@ pub(crate) async fn validate_selection(
 }
 pub(crate) async fn finish_save(
     pool: &PgPool,
-    config: &ConventionsConfig,
     prepared: PreparedSave,
 ) -> Result<ConventionVariantsResponse, AppError> {
     let mut tx = pool.begin().await?;
@@ -285,9 +260,6 @@ pub(crate) async fn finish_save(
             "Convention selection changed during validation; retry",
         ));
     }
-    if !prepared.checks.is_empty() {
-        capability(config, &current.currency_code, &current.methods()?)?;
-    }
     let records = repo::replace(&mut tx, prepared.id, &prepared.items).await?;
     tx.commit().await?;
     Ok(ConventionVariantsResponse {
@@ -302,23 +274,6 @@ pub(crate) async fn delete(pool: &PgPool, id: Uuid) -> Result<(), AppError> {
     repo::lock(&mut tx, id).await?.ok_or_else(missing)?;
     repo::delete(&mut tx, id).await?;
     tx.commit().await?;
-    Ok(())
-}
-fn capability(
-    config: &ConventionsConfig,
-    code: &str,
-    methods: &[ConventionPaymentMethod],
-) -> Result<(), AppError> {
-    let allowed = config
-        .currencies
-        .iter()
-        .find(|c| c.code == code)
-        .ok_or_else(|| validate::invalid("Convention currency is not currently enabled"))?;
-    if methods.is_empty() || methods.iter().any(|m| !allowed.payment_methods.contains(m)) {
-        return Err(validate::invalid(
-            "Convention payment method is not currently enabled for this currency",
-        ));
-    }
     Ok(())
 }
 fn prices(

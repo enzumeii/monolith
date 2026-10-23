@@ -161,3 +161,80 @@ async fn name_only_edit_sends_no_capability_or_enable_fields_on_the_wire() {
     assert!(!request.contains("payment_methods"));
     assert!(!request.contains("preorder_enabled"));
 }
+
+fn display_row() -> crate::api::conventions::SelectedVariant {
+    crate::api::conventions::SelectedVariant {
+        membership: ConventionVariantDTO {
+            id: "row".into(),
+            convention_id: "con".into(),
+            shopify_product_id: "1".into(),
+            shopify_variant_id: "2".into(),
+            final_price: "12.990".into(),
+            created_at: "now".into(),
+            updated_at: "now".into(),
+        },
+        product_title: PatchField::Missing,
+        variant_title: PatchField::Missing,
+        sku: PatchField::Missing,
+        _product_image: PatchField::Missing,
+        variant_image: PatchField::Missing,
+        available_quantity: PatchField::Missing,
+    }
+}
+#[test]
+fn selected_display_updates_preserve_prices_and_legacy_omissions_but_clear_explicit_nulls() {
+    let row = display_row();
+    let selection = Selection::from_saved([&row.membership]);
+    let baseline = selection.clone();
+    let observed = VariantDetails {
+        product_title: Some("Fox shirt".into()),
+        variant_title: Some("Blue / M".into()),
+        sku: Some("FOX-B-M".into()),
+        variant_image: Some(("https://cdn.test/blue.png".into(), "Blue".into())),
+        available: Some(0),
+        stock_location: Some("123".into()),
+    };
+    let mut details = BTreeMap::from([
+        ("2".into(), observed.clone()),
+        ("removed".into(), VariantDetails::default()),
+    ]);
+    merge_saved_details(&mut details, &[row]);
+    assert_eq!(details.len(), 1);
+    assert!(
+        details["2"] == observed,
+        "legacy response cannot erase observations"
+    );
+    assert!(
+        selection == baseline,
+        "display metadata must not dirty editable state"
+    );
+    let mut cleared = display_row();
+    cleared.sku = PatchField::Clear;
+    cleared.variant_image = PatchField::Clear;
+    cleared.available_quantity = PatchField::Clear;
+    merge_saved_details(&mut details, &[cleared]);
+    assert_eq!(details["2"].sku, None);
+    assert_eq!(details["2"].variant_image, None);
+    assert_eq!(details["2"].available, None);
+    assert_eq!(
+        details["2"].stock_location, None,
+        "saved quantity has no invented location"
+    );
+    assert_eq!(details["2"].variant_title.as_deref(), Some("Blue / M"));
+    assert_eq!(
+        selection.request().expect("valid fixture value").items[0].final_price,
+        "12.990"
+    );
+}
+
+#[test]
+fn saved_stock_preserves_zero_and_negative_values_without_inventing_a_location() {
+    for quantity in [-4, 0, 8] {
+        let mut row = display_row();
+        row.available_quantity = PatchField::Set(quantity);
+        let mut details = BTreeMap::new();
+        merge_saved_details(&mut details, &[row]);
+        assert_eq!(details["2"].available, Some(quantity));
+        assert_eq!(details["2"].stock_location, None);
+    }
+}

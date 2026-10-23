@@ -182,7 +182,7 @@ fn precision_factor(currency: &CurrencyCode) -> Result<f64, AppError> {
         | CurrencyCode::SGD
         | CurrencyCode::THB
         | CurrencyCode::USD => Ok(100.0),
-        CurrencyCode::Other(_) => Err(protocol("unsupported PayPal accounting currency")),
+        _ => Err(protocol("unsupported PayPal accounting currency")),
     }
 }
 

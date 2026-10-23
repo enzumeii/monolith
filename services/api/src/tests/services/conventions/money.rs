@@ -42,3 +42,40 @@ fn exact_amounts_preserve_major_units_and_provider_precision() {
         "92233720368547758.07"
     );
 }
+
+#[test]
+fn currency_enum_preserves_existing_precision_and_provider_rules() {
+    for code in [
+        "BIF", "CLP", "DJF", "GNF", "JPY", "KMF", "KRW", "MGA", "PYG", "RWF", "VND", "VUV", "XAF",
+        "XOF", "XPF", "ISK", "UGX",
+    ] {
+        assert_eq!(precision(code).unwrap(), 0, "{code}");
+    }
+    for code in ["BHD", "JOD", "KWD", "OMR", "TND"] {
+        assert_eq!(
+            validate("12.345", code, &[Stripe]).unwrap(),
+            "12.345",
+            "{code}"
+        );
+    }
+    for code in ["AED", "THB", "SGD", "HUF", "STD", "SLE", "ZMW"] {
+        assert_eq!(
+            validate("12.34", code, &[Stripe]).unwrap(),
+            "12.34",
+            "{code}"
+        );
+    }
+    for code in [
+        "AUD", "BRL", "CAD", "CNY", "CZK", "DKK", "EUR", "GBP", "HKD", "HUF", "ILS", "JPY", "MYR",
+        "MXN", "NOK", "NZD", "PHP", "PLN", "SEK", "SGD", "CHF", "THB", "TWD", "USD",
+    ] {
+        assert!(methods(code, &[Paypal]).is_ok(), "{code}");
+    }
+    for code in ["IQD", "LYD", "ZZZ", "thb", ""] {
+        assert!(methods(code, &[Stripe]).is_err(), "{code}");
+    }
+    assert!(methods("THB", &[]).is_err());
+    assert!(methods("THB", &[Stripe, Stripe]).is_err());
+    assert!(methods("THB", &[Promptpay]).is_ok());
+    assert!(methods("AED", &[Paypal]).is_err());
+}

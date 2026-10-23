@@ -1,5 +1,5 @@
 $kind: http-request
-description: "Admin capability options. 200 returns currencies with code and payment_methods; empty currencies disables creation. Unknown parameters/body 400; missing/invalid/expired credentials 401. No database or provider business calls."
+description: "Admin intrinsic currency/payment options. 200 returns supported currencies with code and payment_methods, derived from the existing currency precision and provider rules; no runtime currency allowlist is required. Unknown parameters/body 400; missing/invalid/expired credentials 401. No database or provider business calls."
 url: "{{server}}/v1/admin/conventions/options"
 method: GET
 order: 7500

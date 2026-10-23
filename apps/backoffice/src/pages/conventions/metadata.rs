@@ -68,7 +68,7 @@ pub fn CreateEditor() -> Element {
         if capabilities.pending() { p { role: "status", "Loading available currencies and payment methods…" } }
         ErrorMessage { message: load_error.clone() }
         if load_error.is_some() { button { onclick: move |_| retry += 1, "Retry options" } }
-        if !capabilities.pending() && load_error.is_none() && options.is_empty() { p { role: "status", "Convention creation is unavailable. Configure backend currency and payment capabilities first." } }
+        if !capabilities.pending() && load_error.is_none() && options.is_empty() { p { role: "status", "Convention creation is unavailable. No supported currencies were returned." } }
         form { novalidate: true, onsubmit: move |event| {
             event.prevent_default(); if saving() || logo_request.read().pending() || created().is_some() { return; }
             let mut input = match draft().create() { Ok(value) => value, Err(message) => { error.set(Some(message)); return; } };
@@ -139,12 +139,12 @@ pub fn MetadataFields(
                     label { class: "convention-checkbox",
                         input { r#type: "checkbox", checked: current.methods.contains(&method), disabled: !available.contains(&method) && !current.methods.contains(&method), onchange: move |event| { let mut next = draft.write(); next.methods.retain(|value| *value != method); if event.checked() { next.methods.push(method); } } }
                         "{method_label(method)}"
-                        if !available.contains(&method) { " (stored method no longer configured; remove it or restore its backend capability)" }
+                        if !available.contains(&method) { " (stored method is unsupported; remove it before enabling preorders)" }
                     }
                 }
             }
         }
-        if unsupported_currency { p { class: "error", "The saved currency is no longer configured. You can edit metadata or disable preorders. Restore capabilities before enabling or changing payment methods." } }
+        if unsupported_currency { p { class: "error", "The saved currency is unsupported. You can edit metadata or disable preorders. Choose a supported currency before enabling or changing payment methods." } }
         label { r#for: "convention-markdown", "Description (Markdown)" }
         textarea { id: "convention-markdown", required: true, rows: 8, value: current.markdown.clone(), oninput: move |event| draft.write().markdown = event.value() }
         section { class: "convention-preview", aria_label: "Description preview", h3 { "Description preview" } ui::MarkdownPreview { markdown: current.markdown.clone() } }

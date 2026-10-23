@@ -6,6 +6,25 @@ Results describe this revision's exercised scope, separately from [architecture]
 
 The feature is stacked above ENZ-35/36. The PR #58 follow-up verifies the revised logo contract; earlier feature results below are historical evidence. No live provider, production migration or deployment is asserted.
 
+### Variant viewer and pinned-base conflict resolution
+
+Merged committed backend `34e1e96` into UI `3e3db67`, preserving S3 logo locations, signed previews and attachment validation. Future backend metadata work and the later requested rebase remain excluded.
+
+| Check | Result |
+| --- | --- |
+| API | Owning check passes: 34 setup tests, formatting and strict Clippy. Full isolated database/HTTP recipe passes: 395 native tests and 192 real-TCP tests, zero failures/ignored; HTTP runtime 702.87s. Compose resources removed afterward |
+| Backoffice/contracts | Owning check/test pass: 170 backoffice, 14 domain unit and 8 contract tests, domain WASM check and strict native/WASM lint. Final web bundle builds successfully; client-ui check/test pass with 8 tests |
+| Static integration | Independent API, UI and combined-source reviews report no actionable regressions. Resolved index has no unmerged entries; root formatting and whitespace checks pass |
+| Real merged API browser | Synthetic login and convention; catalogue at location1 shows separate product/variant titles, SKU, loaded variant image and stock7/0. Select across pages, exact overrides17.29/23.45, controlled upstream save failure/retry, independent metadata draft retention and successful legacy-save detail retention pass. Editing unsubmitted location2 leaves observed stock labeled location1 |
+| Explicit future-response simulation | Controlled proxy injects optional fields only in GET/PUT responses. Fresh enriched load/save shows titles/SKU/image/stock7/0 and exact prices. Explicit null clears details even while catalogue data exists; controlled503 blocks selection editing/save until retry loads all rows. Response enrichment never appears in request payloads: only product ID, variant ID and final_price |
+| Layout/images | Desktop and375px screenshots inspected. Loaded HTTPS synthetic image has natural width72; selected thumbnails remain at most96×96. Narrow page has no horizontal document overflow (document360px within375px viewport); table640px scrolls inside302px container. Row actions remain on one line |
+| Postman | Workspace lint: zero errors, one existing unrelated cron preview query-parameter warning. Catalogue path and create/options descriptions match the merged API |
+| Cleanup | Temporary browser test registration restored byte-for-byte; owned API/upstream/UI/proxy processes and Compose containers/network/volume stopped. Other worktrees remain untouched |
+
+Current pinned backend responses omit saved display metadata and selected quantity. Fresh legacy reload therefore displays explicit unavailable placeholders while retaining exact prices. Enriched reload/quantity browser evidence above is a **controlled future contract simulation**, not proof of backend persistence. The planned PR #57 metadata fields do not yet include selected quantity; final backend contract and the queued rebase remain required. Stock is informational, with no automatic refresh or invented saved location. No live Shopify/S3 mutations occurred; the public synthetic HTTPS image was read only. Screenshots were inspected in browser output; no exported screenshot artifact is included.
+
+Source-bound logs, approval and response-simulation events are retained in ignored `.superpowers/variant-viewer-20261023/`. Hosted checks are recorded separately after publication; local passes do not imply hosted CI success.
+
 ### PR #58 logo review follow-up
 
 | Check | Actual evidence |
@@ -49,6 +68,34 @@ The revised contract stores locations and returns expiring previews. Old signed 
 | Manual isolation | Synthetic admin/conventions, real owned PostgreSQL and controlled Shopify/S3 HTTP only. Temporary test-module declaration removed; helper/server stopped and Compose containers/network/volume removed. No private environment settings or production providers used |
 
 The approved stacked PR targets `feat/ENZ-35`; current CI triggers only main-target PRs, so no hosted CI is claimed for that stacked review.
+
+
+## PR57 review feedback — 2026-10-23
+
+These results apply to review-feedback commit `ea5346741e3ccd76454ed2fa058c250b00be6877`; older results below retain their original source bindings. The current API removes capability configuration, uses user-supplied database currencies, maps catalogue at `/api/v1/admin/conventions/catalogue`, and combines grouped raw search with `status:active` while returning only tracked variants. GET/list/PATCH own the existing reads and manual enable flag. SQL formatting preserves constraints, binds, transactions and locks; `TIMESTAMPTZ`/UTC DTOs preserve timestamp instants and event calendar dates.
+
+| Check / contract | Actual evidence |
+| --- | --- |
+| Route/filter regression | Focused real-TCP catalogue test fails before correction (400 instead of 200), then passes with active/tracked filtering, grouped OR search, exact prices, tracked zero stock and unchanged empty-page cursor metadata |
+| Configuration regression | Focused real-TCP test fails before correction with `Convention currency is not currently enabled`; after removal it creates THB, SGD, JPY and HUF conventions without a currency configuration section |
+| UTC regression | Focused native PostgreSQL test passes: verifies the owned session renders `+07`, then exercises real repository creation/update and DTO conversion for convention/variant timestamps at offset zero; created timestamps/absolute instants/event dates preserved, updated timestamps advance, transaction rolls back |
+| Strict/static checks | `just --no-dotenv --justfile services/api/justfile check` exits 0:21 setup-helper tests, dprint, API formatting and strict native/E2E Clippy. Workspace formatting and whitespace checks pass |
+| Full API recipe | One actual `just test` run exits 0:357 native tests (22.50s) and179 real-TCP tests (689.51s), zero failed/ignored. Includes final currency precision/accounting rejection, UTC, moved-route, active/tracked catalogue, configuration removal, rollback/commit-fault and race regressions |
+| Postman / SQL guidance | Workspace lint exits 0:67 entities, zero errors, one existing cron FMT209 warning. Four changed YAML requests parse; external query bytes/variable keys match source. Migration SQL differs only in whitespace; seven retained repository operations preserve SQL tokens/binds. Skill schema/example and independent representative SQL-guidance application pass; system Python validator lacks PyYAML, so equivalent Ruby Psych metadata validation was used |
+| Isolation / cleanup | Owned Cargo target and Compose `enz35`, PostgreSQL15435/S315436. `JUST_NO_DOTENV=true` disables nested dotenv loading; `COMPOSE_DISABLE_ENV_FILE=1` disables Compose dotenv discovery. An initial numeric dotenv flag was rejected before tests/services ran; corrected actual run completed once. Recipe down-v and independent audit confirm no owned containers, volumes, network or API process. All31 changed-path hashes matched the source freeze before this evidence-only update |
+| Evidence / delivery boundary | Ignored `.superpowers/review-comments/PR-57/2026-10-23/implement-report.md`, full logs, `source-freeze.json` and `full-cleanup-audit.json` retain actual commands, exits and source binding. No fresh hosted CI, live-provider, production or deployment proof is asserted. The later latest-main integration has separate local evidence below; subsequent exact-source hosted CI remains publication-owned |
+
+### Latest-main integration — 2026-10-23
+
+The integrated tree merges review-feedback commit `ea5346741e3ccd76454ed2fa058c250b00be6877` with main `10d5985a6c631551429863a23ff6eb75bb555524`. The merge has no conflicts and preserves the convention changes together with main's Stripe provider helpers and QA configuration/setup behavior. The earlier full 179-case TCP run remains bound to the review-feedback commit above.
+
+| Integrated-source check | Actual evidence |
+| --- | --- |
+| Strict API check | Exit 0:34 setup-helper tests, dprint, API formatting and strict all-target/E2E Clippy |
+| Native API suite | Exit 0:389 passed, zero failed/ignored (22.39s), including QA overlay/precedence, Stripe helpers, currency and non-UTC PostgreSQL/UTC DTO regressions |
+| Focused real-TCP modules | Exit 0:10 catalogue cases (45.26s) and19 convention cases (29.18s), zero failed/ignored; existing local API harness and controlled provider connections |
+| Isolation / cleanup | Same owned target and Compose `enz35`/ports15435/15436, no dotenv discovery. Corrected lifecycle exits 0; down-v exits 0 and independent Docker/process audit finds no owned resources. An earlier initializer consumed script stdin before any Cargo test; its logs are retained separately and it is not test-suite evidence |
+| Evidence / limits | Ignored `integration-report.md`, `integration-tests.sh` and `integration-*.log` under the PR57 review evidence directory retain the exact commands, parents, exits, preservation audit and cleanup. No repeated full179-case local TCP run, fresh hosted CI, live-provider or deployment proof is asserted |
 
 ## ENZ-35 + ENZ-36 convention configuration and catalogue — local verification (2026-10-23)
 

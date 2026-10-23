@@ -30,7 +30,7 @@ async fn raw_shopify_search_and_cursor_are_query_encoded_without_reinterpretatio
     assert_eq!(pairs["page_size"], "25");
     assert_eq!(pairs["search"], " title:Fox AND tag:'a&b' ");
     assert_eq!(pairs["cursor"], "abc+/=");
-    assert_eq!(url.path(), "/v1/admin/catalogue/products");
+    assert_eq!(url.path(), "/v1/admin/conventions/catalogue");
     assert!(request.contains("x-session-mode: cookie"));
 }
 

@@ -12,9 +12,12 @@
 .convention-table caption { text-align: left; font-weight: 600; margin: .75rem 0; }
 .convention-table th, .convention-table td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--panel-border); padding: .75rem; overflow-wrap: anywhere; }
 .convention-table input { min-width: 8rem; }
+.convention-table button { white-space: nowrap; }
 .convention-catalogue-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 1rem; margin: 1rem 0; }
 .convention-product { border: 1px solid var(--panel-border); border-radius: .5rem; padding: 1rem; min-width: 0; overflow-wrap: anywhere; }
 .convention-product img { width: 100%; height: 160px; object-fit: contain; }
 .conventions-page fieldset { border: 0; padding: 0; margin: .75rem 0; min-width: 0; }
 .conventions-page textarea { width: 100%; box-sizing: border-box; }
 @media (max-width: 600px) { .convention-section { padding: .75rem; } .convention-table th, .convention-table td { padding: .5rem; } }
+
+.convention-variant-image { display: block; width: 96px; height: 96px; max-width: 100%; object-fit: contain; }
