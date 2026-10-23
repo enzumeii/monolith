@@ -1,0 +1,16 @@
+mutation CreateDraftOrder($input: DraftOrderInput!) {
+  draftOrderCreate(input: $input) {
+    draftOrder {
+      id
+      name
+      email
+      phone
+      tags
+      reserveInventoryUntil
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}

@@ -37,6 +37,7 @@ impl ShopifyId {
             "ProductVariant",
             "InventoryItem",
             "Order",
+            "DraftOrder",
             "FulfillmentOrder",
             "FulfillmentOrderLineItem",
             "Fulfillment",
@@ -170,6 +171,84 @@ impl ActivateInventoryRequest {
             json!({"inventoryItemId": self.inventory_item_id, "locationId": self.location_id, "idempotencyKey": self.idempotency_key}),
         )
     }
+}
+
+#[derive(Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDraftOrderInput {
+    pub line_items: Vec<DraftOrderLineItemInput>,
+    pub tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shipping_address: Option<MailingAddressInput>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub billing_address: Option<MailingAddressInput>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presentment_currency_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reserve_inventory_until: Option<chrono::DateTime<chrono::Utc>>,
+    /// Identifies the draft; Shopify does not promise deduplication for this token.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_token: Option<String>,
+}
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftOrderLineItemInput {
+    pub variant_id: ShopifyId,
+    pub quantity: i32,
+    pub price_override: Money,
+}
+#[derive(Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MailingAddressInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub company: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address1: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address2: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub city: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub province_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phone: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDraftOrderData {
+    pub draft_order_create: DraftOrderCreatePayload,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftOrderCreatePayload {
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub draft_order: Option<DraftOrder>,
+    pub user_errors: Vec<MutationUserError>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftOrder {
+    pub id: ShopifyId,
+    pub name: String,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub email: Option<String>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub phone: Option<String>,
+    pub tags: Vec<String>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub reserve_inventory_until: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -315,3 +315,43 @@ fn listing_contact_projection_accepts_null_but_rejects_missing_selected_fields()
         );
     }
 }
+
+#[test]
+fn draft_resource_ids_and_address_input_use_provider_contracts() {
+    assert_eq!(
+        ShopifyId::new("gid://shopify/DraftOrder/42")
+            .unwrap()
+            .number("DraftOrder")
+            .unwrap(),
+        42
+    );
+    let address = MailingAddressInput {
+        first_name: Some("วิชัย".into()),
+        country_code: Some("TH".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        serde_json::to_value(address).unwrap(),
+        json!({"firstName":"วิชัย","countryCode":"TH"})
+    );
+}
+#[test]
+fn draft_projection_requires_selected_fields_but_accepts_nulls() {
+    let value = json!({"id":"gid://shopify/DraftOrder/42","name":"#D42","email":null,"phone":null,"tags":[],"reserveInventoryUntil":null});
+    assert!(serde_json::from_value::<DraftOrder>(value.clone()).is_ok());
+    for key in [
+        "id",
+        "name",
+        "email",
+        "phone",
+        "tags",
+        "reserveInventoryUntil",
+    ] {
+        let mut incomplete = value.clone();
+        incomplete.as_object_mut().unwrap().remove(key);
+        assert!(
+            serde_json::from_value::<DraftOrder>(incomplete).is_err(),
+            "{key}"
+        );
+    }
+}
