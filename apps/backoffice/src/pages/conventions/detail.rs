@@ -29,11 +29,13 @@ pub fn Detail(id: String) -> Element {
         }
     });
     rsx! {
-        Link { to: Route::Conventions { query: String::new() }, class: "button-link ghost", "Back to conventions" }
-        if record.read().is_none() || record.pending() { p { role: "status", "Loading convention…" } }
+        if record.read().is_none() || record.pending() {
+            h2 { class: "convention-editor-heading", Link { to: Route::Conventions { query: String::new() }, class: "button-link ghost convention-back", aria_label: "Back to conventions", "<" } "Convention details" }
+            p { role: "status", "Loading convention…" }
+        }
         else if let Some(result) = record.read().as_ref() {
             match result {
-                Err(error) => rsx! { ErrorMessage { message: Some(error.to_string()) } button { class: "ghost", onclick: move |_| reload += 1, "Retry loading" } },
+                Err(error) => rsx! { h2 { class: "convention-editor-heading", Link { to: Route::Conventions { query: String::new() }, class: "button-link ghost convention-back", aria_label: "Back to conventions", "<" } "Convention details" } ErrorMessage { message: Some(error.to_string()) } button { class: "ghost", onclick: move |_| reload += 1, "Retry loading" } },
                 Ok((record, options)) => rsx! { Editor { key: "{id}:{reload}", record: record.clone(), options: options.clone(), on_reload: move |()| reload += 1 } },
             }
         }
@@ -46,6 +48,8 @@ fn Editor(
     on_reload: EventHandler<()>,
 ) -> Element {
     let owner = use_owner();
+    let mut deleted = use_signal(|| false);
+    let delete_request = use_signal(RequestState::default);
     let mut draft = use_signal(|| Metadata::from_record(&record));
     let mut saved = use_signal(|| Metadata::from_record(&record));
     let mut logo = use_signal(|| Preview::from_record(&record));
@@ -87,13 +91,17 @@ fn Editor(
             });
 
     rsx! {
-        div { class: "convention-saved-summary", role: "status",
-            span { class: "convention-label", "Saved preorders" }
-            span { class: if saved.read().enabled { "convention-status is-enabled" } else { "convention-status is-disabled" }, if saved.read().enabled { "Enabled" } else { "Disabled" } }
-            span { class: "convention-label", "Slug" } span { class: "convention-value", "{record.slug}" }
-            span { class: "convention-label", "Currency" } span { class: "convention-value", "{record.currency_code}" }
+        if deleted() {
+            super::navigation::ReturnToList { message: "Convention deleted. Returning to conventions…" }
+        } else {
+        header { class: "convention-list-heading",
+            h2 { class: "convention-editor-heading",
+                Link { to: Route::Conventions { query: String::new() }, class: "button-link ghost convention-back", aria_label: "Back to conventions", title: "Back to conventions", "<" }
+                span { "{saved.read().name}" }
+            }
+            super::delete::DeleteConvention { id: record.id.clone(), name: saved.read().name.clone(), request: delete_request, disabled: metadata_request.read().pending() || logo_request.read().pending(), on_deleted: move |()| deleted.set(true) }
         }
-        p { "Enabled conventions with eligible selections are intended for the customer homepage. Event dates do not schedule availability. Saving or enabling validates the current selection on the server." }
+        fieldset { disabled: delete_request.read().pending(),
         section { class: "panel convention-section", aria_label: "Convention metadata",
             h3 { "Convention metadata" }
             form { novalidate: true, onsubmit: move |event| {
@@ -117,8 +125,11 @@ fn Editor(
         section { class: "panel convention-section", aria_label: "Convention logo",
             h3 { "Convention logo" }
             p { "Upload saves the logo independently. PNG or JPEG only, at most 2 MiB and 4096 × 4096 pixels." }
-            LogoPreview { preview: logo, id: record.id.clone() }
-            LogoPicker { selection, request: logo_request, error: logo_error, notice: logo_notice }
+            LogoPreview { preview: logo, id: record.id.clone(), replace_disabled: logo_request.read().pending() || delete_request.read().pending() }
+            div { class: "convention-logo-file-box",
+                LogoPicker { selection, request: logo_request, error: logo_error, notice: logo_notice }
+                button { id: "convention-logo-discard", r#type: "button", class: "ghost convention-file-discard", disabled: logo_request.read().pending() || (selection.file)().is_none(), onclick: move |_| { selection.reset(); logo_error.set(None); }, "Discard selected file" }
+            }
             ErrorMessage { message: logo_error() }
             if let Some(message) = logo_notice() { p { role: "status", "{message}" } }
             div { class: "convention-actions",
@@ -135,12 +146,12 @@ fn Editor(
                         match result { Ok(record) => { logo.write().replace(&record); selection.reset(); logo_notice.set(Some("Logo uploaded and saved".into())); }, Err(error) => logo_error.set(Some(error.to_string())) }
                     });
                 }, if logo_request.read().pending() { "Processing logo…" } else { "Upload logo" } }
-                button { id: "convention-logo-discard", r#type: "button", class: "ghost", disabled: logo_request.read().pending() || (selection.file)().is_none(), onclick: move |_| { selection.reset(); logo_error.set(None); }, "Discard selected file" }
                 button { id: "convention-logo-clear", r#type: "button", class: "danger", disabled: logo_request.read().pending(), onclick: move |_| clear_confirmation.set(true), "Clear saved logo" }
             }
         }
         super::catalogue::SelectionEditor { id: record.id, currency: record.currency_code, enabled: saved.read().enabled, on_dirty: move |value| selection_dirty.set(value) }
         button { r#type: "button", class: "ghost", disabled: metadata_request.read().pending() || logo_request.read().pending(), onclick: move |_| reload_confirmation.set(true), "Reload saved convention" }
+        }
         DraftDepartureGuard { dirty, warning: "Your unsaved convention changes will be lost if you leave this page.".to_string() }
         Confirm { open: reload_confirmation(), title: "Reload saved convention?", message: "Reloading replaces all unsaved metadata, prices and selected files with saved data.", confirm_label: "Reload convention", danger: dirty, on_cancel: move |()| reload_confirmation.set(false), on_confirm: move |()| { reload_confirmation.set(false); on_reload(()); } }
         Confirm { open: clear_confirmation(), title: "Clear saved logo?", message: "The current logo reference will be removed. Previously uploaded objects are retained in storage.", confirm_label: "Clear logo", danger: true, on_cancel: move |()| clear_confirmation.set(false), on_confirm: move |()| {
@@ -150,6 +161,7 @@ fn Editor(
                 match result { Ok(record) => { logo.write().replace(&record); logo_notice.set(Some("Saved logo cleared".into())); }, Err(error) => logo_error.set(Some(error.to_string())) }
             });
         } }
+        }
     }
 }
 

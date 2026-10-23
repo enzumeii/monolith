@@ -2,7 +2,7 @@ use super::logo;
 use crate::{
     api,
     components::{
-        Confirm, ErrorMessage,
+        ErrorMessage,
         request_state::{RequestState, use_owner},
     },
     route::Route,
@@ -32,19 +32,13 @@ pub fn Conventions(query: String) -> Element {
         }
     }));
     let navigator = use_navigator();
-    let mut deleting = use_signal(|| None::<(String, String)>);
     let mut mutation = use_signal(RequestState::default);
-    let mut delete_error = use_signal(|| None::<String>);
     use_effect(use_reactive((&query,), move |(_,)| {
         mutation.write().edited();
-        deleting.set(None);
-        delete_error.set(None);
     }));
     use_effect(move || {
         let _ = owner();
         mutation.write().edited();
-        deleting.set(None);
-        delete_error.set(None);
     });
     rsx! {
         document::Stylesheet { href: asset!("/assets/conventions.css") }
@@ -53,7 +47,6 @@ pub fn Conventions(query: String) -> Element {
                 h2 { "Conventions" }
                 Link { to: Route::ConventionCreate {}, class: "button-link primary", "Create convention" }
             }
-            ErrorMessage { message: delete_error() }
             if response.read().is_none() || response.pending() { p { role: "status", "Loading conventions…" } }
             else if let Some(result) = response.read().as_ref() {
                 match result {
@@ -71,7 +64,9 @@ pub fn Conventions(query: String) -> Element {
                                     td { span { class: if item.preorder_enabled { "convention-status is-enabled" } else { "convention-status is-disabled" }, if item.preorder_enabled { "Enabled" } else { "Disabled" } } }
                                     td { div { class: "convention-row-actions",
                                         Link { to: Route::ConventionDetail { id: item.id.clone() }, class: "button-link ghost", aria_label: "Edit {item.name}", "Edit" }
-                                        button { id: "delete-convention-{item.id}", r#type: "button", class: "danger", aria_label: "Delete {item.name}", disabled: mutation.read().pending() || owner().is_none(), onclick: { let id = item.id.clone(); let name = item.name.clone(); move |_| { delete_error.set(None); deleting.set(Some((id.clone(), name.clone()))); } }, "Delete" }
+                                        super::delete::DeleteConvention { key: "{query}:{item.id}", id: item.id.clone(), name: item.name.clone(), request: mutation,
+                                            on_deleted: { let previous_page = page > 1 && value.items.len() == 1; move |()| { if previous_page { navigator.replace(Route::Conventions { query: page_query(page - 1, enabled) }); } else { retry += 1; } } }
+                                        }
                                     } }
                                 } } }
                             }
@@ -83,28 +78,6 @@ pub fn Conventions(query: String) -> Element {
                         }
                     },
                 }
-            }
-        }
-        Confirm {
-            open: deleting().is_some(),
-            title: deleting().map(|(_, name)| format!("Delete ‘{name}’?")).unwrap_or_default(),
-            message: "This permanently deletes the convention and its selected variants. Uploaded logo files remain in storage.",
-            confirm_label: "Delete convention", danger: true,
-            on_cancel: move |()| deleting.set(None),
-            on_confirm: move |()| {
-                let Some((id, _)) = deleting() else { return; };
-                let Some(ticket) = mutation.write().begin() else { return; };
-                deleting.set(None); delete_error.set(None);
-                let request_owner = owner();
-                let previous_page = page > 1 && response.read().as_ref().and_then(|result| result.as_ref().ok()).is_some_and(|value| value.items.len() == 1);
-                spawn(async move {
-                    let result = session::with_session(|| api::conventions::delete(&id)).await;
-                    if owner() != request_owner || !mutation.write().finish(ticket) { return; }
-                    match result {
-                        Ok(()) => { if previous_page { navigator.replace(Route::Conventions { query: page_query(page - 1, enabled) }); } else { retry += 1; } }
-                        Err(error) => delete_error.set(Some(error.to_string())),
-                    }
-                });
             }
         }
     }

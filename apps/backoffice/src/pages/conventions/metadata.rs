@@ -8,7 +8,6 @@ use crate::{
         DraftDepartureGuard, ErrorMessage,
         request_state::{RequestState, use_owner},
     },
-    route::Route,
     session,
 };
 use dioxus::prelude::*;
@@ -54,7 +53,7 @@ pub fn CreateEditor() -> Element {
     let dirty = (draft() != Metadata::default() || (selection.file)().is_some()) && !created();
     rsx! {
         if created() {
-            CreationComplete {}
+            super::navigation::ReturnToList { message: "Convention created. Returning to conventions…" }
         } else {
         p { "New conventions start with preorders disabled. You can choose an optional PNG or JPEG logo before creating the convention." }
         if capabilities.pending() { p { role: "status", "Loading countries, currencies and payment methods…" } }
@@ -160,17 +159,6 @@ pub fn MetadataFields(
         }
         if editing { label { class: "convention-checkbox", input { r#type: "checkbox", checked: current.enabled, onchange: move |event| draft.write().enabled = event.checked() } "Enable preorders" span { class: if current.enabled { "convention-status is-enabled" } else { "convention-status is-disabled" }, if current.enabled { "Enabled" } else { "Disabled" } } } }
     }
-}
-
-#[component]
-fn CreationComplete() -> Element {
-    let navigator = use_navigator();
-    use_effect(move || {
-        navigator.replace(Route::Conventions {
-            query: String::new(),
-        });
-    });
-    rsx! { p { role: "status", "Convention created. Returning to conventions…" } }
 }
 
 #[cfg(test)]

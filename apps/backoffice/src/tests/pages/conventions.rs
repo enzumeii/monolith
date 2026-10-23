@@ -113,6 +113,11 @@ async fn mounted_convention_detail_renders_async_success_and_failure_without_oth
     )
     .await;
     assert!(html.contains("Loaded event"));
+    assert!(html.contains("convention-editor-heading"));
+    assert!(html.contains("convention-logo-file-box"));
+    assert!(html.contains("convention-file-discard"));
+    assert!(html.contains("Delete Loaded event"));
+    assert!(!html.contains(">Back to conventions</a>"));
     mounted_response(
         &format!("/conventions/{ID}"),
         &[(502, r#"{"error":"Convention unavailable"}"#)],
@@ -152,14 +157,14 @@ async fn list_deletion_requires_confirmation_preserves_errors_and_refreshes_afte
                 });
             });
             let mut edits = dom.rebuild_to_vec();
-            let initial_clicks = listeners(&edits, "click");
-            let confirm = *initial_clicks.last().expect("confirm delete");
-            let cancel = initial_clicks[initial_clicks.len() - 2];
             for _ in 0..40 {
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                 edits.edits.extend(render_changes(&mut dom).edits);
             }
             let delete = element_id(&edits, &format!("delete-convention-{ID}"));
+            let clicks = listeners(&edits, "click");
+            let confirm = *clicks.last().expect("confirm delete");
+            let cancel = clicks[clicks.len() - 2];
             form_event(&dom, delete, "click", "");
             render_changes(&mut dom);
             form_event(&dom, cancel, "click", "");

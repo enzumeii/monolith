@@ -77,7 +77,11 @@ async fn refresh_response_for_previous_revision_never_replaces_a_newly_attached_
             });
         });
         let initial = dom.rebuild_to_vec();
-        form_event(&dom, listeners(&initial, "click")[0], "click", "");
+        let refresh = crate::test_events::element_id(
+            &initial,
+            "convention-logo-refresh-da41d46b-f1ca-4a76-a774-62c269d28731",
+        );
+        form_event(&dom, refresh, "click", "");
         let mut preview = captured.borrow().expect("captured");
         let mut attached: ConventionDTO = serde_json::from_str(body).expect("convention response");
         attached.logo_preview_url = Some("https://s3.test/new.png?signature=new".into());
@@ -170,4 +174,28 @@ fn unavailable_preview_retains_refresh_and_saved_changes_advance_revision() {
     preview.replace(&record);
     assert_ne!(preview.revision, previous_revision);
     assert!(preview.url.is_none());
+}
+
+#[tokio::test]
+async fn selected_logo_has_an_image_preview_and_replacement_button() {
+    dioxus::html::set_event_converter(Box::new(FormEventConverter));
+    let mut dom = VirtualDom::new(picker_app);
+    let initial = dom.rebuild_to_vec();
+    let data = dioxus::html::PlatformEventData::new(Box::new(vec![dioxus::html::FileData::new(
+        LogoFixture("image/png"),
+    )]));
+    dom.runtime().handle_event(
+        "change",
+        Event::new(Rc::new(data) as Rc<dyn std::any::Any>, true),
+        listeners(&initial, "change")[0],
+    );
+    for _ in 0..30 {
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        render_changes(&mut dom);
+    }
+    let html = dioxus_ssr::render(&dom);
+    assert!(html.contains("data:image/png;base64,"), "{html}");
+    assert!(html.contains("Selected logo preview"));
+    assert!(html.contains("Click image to replace"));
+    assert!(html.contains("not yet saved"));
 }

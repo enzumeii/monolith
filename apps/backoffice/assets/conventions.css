@@ -40,8 +40,6 @@
 .convention-result-details .convention-label { display: block; }
 .convention-result-details .convention-value { font-size: .95rem; }
 
-.convention-saved-summary { display: flex; gap: .5rem .75rem; align-items: center; flex-wrap: wrap; padding: .75rem 0; }
-
 .conventions-page input[type="file"]::file-selector-button { cursor: pointer; min-height: 2.75rem; margin-right: .75rem; padding: .5rem .9rem; border: 1px solid var(--primary); border-radius: 0; color: var(--primary-text); background: var(--primary); font: inherit; font-weight: 700; }
 .conventions-page input[type="file"]:disabled::file-selector-button { cursor: not-allowed; opacity: .5; }
 
@@ -55,10 +53,10 @@
 .convention-name-field { grid-column: 1 / -1; }
 @media (max-width: 600px) { .convention-form-grid { grid-template-columns: minmax(0, 1fr); } }
 
-.convention-create-heading { display: flex; align-items: center; gap: .75rem; }
+.convention-editor-heading { display: flex; align-items: center; gap: .75rem; }
 .convention-back { min-width: 2.75rem; font-size: 1.25rem; }
 .convention-logo-file-box { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: center; padding: 1rem; border: 1px solid var(--panel-border); background: var(--bg); }
-.convention-logo-file-box > label, .convention-logo-file-box > p { grid-column: 1 / -1; margin: 0; }
+.convention-logo-file-box > label, .convention-logo-file-box > p, .convention-logo-file-box > .convention-logo-candidate { grid-column: 1 / -1; margin: 0; }
 .convention-logo-file-box input[type="file"] { min-width: 0; border: 0; padding: 0; }
 .convention-logo-file-box .convention-file-discard { grid-column: 2; grid-row: 2; border-radius: 999px; }
 @media (max-width: 600px) {
@@ -70,3 +68,10 @@
 .convention-list-heading h2, .convention-list-heading .button-link { margin: 0; }
 .convention-row-actions { display: flex; justify-content: flex-end; gap: .5rem; flex-wrap: wrap; }
 .convention-list-table th:last-child { text-align: right; }
+
+.convention-logo-replace { display: inline-flex; flex-direction: column; align-items: center; gap: .5rem; align-self: start; max-width: 100%; border-radius: .5rem; }
+.convention-logo-replace .convention-logo { margin: 0; }
+.convention-logo-replace span { font-size: .85rem; }
+.convention-logo-candidate { min-width: 0; }
+.convention-logo-candidate p { margin: .5rem 0 0; overflow-wrap: anywhere; }
+.convention-delete-action .error { max-width: 24rem; margin-top: .5rem; }

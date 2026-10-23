@@ -6,6 +6,7 @@ use crate::{
     },
     session,
 };
+use base64::Engine;
 use dioxus::prelude::*;
 use domain::dto::ConventionDTO;
 
@@ -61,6 +62,15 @@ pub(super) fn LogoPicker(
     mut notice: Signal<Option<String>>,
 ) -> Element {
     let owner = use_owner();
+    let selected_preview = use_memo(move || {
+        selection.file.read().as_ref().map(|file| {
+            format!(
+                "data:{};base64,{}",
+                file.mime,
+                base64::engine::general_purpose::STANDARD.encode(&file.bytes)
+            )
+        })
+    });
     rsx! {
         label { class: "convention-label", r#for: "convention-logo-file", "Choose logo file" }
         for generation in [(selection.generation)()] {
@@ -80,7 +90,14 @@ pub(super) fn LogoPicker(
                 }
             }
         }
-        if let Some(selected) = (selection.file)() { p { "Selected: {selected.name} ({selected.bytes.len()} bytes), not yet saved" } }
+        if let Some(selected) = (selection.file)() {
+            div { class: "convention-logo-candidate",
+                if let Some(src) = selected_preview() {
+                    LogoImageButton { src, alt: "Selected logo preview", disabled: request.read().pending(), on_error: move |()| error.set(Some("Unable to preview this image. Choose a valid PNG or JPEG.".into())) }
+                }
+                p { "Selected: {selected.name} (not yet saved)" }
+            }
+        }
     }
 }
 
@@ -109,7 +126,11 @@ impl Preview {
 }
 
 #[component]
-pub(super) fn LogoPreview(mut preview: Signal<Preview>, id: String) -> Element {
+pub(super) fn LogoPreview(
+    mut preview: Signal<Preview>,
+    id: String,
+    #[props(default)] replace_disabled: bool,
+) -> Element {
     let owner = use_owner();
     let mut request = use_signal(RequestState::default);
     let mut error = use_signal(|| None::<String>);
@@ -120,7 +141,7 @@ pub(super) fn LogoPreview(mut preview: Signal<Preview>, id: String) -> Element {
         .and_then(api::conventions::logo_preview_url);
     let unavailable = current.failed || url.is_none() || current.expires_at.is_none();
     rsx! {
-        if !unavailable { if let Some(url) = url { img { class: "convention-logo", src: url, alt: "Saved convention logo", onerror: move |_| preview.write().failed = true } } }
+        if !unavailable { if let Some(url) = url { LogoImageButton { src: url, alt: "Saved convention logo", disabled: replace_disabled, on_error: move |()| preview.write().failed = true } } }
         else { p { role: "status", "No logo preview available. Refresh to check for a saved logo." } }
         if let Some(expiry) = current.expires_at { p { "Preview URL expires at {expiry}" } }
         ErrorMessage { message: error() }
@@ -136,6 +157,23 @@ pub(super) fn LogoPreview(mut preview: Signal<Preview>, id: String) -> Element {
                 }
             });
         }, "Refresh logo preview" }
+    }
+}
+
+#[component]
+fn LogoImageButton(
+    src: String,
+    alt: String,
+    disabled: bool,
+    on_error: EventHandler<()>,
+) -> Element {
+    rsx! {
+        button { r#type: "button", class: "ghost convention-logo-replace", disabled, aria_label: "{alt}. Choose a replacement logo", onclick: move |_| {
+            let _ = document::eval("document.getElementById('convention-logo-file')?.click();");
+        },
+            img { class: "convention-logo", src, alt, onerror: move |_| on_error(()) }
+            span { "Click image to replace" }
+        }
     }
 }
 
