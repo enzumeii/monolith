@@ -8,11 +8,9 @@ query CatalogueProducts(
     nodes {
       id
       title
-      status
       description
       featuredImage {
         url
-        altText
       }
       variants(first: 250) {
         nodes {
@@ -21,7 +19,6 @@ query CatalogueProducts(
           sku
           image {
             url
-            altText
           }
           selectedOptions {
             name

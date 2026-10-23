@@ -14,7 +14,7 @@ fn variant() -> Value {
     json!({"id":"gid://shopify/ProductVariant/2","title":"Large","sku":"SKU-2","image":null,"selectedOptions":[{"name":"Size","value":"Large"}],"inventoryPolicy":"DENY","contextualPricing":{"price":{"amount":"123.4500","currencyCode":"THB"}},"inventoryItem":{"id":"gid://shopify/InventoryItem/3","tracked":true,"inventoryLevel":{"id":"gid://shopify/InventoryLevel/4","isActive":true,"quantities":[{"name":"available","quantity":0}]}}})
 }
 fn product(variants: Vec<Value>) -> Value {
-    json!({"id":"gid://shopify/Product/1","title":"Shirt","status":"ACTIVE","description":"A cotton shirt","featuredImage":{"url":"https://example.test/shirt.jpg","altText":"shirt"},"variants":page(variants,None)})
+    json!({"id":"gid://shopify/Product/1","title":"Shirt","description":"A cotton shirt","featuredImage":{"url":"https://example.test/shirt.jpg"},"variants":page(variants,None)})
 }
 fn products(nodes: Vec<Value>, next: Option<&str>) -> Value {
     json!({"products":page(nodes,next)})
@@ -31,10 +31,6 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
     untracked["inventoryItem"]["tracked"] = json!(false);
     let mut continuing = variant();
     continuing["inventoryPolicy"] = json!("CONTINUE");
-    let mut archived = product(vec![variant()]);
-    archived["status"] = json!("ARCHIVED");
-    let mut draft = product(vec![variant()]);
-    draft["status"] = json!("DRAFT");
     let mut only_untracked = variant();
     only_untracked["inventoryItem"]["tracked"] = json!(false);
     let (client, upstream) = client_with_upstream_script(
@@ -43,8 +39,6 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
             products(
                 vec![
                     product(vec![variant(), missing, inactive, untracked, continuing]),
-                    archived,
-                    draft,
                     product(vec![only_untracked]),
                 ],
                 Some("next"),
@@ -85,11 +79,18 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
     for (index, reason) in [
         (1, "missing_inventory_level"),
         (2, "inactive_inventory_level"),
-        (3, "continue_inventory_policy"),
     ] {
         assert_eq!(p["variants"][index]["eligible"], false);
         assert_eq!(p["variants"][index]["unavailable_reason"], reason);
     }
+    assert_eq!(p["variants"][3]["inventory_policy"], "CONTINUE");
+    assert_eq!(p["variants"][3]["eligible"], true);
+    assert!(p["variants"][3]["unavailable_reason"].is_null());
+    assert_eq!(p["variants"][3]["available_quantity"], 0);
+    assert_eq!(
+        p["featured_image"],
+        json!({"url":"https://example.test/shirt.jpg"})
+    );
     assert!(p["variants"][1]["available_quantity"].is_null());
     assert!(p["variants"][2]["available_quantity"].is_null());
     assert_eq!(body["products"].as_array().unwrap().len(), 1);
@@ -108,6 +109,9 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
     );
     let requests = upstream.requests();
     assert_eq!(requests.len(), 4);
+    let query = requests[1]["query"].as_str().unwrap();
+    assert!(!query.contains("altText"));
+    assert!(!query.lines().any(|line| line.trim() == "status"));
     assert_eq!(
         requests[1]["variables"],
         json!({"locationId":"gid://shopify/Location/1","first":1,"after":"opaque","search":"status:active AND tracks_inventory:true AND (collection_id:123 OR title:head*)"})
@@ -269,7 +273,7 @@ async fn catalogue_fails_whole_page_for_incomplete_or_invalid_provider_values() 
         .remove("pageInfo");
     cases.push(missing);
     cases.push(json!({"products":{"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":null}}}));
-    for field in ["id", "title", "status", "description", "featuredImage"] {
+    for field in ["id", "title", "description", "featuredImage"] {
         let mut p = product(vec![variant()]);
         p.as_object_mut().unwrap().remove(field);
         cases.push(products(vec![p], None));

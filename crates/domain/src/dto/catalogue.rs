@@ -28,8 +28,6 @@ pub struct CatalogueProduct {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct CatalogueImage {
     pub url: String,
-    #[serde(alias = "altText")]
-    pub alt_text: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -56,7 +54,6 @@ pub enum CatalogueInventoryPolicy {
 pub enum CatalogueUnavailableReason {
     InactiveProduct,
     UntrackedInventory,
-    ContinueInventoryPolicy,
     MissingInventoryLevel,
     InactiveInventoryLevel,
 }

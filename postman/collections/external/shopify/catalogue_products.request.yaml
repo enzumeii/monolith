@@ -12,11 +12,9 @@ query: |
       nodes {
         id
         title
-        status
         description
         featuredImage {
           url
-          altText
         }
         variants(first: 250) {
           nodes {
@@ -25,7 +23,6 @@ query: |
             sku
             image {
               url
-              altText
             }
             selectedOptions {
               name

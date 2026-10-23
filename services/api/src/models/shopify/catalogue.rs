@@ -1,4 +1,4 @@
-use super::{Connection, InventoryLevel, Money, ProductStatus, ShopifyId};
+use super::{Connection, InventoryLevel, Money, ShopifyId};
 use crate::client::{ClientError, ClientErrorKind};
 use domain::dto::{
     CatalogueImage, CatalogueInventoryPolicy, CatalogueOption, CataloguePrice,
@@ -17,7 +17,6 @@ pub(crate) struct CatalogueData {
 pub(crate) struct CatalogueProduct {
     pub id: ShopifyId,
     pub title: String,
-    pub status: ProductStatus,
     pub description: String,
     #[serde(deserialize_with = "Option::deserialize")]
     pub featured_image: Option<CatalogueImage>,

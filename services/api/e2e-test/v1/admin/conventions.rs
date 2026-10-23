@@ -104,11 +104,11 @@ async fn conventions_lifecycle_exact_prices_replacement_and_cascade() {
     assert_eq!(selected["sku"], "SKU-2");
     assert_eq!(
         selected["product_image"],
-        json!({"url":"https://example.test/product.png","alt_text":null})
+        json!({"url":"https://example.test/product.png"})
     );
     assert_eq!(
         selected["variant_image"],
-        json!({"url":"https://example.test/variant.png","alt_text":null})
+        json!({"url":"https://example.test/variant.png"})
     );
     let row = selected["id"].clone();
     let amount: String = sqlx::query_scalar(
@@ -744,7 +744,6 @@ async fn conventions_upstream_identity_policy_and_unavailable_failures() {
             json!({"id":"gid://shopify/Product/1","title":"Product","featuredImage":null,"status":"DRAFT"}),
             400,
         ),
-        ("inventoryPolicy", json!("CONTINUE"), 400),
         ("inventoryItem", json!({"tracked":false}), 400),
         ("inventoryPolicy", json!("UNKNOWN"), 502),
     ] {
@@ -2110,4 +2109,63 @@ async fn conventions_unchecked_selection_retains_latest_locked_snapshot() {
     assert_eq!(saved_at, latest);
     assert_eq!(upstream.requests().len(), 1);
     drop(pending_upstream);
+}
+
+#[tokio::test]
+async fn conventions_continue_policy_is_selectable_readable_and_enablable() {
+    let f = fixture().await;
+    let mut continuing = remote(2);
+    continuing["productVariant"]["inventoryPolicy"] = json!("CONTINUE");
+    let (c, upstream) = client_with_upstream_script(
+        vec![continuing.clone(), continuing.clone(), continuing],
+        "http",
+    )
+    .await;
+    let created = create(&c, &f, input(f.prefix())).await;
+    let path = format!("{URI}/{}", created["id"].as_str().unwrap());
+    let variants = format!("{path}/variants");
+    let saved = mutate(
+        &c,
+        &f,
+        "PUT",
+        &variants,
+        json!({"items":[item(2,"12.99")]}),
+        200,
+    )
+    .await;
+    assert_eq!(saved["items"][0]["inventory_policy"], "CONTINUE");
+    let read = c
+        .send(authed("GET", &variants, f.root_id(), AdminRole::Admin))
+        .await
+        .unwrap();
+    assert_eq!(read.status(), 200);
+    assert_eq!(body_json(read).await["items"], saved["items"]);
+    assert_eq!(upstream.requests().len(), 1);
+    let enabled = mutate(
+        &c,
+        &f,
+        "PATCH",
+        &path,
+        json!({"preorder_enabled":true}),
+        200,
+    )
+    .await;
+    assert_eq!(enabled["preorder_enabled"], true);
+    let changed = mutate(
+        &c,
+        &f,
+        "PUT",
+        &variants,
+        json!({"items":[item(2,"15")]}),
+        200,
+    )
+    .await;
+    assert_eq!(changed["items"][0]["inventory_policy"], "CONTINUE");
+    assert_eq!(changed["items"][0]["final_price"], "15.00");
+    assert_eq!(upstream.requests().len(), 3);
+    for request in upstream.requests() {
+        let query = request["query"].as_str().unwrap();
+        assert!(query.lines().any(|line| line.trim() == "status"));
+        assert!(!query.contains("altText"));
+    }
 }

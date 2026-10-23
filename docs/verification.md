@@ -670,3 +670,14 @@ This checkpoint supersedes the earlier copied-dependency verification blockers. 
 Earlier browser timezone, native Save As and controlled fault coverage limits still apply; no claim of complete browser acceptance. Reconciliation does not change those UI implementations. Logs: `/tmp/enz-30-rebased-{api-check,api-test,api-build,ui-check,ui-test,ui-build}.log`. Snapshots and independent review evidence: `.superpowers/sdd/2026-10-22-enz-30-scheduled-reports/reconcile-enz29-20261022/`.
 
 The preview at `http://localhost:8084/scheduled-reports` now uses the rebased synthetic API/Blob runtime. Its private helper, process identities, credentials, fixture metadata and browser download hashes are under `runtime-rebased-20261022/`. The previous API/storage processes and old Compose project were stopped after ownership checks. Current preview remains running intentionally; provider integrations and scheduler remain disabled.
+
+
+## PR57 catalogue eligibility and country review follow-up — 2026-10-23
+
+| Check | Local evidence on frozen v7 source, based on `78f1f434` |
+| --- | --- |
+| Full API recipe | `just --no-dotenv --justfile services/api/justfile test`: 446 native tests (22.22s) and 185 real-TCP E2E tests (687.34s), zero failed/ignored; recipe exit 0 |
+| Strict/shared contracts | API check passes 34 setup tests, dprint, Rust formatting and strict native/E2E Clippy; domain native/WASM check and 15 unit + 8 contract tests pass |
+| Provider and examples | Root Postman lint: 80 entities, zero errors, one existing cron FMT209 warning; both Shopify GraphQL operation bytes and variable keys match source |
+| Review regressions | URL-only images, supported active/tracked search with unchanged cursors, CONTINUE save/read/enable/reprice, exact 249-country enum acceptance and malformed-country rejection pass; original CREATE migration/UTC and pricing policy repairs preserved |
+| Isolation and limits | Compose `enz35` cleanup exit 0; no owned containers, volumes, networks or API processes remain. Full logs and frozen hashes are retained in ignored `.superpowers/review-comments/PR-57/2026-10-23/v7-*` artifacts. Hosted CI/coverage remains a separate delivered-source check; no live provider or deployment proof is asserted |
