@@ -51,7 +51,7 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
             body["data"][1]["description"] =
                 json!("REFUND FOR CHARGE (gid://shopify/PaymentSession/session_12345)");
         }
-        let expected_calls = steps.len();
+        let expected_paths = steps.iter().map(|step| step.path).collect::<Vec<_>>();
         let server = Server::start(steps).await;
         let client = server.client().await;
         let response = client
@@ -107,6 +107,10 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
             assert_eq!(sale["vat"], 20.0);
             assert_eq!(sale["shipping_fee"], 180.0);
             assert_eq!(sale["shopify_order_id"], 123);
+            assert_eq!(
+                sale["shopify_order_tags"],
+                json!(["Native", "comma,quote\"", "ไทย"])
+            );
             assert_eq!(sale["customer_name"], "Buyer");
             let refund = rows
                 .iter()
@@ -115,6 +119,7 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
             assert_eq!(refund["type"], "REFUND");
             assert_eq!(refund["gross_paid"], -360.0);
             assert_eq!(refund["shipping_fee"], -36.0);
+            assert_eq!(refund["shopify_order_tags"], sale["shopify_order_tags"]);
         }
         if paypal {
             let sale = rows
@@ -125,6 +130,10 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
             assert_eq!(sale["net_paid"], 98.0);
             assert_eq!(sale["shipping_fee"], 10.0);
             assert_eq!(sale["shopify_order_id"], 124);
+            assert_eq!(
+                sale["shopify_order_tags"],
+                json!(["Native", "comma,quote\"", "ไทย"])
+            );
             let refund = rows
                 .iter()
                 .find(|row| row["payment_reference"] == "pp_refund")
@@ -147,6 +156,7 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
             assert_eq!(aud["fee"], 2.82);
             assert_eq!(aud["shipping_fee"], 10.08);
             assert_eq!(aud["shopify_order_id"], 0);
+            assert_eq!(aud["shopify_order_tags"], json!([]));
             assert!(
                 rows.iter()
                     .all(|row| row["payment_reference"] != "usd_sale")
@@ -197,7 +207,26 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
                 && item["price"] == -10.0)
                 || !stripe
         );
-        assert_eq!(server.finish().await.len(), expected_calls);
+        let requests = server.finish().await;
+        let actual_paths = requests
+            .iter()
+            .map(|request| {
+                let uri = request.split_whitespace().nth(1).unwrap();
+                reqwest::Url::parse(&format!("http://fixture{uri}"))
+                    .unwrap()
+                    .path()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(actual_paths, expected_paths);
+        assert_eq!(
+            actual_paths
+                .iter()
+                .filter(|path| *path == "/charges/ch_123")
+                .count(),
+            usize::from(stripe)
+        );
+        assert!(actual_paths.iter().all(|path| path != "/account"));
     }
 }
 
@@ -1202,7 +1231,7 @@ fn order(stripe: bool) -> Value {
     let currency = if stripe { "USD" } else { "THB" };
     let line = json!({"title":"Keychain","variantTitle":"Blue","sku":"ABCKEY001","quantity":if stripe {2} else {1},"originalUnitPriceSet":{"shopMoney":{"amount":if stripe {"47.5"} else {"90"},"currencyCode":currency}}});
     let transaction = |refund: bool| json!({"id":if refund {"gid://shopify/OrderTransaction/2"} else {"gid://shopify/OrderTransaction/1"},"paymentId":"different-payment-id","gateway":if stripe {"stripe"} else {"paypal"},"kind":if refund {"REFUND"} else {"CAPTURE"},"status":"SUCCESS","processedAt":"2026-10-02T00:00:00Z","amountSet":{"shopMoney":{"amount":"100","currencyCode":currency}},"receiptJson":if stripe {if refund {json!({"id":"re_123"})} else {json!({"charges":{"data":[{"id":"ch_123"}]}})}} else if refund {json!({"refund_transaction_id":"pp_refund"})} else {json!({"transaction_id":"pp_sale"})}.to_string()});
-    json!({"id":if stripe {"gid://shopify/Order/123"} else {"gid://shopify/Order/124"},"name":"#9876","number":9876,"createdAt":"2026-10-01T00:00:00Z","displayFulfillmentStatus":"UNFULFILLED","tags":[],
+    json!({"id":if stripe {"gid://shopify/Order/123"} else {"gid://shopify/Order/124"},"name":"#9876","number":9876,"createdAt":"2026-10-01T00:00:00Z","displayFulfillmentStatus":"UNFULFILLED","tags":["Native", "comma,quote\"", "ไทย"],
         "shippingAddress":{"name":"Buyer","address1":"1 Road","city":"Bangkok","zip":"10000","country":"Thailand","phone":"+66 81-234-5678"},
         "currentTotalPriceSet":{"shopMoney":{"amount":"100","currencyCode":currency}},
         "transactions":[transaction(false)],"lineItems":page(vec![line.clone()],None),

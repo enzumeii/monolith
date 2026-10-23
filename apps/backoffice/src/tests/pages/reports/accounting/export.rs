@@ -26,6 +26,7 @@ fn transaction(
         gross_paid: -53.08,
         shipping_fee: None,
         order_adjusted: false,
+        shopify_order_tags: vec![],
     }
 }
 #[test]
@@ -54,7 +55,8 @@ fn transaction_columns_preserve_every_value_and_csv_nulls() {
             "vat",
             "gross_paid",
             "shipping_fee",
-            "order_adjusted"
+            "order_adjusted",
+            "shopify_order_tags"
         ]
     );
     assert_eq!(
@@ -79,7 +81,8 @@ fn transaction_columns_preserve_every_value_and_csv_nulls() {
             "0",
             "-53.08",
             "null",
-            "false"
+            "false",
+            "[]"
         ]
     );
     let csv_table = transaction_table([&row], "");
@@ -190,13 +193,19 @@ fn items_preserve_all_fields_in_backend_order() {
 #[test]
 fn archive_contains_transaction_and_item_csv_files() {
     use std::io::{Cursor, Read};
-    let rows = [
+    let mut rows = [
         transaction(AccountingGateway::Stripe, AccountingKind::Sale, "st_sale"),
         transaction(
             AccountingGateway::Paypal,
             AccountingKind::Refund,
             "pp_refund",
         ),
+    ];
+    rows[0].shopify_order_tags = vec![
+        "Con,vention".into(),
+        "商品\"tag".into(),
+        "=SUM(1,2)".into(),
+        "@tag".into(),
     ];
     let transactions = transaction_table(&rows, "");
     let items = TableData {
@@ -230,6 +239,17 @@ fn archive_contains_transaction_and_item_csv_files() {
         transaction_csv.find("st_sale").expect("stripe")
             < transaction_csv.find("pp_refund").expect("paypal")
     );
+    assert!(
+        transaction_csv
+            .lines()
+            .next()
+            .expect("header")
+            .ends_with(",order_adjusted,shopify_order_tags")
+    );
+    assert!(transaction_csv.contains(
+        "false,\"[\"\"Con,vention\"\",\"\"商品\\\"\"tag\"\",\"\"=SUM(1,2)\"\",\"\"@tag\"\"]\"\r\n"
+    ));
+    assert!(transaction_csv.ends_with("false,[]\r\n"));
     let mut item_csv = String::new();
     archive
         .by_name("items.csv")

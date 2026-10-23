@@ -92,7 +92,7 @@ Handlers resolve the shared state.shopify client initialized once by app_state a
 | Product listing | products_with_variants(request, page): location/statuses; one product page with fixed250 variants and completeness metadata |
 | Selection catalogue | `catalogue_products(location, search, page)`: one product page; raw search and root cursor unchanged; fixed 250 complete variants, current content/exact contextual price/location available, no supplier cost |
 | Convention selection validation | `convention_variant(id)`: direct ProductVariant lookup for association, ACTIVE/tracked/DENY rules and trusted display snapshots; no catalogue scanning or provider mutation |
-| Accounting enrichment | accounting_orders(search, page): one order page for the accounting service; retains the OrdersByPayment document and nested completeness metadata |
+| Accounting enrichment | accounting_orders(search, page): one order page including actual order tags for the accounting service; retains the OrdersByPayment document and nested completeness metadata |
 | Tag lookup | orders_by_tag(request, page): literal tags combined with AND; one order page including fixed250 report lines |
 | Inventory discovery | find_inventory_to_activate(request, page): one raw level page; caller decides eligibility from tracked/isActive/on_hand |
 | Inventory activation | activate_existing_inventory(request): item/location IDs and stable UUID only; no quantity arguments; inspect userErrors/optional level |
@@ -142,10 +142,24 @@ Provider references: [Session creation](https://docs.stripe.com/api/checkout/ses
 | Currency | Precision uses the existing `CurrencyCode` enum and exact canonical spelling. Unsupported, unknown, lowercase, mixed-case and whitespace-bearing codes are rejected; the supported currency set is unchanged |
 | Error handling | The payment verifier returns `ClientError`: `InvalidInput` for invalid expectations and `Protocol` for inconsistent evidence. Upstream errors preserve their source and original location; future consuming application code maps failures to HTTP |
 | Webhooks | Supply the exact complete event, five transmission headers and trusted webhook registration ID to the authenticated-event helper. A successful signature postback establishes event authenticity; consumers still verify current payment resources and own durable replay/state handling |
-| Application boundary | No public payment initiation/status/capture/webhook endpoints or PayPal ledger. Trusted checkout consumers own authorization, durable operation IDs, expected values, persistence, Shopify binding and atomic completion uniqueness |
+| Application boundary | No public payment initiation/status/capture/webhook endpoints or PayPal ledger. Trusted checkout consumers own authorization, durable operation IDs, expected values, persistence, Shopify binding and cross-request serialization |
 | Verification limits | Local controlled HTTP checks and collection lint do not establish provider acceptance. Historical Sandbox approval/capture receipts predate the stateless refactor; genuine signed-webhook acceptance remains unverified without an app webhook registration |
 
 Run only selected external requests with intended Sandbox credentials; creating/capturing mutates that account. Do not execute the external collection wholesale. Earlier local gateway/Sandbox results remain dated historical receipts in [verification](verification.md).
+
+## Paid Shopify draft completion
+
+| Input / operation | Trusted caller contract |
+| --- | --- |
+| Entry point | Call the Rust completion service with a typed DraftOrder ID and the existing Stripe or PayPal expected-payment context. There is no public checkout verification endpoint, guest token issuance or checkout/payment ledger |
+| Trusted values | Bind provider payment to draft independently; provider-copied/browser totals and paid flags are insufficient. Existing verifiers establish account/merchant, environment/origin, correlation and exact money |
+| Completion | Read the draft, compare exact presentment amount/currency, and use `CompleteIfOpen` only when the caller permits an eligible open draft to be completed. Verify the real linked paid/not-cancelled order and its money |
+| Ambiguous outcome | Retain the durable operation identity and uncertainty in the consuming flow. Use `ReconcileOnly` after uncertain completion; this mode never completes an open draft. A still-open read does not authorize blind replay |
+| Reference tags | Add verified references as `payment:stripe:session:<id>`, `payment:stripe:intent:<id>`, `payment:stripe:charge:<id>`, `payment:paypal:order:<id>` or `payment:paypal:capture:<id>`. Reject conflicting/invalid owned references, preserve unrelated tags and require actual tag readback |
+| Replay and ownership | Read Shopify on every call; reconcile tags on an already completed linked order. The caller owns authorization, serialization, payment-to-draft uniqueness policy, polling and webhook dispatch. There is no local cache or exactly-once guarantee |
+| Postman | Retained external Shopify requests exercise draft/order reads, completion and tag edits directly with synthetic inputs replaced by real returned IDs. No internal guest checkout collection remains; direct mutation requests change the selected store |
+| Email / limits | Shopify native completion is the confirmation-email mechanism. Fixture tests and Postman lint do not establish live merchant email delivery or end-to-end browser/webhook acceptance |
+| Accounting | Existing collection/matching rules and financial values remain unchanged. Matched rows expose actual `shopify_order_tags`, unmatched rows expose `[]`; CSV preserves commas/quotes. No local mapping fallback, additional Charge/account request or cron change |
 
 ## Runtime, failures, and administration
 

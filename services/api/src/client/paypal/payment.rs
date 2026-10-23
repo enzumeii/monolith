@@ -1,5 +1,5 @@
 mod evidence;
-mod money;
+pub(crate) mod money;
 
 use crate::{
     client::{ClientError, ClientErrorKind, paypal::PaypalClient},

@@ -1,145 +1,17 @@
-$kind: graphql-request
-description: "Accounting order discovery and payment lookup; set search to a payment_id filter or a created_at/updated_at interval. Refund transactions and shipping use their GraphQL connections. Synthetic empty result example: {data: {orders: {nodes: [], pageInfo: {hasNextPage: false, endCursor: null}}}}. Continue with endCursor when hasNextPage is true."
+$kind: http-request
+description: "Read accounting orders by payment reference or created/updated interval. Returns actual order tags and complete nested lines/shipping/refunds using the existing discovery request. Follow pageInfo.endCursor when hasNextPage. Nested hasNextPage is rejected by accounting to avoid partial allocation. Requires read_orders; older orders may require read_all_orders. Synthetic empty success: {\"data\":{\"orders\":{\"nodes\":[],\"pageInfo\":{\"hasNextPage\":false,\"endCursor\":null}}}}."
 url: "{{shopify}}/graphql.json"
-query: |
-  query OrdersByPayment($first: Int!, $search: String!, $after: String) {
-    orders(first: $first, after: $after, query: $search) {
-      nodes {
-        id
-        number
-        phone
-        shippingAddress {
-          name
-          address1
-          address2
-          city
-          provinceCode
-          zip
-          country
-          countryCodeV2
-          phone
-        }
-        transactions {
-          paymentId
-          gateway
-          kind
-          status
-          amountSet {
-            shopMoney {
-              amount
-              currencyCode
-            }
-          }
-          receiptJson
-        }
-        lineItems(first: 250) {
-          nodes {
-            title
-            variantTitle
-            sku
-            quantity
-            originalUnitPriceSet {
-              shopMoney {
-                amount
-                currencyCode
-              }
-            }
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
-        }
-        shippingLines(first: 250) {
-          nodes {
-            priceSet: originalPriceSet {
-              shopMoney {
-                amount
-                currencyCode
-              }
-            }
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
-        }
-        refunds(first: 250) {
-          transactions(first: 250) {
-            nodes {
-              paymentId
-              gateway
-              kind
-              status
-              amountSet {
-                shopMoney {
-                  amount
-                  currencyCode
-                }
-              }
-              receiptJson
-            }
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
-          }
-          refundShippingLines(first: 250) {
-            nodes {
-              subtotalAmountSet {
-                shopMoney {
-                  amount
-                  currencyCode
-                }
-              }
-            }
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
-          }
-          refundLineItems(first: 250) {
-            nodes {
-              quantity
-              subtotalSet {
-                shopMoney {
-                  amount
-                  currencyCode
-                }
-              }
-              lineItem {
-                title
-                variantTitle
-                sku
-                quantity
-                originalUnitPriceSet {
-                  shopMoney {
-                    amount
-                    currencyCode
-                  }
-                }
-              }
-            }
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
-          }
-        }
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
+method: POST
+body:
+  type: json
+  content: |-
+    {
+      "operationName": "OrdersByPayment",
+      "query": "query OrdersByPayment($first: Int!, $search: String!, $after: String) {\n  orders(first: $first, after: $after, query: $search) {\n    nodes {\n      id\n      number\n      tags\n      phone\n      shippingAddress {\n        name\n        address1\n        address2\n        city\n        provinceCode\n        zip\n        country\n        countryCodeV2\n        phone\n      }\n      transactions {\n        paymentId\n        gateway\n        kind\n        status\n        amountSet {\n          shopMoney {\n            amount\n            currencyCode\n          }\n        }\n        receiptJson\n      }\n      lineItems(first: 250) {\n        nodes {\n          title\n          variantTitle\n          sku\n          quantity\n          originalUnitPriceSet {\n            shopMoney {\n              amount\n              currencyCode\n            }\n          }\n        }\n        pageInfo {\n          hasNextPage\n          endCursor\n        }\n      }\n      shippingLines(first: 250) {\n        nodes {\n          priceSet: originalPriceSet {\n            shopMoney {\n              amount\n              currencyCode\n            }\n          }\n        }\n        pageInfo {\n          hasNextPage\n          endCursor\n        }\n      }\n      refunds(first: 250) {\n        transactions(first: 250) {\n          nodes {\n            paymentId\n            gateway\n            kind\n            status\n            amountSet {\n              shopMoney {\n                amount\n                currencyCode\n              }\n            }\n            receiptJson\n          }\n          pageInfo {\n            hasNextPage\n            endCursor\n          }\n        }\n        refundShippingLines(first: 250) {\n          nodes {\n            subtotalAmountSet {\n              shopMoney {\n                amount\n                currencyCode\n              }\n            }\n          }\n          pageInfo {\n            hasNextPage\n            endCursor\n          }\n        }\n        refundLineItems(first: 250) {\n          nodes {\n            quantity\n            subtotalSet {\n              shopMoney {\n                amount\n                currencyCode\n              }\n            }\n            lineItem {\n              title\n              variantTitle\n              sku\n              quantity\n              originalUnitPriceSet {\n                shopMoney {\n                  amount\n                  currencyCode\n                }\n              }\n            }\n          }\n          pageInfo {\n            hasNextPage\n            endCursor\n          }\n        }\n      }\n    }\n    pageInfo {\n      hasNextPage\n      endCursor\n    }\n  }\n}\n",
+      "variables": {
+        "search": "payment_id:\"fixture-reference\"",
+        "first": 10,
+        "after": null
       }
     }
-  }
-variables: |
-  {
-    "search": "payment_id:\"rHcValeeIeFNcVxAMawcQeFqt\"",
-    "after": null,
-    "first": 10
-  }
-settings: {}
-schema:
-  source: auto
 order: 2965

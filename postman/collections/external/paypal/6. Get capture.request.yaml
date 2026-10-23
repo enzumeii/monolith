@@ -1,5 +1,5 @@
 $kind: http-request
-description: "Required: paypal API base URL, paypal_capture_id; bearer uses local vault paypal_access_token. Success 200 returns id/status/amount and supplementary_data.related_ids.order_id. Only completed capture matched to trusted order/account/amount/currency is proof. Failures 401/403/404/429/5xx."
+description: "Required: paypal API base URL, paypal_capture_id; bearer uses local vault paypal_access_token. Success 200 returns id/status/amount and supplementary_data.related_ids.order_id. Only completed capture matched to trusted order/account/amount/currency is proof. Failures 401/403/404/429/5xx. Preserve decimal money and related order identity; PENDING, DECLINED, FAILED, PARTIALLY_REFUNDED or REFUNDED cannot prove the accepted full settled checkout payment."
 url: "{{paypal}}/v2/payments/captures/{{paypal_capture_id}}"
 method: GET
 order: 6000

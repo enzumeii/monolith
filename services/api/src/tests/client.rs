@@ -570,3 +570,25 @@ async fn one_shot_graphql_preserves_disconnect_source_without_replay() {
     assert!(std::error::Error::source(&error).is_some());
     server.await.unwrap();
 }
+
+#[tokio::test]
+async fn completion_mutation_never_replays_throttled_or_rejected_requests() {
+    for reply in [
+        Reply::status(429),
+        Reply::status(400),
+        Reply::json(json!({"errors":[{"message":"wait","extensions":{"code":"THROTTLED"}}]})),
+    ] {
+        let fixture = Fixture::new(vec![reply, Reply::json(json!({"data":{"ok":true}}))]).await;
+        let result: Result<Value, ClientError> = graphql(&fixture).execute_once(
+            HeaderMap::new(), &GraphqlRequest {
+                query: "mutation CompleteDraft { draftOrderComplete(id: \"gid://shopify/DraftOrder/1\") { draftOrder { id } } }",
+                operation_name: "CompleteDraft", variables: json!({}),
+            },
+        ).await;
+        assert!(
+            result.is_err(),
+            "a mutation must not silently replay after rejection"
+        );
+        assert_eq!(fixture.requests().len(), 1);
+    }
+}

@@ -56,6 +56,8 @@ pub struct AccountingTransaction {
     pub gross_paid: f64,
     pub shipping_fee: Option<f64>,
     pub order_adjusted: bool,
+    #[serde(default)]
+    pub shopify_order_tags: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

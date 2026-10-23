@@ -1,5 +1,18 @@
 # Verification
 
+## ENZ-35 PR #57 latest-main integration — local verification (2026-10-23)
+
+The integrated source merges review fixes `fb08fff6e635bbc2b19af78f71485ff966ae64a6` with main `7bd6c2e050f7991e9f6eeeeb5127c2483d79eeba`. Three additive conflicts retain both Shopify client operation groups, convention catalogue documentation and complete verification histories. PayPal crate visibility and fail-closed currency handling remain intact. Independent review identified and cleared one semantic interaction: the expanded currency enum must not silently widen draft-completion payment support.
+
+| Check | Actual result |
+| --- | --- |
+| Completion currency compatibility | Focused regression fails before repair for newly named KRW/VND/AED/INR, then passes 4/4. Explicit arms preserve main's exact 31 supported currencies and precisions; every other enum variant remains unsupported. Existing completion behavior and tests remain intact |
+| Final native / strict checks | Repaired source exits 0: 443 native tests (22.19s), zero failed/ignored, with PostgreSQL ready; Rust formatting and strict all-target/E2E Clippy pass. The preceding full API check also passes 34 setup-helper tests and GraphQL/JSON formatting |
+| Focused real-TCP integration | Initial resolved integration tree `7d2acce9f37991bc71dc0d913e68b47e59e70924` passes 10 catalogue (45.13s) and 24 convention (37.67s) cases. The later two-file completion-helper repair does not change these endpoint paths; those TCP modules were not repeated |
+| Shared contracts | Domain check and test pass 14 unit + 8 contract cases, strict lint and WASM compilation on the integrated DTOs; the isolated completion-helper repair does not change domain code |
+| Preservation / isolation | All 51 upstream changed paths retain their additions; the completion helper and its focused tests have the documented compatibility correction. All 57 disjoint feature paths remain identical. Final owned Compose down-v exits 0; container, volume, network and API-process audits are empty |
+| Evidence / limits | Ignored final-integration-*.json/log/sh scripts and precision-repair-report.md retain source hashes, reviewed index binding, exact commands, red/green proof and actual exits. The full 184-TCP result above remains bound to the pre-integration review fixes. No repeated full local TCP/coverage run, fresh hosted-CI, live-provider, browser or deployment claim |
+
 ## ENZ-35 PR #57 catalogue and inventory-policy snapshots — local verification (2026-10-23)
 
 Results bind to the frozen 26-path working-tree delta atop `b996cbdb6c4eb39bcabf41e3eee156521e055dc0`, which includes main `0c506da45e1d0e0498e508b2dd475eb3767a712d`. Complete diff SHA256: `64f64a712993267f8720dab5c1b827e361412e9bf4f718201dc8e2ea51d30b92`. Later main revisions require separate integration evidence; older checkpoints below retain their original bindings.
@@ -117,6 +130,21 @@ Merged source `ddaf159` integrates feature head `d2e337f` with upstream `1622b23
 | Detailed evidence | Ignored `refresh-report.md`, `refresh-verify.sh` and `refresh-*.log` retain identity, exact commands/exits, 355/9/19 counts, conflict preservation proof and cleanup audit |
 
 Controlled responses establish exercised transport/contracts, not live Shopify schema compatibility, merchant permissions/capabilities, query cost or a real payment. No production migration/deployment, live provider mutation/charge, manual browser UI acceptance or hosted CI is asserted. Public APIs (ENZ-38), routing (ENZ-41), quotes, checkout and historical order snapshots/protection remain future work; parent deletion currently cascades current memberships.
+
+## ENZ-45 stateless completion remediation — 2026-10-23
+
+This contract supersedes PR #56's earlier stateful checkout design. Verification results for the superseded design do not establish acceptance of this refactor. The initial stateless remediation at `66c03bd` and its continuation onto `d1ae724` passed the bounded checks below. The later dependency moves PayPal verification into its client module with typed errors and enum currency handling; no mounted endpoint changes in that continuation.
+
+| Scope | Current implementation / verification boundary |
+| --- | --- |
+| Completion | Trusted server-side caller context, existing authoritative Stripe/PayPal verification, exact draft/order money, real Shopify linked-order readback and additive verified reference tags |
+| Recovery | `CompleteIfOpen` versus `ReconcileOnly`; caller retains uncertainty and serialization. Reconciliation-only calls never issue completion. No local checkout/payment ledger, guest UUID endpoint, cache or exactly-once claim |
+| Reporting | Actual Shopify order tags flow through existing matching, DTOs and CSV; no saved-order fallback, database mapping, extra provider lookup or cron change |
+| API checks | Final continuation formatting, strict all-target/E2E Clippy, 34 setup-helper tests and all 430 native tests pass, including 14 completion and 47 PayPal cases. The earlier full API recipe passes 150 real TCP tests; endpoint code and the accounting regression remain unchanged by the client-only continuation, so that suite is not repeated. Zero failed or ignored; owned Compose containers, volumes and networks removed |
+| Shared code and exports | Domain 18, report-generator 7 and backoffice 131 tests pass, including actual CSV/ZIP tag bytes. Native/WASM checks, root workflow/shell/configuration checks and workspace formatting pass |
+| Contracts and review | Stripe 9, PayPal 7, Shopify 15 and internal 30 Postman files lint with zero diagnostics; all 10 Shopify query/variable pairs match source. Accounting tag regression fails when the tag assignment is removed and passes restored. Independent final review finds no actionable gaps; cron, routes, repositories and migrations match the dependency |
+| Hosted checks | Main-only PR workflow does not run for the stacked `feat/ENZ-44` target; current-head hosted CI is waived by the approved plan. Historical CI and Vercel preview are separate evidence |
+| Limits | No live Shopify/email proof, production migration or provider mutation. Trusted caller authorization/durable ownership, future public/browser/webhook integration and merchant-specific behavior remain outside this slice |
 
 ## ENZ-44 PayPal client boundary and currency enum — 2026-10-23
 
