@@ -1,0 +1,44 @@
+$kind: http-request
+description: "Create uses a durable unique PayPal-Request-Id. Required variables: paypal API base URL, paypal_payment_id, paypal_reference, paypal_currency, paypal_amount, paypal_merchant_id, paypal_return_url, paypal_cancel_url, paypal_create_request_id; bearer uses local vault paypal_access_token. Success 201 (or 200 replay) returns order id/status/purchase_units/links; approval is not proof of payment. Failures 400/401/403/422/429/5xx use provider error bodies. Execute against a controlled local server for automated checks."
+url: "{{paypal}}/v2/checkout/orders"
+method: POST
+order: 3000
+body:
+  type: json
+  content: |-
+    {
+      "intent": "CAPTURE",
+      "purchase_units": [
+        {
+          "reference_id": "{{paypal_payment_id}}",
+          "custom_id": "{{paypal_reference}}",
+          "amount": {
+            "currency_code": "{{paypal_currency}}",
+            "value": "{{paypal_amount}}"
+          },
+          "payee": {
+            "merchant_id": "{{paypal_merchant_id}}"
+          }
+        }
+      ],
+      "payment_source": {
+        "paypal": {
+          "experience_context": {
+            "return_url": "{{paypal_return_url}}",
+            "cancel_url": "{{paypal_cancel_url}}"
+          }
+        }
+      }
+    }
+headers:
+  Content-Type: application/json
+  PayPal-Request-Id: "{{paypal_create_request_id}}"
+  Prefer: return=representation
+auth:
+  type: inherit
+  credentials:
+    id: 5daed635-8af6-4e64-9242-a4be048bc73a
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: "pm.test(\"Provider response contract\", function () { pm.expect([200,201,202]).to.include(pm.response.code); pm.expect(pm.response.json().id).to.be.a(\"string\"); });"

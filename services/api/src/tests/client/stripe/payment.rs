@@ -53,7 +53,10 @@ async fn verifies_paid_from_authoritative_objects_and_returns_real_references() 
             charge_id: "ch_real".into(),
             amount: 1250,
             currency: "thb".into(),
-            livemode: false
+            livemode: false,
+            refunded: false,
+            amount_refunded: 0,
+            disputed: false
         })
     );
     assert_eq!(
@@ -271,12 +274,15 @@ async fn refund_does_not_erase_original_payment_success() {
     replies[3]["refunded"] = json!(true);
     replies[3]["amount_refunded"] = json!(1250);
     let fixture = Fixture::new(replies.into_iter().map(Reply::json).collect()).await;
-    assert!(matches!(
-        verify_payment(&client(&fixture), &expected())
-            .await
-            .unwrap(),
-        PaymentOutcome::VerifiedPaid(_)
-    ));
+    let PaymentOutcome::VerifiedPaid(payment) = verify_payment(&client(&fixture), &expected())
+        .await
+        .unwrap()
+    else {
+        panic!("original paid fact must remain verified")
+    };
+    assert!(payment.refunded);
+    assert_eq!(payment.amount_refunded, 1250);
+    assert_eq!(fixture.requests().len(), 4);
 }
 
 #[tokio::test]

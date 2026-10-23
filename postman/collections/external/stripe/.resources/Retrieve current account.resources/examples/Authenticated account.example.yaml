@@ -1,0 +1,12 @@
+$kind: http-example
+name: Authenticated account
+response:
+  statusCode: 200
+  statusText: OK
+  body:
+    type: json
+    content: |
+      {
+        "id": "acct_fixture",
+        "object": "account"
+      }

@@ -159,7 +159,7 @@ flowchart LR
 | CatalogueProducts | One root product page with current product content, exact contextual source price and location `available`; fixed 250 variants, no supplier cost |
 | ConventionVariant | One direct variant lookup for product association, product status, tracking, inventory policy and display snapshots; no catalogue scan |
 | OrdersByTag | Matching-order connection including bounded report lines |
-| OrdersByPayment | One accounting-enrichment order page; retained operation name |
+| OrdersByPayment | One accounting-enrichment order page with actual order tags; retained operation name |
 | Location | Location existence before inventory report queries |
 | FindInventoryToActivate | One raw inventory-level page; no eligibility filtering |
 | ActivateExistingInventory | Raw mutation userErrors and optional output; activation takes item/location IDs and a stable UUID; no quantity arguments |
@@ -295,3 +295,71 @@ flowchart LR
 | Tag edits | Shared order service reuses ListOrders (id filter, id/tags projection) before tagsAdd/tagsRemove; ASCII-case-insensitive workflow matching, stored spelling for removal, skip existing additions and no-op mutations; unrelated tags preserved |
 | Shopify projections | Fulfillment, shipping and reship DTOs live in models/shopify.rs alongside the existing provider models; fulfillment retains ShopifyId through validation, service and the fulfillment-order client call |
 | Mock declaration | Sum non-Tip item prices once, multiply by5, minimum100, independent of currency; stock items contribute price but not quantity; no price×quantity multiplication |
+
+## PayPal payment provider boundary
+
+| Layer | Responsibility |
+| --- | --- |
+| Shared PayPal client | One provider operation per call: create/get/capture Orders v2, get capture and verify webhook signature. Reuse pooled HTTP, OAuth caching and bounded transport retry behavior; create/capture request IDs stay caller-owned |
+| `client::paypal::payment` | `verify_payment` compares authoritative current order/capture evidence with trusted order ID, merchant, configured API origin, purchase-unit reference/custom correlation and positive integer minor-unit money. Return explicit pending/approved-unpaid, terminal-unpaid or verified-paid outcome |
+| Evidence | Require one intended purchase unit, a completed order and one linked final completed capture, independently retrieved with the same ID. Exact money/merchant/correlation and consistent optional identity fields are required; unknown, inconsistent, refunded or reversed evidence fails closed |
+| Currency precision | Reuse `CurrencyCode` variants with exact canonical input spelling. Preserve the supported zero/two-decimal currency set; unsupported, unknown and noncanonical codes fail verification |
+| Client errors | Invalid trusted expectations return `ClientErrorKind::InvalidInput`; inconsistent provider evidence returns `Protocol`. Upstream client failures retain their kind, source and original location. Future consuming application code owns HTTP mapping and provider-independent orchestration |
+| Authenticated events | Validate transmission headers and full envelope, require successful PayPal verification postback, then expose typed event identity. Authentication/event type does not establish payment success; event and polling consumers use current-resource verification |
+| Consumer boundary | Trusted callers own authorization, return destinations, durable create/capture IDs, retention-aware ambiguous-write recovery, replay handling and stored business state. This provider slice has no application payment routes, webhook ingestion, payment/event tables or fulfillment effects |
+| Configuration | Optional shared client uses TOML API origin/timeout and environment-supplied credentials. QA selects the Sandbox REST origin. Trusted expectations come from the checkout/draft owner, never browser/event/provider-copied totals |
+| Shopify consumer | Stateless draft completion below reuses this verifier. The consuming flow binds payment to draft and owns authorization, persistence, serialization and uncertain-outcome recovery; the PayPal provider boundary remains read-only |
+
+Buyer approval alone does not collect a PayPal wallet payment. The caller explicitly captures an approved order with its stable request ID; verification remains read-only. [PayPal operations](development.md#paypal-orders) records caller inputs and manual verification limits.
+
+```mermaid
+sequenceDiagram
+    participant Consumer as Trusted consuming flow
+    participant Client as PayPal client
+    participant PP as PayPal
+    participant Verifier as client::paypal::payment
+    Consumer->>Client: Create order with stable request ID
+    Client->>PP: Create CAPTURE order
+    PP-->>Consumer: Order and approval link
+    Consumer->>PP: Buyer approval
+    Consumer->>Client: Capture with stable request ID
+    Client->>PP: Capture approved order
+    Consumer->>Verifier: Trusted expected order, merchant, origin, money and correlation
+    Verifier->>Client: Retrieve current order and capture
+    Client->>PP: Read authoritative resources
+    Verifier-->>Consumer: Pending/unpaid or verified paid
+    Note over Consumer: Own authorization, replay handling, persistence and fulfillment
+```
+
+
+## Externally paid Shopify draft completion
+
+| Owner | Contract |
+| --- | --- |
+| Trusted consuming flow | Supply the actual DraftOrder ID and independently trusted Stripe/PayPal expected payment context. Own authorization, payment-to-draft association, durable operation identity, cross-request serialization, polling and webhook dispatch |
+| `services/checkout_completion.rs` | Invoke the existing provider verifier, compare exact draft presentment money, then read/complete the draft and reconcile verified payment-reference tags on the real linked order |
+| Shopify client | Single-operation draft/order reads, one-shot draft completion and additive order tag edits; preserve unrelated tags and confirm requested references by order readback |
+| Completion modes | `CompleteIfOpen` permits completing an eligible open draft. `ReconcileOnly` only reads/reconciles; after an uncertain completion the caller must retain uncertainty and use this mode |
+| Completion evidence | Verified provider payment, matching real draft/order identity and money, paid/not-cancelled order and confirmed owned tags. Stripe refund/dispute evidence prevents completion without changing the provider verifier's original-payment semantics |
+| Retry boundary | Replays read Shopify truth. A linked completed order permits tag reconciliation without another completion. No checkout/payment tables, process-local completion cache, guest UUID endpoint or exactly-once guarantee |
+| Native confirmation | Shopify draft completion remains the confirmation-email mechanism; controlled fixtures do not prove merchant email delivery |
+| Accounting | Existing provider collection and Shopify matching copy actual order tags to transaction DTOs and CSV. No local mappings, saved-order fallback, extra Charge/account lookup or cron change |
+
+```mermaid
+sequenceDiagram
+    participant Caller as Trusted consuming flow
+    participant Service as Draft completion
+    participant Provider as Existing payment verifier
+    participant Shopify as Shopify client
+    Caller->>Service: Draft ID, expected payment, completion mode
+    Service->>Provider: Verify current authoritative payment
+    Provider-->>Service: Pending/unpaid or verified evidence
+    Service->>Shopify: Read draft and linked order
+    opt Verified eligible open draft and CompleteIfOpen
+        Service->>Shopify: Complete draft once
+    end
+    Service->>Shopify: Read real paid order, add missing owned tags
+    Service->>Shopify: Confirm order and tag readback
+    Service-->>Caller: Outcome or reconciliation required
+    Note over Caller: Retain uncertain outcome; retry with ReconcileOnly
+```

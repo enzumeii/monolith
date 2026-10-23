@@ -1,0 +1,12 @@
+$kind: http-example
+name: Not found
+response:
+  statusCode: 404
+  statusText: Not Found
+  body:
+    type: json
+    content: |
+      {
+        "name": "RESOURCE_NOT_FOUND",
+        "message": "The specified resource does not exist."
+      }

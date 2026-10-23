@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn transaction_csv_preserves_schema_numbers_ids_and_formula_guards() {
-    let row = AccountingTransaction {
+    let mut row = AccountingTransaction {
         gateway: AccountingGateway::Stripe,
         kind: AccountingKind::Refund,
         po_number: "-PO".into(),
@@ -23,11 +23,25 @@ fn transaction_csv_preserves_schema_numbers_ids_and_formula_guards() {
         gross_paid: -103.5,
         shipping_fee: Some(-10.0),
         order_adjusted: false,
+        shopify_order_tags: vec![],
     };
     assert_eq!(
         encode_transactions([&row]),
-        "gateway,type,po_number,po_date,transaction_date,payment_reference,description,shopify_order_id,shopify_order_number,customer_name,customer_address,customer_phone,currency,exchange_rate,net_paid,fee,vat,gross_paid,shipping_fee,order_adjusted\r\nSTRIPE,REFUND,'-PO,,2026-10-22,'@ref,\"A, \"\"quote\"\"\nline\",1234567890123456789,-123,'+name,'=address,66812345678,THB,-1.5,-100.5,-2.5,-0.5,-103.5,-10,false\r\n"
+        "gateway,type,po_number,po_date,transaction_date,payment_reference,description,shopify_order_id,shopify_order_number,customer_name,customer_address,customer_phone,currency,exchange_rate,net_paid,fee,vat,gross_paid,shipping_fee,order_adjusted,shopify_order_tags\r\nSTRIPE,REFUND,'-PO,,2026-10-22,'@ref,\"A, \"\"quote\"\"\nline\",1234567890123456789,-123,'+name,'=address,66812345678,THB,-1.5,-100.5,-2.5,-0.5,-103.5,-10,false,[]\r\n"
     );
+    row.shopify_order_tags = vec![
+        "Con,vention".into(),
+        "商品\"tag".into(),
+        "=SUM(1,2)".into(),
+        "@tag".into(),
+    ];
+    assert_eq!(
+        transaction_table([&row], "").rows[0][20],
+        r#"["Con,vention","商品\"tag","=SUM(1,2)","@tag"]"#,
+    );
+    assert!(encode_transactions([&row]).ends_with(
+        "false,\"[\"\"Con,vention\"\",\"\"商品\\\"\"tag\"\",\"\"=SUM(1,2)\"\",\"\"@tag\"\"]\"\r\n"
+    ));
 }
 
 #[test]

@@ -1,3 +1,6 @@
+mod payments;
+pub use payments::*;
+
 use super::CurrencyCode;
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};

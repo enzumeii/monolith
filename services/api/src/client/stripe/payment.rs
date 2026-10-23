@@ -36,6 +36,9 @@ pub struct VerifiedPayment {
     pub amount: i64,
     pub currency: String,
     pub livemode: bool,
+    pub refunded: bool,
+    pub amount_refunded: i64,
+    pub disputed: bool,
 }
 
 /// Verifies the original successful payment. Refunds do not erase that success;
@@ -121,6 +124,9 @@ pub async fn verify_payment(
         amount: expected.amount,
         currency,
         livemode: expected.livemode,
+        refunded: charge.payment_status.refunded,
+        amount_refunded: charge.amount_refunded,
+        disputed: charge.disputed,
     }))
 }
 

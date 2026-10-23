@@ -80,6 +80,7 @@ fn empty_transaction(gateway: AccountingGateway, kind: AccountingKind) -> Accoun
             None
         },
         order_adjusted: false,
+        shopify_order_tags: vec![],
     }
 }
 
