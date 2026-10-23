@@ -468,3 +468,220 @@ async fn list_orders_explicitly_supplies_required_selection_flags() {
         json!({"first":1,"after":null,"search":"tag:shipping AND fulfillment_status:unfulfilled","includeContact":true,"includeTags":false})
     );
 }
+
+fn draft_input() -> crate::models::shopify::CreateDraftOrderInput {
+    use crate::models::shopify::{CreateDraftOrderInput, DraftOrderLineItemInput};
+    CreateDraftOrderInput {
+        line_items: vec![DraftOrderLineItemInput {
+            variant_id: id("ProductVariant", 123),
+            quantity: 2,
+            price_override: None,
+        }],
+        tags: vec![" EXPLICIT ".into(), "ทดสอบ".into()],
+        ..Default::default()
+    }
+}
+fn draft_response() -> Value {
+    json!({"data":{"draftOrderCreate":{"draftOrder":{
+        "id":"gid://shopify/DraftOrder/42", "name":"#D42", "email":null, "phone":null,
+        "tags":["EXPLICIT"], "reserveInventoryUntil":null
+    }, "userErrors":[]}}})
+}
+#[tokio::test]
+async fn draft_creation_preserves_customer_prices_tags_and_optional_fields() {
+    use crate::models::shopify::{DraftOrderLineItemInput, MailingAddressInput, Money};
+    let f = Fixture::new(vec![
+        Reply::json(draft_response()),
+        Reply::json(draft_response()),
+    ])
+    .await;
+    let mut input = draft_input();
+    input.line_items[0].price_override = Some(Money {
+        amount: "1234567890.0123456789".into(),
+        currency_code: "THB".into(),
+    });
+    input.email = Some("buyer@example.test".into());
+    input.phone = Some("+66000000000".into());
+    input.shipping_address = Some(MailingAddressInput {
+        first_name: Some("วิชัย".into()),
+        last_name: Some("ทดสอบ".into()),
+        company: Some("Example".into()),
+        address1: Some("1 Example Road".into()),
+        address2: Some("Unit 2".into()),
+        city: Some("Bangkok".into()),
+        province_code: Some("TH-10".into()),
+        country_code: Some("TH".into()),
+        zip: Some("10000".into()),
+        phone: input.phone.clone(),
+    });
+    input.billing_address = input.shipping_address.clone();
+    input.presentment_currency_code = Some("THB".into());
+    input.reserve_inventory_until = Some("2026-10-23T12:34:56Z".parse().unwrap());
+    input.session_token = Some("caller-owned-token".into());
+    input.line_items.push(DraftOrderLineItemInput {
+        variant_id: id("ProductVariant", 124),
+        quantity: 1,
+        price_override: Some(Money {
+            amount: "0.1000".into(),
+            currency_code: "THB".into(),
+        }),
+    });
+    let result = client(&f).create_draft_order(&input).await.unwrap();
+    assert_eq!(
+        result.draft_order.unwrap().id.as_ref(),
+        "gid://shopify/DraftOrder/42"
+    );
+    assert!(result.user_errors.is_empty());
+    client(&f).create_draft_order(&draft_input()).await.unwrap();
+    let requests = f.requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].0, "/graphql.json");
+    assert_eq!(requests[0].1["x-shopify-access-token"], "private-token");
+    assert!(!requests[0].1.contains_key("idempotency-key"));
+    assert_eq!(requests[0].2["operationName"], "CreateDraftOrder");
+    assert!(
+        !requests[0].2["query"]
+            .as_str()
+            .unwrap()
+            .contains("@idempotent")
+    );
+    assert_eq!(
+        requests[0].2["variables"],
+        json!({"input":{
+            "lineItems":[
+                {"variantId":id("ProductVariant",123),"quantity":2,"priceOverride":{"amount":"1234567890.0123456789","currencyCode":"THB"}},
+                {"variantId":id("ProductVariant",124),"quantity":1,"priceOverride":{"amount":"0.1000","currencyCode":"THB"}}
+            ],
+            "tags":[" EXPLICIT ","ทดสอบ"], "email":"buyer@example.test", "phone":"+66000000000",
+            "shippingAddress":{"firstName":"วิชัย","lastName":"ทดสอบ","company":"Example","address1":"1 Example Road","address2":"Unit 2","city":"Bangkok","provinceCode":"TH-10","countryCode":"TH","zip":"10000","phone":"+66000000000"},
+            "billingAddress":serde_json::to_value(&input.billing_address).unwrap(),
+            "presentmentCurrencyCode":"THB", "reserveInventoryUntil":"2026-10-23T12:34:56Z", "sessionToken":"caller-owned-token"
+        }})
+    );
+    assert_eq!(
+        requests[1].2["variables"],
+        json!({"input":{
+            "lineItems":[{"variantId":id("ProductVariant",123),"quantity":2}],
+            "tags":[" EXPLICIT ","ทดสอบ"]
+        }})
+    );
+    assert_eq!(f.methods(), vec![reqwest::Method::POST; 2]);
+}
+#[tokio::test]
+async fn draft_creation_omits_price_override_for_catalogue_prices() {
+    let fixture = Fixture::new(vec![Reply::json(draft_response())]).await;
+    client(&fixture)
+        .create_draft_order(&draft_input())
+        .await
+        .unwrap();
+    let requests = fixture.requests();
+    let line_items = requests[0].2["variables"]["input"]["lineItems"]
+        .as_array()
+        .unwrap();
+    assert_eq!(line_items.len(), 1);
+    assert_eq!(
+        line_items[0]["variantId"],
+        "gid://shopify/ProductVariant/123"
+    );
+    assert_eq!(line_items[0]["quantity"], 2);
+    assert!(
+        !line_items[0]
+            .as_object()
+            .unwrap()
+            .contains_key("priceOverride")
+    );
+}
+#[tokio::test]
+async fn draft_creation_preserves_provider_rejections_without_interpreting_them() {
+    let f = Fixture::new(vec![Reply::json(json!({"data":{"draftOrderCreate":{
+        "draftOrder":null,"userErrors":[{"field":["input","lineItems","0","quantity"],"message":"Invalid quantity"}]
+    }}}))]).await;
+    let result = client(&f).create_draft_order(&draft_input()).await.unwrap();
+    assert!(result.draft_order.is_none());
+    assert_eq!(result.user_errors[0].message, "Invalid quantity");
+    assert_eq!(
+        result.user_errors[0].field.as_ref().unwrap()[1],
+        "lineItems"
+    );
+    assert_eq!(f.requests().len(), 1);
+}
+#[tokio::test]
+async fn draft_creation_rejects_wrong_variant_kind_before_network() {
+    let f = Fixture::new(vec![]).await;
+    let mut input = draft_input();
+    input.line_items[0].variant_id = id("Product", 123);
+    let error = client(&f).create_draft_order(&input).await.err().unwrap();
+    assert!(matches!(error.kind(), ClientErrorKind::InvalidInput(_)));
+    assert_eq!(f.requests().len(), 0);
+}
+#[tokio::test]
+async fn draft_creation_never_replays_http_failures() {
+    for status in [400, 401, 403, 404, 408, 409, 422, 429, 500, 502, 503, 504] {
+        let f = Fixture::new(vec![Reply::status(status), Reply::json(draft_response())]).await;
+        let error = client(&f)
+            .create_draft_order(&draft_input())
+            .await
+            .err()
+            .unwrap();
+        assert!(
+            matches!(error.kind(), ClientErrorKind::Http {status: actual,..} if *actual == status)
+        );
+        assert_eq!(f.requests().len(), 1);
+    }
+}
+#[tokio::test]
+async fn draft_creation_never_replays_graphql_or_invalid_payload_failures() {
+    for (kind, reply) in [
+        (
+            "graphql",
+            Reply::json(
+                json!({"errors":[{"message":"private-token buyer@example.test","extensions":{"code":"THROTTLED"}}]}),
+            ),
+        ),
+        (
+            "graphql",
+            Reply::json(json!({"data":{"draftOrderCreate":null},"errors":[{"message":"denied"}]})),
+        ),
+        (
+            "decode",
+            Reply {
+                status: 200,
+                body: "{".into(),
+                headers: vec![],
+            },
+        ),
+        ("protocol", Reply::json(json!({}))),
+        ("decode", Reply::json(json!({"data":{}}))),
+        (
+            "decode",
+            Reply::json(json!({"data":{"draftOrderCreate":{"userErrors":[]}}})),
+        ),
+        (
+            "decode",
+            Reply::json(json!({"data":{"draftOrderCreate":{"draftOrder":null}}})),
+        ),
+        (
+            "decode",
+            Reply::json(json!({"data":{"draftOrderCreate":null}})),
+        ),
+    ] {
+        let f = Fixture::new(vec![reply, Reply::json(draft_response())]).await;
+        let error = client(&f)
+            .create_draft_order(&draft_input())
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(
+            (kind, error.kind()),
+            ("graphql", ClientErrorKind::Graphql { .. })
+                | ("decode", ClientErrorKind::Decode { .. })
+                | ("protocol", ClientErrorKind::Protocol(_))
+        ));
+        for diagnostic in [error.to_string(), format!("{error:?}")] {
+            assert!(!diagnostic.contains("private-token"));
+            assert!(!diagnostic.contains("buyer@example.test"));
+        }
+        assert_eq!(error.location().file(), "services/api/src/client.rs");
+        assert_eq!(f.requests().len(), 1);
+    }
+}
