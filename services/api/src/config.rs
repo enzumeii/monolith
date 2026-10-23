@@ -199,19 +199,40 @@ impl Settings {
     }
 
     pub fn new() -> Result<Self, ConfigError> {
-        let _ = dotenvy::dotenv();
+        let explicit_qa = env::var("RUN_ENV").as_deref() == Ok("qa");
+        if explicit_qa {
+            match dotenvy::from_path(".env.qa") {
+                Ok(()) => {}
+                Err(dotenvy::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => {
+                    return Err(ConfigError::Message(
+                        "Unable to load QA private environment file".into(),
+                    ));
+                }
+            }
+        } else {
+            let _ = dotenvy::dotenv();
+        }
         let mode = env::var("RUN_ENV").unwrap_or_else(|_| "local".into());
+        if mode == "qa" && !explicit_qa {
+            return Err(ConfigError::Message(
+                "QA startup requires explicit RUN_ENV=qa before loading private environment files"
+                    .into(),
+            ));
+        }
         Self::load(
             Config::builder()
                 .add_source(File::with_name("application"))
-                .add_source(File::with_name(&format!("application.{mode}")).required(false)),
+                .add_source(File::with_name(&format!("application.{mode}")).required(mode == "qa")),
             &mode,
         )
     }
 
     fn load(mut builder: ConfigBuilder<DefaultState>, mode: &str) -> Result<Self, ConfigError> {
-        if !matches!(mode, "local" | "prod") {
-            return Err(ConfigError::Message("RUN_ENV must be local or prod".into()));
+        if !matches!(mode, "local" | "qa" | "prod") {
+            return Err(ConfigError::Message(
+                "RUN_ENV must be local, qa or prod".into(),
+            ));
         }
         if mode == "prod" {
             builder = builder.set_override("scheduler.implementation", "vercel")?;
@@ -276,6 +297,23 @@ impl Settings {
         }
         let settings: Self = builder.build()?.try_deserialize()?;
         settings.validate()?;
+        if mode == "qa" {
+            let key = settings
+                .client
+                .as_ref()
+                .and_then(|client| client.stripe.as_ref())
+                .and_then(|stripe| stripe.secret_key.as_deref());
+            if !key.is_some_and(|key| {
+                ["sk_test_", "rk_test_"].iter().any(|prefix| {
+                    key.strip_prefix(prefix)
+                        .is_some_and(|suffix| !suffix.is_empty())
+                }) && !key.chars().any(char::is_whitespace)
+            }) {
+                return Err(ConfigError::Message(
+                    "QA requires STRIPE_SECRET_KEY to be a nonempty sk_test_ or rk_test_ server key".into(),
+                ));
+            }
+        }
         Ok(settings)
     }
 }

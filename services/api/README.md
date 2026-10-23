@@ -4,15 +4,18 @@
 
 Run `../../init.sh` to install the CLI packages after installing Rust, Docker, and Python 3. Python 3 is needed by `just setup` and `just check`.
 
-Optionally install [Bitwarden CLI](https://bitwarden.com/help/cli/) with `npm install -g @bitwarden/cli`, then run `bw login`. `just setup` reads same-named credential custom fields from item `87323839-368f-4288-a4a5-9b0320699892`; a locked vault prompts for your master password in your terminal. Keep passwords and session tokens in your terminal, never in chat or `.env`.
+Optionally install [Bitwarden CLI](https://bitwarden.com/help/cli/) with `npm install -g @bitwarden/cli`, then run `bw login`. `just setup --local` reads same-named credential custom fields from item `87323839-368f-4288-a4a5-9b0320699892`; `just setup --qa` uses item `0a291e2c-4ae4-436d-8730-ddf301a544d7`; a locked vault prompts for your master password in your terminal. Keep passwords and session tokens in your terminal, never in chat or `.env`.
 
-Without Bitwarden CLI, setup uses local defaults. Setup installs pinned dprint under `.tools/`, caches its plugins, and fills missing/empty `.env` settings while preserving nonempty values. Bitwarden imports only `JWT_SECRET`, `CRON_SECRET`, `SHOPIFY_ACCESS_TOKEN`, `RESEND_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and `STRIPE_SECRET_KEY`; clear an assignment before rerunning to replace it. Missing fields use local defaults: random `JWT_SECRET` and `CRON_SECRET` values, synthetic local S3 keys/sender profile, and empty optional provider credentials. Vault failures leave `.env` unchanged. Use your real sender profile and S3 credentials before production use; PayPal defaults to its sandbox URL in `application.toml`.
+Without Bitwarden CLI, local setup uses local defaults. QA setup requires a Stripe test key (`sk_test_` or `rk_test_`) from its vault item or an existing `.env.qa`. Setup installs pinned dprint under `.tools/`, caches its plugins, and fills missing/empty settings in `.env` (local) or `.env.qa` (QA) while preserving nonempty values. Bitwarden imports only `JWT_SECRET`, `CRON_SECRET`, `SHOPIFY_ACCESS_TOKEN`, `RESEND_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and `STRIPE_SECRET_KEY`; clear an assignment before rerunning to replace it. Missing fields use local defaults: random `JWT_SECRET` and `CRON_SECRET` values, synthetic local S3 keys/sender profile, and empty optional provider credentials. Vault failures leave the selected environment file unchanged. QA writes `.env.qa` atomically with owner-only permissions and does not copy local credentials. Use your real sender profile and S3 credentials before production use; the common PayPal URL is production, and QA does not make other providers sandbox services.
 
 ## Run locally
 
-- `just setup` installs formatter tooling and fills missing/empty `.env` settings from Bitwarden when installed, otherwise local defaults.
-- `just run` starts API at `localhost:3000` and local S3 at `localhost:3001`.
-- Edit `application.local.toml` scheduler `implementation` (`vps` or `vercel`) to choose local cron execution. `RUN_ENV=prod` uses production overrides and forces Vercel cron.
+- `just setup --local` installs formatter tooling and fills missing/empty `.env` settings; `just setup` is the same local command.
+- `just setup --qa` installs the same tooling and prepares separate `.env.qa` credentials for Stripe sandbox use.
+- `just run --local` reads `.env` and `application.local.toml`; `just run` is the same local command.
+- `just run --qa` reads `.env.qa` and `application.qa.toml`, requires a Stripe test key and clears inherited application secrets before loading QA credentials.
+- Both run modes start API at `localhost:3000`, local S3 at `localhost:3001` and use browser origin `http://localhost:8084`. Stripe uses `https://api.stripe.com/v1/` in both modes; the key selects test/live mode. See [sandbox exercise](../../docs/development.md#stripe-hosted-checkout).
+- Edit the selected overlay scheduler `implementation` (`vps` or `vercel`) to choose local cron execution. `RUN_ENV=prod` uses production overrides and forces Vercel cron.
 
 ## Vercel cron timing
 

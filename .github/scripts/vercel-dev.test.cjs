@@ -45,9 +45,8 @@ process.exit(7);
  const env={...process.env,PATH:path.join(root,'bin')+path.delimiter+process.env.PATH,LOCAL_S3_PORT:'3001',S3_ACCESS_KEY_ID:'synthetic-access-id',S3_SECRET_ACCESS_KEY:'synthetic-secret-key'};
  for(const key of ['RUN_ENV','VERCEL_ENV','VERCEL_URL','DATABASE_URL','JWT_SECRET','CRON_SECRET']) delete env[key];
  if(!execute) return {root,env:{...env,...inherited}};
- const runRecipe=fs.readFileSync(path.join(root,'services/api/justfile'),'utf8').match(/(?:^|\n)run:\n([\s\S]*?)(?=\n\S|$)/)[1].replace(/^    /gm,'');
  const result=apiRun
-  ?spawnSync('bash',['-c',runRecipe],{cwd:path.join(root,'services/api'),env:{...env,...inherited},encoding:'utf8'})
+  ?spawnSync('just',['run','--local'],{cwd:path.join(root,'services/api'),env:{...env,...inherited},encoding:'utf8'})
   :spawnSync(process.execPath,['scripts/dev-vercel.mjs',...args],{cwd:root,env:{...env,...inherited},encoding:'utf8'});
  return {root,result,observed:fs.existsSync(path.join(root,'observed.json'))?JSON.parse(fs.readFileSync(path.join(root,'observed.json'))):null};
 }

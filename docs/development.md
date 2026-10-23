@@ -6,11 +6,11 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 
 | Owner | Source / setting | Behavior |
 | --- | --- | --- |
-| API | Common `application.toml` → `application.{RUN_ENV}.toml`; RUN_ENV defaults to local | One existing typed reader; local scheduler.implementation selects vps/vercel, prod forces vercel before deserialization |
+| API | Common `application.toml` → `application.{RUN_ENV}.toml`; RUN_ENV defaults to local | One existing typed reader; local/qa scheduler.implementation selects vps/vercel, prod forces vercel before deserialization |
 | API listener | TOML; platform `PORT` in container server mode | Container listener uses the platform port |
 | API browser | `browser.public_origin`, default-empty `browser.additional_origins`, `browser.insecure_local` in TOML | CORS and cookie mutations share exact origins; additions require HTTPS; primary permits explicit loopback HTTP |
 | Database | `DATABASE_URL` from ignored `.env` or environment | Secret PostgreSQL connection URL |
-| Report storage | Common/local/prod client.s3 TOML; S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY from private environment | Private reports bucket, region ap-southeast-1; independent of database credentials; local setup supplies synthetic missing/empty values. No signed URL persistence. |
+| Report storage | Common/local/qa/prod client.s3 TOML; S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY from private environment | Private reports bucket, region ap-southeast-1; independent of database credentials; local setup supplies synthetic missing/empty values. No signed URL persistence. |
 | Signing key | `JWT_SECRET` from ignored `.env` or environment | Hex-encoded random key of at least 32 bytes |
 | Shopify URL | `client.shopify.admin_api_url` in `services/api/application.toml` | Full `https://<shop>.myshopify.com/admin/api/2026-10/graphql.json`; local overlay does not replace it |
 | Shopify token | `SHOPIFY_ACCESS_TOKEN` from ignored API `.env` or environment | ConfigBuilder overrides client.shopify.access_token before one deserialization; standard file values apply when there is no environment override; Debug redacts credentials |
@@ -23,7 +23,18 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | Cron authorization | Environment `CRON_SECRET` | Backend only; never embedded in browser assets |
 | Local Vercel environment | Inherited environment → ignored root `.env` → ignored API `.env` | `just vercel-dev` checks DATABASE_URL, JWT_SECRET, CRON_SECRET and S3 credentials, starts/initializes local S3, sets local development metadata and uses the API native dev command through an owned temporary config. The API loads its local TOML overlay and cron choice; production still uses the container |
 
-Inherited environment variables keep dotenvy's normal precedence. Normal API settings remain file-based; container port and trusted generated-host metadata are narrow platform exceptions. Absent Shopify configuration is optional when no token override is supplied. A token override requires the admin URL from file configuration; missing required fields produce normal configuration errors. Explicit client construction parses the trusted URL and validates the token/header. just setup scaffolds an empty SHOPIFY_ACCESS_TOKEN only in new .env files and preserves existing files.
+Local and production inherited environment variables keep dotenvy's normal precedence. QA run clears inherited application secrets and loads only its selected `.env.qa` credentials; it forces `RUN_ENV=qa` and does not fall back to `.env`. Normal API settings remain file-based; container port and trusted generated-host metadata are narrow platform exceptions. Absent Shopify configuration is optional when no token override is supplied. A token override requires the admin URL from file configuration; missing required fields produce normal configuration errors. Explicit client construction parses the trusted URL and validates the token/header. just setup scaffolds an empty SHOPIFY_ACCESS_TOKEN only in new .env files and preserves existing files.
+
+| API development mode | Commands | Overlay / private credentials |
+| --- | --- | --- |
+| Local (default) | `just setup --local`, `just run --local`; no-argument commands remain aliases | `application.local.toml`, ignored `.env`; Bitwarden item `87323839-368f-4288-a4a5-9b0320699892` |
+| QA | `just setup --qa`, `just run --qa` | `application.qa.toml`, ignored `.env.qa`; Bitwarden item `0a291e2c-4ae4-436d-8730-ddf301a544d7`; Stripe `sk_test_` or `rk_test_` required |
+| Shared local services | Both development modes | PostgreSQL and S3 remain local; browser origin `http://localhost:8084`, S3 endpoint `http://localhost:3001`, VPS scheduler by default |
+| Stripe endpoint | Both development modes | `https://api.stripe.com/v1/`; QA explicitly retains this URL, and the credential selects the Stripe sandbox |
+| QA credential isolation | Setup / run | Setup preserves nonempty QA values and atomically writes `.env.qa` with mode `0600`; run clears inherited application secrets before loading that file. Missing/invalid test credentials fail before starting services |
+| Vault fields | Same allowlist in each selected item | `JWT_SECRET`, `CRON_SECRET`, `SHOPIFY_ACCESS_TOKEN`, `RESEND_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `STRIPE_SECRET_KEY`; database and private sender profiles are not imported |
+
+QA isolates the Stripe credential selection; other provider URLs and credentials retain their configured behavior. The common PayPal URL remains production. Keep credentials and private profiles out of tracked files. A missing Bitwarden CLI permits local defaults; QA can reuse an existing valid QA test key, otherwise setup fails without changing the selected file.
 
 ```mermaid
 flowchart LR
@@ -48,7 +59,7 @@ Run recipes from the package directory.
 
 | Package | Recipes |
 | --- | --- |
-| API | `just setup`, `just run`, `just test`, `just check`, `just fix`, `just db-down` |
+| API | `just setup [--local/--qa]`, `just run [--local/--qa]`, `just test`, `just check`, `just fix`, `just db-down` |
 | Backoffice | `just setup`, `just serve`, `just build`, `just test`, `just check` |
 | Domain | `just setup`, `just test`, `just check`; library has no server |
 | Report generator | `just check`, `just test`; shared library with no setup recipe or server |
@@ -102,7 +113,7 @@ The existing Stripe client exposes provider operations to trusted Rust callers. 
 
 | Input / operation | Operator contract |
 | --- | --- |
-| Credentials / version | Existing `stripe` environment URL includes `/v1`; inherited `vault:stripe_secret_key` supplies a sandbox secret locally. No Connect `Stripe-Account` or `Stripe-Version` override: requests use the direct account and its default API version. Record that effective version for any manual exercise; signed events expose their own `api_version` where supplied. Fixtures describe tested object shapes, not live version compatibility |
+| Credentials / version | Existing `stripe` environment URL includes `/v1`; inherited `vault:stripe_secret_key` supplies the selected credential. For a sandbox exercise, select the QA item’s test secret explicitly in Postman; API `.env.qa` is not automatically loaded by Postman. No Connect `Stripe-Account` or `Stripe-Version` override: requests use the direct account and its default API version. Record that effective version for any manual exercise; signed events expose their own `api_version` where supplied. Fixtures describe tested object shapes, not live version compatibility |
 | Create Checkout Session | Set folder variables for positive integer minor-unit amount, lowercase currency, fixed success/cancel URLs, non-personal `correlation_id`, product name and operation idempotency key. One line item with quantity1 and card payment method; account/device support determines wallet presentation. Keep tax, shipping, discounts and adaptive pricing disabled |
 | Retrieve resources | Copy the actual Session ID into `stripe_checkout_session_id`, its PaymentIntent ID into `stripe_payment_intent_id`, and the actual latest Charge ID into the existing Retrieve charge request's `charge_id`. Session `expand[]=payment_intent.latest_charge` and PaymentIntent `expand[]=latest_charge` can return expanded objects; string references remain valid |
 | Expected identity | Trusted caller supplies Session ID, merchant account ID, environment, exact money and correlation independently. Retrieve current account must match that merchant; all payment resources must match the expected test/live mode and money. Session and PaymentIntent metadata must retain the correlation |
@@ -111,7 +122,7 @@ The existing Stripe client exposes provider operations to trusted Rust callers. 
 | Errors / refunds | Provider rejections, malformed objects, unknown statuses and mismatched account/mode/money/correlation never produce verified paid. Original successful payment verification does not assert an unrefunded balance; refund policy belongs to a consumer |
 | Signed events | Pass exact raw bytes, signature header, endpoint secret, trusted time and bounded tolerance to the Rust verifier before decoding. Signature authentication does not deduplicate events or establish payment success; use current resource verification and consumer-owned replay/state handling |
 
-For an explicitly authorized sandbox exercise: retrieve current account and compare the expected merchant → create a test Session → open the returned Stripe-hosted URL and complete the payer flow → retrieve Session, PaymentIntent and Charge → compare the trusted expectations and invoke the Rust verifier. These requests mutate the selected account when creating/expiring; do not run the external collection wholesale against a provider. Example IDs and bodies are synthetic and must be replaced with returned values. No real sandbox or live acceptance is implied by local tests.
+For a sandbox exercise, prepare and run the backend with `just setup --qa` then `just run --qa`. In the existing Stripe Postman requests, select the QA test key, retrieve current account and compare the expected merchant → create a test Session → open the returned Stripe-hosted URL and complete the payer flow using [Stripe test payment details](https://docs.stripe.com/testing) → retrieve Session, PaymentIntent and Charge → require `livemode=false`, exact expected minor-unit money and actual returned references, then invoke the existing Rust payment-result verifier from a trusted Rust caller. The backend has no payment initiation endpoint. These requests mutate the selected account when creating/expiring; do not run the external collection wholesale against a provider. Example IDs and bodies are synthetic and must be replaced with returned values. Local tests do not verify the actual Bitwarden item, Stripe-hosted payment flow, wallet availability or live acceptance.
 
 Provider references: [Session creation](https://docs.stripe.com/api/checkout/sessions/create), [Session retrieval](https://docs.stripe.com/api/checkout/sessions/retrieve), [PaymentIntent retrieval](https://docs.stripe.com/api/payment_intents/retrieve), [direct-account SDK operation](https://github.com/stripe/stripe-dotnet/blob/master/src/Stripe.net/Services/Accounts/AccountService.cs), [idempotency](https://docs.stripe.com/api/idempotent_requests).
 
@@ -259,7 +270,7 @@ Titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/e
 | --- | --- |
 | `api` | Existing local configuration and migration behavior; local configuration selects VPS or Vercel cron |
 | `api server` | Existing container command; connect only, no automatic migrations; RUN_ENV=prod forces Vercel cron |
-| Configuration files | Only application.toml, application.local.toml and application.prod.toml; API image copies common/prod files and sets RUN_ENV=prod; no runtime profiles/CLI flag |
+| Configuration files | Common application.toml plus application.local.toml, application.qa.toml or application.prod.toml; API development recipes select local/qa, while the API image copies common/prod files and sets RUN_ENV=prod |
 | Cron lifecycle | VPS owns periodic scheduler and independent hourly retention; Vercel awaits authenticated HTTP ticks without background tasks |
 
 The daily `0 0 * * *` schedule is UTC: Hobby execution falls approximately between 07:00 and 07:59 Bangkok. It wakes stored Bangkok cron expressions. Production deployments alone receive scheduled calls; local dev does not schedule them. The backend authenticates `Authorization: Bearer CRON_SECRET`, awaits a bounded 240-second pass and reserves five seconds for retention. Missed/failed invocations await later recovery. Oversized jobs can repeat and exhaust attempts; backlog duration depends on workload.

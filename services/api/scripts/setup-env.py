@@ -12,7 +12,8 @@ import sys
 import tempfile
 
 
-ITEM_ID = '87323839-368f-4288-a4a5-9b0320699892'
+ITEM_IDS = {'local': '87323839-368f-4288-a4a5-9b0320699892',
+            'qa': '0a291e2c-4ae4-436d-8730-ddf301a544d7'}
 KEYS = (
     'JWT_SECRET', 'CRON_SECRET', 'SHOPIFY_ACCESS_TOKEN', 'RESEND_API_KEY',
     'PAYPAL_CLIENT_ID', 'PAYPAL_CLIENT_SECRET', 'STRIPE_SECRET_KEY',
@@ -26,22 +27,48 @@ class SetupError(Exception):
 
 
 def main():
-    if len(sys.argv) != 1:
-        raise SetupError('Usage: setup-env.py')
-    path = Path('.env')
+    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] not in ('--local', '--qa')):
+        raise SetupError('Usage: setup-env.py [--local|--qa]')
+    mode = sys.argv[1][2:] if len(sys.argv) == 2 else 'local'
+    path = Path('.env.qa' if mode == 'qa' else '.env')
     original = snapshot(path)
-    values = vault_values()
+    existing = (original[1] if original else b'').decode('utf-8')
+    if mode == 'qa':
+        validate_qa_file(existing)
+    values = vault_values(ITEM_IDS[mode])
     defaults = local_defaults()
+    defaults['RUN_ENV'] = mode
     defaults.update({key: value for key, value in values.items() if value})
-    text = merge((original[1] if original else b'').decode('utf-8'), defaults)
+    text = merge(existing, defaults)
+    if mode == 'qa':
+        validate_qa_file(text, require_key=True)
     write_private(path, original, text.encode('utf-8'))
     if values:
-        print('API .env prepared from matching Bitwarden fields; existing nonempty values preserved.')
+        print(f'API {path} prepared from matching Bitwarden fields; existing nonempty values preserved.')
     else:
-        print('API .env prepared with local defaults; existing nonempty values preserved.')
+        print(f'API {path} prepared with local defaults; existing nonempty values preserved.')
 
 
-def vault_values():
+def validate_qa_file(text, require_key=False):
+    values = {}
+    for record in records(text):
+        match = ASSIGNMENT.match(record.rstrip('\r\n'))
+        if not match or match[1] not in ('RUN_ENV', 'STRIPE_SECRET_KEY'):
+            continue
+        name, raw = match.groups()
+        if EMPTY.fullmatch(raw):
+            continue
+        match_value = re.fullmatch(r"[ \t]*(?:'([A-Za-z0-9_]+)'|\"([A-Za-z0-9_]+)\"|([A-Za-z0-9_]+))[ \t]*(?:#.*)?", raw)
+        value = next((part for part in match_value.groups() if part is not None), '') if match_value else ''
+        valid = value == 'qa' if name == 'RUN_ENV' else bool(re.fullmatch(r'(?:sk|rk)_test_[A-Za-z0-9_]+', value))
+        if not valid:
+            raise SetupError(f'Correct {name} in .env.qa before QA setup; QA requires its own test Stripe server key and RUN_ENV=qa.')
+        values.setdefault(name, value)
+    if require_key and 'STRIPE_SECRET_KEY' not in values:
+        raise SetupError('Configure a Stripe test server key in the QA Bitwarden item or .env.qa, then rerun just setup --qa.')
+
+
+def vault_values(item_id):
     bw = shutil.which('bw')
     if bw is None:
         return {}
@@ -62,7 +89,7 @@ def vault_values():
         child_env['BW_SESSION'] = session
     elif state != 'unlocked':
         raise SetupError('Bitwarden returned an invalid status. Check bw status in your terminal.')
-    item = read_json(run_bw(bw, ['get', 'item', ITEM_ID, '--nointeraction'], child_env, 'item retrieval'), 'item')
+    item = read_json(run_bw(bw, ['get', 'item', item_id, '--nointeraction'], child_env, 'item retrieval'), 'item')
     fields = item.get('fields') if isinstance(item, dict) else None
     if not isinstance(fields, list):
         raise SetupError('Bitwarden item must contain custom fields named after API environment settings.')
@@ -152,7 +179,7 @@ def records(text):
                 if not prefix.strip() or text[index - 1].isspace() or (assignment and not assignment.group(2).strip()):
                     comment = True
     if quote:
-        raise SetupError('Existing .env contains an unfinished quoted value; fix it before setup.')
+        raise SetupError('Existing private environment file contains an unfinished quoted value; fix it before setup.')
     if start < len(text):
         yield text[start:]
 
@@ -194,7 +221,7 @@ def merge(text, defaults):
 
 def snapshot(path):
     if path.is_symlink():
-        raise SetupError('Refusing to replace a symlink at .env; use a regular private file.')
+        raise SetupError(f'Refusing to replace a symlink at {path}; use a regular private file.')
     try:
         info = path.stat()
         return ((info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns), path.read_bytes())
@@ -212,7 +239,7 @@ def write_private(path, original, content):
             staged.flush()
             os.fsync(staged.fileno())
         if snapshot(path) != original:
-            raise SetupError('.env changed during setup. Rerun setup to preserve the latest values.')
+            raise SetupError(f'{path} changed during setup. Rerun setup to preserve the latest values.')
         if original is None:
             os.link(temporary, path)
         else:
@@ -229,8 +256,8 @@ if __name__ == '__main__':
         print(f'Setup: {error}', file=sys.stderr)
         sys.exit(1)
     except (OSError, UnicodeError):
-        print('Setup: unable to read CLI data or safely update .env. Check permissions and rerun setup.', file=sys.stderr)
+        print('Setup: unable to read CLI data or safely update the selected private environment file. Check permissions and rerun setup.', file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
-        print('\nSetup cancelled; .env was not updated.', file=sys.stderr)
+        print('\nSetup cancelled; the selected private environment file was not updated.', file=sys.stderr)
         sys.exit(130)
