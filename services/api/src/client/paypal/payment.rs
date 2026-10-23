@@ -2,11 +2,9 @@ mod evidence;
 mod money;
 
 use crate::{
-    client::paypal::PaypalClient,
-    error::{AppError, upstream},
+    client::{ClientError, ClientErrorKind, paypal::PaypalClient},
     models::paypal::{CaptureStatus, OrderStatus},
 };
-use axum::http::StatusCode;
 use reqwest::Url;
 
 /// Expectations supplied by the trusted checkout owner, independently of provider evidence.
@@ -46,12 +44,9 @@ pub struct VerifiedPayment {
 pub async fn verify_payment(
     client: &PaypalClient,
     expected: &ExpectedPayment,
-) -> Result<PaymentOutcome, AppError> {
+) -> Result<PaymentOutcome, ClientError> {
     validate_expected(client, expected)?;
-    let order = client
-        .get_order(&expected.order_id)
-        .await
-        .map_err(|error| upstream(error))?;
+    let order = client.get_order(&expected.order_id).await?;
     evidence::validate_order(expected, &order)?;
     let captures = order.purchase_units[0]
         .payments
@@ -74,10 +69,7 @@ pub async fn verify_payment(
         return Err(evidence::mismatch());
     }
     let embedded = &captures[0];
-    let capture = client
-        .get_capture(&embedded.id)
-        .await
-        .map_err(|error| upstream(error))?;
+    let capture = client.get_capture(&embedded.id).await?;
     evidence::validate_capture_binding(expected, embedded, &capture)?;
     match capture.status {
         CaptureStatus::Pending => Ok(PaymentOutcome::Pending { order_id: order.id }),
@@ -103,7 +95,7 @@ pub async fn verify_payment(
     }
 }
 
-fn validate_expected(client: &PaypalClient, expected: &ExpectedPayment) -> Result<(), AppError> {
+fn validate_expected(client: &PaypalClient, expected: &ExpectedPayment) -> Result<(), ClientError> {
     let origin = Url::parse(&expected.api_origin).ok();
     if !valid_id(&expected.order_id)
         || !valid_id(&expected.merchant_id)
@@ -122,10 +114,9 @@ fn validate_expected(client: &PaypalClient, expected: &ExpectedPayment) -> Resul
                 || origin.origin().ascii_serialization() != client.api_origin()
         })
     {
-        return Err(AppError::new(
-            StatusCode::BAD_REQUEST,
+        return Err(ClientError::new(ClientErrorKind::InvalidInput(
             "Invalid expected payment context",
-        ));
+        )));
     }
     Ok(())
 }
@@ -142,5 +133,5 @@ fn valid_correlation(value: &str) -> bool {
 }
 
 #[cfg(test)]
-#[path = "../tests/services/paypal_payments.rs"]
+#[path = "../../tests/client/paypal/payment.rs"]
 mod tests;

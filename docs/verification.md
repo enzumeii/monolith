@@ -2,7 +2,21 @@
 
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
 
-## ENZ-44 PayPal provider boundary — 2026-10-23
+## ENZ-44 PayPal client boundary and currency enum — 2026-10-23
+
+| Local evidence | Result |
+| --- | --- |
+| Current scope | Verification and evidence/money helpers live under `client::paypal::payment`, returning typed ClientError. Existing CurrencyCode variants govern precision with strict canonical spelling; wire fields and supported currencies are unchanged. |
+| Complete API check | 34 setup-helper tests, formatting and strict API/all-target/E2E Clippy pass. |
+| Full API test recipe | 412 native tests and 150 HTTP E2E tests pass; zero failed or ignored. Owned Compose containers, volumes, network and API processes are gone. |
+| Focused PayPal regressions | All47 provider/payment/event tests pass, including accepted currency scales, unsupported/noncanonical inputs, checked money, GET-only verification and typed upstream error causes/locations. These tests are included in the native total. |
+| Independent review and binding | No actionable findings. All509 source-manifest files stayed unchanged through verification; the final documentation result row is added afterward. |
+| Unchanged-contract evidence | Domain/Postman/shared currency/wire/config files are unchanged from b9a7695; its18 domain tests, strict/WASM checks and external Postman32file lint remain the bounded receipts below. Hosted CI is recorded separately for the new published head. |
+| Limits | No new Sandbox charge or genuine signed-webhook acceptance test. Earlier Sandbox receipts are historical; consuming flows still own application HTTP mapping, replay/state handling and Shopify completion. |
+
+## Historical ENZ-44 PayPal provider boundary at b9a7695 — 2026-10-23
+
+These receipts describe `b9a7695`, before moving payment verification into `client::paypal::payment` and reusing `CurrencyCode`. They do not verify the subsequent client-module, error-boundary or currency-enum changes; that continuation requires separate results.
 
 | Local evidence | Result |
 | --- | --- |

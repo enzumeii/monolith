@@ -5,7 +5,6 @@ pub(crate) mod cron;
 
 pub mod inventories;
 pub mod orders;
-pub mod paypal_payments;
 
 mod pagination;
 
