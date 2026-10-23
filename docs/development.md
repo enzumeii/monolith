@@ -6,9 +6,9 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 
 | Owner | Source / setting | Behavior |
 | --- | --- | --- |
-| API | Common `application.toml` → `application.{RUN_ENV}.toml`; RUN_ENV defaults to local | One existing typed reader; local scheduler.implementation selects vps/vercel, prod forces vercel before deserialization |
+| API | Common `application.toml` → `application.{RUN_ENV}.toml`; RUN_ENV defaults to local | One existing typed reader; scheduler.implementation selects vps/vercel from the selected TOML overlay |
 | API listener | TOML; platform `PORT` in container server mode | Container listener uses the platform port |
-| API browser | `browser.public_origin`, default-empty `browser.additional_origins`, `browser.insecure_local` in TOML | CORS and cookie mutations share exact origins; additions require HTTPS; primary permits explicit loopback HTTP |
+| API browser | Required nonempty `browser.allowed_origins` and `browser.insecure_local` in TOML | CORS and cookie mutations share exact origin membership; HTTPS is allowed; explicit loopback HTTP requires insecure_local |
 | Database | `DATABASE_URL` from ignored `.env` or environment | Secret PostgreSQL connection URL |
 | Report storage | Common/local/prod client.s3 TOML; S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY from private environment | Private reports bucket, region ap-southeast-1; independent of database credentials; local setup supplies synthetic missing/empty values. No signed URL persistence. |
 | Signing key | `JWT_SECRET` from ignored `.env` or environment | Hex-encoded random key of at least 32 bytes |
@@ -17,14 +17,15 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | Shopify token | `SHOPIFY_ACCESS_TOKEN` from ignored API `.env` or environment | ConfigBuilder overrides client.shopify.access_token before one deserialization; standard file values apply when there is no environment override; Debug redacts credentials |
 | Backoffice | Public `application.toml`, `[api] base_url` | Default `http://localhost:3000/v1`; loaded once by typed `Settings`/`ApiConfig` |
 | Local browser | UI `http://localhost:8084`, API `http://localhost:3000` | Same hostname is required for exact origins and SameSite cookies |
-| Production browser | Trusted `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_URL` metadata | API derives the generated HTTPS primary alias; production also permits `https://convention.enzumeii.com` from TOML; preview/development clear additional origins; browser calls use same-origin `/api/v1` |
-| Vercel local browser | `VERCEL_ENV=development` and explicit loopback `VERCEL_URL` host:port | API permits HTTP/insecure cookies only for `localhost`, `127.0.0.1` or `[::1]` with a nonzero port |
+| Production browser | `browser.allowed_origins` in production TOML | Explicit `https://convention.enzumeii.com` and `https://enzumeii.vercel.app`; secure cookies are enforced; production hostname metadata is not used; browser calls use same-origin `/api/v1` |
+| Preview browser | `VERCEL_ENV=preview` and validated generated `VERCEL_URL` | Replaces the configured list with only the preview HTTPS origin and enforces secure cookies |
+| Vercel local browser | `VERCEL_ENV=development` and explicit loopback `VERCEL_URL` host:port | Replaces the configured list with this gateway origin; permits HTTP/insecure cookies only for `localhost`, `127.0.0.1` or `[::1]` with a nonzero port |
 | Frontend environments | Selected local/prod file published as `application.toml` | Production uses `/api/v1`; build restores local source file, including after failure |
 | Frontend hosting | Static CSR HTML/WASM/assets under `/backoffice/` and `/user/` | Browser loads public settings before application calls and session restoration |
 | Cron authorization | Environment `CRON_SECRET` | Backend only; never embedded in browser assets |
 | Local Vercel environment | Inherited environment → ignored root `.env` → ignored API `.env` | `just vercel-dev` checks DATABASE_URL, JWT_SECRET, CRON_SECRET and S3 credentials, starts/initializes local S3, sets local development metadata and uses the API native dev command through an owned temporary config. The API loads its local TOML overlay and cron choice; production still uses the container |
 
-Inherited environment variables keep dotenvy's normal precedence. Normal API settings remain file-based; container port and trusted generated-host metadata are narrow platform exceptions. Absent Shopify configuration is optional when no token override is supplied. A token override requires the admin URL from file configuration; missing required fields produce normal configuration errors. Explicit client construction parses the trusted URL and validates the token/header. just setup scaffolds an empty SHOPIFY_ACCESS_TOKEN only in new .env files and preserves existing files.
+Inherited environment variables keep dotenvy's normal precedence. Normal API settings remain file-based; container port and trusted preview/development host metadata are narrow platform exceptions. Absent Shopify configuration is optional when no token override is supplied. A token override requires the admin URL from file configuration; missing required fields produce normal configuration errors. Explicit client construction parses the trusted URL and validates the token/header. just setup scaffolds an empty SHOPIFY_ACCESS_TOKEN only in new .env files and preserves existing files.
 
 ```mermaid
 flowchart LR
@@ -265,7 +266,7 @@ Titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/e
 | API invocation | Behavior |
 | --- | --- |
 | `api` | Existing local configuration and migration behavior; local configuration selects VPS or Vercel cron |
-| `api server` | Existing container command; connect only, no automatic migrations; RUN_ENV=prod forces Vercel cron |
+| `api server` | Existing container command; connect only, no automatic migrations; RUN_ENV=prod uses the scheduler selected by application.prod.toml (checked in as vercel) |
 | Configuration files | Only application.toml, application.local.toml and application.prod.toml; API image copies common/prod files and sets RUN_ENV=prod; no runtime profiles/CLI flag |
 | Cron lifecycle | VPS owns periodic scheduler and independent hourly retention; Vercel awaits authenticated HTTP ticks without background tasks |
 

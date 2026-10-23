@@ -8,13 +8,15 @@ use axum::{
 fn cookie_settings_match_creation_and_removal() {
     for (insecure_local, name) in [(false, "__Host-backoffice_auth"), (true, "backoffice_auth")] {
         let config = BrowserConfig {
-            additional_origins: vec!["https://convention.enzumeii.com".into()],
-            public_origin: if insecure_local {
-                "http://127.0.0.1:8084"
-            } else {
-                "https://admin.example.test"
-            }
-            .into(),
+            allowed_origins: vec![
+                if insecure_local {
+                    "http://127.0.0.1:8084"
+                } else {
+                    "https://admin.example.test"
+                }
+                .into(),
+                "https://convention.enzumeii.com".into(),
+            ],
             insecure_local,
         };
         let tokens = TokenResponse {

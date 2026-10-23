@@ -21,7 +21,7 @@ max_payload_bytes = 20971520
 max_email_bytes = 20971520
 
 [browser]
-public_origin = ""
+allowed_origins = []
 insecure_local = true
 
 [client.shopify]

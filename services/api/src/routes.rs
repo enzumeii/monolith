@@ -12,7 +12,8 @@ use axum::Router;
 pub fn router(state: AppState) -> Router {
     let browser = state.settings.browser.clone();
     let origins = browser
-        .origins()
+        .allowed_origins
+        .iter()
         .map(|origin| {
             origin
                 .parse::<axum::http::HeaderValue>()
