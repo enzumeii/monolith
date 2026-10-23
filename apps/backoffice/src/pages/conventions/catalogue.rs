@@ -20,7 +20,7 @@ struct BrowseQuery {
 impl BrowseQuery {
     fn to_api_query(&self) -> CatalogueQuery {
         CatalogueQuery {
-            location_id: format!("gid://shopify/Location/{}", self.location),
+            location_id: self.location.clone(),
             page_size: Some(25),
             cursor: self.cursor.clone(),
             search: (!self.search.is_empty()).then(|| self.search.clone()),

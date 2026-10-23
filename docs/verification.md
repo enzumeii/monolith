@@ -788,3 +788,10 @@ The stored value is now named `logo_url` in SQL, Rust models, request/response D
 ### PR #58 logo ownership review follow-up — 2026-10-24
 
 The convention logo service now owns the existing image/path validation, upload, attachment and preview orchestration. The one-feature `storage` namespace is removed, and existing unit tests move to the matching service test path. Attachment requires a concrete S3 client; optional preview signing and operations without a new logo preserve their prior behavior. Generic S3 operations remain in the existing client. This refactor receives formatting, import/call-site review and independent static review only; tests, builds, lint, browser execution and hosted-CI waiting are explicitly waived for implementation review.
+
+
+### Explicit upload destination and numeric catalogue location — 2026-10-24
+
+The upload location includes its bucket: `conventions/ax-2026` produces bucket `conventions` and object prefix `ax-2026`, with the same full bucket/key location persisted and used for attachment and preview. Report operations explicitly retain their configured bucket. Previously misplaced objects in `reports/conventions/...` are not copied or read through a fallback. Local S3 setup initializes both buckets.
+
+Catalogue requests now use numeric `location_id`; the backend constructs the Shopify Location GID. Existing example searches use `product_type` instead of collections. Raw search forwarding and provider GID inputs remain unchanged. Tests and builds are not run for these changes at the user's request; formatting and independent static review are the verification boundary.

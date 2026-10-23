@@ -236,7 +236,7 @@ These operations use the existing ADMIN/SUPER_ADMIN protected group and browser 
 | `DELETE /conventions/{id}` | Delete convention and cascade its current variant memberships |
 | `GET /conventions/{id}/variants` | Page/per-page current selections with exact `final_price` strings and persisted product/variant titles, SKU and representative images |
 | `PUT /conventions/{id}/variants` | Atomically replace all selections, at most 250 unique Shopify variant IDs |
-| `GET /conventions/catalogue` | One Shopify product page for a required location GID, active-product search guard and root cursor; return tracked variants with active inventory levels at the requested location |
+| `GET /conventions/catalogue` | One Shopify product page for a required positive numeric location ID (resolved to a Shopify Location GID by the backend), active-product search guard and root cursor; return tracked variants with active inventory levels at the requested location |
 
 ```mermaid
 flowchart LR

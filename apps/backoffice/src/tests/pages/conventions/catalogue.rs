@@ -19,13 +19,13 @@ fn provider_images_are_safe_https_urls_only() {
 }
 
 #[test]
-fn catalogue_submission_converts_numeric_location_and_omits_empty_search() {
+fn catalogue_submission_preserves_numeric_location_and_omits_empty_search() {
     let query = BrowseQuery {
         location: "123".into(),
         ..Default::default()
     }
     .to_api_query();
-    assert_eq!(query.location_id, "gid://shopify/Location/123");
+    assert_eq!(query.location_id, "123");
     assert_eq!(query.page_size, Some(25));
     assert_eq!(query.search, None);
     assert_eq!(query.cursor, None);
@@ -39,7 +39,7 @@ fn catalogue_submission_preserves_nonempty_search_and_pagination_cursor() {
         cursor: Some("abc+/=".into()),
     }
     .to_api_query();
-    assert_eq!(query.location_id, "gid://shopify/Location/1");
+    assert_eq!(query.location_id, "1");
     assert_eq!(query.search.as_deref(), Some(" title:Fox AND tag:'a&b' "));
     assert_eq!(query.cursor.as_deref(), Some("abc+/="));
 }
@@ -288,7 +288,7 @@ mod mounted {
         )
         .await;
         assert_eq!(requests.len(), 5, "no per-row requests");
-        assert!(requests[1].contains("location_id=gid%3A%2F%2Fshopify%2FLocation%2F123"));
+        assert!(requests[1].contains("location_id=123"));
         assert!(requests[2].contains("cursor=next"));
         for request in &requests[3..] {
             assert!(request.ends_with(r#"{"items":[{"shopify_product_id":"1","shopify_variant_id":"2","final_price":"12.990"}]}"#));
