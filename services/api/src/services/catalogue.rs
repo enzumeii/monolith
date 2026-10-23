@@ -16,8 +16,12 @@ pub async fn products(
     search: Option<&str>,
 ) -> Result<CatalogueResponse, AppError> {
     super::inventories::validate_location(client, &location_id).await?;
+    let search = search.map_or_else(
+        || "status:active".to_owned(),
+        |search| format!("status:active AND ({search})"),
+    );
     let response = client
-        .catalogue_products(&location_id, search, &page)
+        .catalogue_products(&location_id, Some(&search), &page)
         .await
         .map_err(|error| upstream(error))?;
     response
@@ -38,7 +42,14 @@ pub async fn products(
             )
             .with_source(error)
         })? {
-            variants.push(selection_variant(variant, active)?);
+            let tracked = variant.inventory_item.tracked;
+            let variant = selection_variant(variant)?;
+            if active && tracked {
+                variants.push(variant);
+            }
+        }
+        if variants.is_empty() {
+            continue;
         }
         products.push(CatalogueProduct {
             id: product.id.as_ref().to_owned(),
@@ -61,19 +72,12 @@ pub async fn products(
     })
 }
 
-fn selection_variant(
-    variant: SelectionVariant,
-    active_product: bool,
-) -> Result<CatalogueVariant, AppError> {
+fn selection_variant(variant: SelectionVariant) -> Result<CatalogueVariant, AppError> {
     use CatalogueUnavailableReason as Reason;
     let quantity = variant
         .available_quantity()
         .map_err(|error| upstream(error))?;
-    let reason = if !active_product {
-        Some(Reason::InactiveProduct)
-    } else if !variant.inventory_item.tracked {
-        Some(Reason::UntrackedInventory)
-    } else if variant.inventory_policy == CatalogueInventoryPolicy::Continue {
+    let reason = if variant.inventory_policy == CatalogueInventoryPolicy::Continue {
         Some(Reason::ContinueInventoryPolicy)
     } else {
         match &variant.inventory_item.inventory_level {

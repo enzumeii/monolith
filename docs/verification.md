@@ -2,6 +2,21 @@
 
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
 
+## PR57 review feedback — 2026-10-23
+
+These results apply to the uncommitted review-feedback changes based on `2fb0874`; older results below retain their original source bindings. The current API removes capability configuration, uses user-supplied database currencies, maps catalogue at `/api/v1/admin/conventions/catalogue`, and combines grouped raw search with `status:active` while returning only tracked variants. GET/list/PATCH own the existing reads and manual enable flag. SQL formatting preserves constraints, binds, transactions and locks; `TIMESTAMPTZ`/UTC DTOs preserve timestamp instants and event calendar dates.
+
+| Check / contract | Actual evidence |
+| --- | --- |
+| Route/filter regression | Focused real-TCP catalogue test fails before correction (400 instead of 200), then passes with active/tracked filtering, grouped OR search, exact prices, tracked zero stock and unchanged empty-page cursor metadata |
+| Configuration regression | Focused real-TCP test fails before correction with `Convention currency is not currently enabled`; after removal it creates THB, SGD, JPY and HUF conventions without a currency configuration section |
+| UTC regression | Focused native PostgreSQL test passes: verifies the owned session renders `+07`, then exercises real repository creation/update and DTO conversion for convention/variant timestamps at offset zero; created timestamps/absolute instants/event dates preserved, updated timestamps advance, transaction rolls back |
+| Strict/static checks | `just --no-dotenv --justfile services/api/justfile check` exits 0:21 setup-helper tests, dprint, API formatting and strict native/E2E Clippy. Workspace formatting and whitespace checks pass |
+| Full API recipe | One actual `just test` run exits 0:357 native tests (22.50s) and179 real-TCP tests (689.51s), zero failed/ignored. Includes final currency precision/accounting rejection, UTC, moved-route, active/tracked catalogue, configuration removal, rollback/commit-fault and race regressions |
+| Postman / SQL guidance | Workspace lint exits 0:67 entities, zero errors, one existing cron FMT209 warning. Four changed YAML requests parse; external query bytes/variable keys match source. Migration SQL differs only in whitespace; seven retained repository operations preserve SQL tokens/binds. Skill schema/example and independent representative SQL-guidance application pass; system Python validator lacks PyYAML, so equivalent Ruby Psych metadata validation was used |
+| Isolation / cleanup | Owned Cargo target and Compose `enz35`, PostgreSQL15435/S315436. `JUST_NO_DOTENV=true` disables nested dotenv loading; `COMPOSE_DISABLE_ENV_FILE=1` disables Compose dotenv discovery. An initial numeric dotenv flag was rejected before tests/services ran; corrected actual run completed once. Recipe down-v and independent audit confirm no owned containers, volumes, network or API process. All31 changed-path hashes matched the source freeze before this evidence-only update |
+| Evidence / delivery boundary | Ignored `.superpowers/review-comments/PR-57/2026-10-23/implement-report.md`, full logs, `source-freeze.json` and `full-cleanup-audit.json` retain actual commands, exits and source binding. No fresh hosted CI, live-provider, production or deployment proof is asserted. Upstream main advanced during this run; reconciliation and subsequent exact-source CI are publication-owned |
+
 ## ENZ-35 + ENZ-36 convention configuration and catalogue — local verification (2026-10-23)
 
 Earlier combined source `a9bf7b0` on `feat/ENZ-35` merges `origin/main` `b3cc7a7` (single browser origin allowlist) with feature source `e57bfb4` and documentation `7597077`. Results are local. The complete API regression below covers this merged source, including the strict request-validation follow-up. Domain/frontend and outbound GraphQL query sources are unchanged from their separately verified revisions. The final review follow-up below has separate scoped evidence; the full recipe remains tied to frozen `a9bf7b0`.

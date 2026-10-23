@@ -1,0 +1,28 @@
+use crate::{
+    handlers::{catalogue, conventions},
+    state::AppState,
+};
+use axum::{Router, routing::get};
+
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/conventions",
+            get(conventions::list).post(conventions::create),
+        )
+        .nest(
+            "/conventions",
+            Router::new()
+                .route("/catalogue", get(catalogue::get))
+                .route(
+                    "/{id}",
+                    get(conventions::get)
+                        .patch(conventions::patch)
+                        .delete(conventions::delete),
+                )
+                .route(
+                    "/{id}/variants",
+                    get(conventions::variants).put(conventions::replace),
+                ),
+        )
+}

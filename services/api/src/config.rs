@@ -105,8 +105,6 @@ impl std::fmt::Debug for StripeConfig {
 
 #[derive(Deserialize, Clone)]
 pub struct Settings {
-    #[serde(default)]
-    pub conventions: ConventionsConfig,
     pub shipping_sender: Option<ShippingSender>,
     pub client: Option<ClientConfig>,
     pub browser: BrowserConfig,
@@ -115,36 +113,6 @@ pub struct Settings {
     pub jwt: JwtSettings,
     pub scheduler: SchedulerConfig,
     pub cron_secret: Option<String>,
-}
-
-#[derive(Debug, Default, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
-pub struct ConventionsConfig {
-    #[serde(default)]
-    pub currencies: Vec<ConventionCurrency>,
-}
-#[derive(Debug, Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
-pub struct ConventionCurrency {
-    pub code: String,
-    pub payment_methods: Vec<domain::dto::ConventionPaymentMethod>,
-}
-impl ConventionsConfig {
-    pub fn validate(&self) -> Result<(), ConfigError> {
-        for (i, c) in self.currencies.iter().enumerate() {
-            if self.currencies[..i]
-                .iter()
-                .any(|other| other.code == c.code)
-                || crate::services::conventions::money::methods(&c.code, &c.payment_methods)
-                    .is_err()
-            {
-                return Err(ConfigError::Message(
-                    "Invalid convention currency capability configuration".into(),
-                ));
-            }
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -186,7 +154,6 @@ impl JwtSettings {
 impl Settings {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.jwt.key()?;
-        self.conventions.validate()?;
         if !(1..=32).contains(&self.scheduler.concurrency)
             || !(1..=100).contains(&self.scheduler.max_attempts)
             || !(1..=86400).contains(&self.scheduler.retry_backoff_secs)

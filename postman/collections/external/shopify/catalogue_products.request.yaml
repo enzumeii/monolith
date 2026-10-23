@@ -1,5 +1,5 @@
 $kind: graphql-request
-description: "Read one catalogue product page with up to 250 variants per product. Supply a Location GID and optional raw Shopify search. No cost scope is required. Inspect nested pageInfo: this API rejects overflow instead of returning a partial variant selection."
+description: "Read one catalogue product page with up to 250 variants per product. Supply a Location GID and the business search: status:active, with optional raw user search grouped in parentheses. The service filters tracked variants and preserves the root page metadata. No cost scope is required. Inspect nested pageInfo: this API rejects overflow instead of returning a partial variant selection."
 url: "{{shopify}}/graphql.json"
 query: |
   query CatalogueProducts(
@@ -66,7 +66,7 @@ query: |
 variables: |
   {
     "locationId": "gid://shopify/Location/123",
-    "search": "collection_id:123 AND title:head*",
+    "search": "status:active AND (collection_id:123 AND title:head*)",
     "after": null,
     "first": 25
   }

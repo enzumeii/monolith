@@ -46,6 +46,3 @@ bucket = "reports"
 force_path_style = true
 timeout_secs = 10
 signed_url_ttl_secs = 300
-
-[conventions]
-currencies = []

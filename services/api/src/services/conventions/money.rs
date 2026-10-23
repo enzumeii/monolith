@@ -3,31 +3,161 @@ use domain::dto::ConventionPaymentMethod;
 #[derive(Debug, thiserror::Error)]
 #[error("Invalid convention amount or currency/payment method combination")]
 pub(crate) struct InvalidMoney;
+#[expect(
+    clippy::too_many_lines,
+    reason = "Enumerates the exact accepted currency precision policy"
+)]
 pub(crate) fn precision(code: &str) -> Result<usize, InvalidMoney> {
     if code.len() != 3 || !code.bytes().all(|c| c.is_ascii_uppercase()) {
         return Err(InvalidMoney);
     }
     let currency = CurrencyCode::from(code.to_owned());
-    match currency.as_str() {
-        "BIF" | "CLP" | "DJF" | "GNF" | "JPY" | "KMF" | "KRW" | "MGA" | "PYG" | "RWF" | "VND"
-        | "VUV" | "XAF" | "XOF" | "XPF" | "ISK" | "UGX" => Ok(0),
-        "BHD" | "JOD" | "KWD" | "OMR" | "TND" => Ok(3),
-        "AED" | "AFN" | "ALL" | "AMD" | "ANG" | "AOA" | "ARS" | "AUD" | "AWG" | "AZN" | "BAM"
-        | "BBD" | "BDT" | "BGN" | "BMD" | "BND" | "BOB" | "BRL" | "BSD" | "BWP" | "BYN" | "BZD"
-        | "CAD" | "CDF" | "CHF" | "CNY" | "COP" | "CRC" | "CVE" | "CZK" | "DKK" | "DOP" | "DZD"
-        | "EGP" | "ETB" | "EUR" | "FJD" | "FKP" | "GBP" | "GEL" | "GIP" | "GMD" | "GTQ" | "GYD"
-        | "HKD" | "HNL" | "HTG" | "HUF" | "IDR" | "ILS" | "INR" | "JMD" | "KES" | "KGS" | "KHR"
-        | "KYD" | "KZT" | "LAK" | "LBP" | "LKR" | "LRD" | "LSL" | "MAD" | "MDL" | "MKD" | "MMK"
-        | "MNT" | "MOP" | "MUR" | "MVR" | "MWK" | "MXN" | "MYR" | "MZN" | "NAD" | "NGN" | "NIO"
-        | "NOK" | "NPR" | "NZD" | "PAB" | "PEN" | "PGK" | "PHP" | "PKR" | "PLN" | "QAR" | "RON"
-        | "RSD" | "RUB" | "SAR" | "SBD" | "SCR" | "SEK" | "SGD" | "SHP" | "SLE" | "SOS" | "SRD"
-        | "STD" | "SZL" | "THB" | "TJS" | "TOP" | "TRY" | "TTD" | "TWD" | "TZS" | "UAH" | "USD"
-        | "UYU" | "UZS" | "WST" | "XCD" | "YER" | "ZAR" | "ZMW" => Ok(2),
+    match currency {
+        CurrencyCode::BIF
+        | CurrencyCode::CLP
+        | CurrencyCode::DJF
+        | CurrencyCode::GNF
+        | CurrencyCode::JPY
+        | CurrencyCode::KMF
+        | CurrencyCode::KRW
+        | CurrencyCode::MGA
+        | CurrencyCode::PYG
+        | CurrencyCode::RWF
+        | CurrencyCode::VND
+        | CurrencyCode::VUV
+        | CurrencyCode::XAF
+        | CurrencyCode::XOF
+        | CurrencyCode::XPF
+        | CurrencyCode::ISK
+        | CurrencyCode::UGX => Ok(0),
+        CurrencyCode::BHD
+        | CurrencyCode::JOD
+        | CurrencyCode::KWD
+        | CurrencyCode::OMR
+        | CurrencyCode::TND => Ok(3),
+        CurrencyCode::AED
+        | CurrencyCode::AFN
+        | CurrencyCode::ALL
+        | CurrencyCode::AMD
+        | CurrencyCode::ANG
+        | CurrencyCode::AOA
+        | CurrencyCode::ARS
+        | CurrencyCode::AUD
+        | CurrencyCode::AWG
+        | CurrencyCode::AZN
+        | CurrencyCode::BAM
+        | CurrencyCode::BBD
+        | CurrencyCode::BDT
+        | CurrencyCode::BGN
+        | CurrencyCode::BMD
+        | CurrencyCode::BND
+        | CurrencyCode::BOB
+        | CurrencyCode::BRL
+        | CurrencyCode::BSD
+        | CurrencyCode::BWP
+        | CurrencyCode::BYN
+        | CurrencyCode::BZD
+        | CurrencyCode::CAD
+        | CurrencyCode::CDF
+        | CurrencyCode::CHF
+        | CurrencyCode::CNY
+        | CurrencyCode::COP
+        | CurrencyCode::CRC
+        | CurrencyCode::CVE
+        | CurrencyCode::CZK
+        | CurrencyCode::DKK
+        | CurrencyCode::DOP
+        | CurrencyCode::DZD
+        | CurrencyCode::EGP
+        | CurrencyCode::ETB
+        | CurrencyCode::EUR
+        | CurrencyCode::FJD
+        | CurrencyCode::FKP
+        | CurrencyCode::GBP
+        | CurrencyCode::GEL
+        | CurrencyCode::GIP
+        | CurrencyCode::GMD
+        | CurrencyCode::GTQ
+        | CurrencyCode::GYD
+        | CurrencyCode::HKD
+        | CurrencyCode::HNL
+        | CurrencyCode::HTG
+        | CurrencyCode::HUF
+        | CurrencyCode::IDR
+        | CurrencyCode::ILS
+        | CurrencyCode::INR
+        | CurrencyCode::JMD
+        | CurrencyCode::KES
+        | CurrencyCode::KGS
+        | CurrencyCode::KHR
+        | CurrencyCode::KYD
+        | CurrencyCode::KZT
+        | CurrencyCode::LAK
+        | CurrencyCode::LBP
+        | CurrencyCode::LKR
+        | CurrencyCode::LRD
+        | CurrencyCode::LSL
+        | CurrencyCode::MAD
+        | CurrencyCode::MDL
+        | CurrencyCode::MKD
+        | CurrencyCode::MMK
+        | CurrencyCode::MNT
+        | CurrencyCode::MOP
+        | CurrencyCode::MUR
+        | CurrencyCode::MVR
+        | CurrencyCode::MWK
+        | CurrencyCode::MXN
+        | CurrencyCode::MYR
+        | CurrencyCode::MZN
+        | CurrencyCode::NAD
+        | CurrencyCode::NGN
+        | CurrencyCode::NIO
+        | CurrencyCode::NOK
+        | CurrencyCode::NPR
+        | CurrencyCode::NZD
+        | CurrencyCode::PAB
+        | CurrencyCode::PEN
+        | CurrencyCode::PGK
+        | CurrencyCode::PHP
+        | CurrencyCode::PKR
+        | CurrencyCode::PLN
+        | CurrencyCode::QAR
+        | CurrencyCode::RON
+        | CurrencyCode::RSD
+        | CurrencyCode::RUB
+        | CurrencyCode::SAR
+        | CurrencyCode::SBD
+        | CurrencyCode::SCR
+        | CurrencyCode::SEK
+        | CurrencyCode::SGD
+        | CurrencyCode::SHP
+        | CurrencyCode::SLE
+        | CurrencyCode::SOS
+        | CurrencyCode::SRD
+        | CurrencyCode::STD
+        | CurrencyCode::SZL
+        | CurrencyCode::THB
+        | CurrencyCode::TJS
+        | CurrencyCode::TOP
+        | CurrencyCode::TRY
+        | CurrencyCode::TTD
+        | CurrencyCode::TWD
+        | CurrencyCode::TZS
+        | CurrencyCode::UAH
+        | CurrencyCode::USD
+        | CurrencyCode::UYU
+        | CurrencyCode::UZS
+        | CurrencyCode::WST
+        | CurrencyCode::XCD
+        | CurrencyCode::YER
+        | CurrencyCode::ZAR
+        | CurrencyCode::ZMW => Ok(2),
         _ => Err(InvalidMoney),
     }
 }
 pub(crate) fn methods(code: &str, methods: &[ConventionPaymentMethod]) -> Result<(), InvalidMoney> {
     precision(code)?;
+    let currency = CurrencyCode::from(code.to_owned());
     if methods.is_empty()
         || methods
             .iter()
@@ -39,13 +169,39 @@ pub(crate) fn methods(code: &str, methods: &[ConventionPaymentMethod]) -> Result
     for method in methods {
         match method {
             ConventionPaymentMethod::Paypal
-                if !PAYPAL_CURRENCIES
-                    .split_whitespace()
-                    .any(|currency| currency == code) =>
+                if !matches!(
+                    currency,
+                    CurrencyCode::AUD
+                        | CurrencyCode::BRL
+                        | CurrencyCode::CAD
+                        | CurrencyCode::CNY
+                        | CurrencyCode::CZK
+                        | CurrencyCode::DKK
+                        | CurrencyCode::EUR
+                        | CurrencyCode::GBP
+                        | CurrencyCode::HKD
+                        | CurrencyCode::HUF
+                        | CurrencyCode::ILS
+                        | CurrencyCode::JPY
+                        | CurrencyCode::MYR
+                        | CurrencyCode::MXN
+                        | CurrencyCode::NOK
+                        | CurrencyCode::NZD
+                        | CurrencyCode::PHP
+                        | CurrencyCode::PLN
+                        | CurrencyCode::SEK
+                        | CurrencyCode::SGD
+                        | CurrencyCode::CHF
+                        | CurrencyCode::THB
+                        | CurrencyCode::TWD
+                        | CurrencyCode::USD
+                ) =>
             {
                 return Err(InvalidMoney);
             }
-            ConventionPaymentMethod::Promptpay if code != "THB" => return Err(InvalidMoney),
+            ConventionPaymentMethod::Promptpay if currency != CurrencyCode::THB => {
+                return Err(InvalidMoney);
+            }
             _ => {}
         }
     }
@@ -95,8 +251,10 @@ pub(crate) fn validate(
 ) -> Result<String, InvalidMoney> {
     methods(code, payment_methods)?;
     let canonical = canonical(value, code)?;
-    if matches!(code, "HUF" | "TWD")
-        && payment_methods.contains(&ConventionPaymentMethod::Paypal)
+    if matches!(
+        CurrencyCode::from(code.to_owned()),
+        CurrencyCode::HUF | CurrencyCode::TWD
+    ) && payment_methods.contains(&ConventionPaymentMethod::Paypal)
         && canonical
             .split_once('.')
             .is_some_and(|(_, f)| f.bytes().any(|b| b != b'0'))
@@ -105,7 +263,6 @@ pub(crate) fn validate(
     }
     Ok(canonical)
 }
-const PAYPAL_CURRENCIES: &str = "AUD BRL CAD CNY CZK DKK EUR GBP HKD HUF ILS JPY MYR MXN NOK NZD PHP PLN SEK SGD CHF THB TWD USD";
 
 #[cfg(test)]
 #[path = "../../tests/services/conventions/money.rs"]

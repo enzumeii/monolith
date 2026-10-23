@@ -99,7 +99,17 @@ async fn conventions_lifecycle_exact_prices_replacement_and_cascade() {
         .unwrap();
     assert_eq!(selected["final_price"], "12.99");
     let row = selected["id"].clone();
-    let amount: String=sqlx::query_scalar("SELECT final_price::text FROM convention_variants WHERE convention_id=$1 AND shopify_variant_id=$2").bind(uuid::Uuid::parse_str(id).unwrap()).bind("gid://shopify/ProductVariant/2").fetch_one(&f.pool()).await.unwrap();
+    let amount: String = sqlx::query_scalar(
+        "SELECT final_price::text
+         FROM convention_variants
+         WHERE convention_id = $1
+           AND shopify_variant_id = $2",
+    )
+    .bind(uuid::Uuid::parse_str(id).unwrap())
+    .bind("gid://shopify/ProductVariant/2")
+    .fetch_one(&f.pool())
+    .await
+    .unwrap();
     assert_eq!(amount, "12.99");
     let second = mutate(
         &c,
@@ -186,8 +196,12 @@ async fn conventions_lifecycle_exact_prices_replacement_and_cascade() {
             .any(|r| r["id"] == id)
     );
     for statement in [
-        "UPDATE conventions SET slug='changed' WHERE id=$1",
-        "UPDATE conventions SET currency_code='SGD' WHERE id=$1",
+        "UPDATE conventions
+         SET slug = 'changed'
+         WHERE id = $1",
+        "UPDATE conventions
+         SET currency_code = 'SGD'
+         WHERE id = $1",
     ] {
         assert!(
             sqlx::query(statement)
@@ -440,12 +454,15 @@ async fn conventions_provider_failures_and_later_item_preserve_complete_selectio
         )
         .await;
         assert_eq!(upstream.requests().len(), 2);
-        let count: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM convention_variants WHERE convention_id=$1")
-                .bind(uuid::Uuid::parse_str(created["id"].as_str().unwrap()).unwrap())
-                .fetch_one(&f.pool())
-                .await
-                .unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*)
+             FROM convention_variants
+             WHERE convention_id = $1",
+        )
+        .bind(uuid::Uuid::parse_str(created["id"].as_str().unwrap()).unwrap())
+        .fetch_one(&f.pool())
+        .await
+        .unwrap();
         assert_eq!(count, 0);
     }
     let (c, _upstream) = client_with_upstream_script(vec![remote(2)], "http").await;
@@ -494,7 +511,19 @@ async fn conventions_two_currencies_share_shopify_identity_without_sharing_price
         upstream.requests()[0]["variables"],
         json!({"id":"gid://shopify/ProductVariant/2"})
     );
-    let rows:Vec<String>=sqlx::query_scalar("SELECT final_price::text FROM convention_variants WHERE convention_id=ANY($1) ORDER BY final_price").bind(vec![uuid::Uuid::parse_str(th["id"].as_str().unwrap()).unwrap(),uuid::Uuid::parse_str(sg["id"].as_str().unwrap()).unwrap()]).fetch_all(&f.pool()).await.unwrap();
+    let rows: Vec<String> = sqlx::query_scalar(
+        "SELECT final_price::text
+         FROM convention_variants
+         WHERE convention_id = ANY($1)
+         ORDER BY final_price",
+    )
+    .bind(vec![
+        uuid::Uuid::parse_str(th["id"].as_str().unwrap()).unwrap(),
+        uuid::Uuid::parse_str(sg["id"].as_str().unwrap()).unwrap(),
+    ])
+    .fetch_all(&f.pool())
+    .await
+    .unwrap();
     assert_eq!(rows, vec!["12.99", "20.01"]);
     let mut jp = input(&format!("{}-jp", f.prefix()));
     jp["currency_code"] = json!("JPY");
@@ -640,89 +669,20 @@ async fn conventions_authentication_cookie_origins_and_put_preflight() {
     assert_eq!(r.headers()["access-control-allow-credentials"], "true");
 }
 #[tokio::test]
-async fn conventions_removed_capability_allows_read_disable_delete_but_not_enable_or_reprice() {
+async fn conventions_user_currency_does_not_require_capability_configuration() {
     let f = fixture().await;
-    let (c, _upstream) = client_with_upstream_script(vec![remote(2), remote(2)], "http").await;
-    let created = create(&c, &f, input(f.prefix())).await;
-    let path = format!("{URI}/{}", created["id"].as_str().unwrap());
-    let variants = format!("{path}/variants");
-    mutate(
-        &c,
-        &f,
-        "PUT",
-        &variants,
-        json!({"items":[item(2,"12.99")]}),
-        200,
-    )
-    .await;
-    mutate(
-        &c,
-        &f,
-        "PATCH",
-        &path,
-        json!({"preorder_enabled":true}),
-        200,
-    )
-    .await;
-    let removed = crate::common::client_with_providers(crate::common::ProviderConfig {
-        convention_currencies: Some("[]"),
+    let c = crate::common::client_with_providers(crate::common::ProviderConfig {
         ..Default::default()
     })
     .await;
-    let r = removed
-        .send(authed("GET", &variants, f.root_id(), AdminRole::Admin))
-        .await
-        .unwrap();
-    assert_eq!(r.status(), 200);
-    assert_eq!(body_json(r).await["items"][0]["final_price"], "12.99");
-    mutate(
-        &removed,
-        &f,
-        "PATCH",
-        &path,
-        json!({"name":"Metadata"}),
-        200,
-    )
-    .await;
-    mutate(
-        &removed,
-        &f,
-        "PATCH",
-        &path,
-        json!({"preorder_enabled":false}),
-        200,
-    )
-    .await;
-    mutate(
-        &removed,
-        &f,
-        "PATCH",
-        &path,
-        json!({"preorder_enabled":true}),
-        400,
-    )
-    .await;
-    mutate(
-        &removed,
-        &f,
-        "PUT",
-        &variants,
-        json!({"items":[item(2,"20")]}),
-        400,
-    )
-    .await;
-    let r = removed
-        .send(authed("DELETE", &path, f.root_id(), AdminRole::Admin))
-        .await
-        .unwrap();
-    assert_eq!(r.status(), 204);
-    let count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM convention_variants WHERE convention_id=$1")
-            .bind(uuid::Uuid::parse_str(created["id"].as_str().unwrap()).unwrap())
-            .fetch_one(&f.pool())
-            .await
-            .unwrap();
-    assert_eq!(count, 0);
+    for code in ["THB", "SGD", "JPY", "HUF"] {
+        let mut value = input(&format!("{}-{}", f.prefix(), code.to_ascii_lowercase()));
+        value["currency_code"] = json!(code);
+        value["payment_methods"] = json!(["stripe"]);
+        let created = create(&c, &f, value).await;
+        assert_eq!(created["currency_code"], code);
+        assert_eq!(created["preorder_enabled"], false);
+    }
 }
 #[tokio::test]
 async fn conventions_upstream_identity_policy_and_unavailable_failures() {
@@ -836,7 +796,20 @@ async fn conventions_database_constraints_and_later_write_or_commit_faults_roll_
     )
     .await;
     for value in ["0", "-1", "NaN", "Infinity", "-Infinity"] {
-        assert!(sqlx::query("INSERT INTO convention_variants(convention_id,shopify_product_id,shopify_variant_id,final_price) VALUES($1,'gid://shopify/Product/1','gid://shopify/ProductVariant/99',$2::text::numeric)").bind(id).bind(value).execute(&f.pool()).await.is_err(),"{value}");
+        assert!(
+            sqlx::query(
+                "INSERT INTO convention_variants (
+                     convention_id, shopify_product_id, shopify_variant_id, final_price
+                 )
+                 VALUES ($1, 'gid://shopify/Product/1', 'gid://shopify/ProductVariant/99', $2::text::numeric)",
+            )
+            .bind(id)
+            .bind(value)
+            .execute(&f.pool())
+            .await
+            .is_err(),
+            "{value}",
+        );
     }
     for deferred in [false, true] {
         let timing = if deferred { "CONSTRAINT" } else { "" };
@@ -847,7 +820,23 @@ async fn conventions_database_constraints_and_later_write_or_commit_faults_roll_
             ""
         };
         let prefix = f.prefix();
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE FUNCTION {prefix}_variant_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private convention storage failure'; END $$; CREATE {timing} TRIGGER {prefix}_variant_fault {position} INSERT OR UPDATE ON convention_variants {deferrable} FOR EACH ROW WHEN (NEW.convention_id='{id}'::uuid AND NEW.final_price=99.99) EXECUTE FUNCTION {prefix}_variant_fault();"))).execute(&f.pool()).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "CREATE FUNCTION {prefix}_variant_fault() RETURNS trigger
+             LANGUAGE plpgsql AS $$
+             BEGIN
+                 RAISE EXCEPTION 'private convention storage failure';
+             END
+             $$;
+             CREATE {timing} TRIGGER {prefix}_variant_fault
+                 {position} INSERT OR UPDATE ON convention_variants
+                 {deferrable}
+                 FOR EACH ROW
+                 WHEN (NEW.convention_id = '{id}'::uuid AND NEW.final_price = 99.99)
+                 EXECUTE FUNCTION {prefix}_variant_fault();"
+        )))
+        .execute(&f.pool())
+        .await
+        .unwrap();
         let body = mutate(
             &c,
             &f,
@@ -863,7 +852,13 @@ async fn conventions_database_constraints_and_later_write_or_commit_faults_roll_
             .await
             .unwrap();
         assert_eq!(body_json(r).await["items"], original["items"]);
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP TRIGGER {prefix}_variant_fault ON convention_variants; DROP FUNCTION {prefix}_variant_fault();"))).execute(&f.pool()).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "DROP TRIGGER {prefix}_variant_fault ON convention_variants;
+             DROP FUNCTION {prefix}_variant_fault();"
+        )))
+        .execute(&f.pool())
+        .await
+        .unwrap();
     }
     for deferred in [false, true] {
         let prefix = f.prefix();
@@ -874,27 +869,56 @@ async fn conventions_database_constraints_and_later_write_or_commit_faults_roll_
         } else {
             ""
         };
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE FUNCTION {prefix}_metadata_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private metadata failure'; END $$; CREATE {constraint} TRIGGER {prefix}_metadata_fault {position} UPDATE OR DELETE ON conventions {deferrable} FOR EACH ROW WHEN (OLD.id='{id}'::uuid) EXECUTE FUNCTION {prefix}_metadata_fault();"))).execute(&f.pool()).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "CREATE FUNCTION {prefix}_metadata_fault() RETURNS trigger
+             LANGUAGE plpgsql AS $$
+             BEGIN
+                 RAISE EXCEPTION 'private metadata failure';
+             END
+             $$;
+             CREATE {constraint} TRIGGER {prefix}_metadata_fault
+                 {position} UPDATE OR DELETE ON conventions
+                 {deferrable}
+                 FOR EACH ROW
+                 WHEN (OLD.id = '{id}'::uuid)
+                 EXECUTE FUNCTION {prefix}_metadata_fault();"
+        )))
+        .execute(&f.pool())
+        .await
+        .unwrap();
         mutate(&c, &f, "PATCH", &path, json!({"name":"Failure"}), 500).await;
         let r = c
             .send(authed("DELETE", &path, f.root_id(), AdminRole::Admin))
             .await
             .unwrap();
         assert_eq!(r.status(), 500);
-        let name: String = sqlx::query_scalar("SELECT name FROM conventions WHERE id=$1")
-            .bind(id)
-            .fetch_one(&f.pool())
-            .await
-            .unwrap();
+        let name: String = sqlx::query_scalar(
+            "SELECT name
+             FROM conventions
+             WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_one(&f.pool())
+        .await
+        .unwrap();
         assert_eq!(name, "Convention");
-        let count: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM convention_variants WHERE convention_id=$1")
-                .bind(id)
-                .fetch_one(&f.pool())
-                .await
-                .unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*)
+             FROM convention_variants
+             WHERE convention_id = $1",
+        )
+        .bind(id)
+        .fetch_one(&f.pool())
+        .await
+        .unwrap();
         assert_eq!(count, 2);
-        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP TRIGGER {prefix}_metadata_fault ON conventions; DROP FUNCTION {prefix}_metadata_fault();"))).execute(&f.pool()).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "DROP TRIGGER {prefix}_metadata_fault ON conventions;
+             DROP FUNCTION {prefix}_metadata_fault();"
+        )))
+        .execute(&f.pool())
+        .await
+        .unwrap();
     }
 }
 #[tokio::test]
@@ -968,7 +992,15 @@ async fn conventions_database_read_write_and_connection_errors_are_safe() {
     let path = format!("{URI}/{}", created["id"].as_str().unwrap());
     let variants = format!("{path}/variants");
     let role = format!("{}_database", f.prefix());
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE ROLE {role} LOGIN PASSWORD 'e2e-convention'; GRANT USAGE ON SCHEMA public TO {role}; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO {role}; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO {role};"))).execute(&f.pool()).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "CREATE ROLE {role} LOGIN PASSWORD 'e2e-convention';
+         GRANT USAGE ON SCHEMA public TO {role};
+         GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role};
+         GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role};"
+    )))
+    .execute(&f.pool())
+    .await
+    .unwrap();
     let mut url = reqwest::Url::parse(&crate::common::database_url()).unwrap();
     url.set_username(&role).unwrap();
     url.set_password(Some("e2e-convention")).unwrap();
@@ -993,7 +1025,13 @@ async fn conventions_database_read_write_and_connection_errors_are_safe() {
         assert_eq!(r.status(), 500);
         assert_eq!(body_json(r).await, json!({"error":"Internal server error"}));
     }
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("GRANT SELECT ON conventions TO {role}; REVOKE INSERT,UPDATE,DELETE ON conventions FROM {role};"))).execute(&f.pool()).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "GRANT SELECT ON conventions TO {role};
+         REVOKE INSERT, UPDATE, DELETE ON conventions FROM {role};"
+    )))
+    .execute(&f.pool())
+    .await
+    .unwrap();
     mutate(
         &restricted,
         &f,
@@ -1017,17 +1055,30 @@ async fn conventions_database_read_write_and_connection_errors_are_safe() {
         .await
         .unwrap();
     assert_eq!(r.status(), 500);
-    let name: String = sqlx::query_scalar("SELECT name FROM conventions WHERE id=$1")
-        .bind(uuid::Uuid::parse_str(created["id"].as_str().unwrap()).unwrap())
-        .fetch_one(&f.pool())
-        .await
-        .unwrap();
+    let name: String = sqlx::query_scalar(
+        "SELECT name
+             FROM conventions
+             WHERE id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(created["id"].as_str().unwrap()).unwrap())
+    .fetch_one(&f.pool())
+    .await
+    .unwrap();
     assert_eq!(name, "Convention");
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!("ALTER ROLE {role} NOLOGIN;")))
         .execute(&f.pool())
         .await
         .unwrap();
-    sqlx::query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename=$1 AND pid<>pg_backend_pid()").bind(&role).execute(&f.pool()).await.unwrap();
+    sqlx::query(
+        "SELECT pg_terminate_backend(pid)
+         FROM pg_stat_activity
+         WHERE usename = $1
+           AND pid <> pg_backend_pid()",
+    )
+    .bind(&role)
+    .execute(&f.pool())
+    .await
+    .unwrap();
     let r = restricted
         .send(authed("GET", URI, f.root_id(), AdminRole::Admin))
         .await
@@ -1143,7 +1194,19 @@ async fn conventions_accept_boundaries_paginate_and_allow_both_admin_roles() {
 async fn conventions_reject_malformed_json_and_content_types_without_effects() {
     use axum::{body::Body, http::HeaderValue};
 
-    const OWNED_STATE: &str = "SELECT jsonb_build_object('conventions',COALESCE((SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM conventions c WHERE left(c.slug,12)=$1),'[]'::jsonb),'variants',COALESCE((SELECT jsonb_agg(to_jsonb(v) ORDER BY v.id) FROM convention_variants v JOIN conventions c ON c.id=v.convention_id WHERE left(c.slug,12)=$1),'[]'::jsonb))";
+    const OWNED_STATE: &str = "SELECT jsonb_build_object(
+        'conventions', COALESCE((
+            SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id)
+            FROM conventions c
+            WHERE left(c.slug, 12) = $1
+        ), '[]'::jsonb),
+        'variants', COALESCE((
+            SELECT jsonb_agg(to_jsonb(v) ORDER BY v.id)
+            FROM convention_variants v
+            JOIN conventions c ON c.id = v.convention_id
+            WHERE left(c.slug, 12) = $1
+        ), '[]'::jsonb)
+    )";
     let f = fixture().await;
     let (c, upstream) = client_with_upstream_script(vec![remote(2)], "http").await;
     let created = create(&c, &f, input(f.prefix())).await;
@@ -1294,7 +1357,6 @@ async fn conventions_method_changes_recheck_existing_prices_before_enabling() {
         crate::common::scripted_upstream(vec![remote(2), remote(2), remote(2)], "http").await;
     let c = crate::common::client_with_providers(crate::common::ProviderConfig {
         shopify_url: Some(&url),
-        convention_currencies: Some(r#"[{code="HUF",payment_methods=["stripe","paypal"]}]"#),
         ..Default::default()
     })
     .await;
@@ -1379,11 +1441,16 @@ async fn conventions_concurrent_disjoint_metadata_patches_preserve_omitted_field
     let path = format!("{URI}/{id}");
     let pool = f.pool();
     let mut control = pool.begin().await.unwrap();
-    sqlx::query("SELECT id FROM conventions WHERE id=$1 FOR UPDATE")
-        .bind(id)
-        .fetch_one(&mut *control)
-        .await
-        .unwrap();
+    sqlx::query(
+        "SELECT id
+         FROM conventions
+         WHERE id = $1
+         FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_one(&mut *control)
+    .await
+    .unwrap();
     let root = f.root_id();
     let name_path = path.clone();
     let description_path = path.clone();
@@ -1412,7 +1479,26 @@ async fn conventions_concurrent_disjoint_metadata_patches_preserve_omitted_field
             .await
             .unwrap()
     });
-    tokio::time::timeout(std::time::Duration::from_secs(5),async {loop {let count:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT * FROM conventions WHERE id=$1 FOR UPDATE%'").fetch_one(&pool).await.unwrap();if count>=2 {break;}tokio::time::sleep(std::time::Duration::from_millis(10)).await;}}).await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let count: i64 = sqlx::query_scalar(
+                "SELECT count(*)
+                 FROM pg_stat_activity
+                 WHERE wait_event_type = 'Lock'
+                   AND regexp_replace(query, '[[:space:]]+', ' ', 'g')
+                       LIKE 'SELECT * FROM conventions WHERE id = $1 FOR UPDATE%'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            if count >= 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
     control.commit().await.unwrap();
     assert_eq!(name.await.unwrap().status(), 200);
     assert_eq!(description.await.unwrap().status(), 200);
@@ -1611,15 +1697,28 @@ async fn conventions_reject_extra_query_and_delete_payload_without_effects() {
         let response=c.send(Request::builder().method("DELETE").uri(&path).header("authorization",authed("DELETE",&path,f.root_id(),AdminRole::Admin).headers()["authorization"].clone()).body(Body::from(bytes)).unwrap()).await.unwrap();
         assert_eq!(response.status(), 400);
     }
-    let (name,enabled,count):(String,bool,i64)=sqlx::query_as("SELECT name,preorder_enabled,(SELECT count(*) FROM convention_variants WHERE convention_id=$1) FROM conventions WHERE id=$1").bind(id).fetch_one(&f.pool()).await.unwrap();
+    let (name, enabled, count): (String, bool, i64) = sqlx::query_as(
+        "SELECT name, preorder_enabled,
+                (SELECT count(*) FROM convention_variants WHERE convention_id = $1)
+         FROM conventions
+         WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(&f.pool())
+    .await
+    .unwrap();
     assert_eq!(name, "Convention");
     assert!(!enabled);
     assert_eq!(count, 1);
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM conventions WHERE left(slug,12)=$1")
-        .bind(f.prefix())
-        .fetch_one(&f.pool())
-        .await
-        .unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*)
+         FROM conventions
+         WHERE left(slug, 12) = $1",
+    )
+    .bind(f.prefix())
+    .fetch_one(&f.pool())
+    .await
+    .unwrap();
     assert_eq!(count, 1);
     let response = c
         .send(authed("GET", &variants, f.root_id(), AdminRole::Admin))

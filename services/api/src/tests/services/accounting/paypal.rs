@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::float_cmp)]
-use super::{identity, records};
+use super::{CurrencyCode, identity, precision_factor, records};
 use crate::{models::paypal::TransactionDetail, validations::accounting::AccountingDateRange};
 use serde_json::json;
 
@@ -239,5 +239,25 @@ fn all_supported_paypal_currencies_keep_their_native_precision() {
             assert_eq!(row.gross_paid, expected, "{currency}");
             assert_eq!(row.currency, *currency);
         }
+    }
+}
+
+#[test]
+fn newly_named_convention_currencies_remain_unsupported_for_accounting() {
+    for code in [
+        "AED", "AFN", "ALL", "AMD", "ANG", "AOA", "ARS", "AWG", "AZN", "BAM", "BBD", "BDT", "BGN",
+        "BIF", "BMD", "BND", "BOB", "BSD", "BWP", "BYN", "BZD", "CDF", "CLP", "COP", "CRC", "CVE",
+        "DJF", "DOP", "DZD", "EGP", "ETB", "FJD", "FKP", "GEL", "GIP", "GMD", "GNF", "GTQ", "GYD",
+        "HNL", "HTG", "IDR", "INR", "ISK", "JMD", "KES", "KGS", "KHR", "KMF", "KRW", "KYD", "KZT",
+        "LAK", "LBP", "LKR", "LRD", "LSL", "MAD", "MDL", "MGA", "MKD", "MMK", "MNT", "MOP", "MUR",
+        "MVR", "MWK", "MZN", "NAD", "NGN", "NIO", "NPR", "PAB", "PEN", "PGK", "PKR", "PYG", "QAR",
+        "RON", "RSD", "RUB", "RWF", "SAR", "SBD", "SCR", "SHP", "SLE", "SOS", "SRD", "STD", "SZL",
+        "TJS", "TOP", "TRY", "TTD", "TZS", "UAH", "UGX", "UYU", "UZS", "VND", "VUV", "WST", "XAF",
+        "XCD", "XOF", "XPF", "YER", "ZAR", "ZMW",
+    ] {
+        assert!(
+            precision_factor(&CurrencyCode::from(code.to_owned())).is_err(),
+            "{code}"
+        );
     }
 }

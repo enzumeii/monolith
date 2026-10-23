@@ -219,7 +219,7 @@ All eight operations use the existing ADMIN/SUPER_ADMIN protected group and brow
 | `DELETE /conventions/{id}` | Delete convention and cascade its current variant memberships |
 | `GET /conventions/{id}/variants` | Page/per-page current selections with exact `final_price` strings |
 | `PUT /conventions/{id}/variants` | Atomically replace all selections, at most 250 unique Shopify variant IDs |
-| `GET /catalogue/products` | One Shopify product page for a required location GID, optional raw search and root cursor |
+| `GET /conventions/catalogue` | One Shopify product page for a required location GID, active-product search guard and root cursor; return tracked variants only |
 
 ```mermaid
 flowchart LR
@@ -236,21 +236,20 @@ flowchart LR
 | Ownership / state | Current behavior |
 | --- | --- |
 | Shared DTOs | `domain::dto::conventions` owns wire contracts; `dto::common::PatchField` preserves missing/null/value semantics and the root `domain::dto::PatchField` export; cron uses the same type |
-| API persistence | `conventions` stores UUID, unique slug, name/logo, country, event dates, description Markdown, manual enable flag, currency, payment methods and timestamps. `convention_variants` stores UUID, parent, Shopify product/variant GIDs, positive finite `NUMERIC` final price and timestamps; parent+variant is unique |
-| Immutable identity | API excludes slug/currency from PATCH; a database trigger also rejects changes. One convention has one currency |
+| API persistence | `TIMESTAMPTZ` timestamps decode and serialize in UTC; event dates remain calendar dates. `conventions` stores UUID, unique slug, name/logo, country, event dates, description Markdown, manual enable flag, currency, payment methods and timestamps. `convention_variants` stores UUID, parent, Shopify product/variant GIDs, positive finite `NUMERIC` final price and timestamps; parent+variant is unique |
+| Immutable identity | API excludes slug/currency from PATCH; a database trigger also rejects changes. One convention has one user-supplied currency stored in the database; no currency allowlist configuration |
 | Price representation | Major-unit decimal strings such as `"12.99"` pass through exact decimal validation and PostgreSQL `NUMERIC`, without floating point. Responses use currency precision; positive amounts must fit signed 64-bit minor units and selected payment-method precision |
 | Writes | Services own transactions and parent-row locks; repositories own SQL. Shopify validation precedes the transaction; changed selection/payment assumptions are rechecked under the lock and conflicting validation returns 409 |
 | Eligibility validation | New/changed selections use direct Shopify variant reads; every selection is revalidated while enabled and when enabling. Product must exist, match the submitted product, be ACTIVE, track inventory and use DENY. This does not reserve or check location stock |
 | Manual enablement | Enabling requires nonempty eligible selections and supported currency/methods/prices; clearing an enabled convention is rejected until disabled. Event dates are metadata, without scheduling, lifecycle, version, readiness or display-order fields |
-| Capabilities | Typed `[conventions]` currency/payment-method allowlist defaults empty. It constrains configuration and selection changes; it does not prove merchant onboarding, provider readiness or a live charge |
-| Future consumers | Enabled-only repository/service lookups support later work. Public APIs (ENZ-38), routing (ENZ-41), quotes, checkout and historical order snapshots/protection remain future work; current deletion cascades only current membership |
+| Future consumers | Current reads use the list service with its optional enabled filter and the UUID lookup; manual enable/disable remains on PATCH. Public APIs (ENZ-38), routing (ENZ-41), quotes, checkout and historical order snapshots/protection remain future work; current deletion cascades only current membership |
 
 | Catalogue contract | Behavior |
 | --- | --- |
 | Content | Current Shopify product title/status/description/image, variant title/SKU/image/options and inventory-item ID; no invented variant description or supplier cost |
 | Source price | Exact current contextual Shopify amount string and currency; distinct from persisted convention final prices |
-| Available quantity | Requested location `available` integer; active zero/negative values remain numbers and zero remains eligible. Missing/inactive levels return null with an ineligibility reason; untracked, CONTINUE and inactive products are ineligible |
-| Search / paging | Raw Shopify search, including collection/title/combined syntax, forwards unchanged. One root page with opaque cursor; variants fixed `first:250`, without child paging. Any nested overflow or incomplete provider page fails safely with 502 |
+| Available quantity | Requested location `available` integer; active zero/negative values remain numbers and zero remains eligible. Missing/inactive levels return null with an ineligibility reason; CONTINUE variants remain visible as ineligible; inactive products and untracked variants are omitted |
+| Search / paging | The service supplies `status:active`, grouping optional raw search as `status:active AND (<search>)`; products with no tracked variants are omitted. One root page with opaque cursor and unchanged upstream metadata, including empty filtered pages; variants fixed `first:250`, without child paging. Any nested overflow or incomplete provider page fails safely with 502 |
 | Failure / inventory boundary | Missing location 404; unavailable client 503; upstream 502/timeout 504. Catalogue reads do not change stock. Existing inventory/report `on_hand`, filtering, supplier-cost and numeric-total semantics remain unchanged |
 
 ## Inventory enablement

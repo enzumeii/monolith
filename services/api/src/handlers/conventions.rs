@@ -23,11 +23,7 @@ pub async fn list(
 ) -> Result<Json<ConventionListResponse>, AppError> {
     let q = validate::query(query)?;
     let (page, per_page) = validate_page(q.page, q.per_page)?;
-    let response = if q.preorder_enabled == Some(true) {
-        service::enabled_list(&state.pool, page, per_page).await?
-    } else {
-        service::list(&state.pool, page, per_page, q.preorder_enabled).await?
-    };
+    let response = service::list(&state.pool, page, per_page, q.preorder_enabled).await?;
     Ok(Json(response))
 }
 pub async fn create(
@@ -39,7 +35,7 @@ pub async fn create(
     let input = validate::create(validate::body(body)?)?;
     Ok((
         StatusCode::CREATED,
-        Json(service::create(&state.pool, &state.settings.conventions, &input).await?),
+        Json(service::create(&state.pool, &input).await?),
     ))
 }
 pub async fn get(
@@ -64,8 +60,7 @@ pub async fn patch(
     let id = validate::id(path)?;
     let changes = validate::body(body)?;
     validate::patch_shape(&changes)?;
-    let prepared =
-        service::prepare_patch(&state.pool, &state.settings.conventions, id, changes).await?;
+    let prepared = service::prepare_patch(&state.pool, id, changes).await?;
     if !prepared.checks.is_empty() {
         service::validate_selection(
             super::dependencies::shopify_client(&state)?,
@@ -73,9 +68,7 @@ pub async fn patch(
         )
         .await?;
     }
-    Ok(Json(
-        service::finish_patch(&state.pool, &state.settings.conventions, prepared).await?,
-    ))
+    Ok(Json(service::finish_patch(&state.pool, prepared).await?))
 }
 pub async fn delete(
     State(state): State<AppState>,
@@ -109,8 +102,7 @@ pub async fn replace(
     validate::no_query(uri.query())?;
     let id = validate::id(path)?;
     let items = validate::variants(validate::body(body)?)?;
-    let prepared =
-        service::prepare_save(&state.pool, &state.settings.conventions, id, items).await?;
+    let prepared = service::prepare_save(&state.pool, id, items).await?;
     if !prepared.checks.is_empty() {
         service::validate_selection(
             super::dependencies::shopify_client(&state)?,
@@ -118,7 +110,5 @@ pub async fn replace(
         )
         .await?;
     }
-    Ok(Json(
-        service::finish_save(&state.pool, &state.settings.conventions, prepared).await?,
-    ))
+    Ok(Json(service::finish_save(&state.pool, prepared).await?))
 }
