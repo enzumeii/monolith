@@ -1139,3 +1139,147 @@ fn vercel_nonproduction_metadata_replaces_the_configured_allowed_origins() {
         );
     }
 }
+
+#[test]
+fn all_environments_keep_optional_stripe_key_semantics() {
+    for key in [
+        None,
+        Some(""),
+        Some("sk_live_synthetic"),
+        Some("unclassified_synthetic"),
+    ] {
+        temp_env::with_vars(
+            [
+                ("STRIPE_SECRET_KEY", key),
+                ("VERCEL_ENV", Some("preview")),
+                ("VERCEL_URL", Some("synthetic.vercel.app")),
+            ],
+            || {
+                for mode in ["local", "qa", "prod"] {
+                    let settings = Settings::load(settings_builder(), mode).unwrap();
+                    assert_eq!(
+                        settings
+                            .client
+                            .unwrap()
+                            .stripe
+                            .unwrap()
+                            .secret_key
+                            .as_deref(),
+                        key,
+                    );
+                }
+            },
+        );
+    }
+}
+
+#[test]
+fn qa_startup_probe() {
+    let Ok(expected) = env::var("QA_CONFIG_PROBE") else {
+        return;
+    };
+    let result = Settings::new();
+    if expected == "missing-overlay" {
+        assert!(result.unwrap_err().to_string().contains("application.qa"));
+        return;
+    }
+    let settings = result.unwrap();
+    assert_eq!(
+        settings.server.port,
+        if expected == "qa" { 3099 } else { 3098 }
+    );
+    assert_eq!(
+        settings.browser.allowed_origins,
+        vec!["http://localhost:8084"]
+    );
+    assert!(settings.browser.insecure_local);
+    assert_eq!(settings.scheduler.implementation, CronImplementation::Vps);
+    let client = settings.client.unwrap();
+    assert_eq!(client.s3.unwrap().endpoint, "http://localhost:3001");
+    let stripe = client.stripe.unwrap();
+    assert_eq!(stripe.base_url, "https://api.stripe.com/v1/");
+    assert_eq!(stripe.timeout_secs, 10);
+    assert_eq!(stripe.secret_key, env::var("QA_EXPECTED_KEY").ok());
+}
+
+#[test]
+fn ordinary_dotenv_selects_qa_with_inherited_precedence_and_required_overlay() {
+    let fixture = std::env::temp_dir().join(format!("monolith-qa-config-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&fixture).unwrap();
+    std::fs::write(
+        fixture.join("application.toml"),
+        include_str!("../../application.toml"),
+    )
+    .unwrap();
+    std::fs::write(
+        fixture.join("application.local.toml"),
+        format!(
+            "{}\n[server]\nport = 3098\n",
+            include_str!("../../application.local.toml")
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        fixture.join("application.qa.toml"),
+        format!(
+            "{}\n[server]\nport = 3099\n",
+            include_str!("../../application.qa.toml")
+        ),
+    )
+    .unwrap();
+    let run =
+        |expected: &str, mode: Option<&str>, key: Option<&str>, expected_key: Option<&str>| {
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child
+                .args(["--exact", "config::tests::qa_startup_probe", "--nocapture"])
+                .current_dir(&fixture)
+                .env_clear()
+                .env("QA_CONFIG_PROBE", expected)
+                .env(
+                    "DATABASE_URL",
+                    "postgres://synthetic:synthetic@localhost/qa",
+                )
+                .env("JWT_SECRET", "ab".repeat(32));
+            if let Some(mode) = mode {
+                child.env("RUN_ENV", mode);
+            }
+            if let Some(key) = key {
+                child.env("STRIPE_SECRET_KEY", key);
+            }
+            if let Some(key) = expected_key {
+                child.env("QA_EXPECTED_KEY", key);
+            }
+            let output = child.output().unwrap();
+            assert!(
+                output.status.success(),
+                "{expected}: {}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+    std::fs::write(
+        fixture.join(".env"),
+        "RUN_ENV=qa\nSTRIPE_SECRET_KEY=synthetic-dotenv-key\n",
+    )
+    .unwrap();
+    run("qa", None, None, Some("synthetic-dotenv-key"));
+    run(
+        "local",
+        Some("local"),
+        Some("synthetic-inherited-key"),
+        Some("synthetic-inherited-key"),
+    );
+    run(
+        "qa",
+        Some("qa"),
+        Some("synthetic-inherited-key"),
+        Some("synthetic-inherited-key"),
+    );
+    std::fs::write(fixture.join(".env"), "RUN_ENV=qa\n").unwrap();
+    run("qa", None, None, None);
+    std::fs::write(fixture.join(".env"), "").unwrap();
+    run("local", None, None, None);
+    std::fs::remove_file(fixture.join("application.qa.toml")).unwrap();
+    run("missing-overlay", Some("qa"), None, None);
+    std::fs::remove_dir_all(fixture).unwrap();
+}

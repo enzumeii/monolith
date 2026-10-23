@@ -206,14 +206,16 @@ impl Settings {
         Self::load(
             Config::builder()
                 .add_source(File::with_name("application"))
-                .add_source(File::with_name(&format!("application.{mode}")).required(false)),
+                .add_source(File::with_name(&format!("application.{mode}")).required(mode == "qa")),
             &mode,
         )
     }
 
     fn load(mut builder: ConfigBuilder<DefaultState>, mode: &str) -> Result<Self, ConfigError> {
-        if !matches!(mode, "local" | "prod") {
-            return Err(ConfigError::Message("RUN_ENV must be local or prod".into()));
+        if !matches!(mode, "local" | "qa" | "prod") {
+            return Err(ConfigError::Message(
+                "RUN_ENV must be local, qa or prod".into(),
+            ));
         }
         if mode == "prod" {
             builder = builder.set_override("browser.insecure_local", false)?;

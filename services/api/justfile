@@ -8,15 +8,18 @@ export DPRINT_CACHE_DIR := justfile_directory() / ".tools/cache"
 default:
     @just --list
 
-# Install pinned dprint and fill private settings from Bitwarden when installed, otherwise local defaults.
-setup:
+# Install pinned dprint and prepare private settings; use --local (default) or --qa.
+setup mode="--local":
     #!/usr/bin/env bash
     set -euo pipefail
-    cargo install --locked dprint --version {{dprint_version}} --root .tools
+    case {{quote(mode)}} in --local|--qa) ;; *) echo 'Usage: just setup [--local|--qa]' >&2; exit 1 ;; esac
+    if ! installed_version="$(.tools/bin/dprint --version 2>/dev/null)" || [[ "$installed_version" != "dprint {{dprint_version}}" ]]; then
+      cargo install --force --locked dprint --version {{dprint_version}} --root .tools
+    fi
     .tools/bin/dprint config install
-    python3 scripts/setup-env.py
+    python3 scripts/setup-env.py {{quote(mode)}}
 
-# Start Postgres and the local Docker S3 service, migrate, and run the API.
+# Start development PostgreSQL, S3 and the API using RUN_ENV from the ordinary .env.
 run:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -37,7 +40,7 @@ run:
       docker compose -f docker-compose.yml up -d --wait --no-recreate local-s3
     fi
     docker compose -f docker-compose.yml run --rm --no-deps local-s3-init
-    cargo sqlx migrate run
+    cargo sqlx --no-dotenv migrate run
     cargo build --locked -p api --bin api
     ../../target/debug/api &
     api_pid=$!

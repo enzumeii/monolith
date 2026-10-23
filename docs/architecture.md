@@ -173,6 +173,17 @@ flowchart LR
 | Platform limits | No snapshot isolation, bulk-export guarantee, or bypass of Shopify limits. Actual query cost remains unverified against the 1,000-point maximum; non-throttle cost errors propagate without retry |
 | Compatibility | Discovery retains Shopify's supported deprecated singular inventory-item `variant` field |
 
+## Stripe payment provider boundary
+
+| Layer | Responsibility |
+| --- | --- |
+| Shared Stripe client | One pooled provider operation per call: create/retrieve/expire hosted Checkout Session, retrieve PaymentIntent/current direct account, and existing Charge/accounting reads. Integer minor-unit money; mutation idempotency stays caller-owned |
+| `client::stripe::payment` | Compare authoritative current Session, PaymentIntent and Charge with trusted caller account/environment/money/correlation expectations; return explicit pending, expired/unpaid or verified paid outcome. No Shopify dependency |
+| `client::stripe::webhook` | Authenticate timestamp and exact signed bytes before typed decoding; expose event identity/version without treating signature/event type as proof of paid |
+| Consumer boundary | Trusted callers own return destinations, durable operation identities, refund policy, replay handling and stored business state. This provider slice has no application payment routes, webhook ingestion, persistence or fulfillment side effects |
+
+[Stripe operations](development.md#stripe-hosted-checkout) describes privileged caller inputs, direct Postman requests and manual verification limits.
+
 ## Errors and operational boundaries
 
 | Area | Contract |

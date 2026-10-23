@@ -1,0 +1,9 @@
+$kind: http-request
+description: "Retrieve the direct merchant account associated with the configured secret key (GET /v1/account). 200 partial example: {\"id\":\"acct_synthetic\",\"object\":\"account\"}. Compare id with a separately trusted expected account; copying the returned ID into the expectation would defeat verification. Account identity does not prove test/live mode: verify resource livemode fields too. Uses inherited vault:stripe_secret_key (test secret for manual sandbox use) and stripe base URL including /v1. No Stripe-Account or Stripe-Version header: direct account, account-default API version. Common failures: 401 authentication, 403 permissions, 429 rate limit or 5xx provider failure. Synthetic error: {\"error\":{\"type\":\"invalid_request_error\",\"code\":\"resource_missing\",\"message\":\"No such resource\"}}. Examples are partial synthetic objects, never evidence of a paid payment."
+url: "{{stripe}}/account"
+method: GET
+order: 9000
+auth:
+  type: inherit
+  credentials:
+    id: 44bc4504-b8a5-4b4d-b887-d7458a64aaf2

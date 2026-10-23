@@ -12,7 +12,8 @@ import sys
 import tempfile
 
 
-ITEM_ID = '87323839-368f-4288-a4a5-9b0320699892'
+ITEM_IDS = {'local': '87323839-368f-4288-a4a5-9b0320699892',
+            'qa': '0a291e2c-4ae4-436d-8730-ddf301a544d7'}
 KEYS = (
     'JWT_SECRET', 'CRON_SECRET', 'SHOPIFY_ACCESS_TOKEN', 'RESEND_API_KEY',
     'PAYPAL_CLIENT_ID', 'PAYPAL_CLIENT_SECRET', 'STRIPE_SECRET_KEY',
@@ -26,22 +27,55 @@ class SetupError(Exception):
 
 
 def main():
-    if len(sys.argv) != 1:
-        raise SetupError('Usage: setup-env.py')
+    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] not in ('--local', '--qa')):
+        raise SetupError('Usage: setup-env.py [--local|--qa]')
+    mode = sys.argv[1][2:] if len(sys.argv) == 2 else 'local'
     path = Path('.env')
     original = snapshot(path)
-    values = vault_values()
+    existing = (original[1] if original else b'').decode('utf-8')
+    switching = existing_mode(existing) != mode
+    values = vault_values(ITEM_IDS[mode])
     defaults = local_defaults()
+    defaults['RUN_ENV'] = mode
     defaults.update({key: value for key, value in values.items() if value})
-    text = merge((original[1] if original else b'').decode('utf-8'), defaults)
+    text = merge(existing, defaults, replace={'RUN_ENV', *(KEYS if switching else ())})
     write_private(path, original, text.encode('utf-8'))
-    if values:
-        print('API .env prepared from matching Bitwarden fields; existing nonempty values preserved.')
-    else:
-        print('API .env prepared with local defaults; existing nonempty values preserved.')
+    source = 'matching Bitwarden fields' if values else 'local defaults'
+    action = 'imported credentials replaced for the selected mode' if switching else 'existing nonempty values preserved'
+    print(f'API {path} prepared for {mode} from {source}; {action}.')
 
 
-def vault_values():
+def existing_mode(text):
+    for record in records(text):
+        match = ASSIGNMENT.match(record.rstrip('\r\n'))
+        if match and match[1] == 'RUN_ENV':
+            raw = match[2]
+            if EMPTY.fullmatch(raw):
+                return 'local'
+            literal = re.fullmatch(r"[ \t]*(?:'(local|qa)'|\"(local|qa)\"|(local|qa))[ \t]*(?:#.*)?", raw)
+            return next(part for part in literal.groups() if part is not None) if literal else None
+    return 'local'
+
+
+def trailing_comment(value):
+    quote = None
+    escaped = False
+    for index, char in enumerate(value):
+        if escaped:
+            escaped = False
+        elif char == '\\' and quote != "'":
+            escaped = True
+        elif char == quote:
+            quote = None
+        elif quote is None:
+            if char in ('"', "'"):
+                quote = char
+            elif char == '#' and (index == 0 or value[index - 1].isspace()):
+                return value[index:]
+    return ''
+
+
+def vault_values(item_id):
     bw = shutil.which('bw')
     if bw is None:
         return {}
@@ -62,7 +96,7 @@ def vault_values():
         child_env['BW_SESSION'] = session
     elif state != 'unlocked':
         raise SetupError('Bitwarden returned an invalid status. Check bw status in your terminal.')
-    item = read_json(run_bw(bw, ['get', 'item', ITEM_ID, '--nointeraction'], child_env, 'item retrieval'), 'item')
+    item = read_json(run_bw(bw, ['get', 'item', item_id, '--nointeraction'], child_env, 'item retrieval'), 'item')
     fields = item.get('fields') if isinstance(item, dict) else None
     if not isinstance(fields, list):
         raise SetupError('Bitwarden item must contain custom fields named after API environment settings.')
@@ -152,7 +186,7 @@ def records(text):
                 if not prefix.strip() or text[index - 1].isspace() or (assignment and not assignment.group(2).strip()):
                     comment = True
     if quote:
-        raise SetupError('Existing .env contains an unfinished quoted value; fix it before setup.')
+        raise SetupError('Existing private environment file contains an unfinished quoted value; fix it before setup.')
     if start < len(text):
         yield text[start:]
 
@@ -162,7 +196,7 @@ def encode(value):
     return '"' + value.replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$').replace('\n', '\\n') + '"'
 
 
-def merge(text, defaults):
+def merge(text, defaults, replace=frozenset()):
     entries = []
     existing = {}
     for record in records(text):
@@ -176,10 +210,10 @@ def merge(text, defaults):
     for record, key, value in entries:
         if key in defaults:
             seen.add(key)
-            if EMPTY.fullmatch(value):
+            if key in replace or EMPTY.fullmatch(value):
                 # dotenvy uses the first assignment, including an empty one.
-                replacement = existing.get(key, encode(defaults[key]))
-                comment = value[value.index('#'):] if '#' in value else ''
+                replacement = encode(defaults[key]) if key in replace else existing.get(key, encode(defaults[key]))
+                comment = trailing_comment(value)
                 ending = '\r\n' if record.endswith('\r\n') else '\n' if record.endswith('\n') else ''
                 record = f'{key}={replacement}' + (' ' + comment if comment else '') + ending
         output.append(record)
@@ -194,7 +228,7 @@ def merge(text, defaults):
 
 def snapshot(path):
     if path.is_symlink():
-        raise SetupError('Refusing to replace a symlink at .env; use a regular private file.')
+        raise SetupError(f'Refusing to replace a symlink at {path}; use a regular private file.')
     try:
         info = path.stat()
         return ((info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns), path.read_bytes())
@@ -212,7 +246,7 @@ def write_private(path, original, content):
             staged.flush()
             os.fsync(staged.fileno())
         if snapshot(path) != original:
-            raise SetupError('.env changed during setup. Rerun setup to preserve the latest values.')
+            raise SetupError(f'{path} changed during setup. Rerun setup to preserve the latest values.')
         if original is None:
             os.link(temporary, path)
         else:
@@ -229,8 +263,8 @@ if __name__ == '__main__':
         print(f'Setup: {error}', file=sys.stderr)
         sys.exit(1)
     except (OSError, UnicodeError):
-        print('Setup: unable to read CLI data or safely update .env. Check permissions and rerun setup.', file=sys.stderr)
+        print('Setup: unable to read CLI data or safely update the selected private environment file. Check permissions and rerun setup.', file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
-        print('\nSetup cancelled; .env was not updated.', file=sys.stderr)
+        print('\nSetup cancelled; the selected private environment file was not updated.', file=sys.stderr)
         sys.exit(130)
