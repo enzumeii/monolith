@@ -1,11 +1,5 @@
-[scheduler]
-implementation = "vps"
-
 [browser]
 allowed_origins = ["http://localhost:8084"]
-
-[client.stripe]
-base_url = "https://api.stripe.com/v1/"
 
 [client.s3]
 endpoint = "http://localhost:3001"
