@@ -8,8 +8,8 @@ const workflow=fs.readFileSync(path.resolve('.github/workflows/release.yml'),'ut
 const deploy=workflow.split('\n  deploy:\n')[1]||'';
 const release=workflow.split('\n  release:\n')[1].split('\n  deploy:\n')[0];
 
-function block(name) {
- const lines=deploy.split('\n');
+function block(name,job=deploy) {
+ const lines=job.split('\n');
  const start=lines.findIndex(line=>line===`      - name: ${name}`);
  assert.notEqual(start,-1,`Missing workflow step: ${name}`);
  const end=lines.findIndex((line,index)=>index>start&&line.startsWith('      - '));
@@ -17,8 +17,8 @@ function block(name) {
  return block;
 }
 
-function step(name) {
- const lines=block(name);
+function step(name,job=deploy) {
+ const lines=block(name,job);
  const run=lines.findIndex(line=>line.startsWith('        run:'));
  assert.notEqual(run,-1,`Missing Bash body: ${name}`);
  if(lines[run]!=='        run: |') return lines[run].slice('        run: '.length);
@@ -84,19 +84,29 @@ printf 'https://monolith-test.vercel.app\\n'
  return {root,result,calls:read(calls),deployment:read(deployment),summary:read(summary),migration:read(migration),secret};
 }
 
-test('Release button isolates main-only deployment from merged-PR publication',()=>{
- assert.match(workflow,/^  workflow_dispatch:\s*$/m);
- assert.match(workflow,/pull_request_target:\n    types: \[closed\]\n    branches: \[main\]/);
- assert.match(release,/if: github\.event_name == 'pull_request_target' && github\.event\.pull_request\.merged == true/);
- assert.match(release,/ref: main/);
+test('main pushes reconcile trusted release history without another deployment trigger',()=>{
+ assert.match(workflow,/^on:\n  push:\n    branches: \[main\]\n\njobs:/m);
+ assert.match(release,/if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/);
+ assert.match(release,/ref: main\n          fetch-depth: 0\n          persist-credentials: false/);
  assert.match(release,/publishReleases\(\{github, \.\.\.context\.repo, commits\}\)/);
- assert.match(deploy,/if: github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'/);
- assert.match(deploy,/permissions:\n      contents: read\n/);
- assert.doesNotMatch(deploy,/(?:contents|pull-requests|deployments): write|strategy:|matrix:/);
- assert.match(deploy,/ref: \$\{\{ github\.sha \}\}/);
- assert.match(deploy,/persist-credentials: false/);
- assert.match(deploy,/cache-dependency-path: package-lock\.json/);
+});
 
+test('production approval gates every deployment step after successful release publication',()=>{
+ const header=deploy.split('    steps:')[0];
+ assert.match(header,/^    needs: release$/m);
+ assert.match(header,/^    environment: production$/m);
+ assert.match(header,/if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/);
+ assert.doesNotMatch(header,/always\(|failure\(|cancelled\(/);
+ assert.doesNotMatch(release,/continue-on-error:|secrets\.(?:VERCEL|SUPABASE)/);
+ assert.doesNotMatch(deploy,/continue-on-error:/);
+ assert.match(header,/permissions:\n      contents: read\n/);
+ assert.doesNotMatch(deploy,/(?:contents|pull-requests|deployments): write|strategy:|matrix:/);
+ assert.match(deploy,/cache-dependency-path: package-lock\.json/);
+ assert.match(block('Check out the released main commit').join('\n'),/ref: \$\{\{ needs\.release\.outputs\.deployment_sha \}\}\n          persist-credentials: false/);
+ assert.match(release,/outputs:\n      deployment_sha: \$\{\{ steps\.deployment_revision\.outputs\.deployment_sha \}\}/);
+ assert.ok(release.indexOf('- name: Capture trusted main revision')>release.indexOf('- name: Check out trusted main'));
+ assert.ok(release.indexOf('- name: Capture trusted main revision')<release.indexOf('- name: Publish releases'));
+ assert.match(block('Capture trusted main revision',release).join('\n'),/id: deployment_revision/);
  for(const name of ['VERCEL_TOKEN','VERCEL_ORG_ID','VERCEL_PROJECT_ID','SUPABASE_MIGRATION_DATABASE_URL']) {
   assert.ok(deploy.includes(`${name}: \${{ secrets.${name} }}`));
  }
@@ -143,18 +153,39 @@ for(const [name,variable,exit,calls] of [
  });
 }
 
-test('manual deployment queue cannot replace pending version release runs',()=>{
+for(const failedCheckout of [false,true]) {
+ test(failedCheckout?'failed trusted revision capture fails without a deployment SHA':'deployment revision uses the checked-out trusted main HEAD when the event SHA differs',t=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'release revision '));
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  let expected;
+  if(!failedCheckout) {
+   for(const args of [['init','--quiet'],['-c','user.name=Workflow Test','-c','user.email=workflow@example.test','-c','commit.gpgsign=false','commit','--quiet','--allow-empty','-m','fixture']]) {
+    const result=spawnSync('git',args,{cwd:root,encoding:'utf8'});
+    assert.equal(result.status,0,result.stderr);
+   }
+   const head=spawnSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'});
+   assert.equal(head.status,0,head.stderr);
+   expected=head.stdout.trim();
+  }
+  const output=path.join(root,'output');
+  const result=spawnSync('bash',['--noprofile','--norc','-e','-o','pipefail','-c',step('Capture trusted main revision',release)],{
+   cwd:root,encoding:'utf8',env:{...process.env,GITHUB_OUTPUT:output,GITHUB_SHA:'event-sha-before-queued-main-advanced',GIT_CEILING_DIRECTORIES:root}
+  });
+  const actual=fs.existsSync(output)?fs.readFileSync(output,'utf8'):'';
+  if(failedCheckout) {
+   assert.notEqual(result.status,0);
+   assert.equal(actual,'');
+  } else {
+   assert.equal(result.status,0,result.stderr);
+   assert.equal(actual,`deployment_sha=${expected}\n`);
+  }
+ });
+}
+
+test('deployment approval queue cannot replace pending version release runs',()=>{
  assert.doesNotMatch(workflow.split('\njobs:\n')[0],/^concurrency:/m);
  assert.match(release,/concurrency:\n      group: main-releases\n      cancel-in-progress: false/);
  assert.match(deploy,/concurrency:\n      group: vercel-production-deployments\n      cancel-in-progress: false/);
- const group=job=>job.match(/^      group: (.+)$/m)[1];
- // GitHub keeps one pending run per group; another enqueue replaces that pending run.
- const pending=new Map([[group(release),'merged-pr-b']]);
- pending.set(group(deploy),'manual-c');
- pending.set(group(deploy),'manual-d');
- assert.equal(pending.get(group(release)),'merged-pr-b');
- assert.equal(pending.get(group(deploy)),'manual-d');
- assert.equal(pending.size,2);
 });
 
 test('migration secret is scoped to preflight and SQLx only',()=>{
