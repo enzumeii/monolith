@@ -30,42 +30,49 @@ def main():
     if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] not in ('--local', '--qa')):
         raise SetupError('Usage: setup-env.py [--local|--qa]')
     mode = sys.argv[1][2:] if len(sys.argv) == 2 else 'local'
-    path = Path('.env.qa' if mode == 'qa' else '.env')
+    path = Path('.env')
     original = snapshot(path)
     existing = (original[1] if original else b'').decode('utf-8')
-    if mode == 'qa':
-        validate_qa_file(existing)
+    switching = existing_mode(existing) != mode
     values = vault_values(ITEM_IDS[mode])
     defaults = local_defaults()
     defaults['RUN_ENV'] = mode
     defaults.update({key: value for key, value in values.items() if value})
-    text = merge(existing, defaults)
-    if mode == 'qa':
-        validate_qa_file(text, require_key=True)
+    text = merge(existing, defaults, replace={'RUN_ENV', *(KEYS if switching else ())})
     write_private(path, original, text.encode('utf-8'))
-    if values:
-        print(f'API {path} prepared from matching Bitwarden fields; existing nonempty values preserved.')
-    else:
-        print(f'API {path} prepared with local defaults; existing nonempty values preserved.')
+    source = 'matching Bitwarden fields' if values else 'local defaults'
+    action = 'imported credentials replaced for the selected mode' if switching else 'existing nonempty values preserved'
+    print(f'API {path} prepared for {mode} from {source}; {action}.')
 
 
-def validate_qa_file(text, require_key=False):
-    values = {}
+def existing_mode(text):
     for record in records(text):
         match = ASSIGNMENT.match(record.rstrip('\r\n'))
-        if not match or match[1] not in ('RUN_ENV', 'STRIPE_SECRET_KEY'):
-            continue
-        name, raw = match.groups()
-        if EMPTY.fullmatch(raw):
-            continue
-        match_value = re.fullmatch(r"[ \t]*(?:'([A-Za-z0-9_]+)'|\"([A-Za-z0-9_]+)\"|([A-Za-z0-9_]+))[ \t]*(?:#.*)?", raw)
-        value = next((part for part in match_value.groups() if part is not None), '') if match_value else ''
-        valid = value == 'qa' if name == 'RUN_ENV' else bool(re.fullmatch(r'(?:sk|rk)_test_[A-Za-z0-9_]+', value))
-        if not valid:
-            raise SetupError(f'Correct {name} in .env.qa before QA setup; QA requires its own test Stripe server key and RUN_ENV=qa.')
-        values.setdefault(name, value)
-    if require_key and 'STRIPE_SECRET_KEY' not in values:
-        raise SetupError('Configure a Stripe test server key in the QA Bitwarden item or .env.qa, then rerun just setup --qa.')
+        if match and match[1] == 'RUN_ENV':
+            raw = match[2]
+            if EMPTY.fullmatch(raw):
+                return 'local'
+            literal = re.fullmatch(r"[ \t]*(?:'(local|qa)'|\"(local|qa)\"|(local|qa))[ \t]*(?:#.*)?", raw)
+            return next(part for part in literal.groups() if part is not None) if literal else None
+    return 'local'
+
+
+def trailing_comment(value):
+    quote = None
+    escaped = False
+    for index, char in enumerate(value):
+        if escaped:
+            escaped = False
+        elif char == '\\' and quote != "'":
+            escaped = True
+        elif char == quote:
+            quote = None
+        elif quote is None:
+            if char in ('"', "'"):
+                quote = char
+            elif char == '#' and (index == 0 or value[index - 1].isspace()):
+                return value[index:]
+    return ''
 
 
 def vault_values(item_id):
@@ -189,7 +196,7 @@ def encode(value):
     return '"' + value.replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$').replace('\n', '\\n') + '"'
 
 
-def merge(text, defaults):
+def merge(text, defaults, replace=frozenset()):
     entries = []
     existing = {}
     for record in records(text):
@@ -203,10 +210,10 @@ def merge(text, defaults):
     for record, key, value in entries:
         if key in defaults:
             seen.add(key)
-            if EMPTY.fullmatch(value):
+            if key in replace or EMPTY.fullmatch(value):
                 # dotenvy uses the first assignment, including an empty one.
-                replacement = existing.get(key, encode(defaults[key]))
-                comment = value[value.index('#'):] if '#' in value else ''
+                replacement = encode(defaults[key]) if key in replace else existing.get(key, encode(defaults[key]))
+                comment = trailing_comment(value)
                 ending = '\r\n' if record.endswith('\r\n') else '\n' if record.endswith('\n') else ''
                 record = f'{key}={replacement}' + (' ' + comment if comment else '') + ending
         output.append(record)

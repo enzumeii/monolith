@@ -17,43 +17,10 @@ setup mode="--local":
     .tools/bin/dprint config install
     python3 scripts/setup-env.py {{quote(mode)}}
 
-# Start local dependencies and the API with --local (default) or isolated --qa credentials.
-run mode="--local":
+# Start development PostgreSQL, S3 and the API using RUN_ENV from the ordinary .env.
+run:
     #!/usr/bin/env bash
     set -euo pipefail
-    case {{quote(mode)}} in
-      --local) exec just --dotenv-path .env _run local ;;
-      --qa)
-        if [[ ! -f .env.qa || ! -f application.qa.toml ]]; then
-          echo 'QA requires .env.qa and application.qa.toml. Run just setup --qa first.' >&2
-          exit 1
-        fi
-        unset RUN_ENV DATABASE_URL JWT_SECRET CRON_SECRET SHOPIFY_ACCESS_TOKEN RESEND_API_KEY
-        unset PAYPAL_CLIENT_ID PAYPAL_CLIENT_SECRET STRIPE_SECRET_KEY S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY
-        unset SHIPPING_SENDER_NAME SHIPPING_SENDER_PHONE SHIPPING_SENDER_EMAIL SHIPPING_SENDER_ADDRESS
-        unset SHIPPING_SENDER_SUB_DISTRICT SHIPPING_SENDER_DISTRICT SHIPPING_SENDER_PROVINCE
-        unset SHIPPING_SENDER_POSTCODE SHIPPING_SENDER_COUNTRY_CODE
-        exec just --dotenv-path .env.qa _run qa ;;
-      *) echo 'Usage: just run [--local|--qa]' >&2; exit 1 ;;
-    esac
-
-# Run the shared local Docker/API lifecycle with the selected private environment.
-[private]
-_run mode:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    export RUN_ENV={{quote(mode)}}
-    if [[ "$RUN_ENV" == qa ]]; then
-      case "${STRIPE_SECRET_KEY:-}" in
-        *[[:space:]]*) echo 'QA requires a Stripe test server key. Run just setup --qa.' >&2; exit 1 ;;
-        sk_test_?*|rk_test_?*) ;;
-        *) echo 'QA requires a Stripe test server key. Run just setup --qa.' >&2; exit 1 ;;
-      esac
-      if [[ -z "${DATABASE_URL:-}" ]]; then
-        echo 'QA requires DATABASE_URL in .env.qa. Run just setup --qa.' >&2
-        exit 1
-      fi
-    fi
     s3_owned=true
     api_pid=
     if [[ -n "$(docker compose -f docker-compose.yml ps --status running -q local-s3)" ]]; then s3_owned=false; fi

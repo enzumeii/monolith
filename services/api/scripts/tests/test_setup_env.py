@@ -55,8 +55,8 @@ class SetupEnvTests(unittest.TestCase):
         bw.chmod(0o755)
         self.item = self.cwd / 'item.json'
         self.fields([{'name': 'SHOPIFY_ACCESS_TOKEN', 'value': 'synthetic-vault-token', 'type': 1}])
-        self.env = {key: value for key, value in os.environ.items() if key not in ('BW_SESSION', 'BW_NOINTERACTION')}
-        self.env.update(PATH=str(self.bin) + os.pathsep + os.path.dirname(sys.executable), ITEM=str(self.item), PYTHONDONTWRITEBYTECODE='1')
+        self.env = dict(PATH=str(self.bin) + os.pathsep + os.path.dirname(sys.executable),
+                        HOME=str(self.cwd), ITEM=str(self.item), PYTHONDONTWRITEBYTECODE='1')
 
     def fields(self, fields):
         self.item.write_text(json.dumps({'object': 'item', 'id': 'synthetic-id', 'fields': fields}))
@@ -72,84 +72,88 @@ class SetupEnvTests(unittest.TestCase):
     def test_explicit_local_preserves_existing_setup(self):
         self.assertIn('RUN_ENV="local"', self.assert_success(self.run_setup('--local')))
 
-    def test_qa_uses_own_item_file_and_preserves_values(self):
-        local = b'STRIPE_SECRET_KEY=sk_live_synthetic\nJWT_SECRET=local-secret\n'
-        (self.cwd / '.env').write_bytes(local)
-        self.fields([{'name': 'STRIPE_SECRET_KEY', 'value': 'sk_test_synthetic'},
-                     {'name': 'JWT_SECRET', 'value': 'qa-vault-secret'}])
-        result = self.run_setup('--qa', EXPECTED_ITEM='0a291e2c-4ae4-436d-8730-ddf301a544d7')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        path = self.cwd / '.env.qa'
-        text = path.read_text()
+    def test_mode_switch_replaces_only_imports_and_preserves_records(self):
+        imported = ('JWT_SECRET', 'CRON_SECRET', 'SHOPIFY_ACCESS_TOKEN', 'RESEND_API_KEY',
+                    'PAYPAL_CLIENT_ID', 'PAYPAL_CLIENT_SECRET', 'STRIPE_SECRET_KEY')
+        preserved = '# keep\nDATABASE_URL=kept-db\nS3_ACCESS_KEY_ID=kept-s3\nSHIPPING_SENDER_NAME=kept-name\nOTHER="multi\nSTRIPE_SECRET_KEY=inside\nline"\n'
+        for old, flag, item in (('local', '--qa', '0a291e2c-4ae4-436d-8730-ddf301a544d7'),
+                                ('qa', '--local', '87323839-368f-4288-a4a5-9b0320699892')):
+            with self.subTest(old=old):
+                (self.cwd / '.env').write_text(preserved + f'RUN_ENV={old} # mode\n' +
+                                              ''.join(f'{key}=previous-{key} # field\n' for key in imported))
+                self.fields([{'name': 'STRIPE_SECRET_KEY', 'value': 'selected-key'}])
+                text = self.assert_success(self.run_setup(flag, EXPECTED_ITEM=item))
+                self.assertTrue(text.startswith(preserved))
+                self.assertIn(f'RUN_ENV="{flag[2:]}" # mode', text)
+                self.assertIn('STRIPE_SECRET_KEY="selected-key" # field', text)
+                self.assertRegex(text, r'JWT_SECRET="[0-9a-f]{64}" # field')
+                self.assertRegex(text, r'CRON_SECRET="[0-9a-f]{64}" # field')
+                for key in imported[2:-1]:
+                    self.assertIn(f'{key}="" # field', text)
+                self.assertNotIn('previous-', text)
+                self.assertFalse((self.cwd / '.env.qa').exists())
+                self.assertEqual((self.cwd / '.env').stat().st_mode & 0o777, 0o600)
+                self.assertEqual(self.assert_success(self.run_setup(flag, EXPECTED_ITEM=item)), text)
+
+    def test_switch_replaces_all_imported_values_and_duplicate_records(self):
+        names = ('JWT_SECRET', 'CRON_SECRET', 'SHOPIFY_ACCESS_TOKEN', 'RESEND_API_KEY',
+                 'PAYPAL_CLIENT_ID', 'PAYPAL_CLIENT_SECRET', 'STRIPE_SECRET_KEY')
+        self.fields([{'name': name, 'value': f'selected-{name}'} for name in names])
+        (self.cwd / '.env').write_text('RUN_ENV=local\nRUN_ENV=local\n' +
+                                      ''.join(f'{name}="old # private" # kept\n{name}=duplicate\n' for name in names))
+        text = self.assert_success(self.run_setup('--qa', EXPECTED_ITEM='0a291e2c-4ae4-436d-8730-ddf301a544d7'))
+        self.assertEqual(text.count('RUN_ENV="qa"\n'), 2)
+        for name in names:
+            self.assertIn(f'{name}="selected-{name}" # kept\n{name}="selected-{name}"\n', text)
+        self.assertNotIn('old # private', text)
+        self.assertNotIn('duplicate', text)
+
+    def test_missing_empty_and_unknown_existing_modes(self):
+        for selector, preserved in (('', True), ('RUN_ENV=\n', True), ('RUN_ENV="" # empty\n', True),
+                                     ('RUN_ENV=unknown\n', False), ('RUN_ENV="qa"\n', False)):
+            with self.subTest(selector=selector):
+                (self.cwd / '.env').write_text(selector + 'STRIPE_SECRET_KEY=kept\n')
+                self.fields([{'name': 'STRIPE_SECRET_KEY', 'value': 'selected'}])
+                text = self.assert_success(self.run_setup('--local'))
+                self.assertIn('RUN_ENV="local"', text)
+                self.assertIn('STRIPE_SECRET_KEY=' + ('kept' if preserved else '"selected"'), text)
+
+    def test_qa_missing_cli_switch_uses_defaults_then_preserves_same_mode(self):
+        (self.bin / 'bw').unlink()
+        (self.cwd / '.env').write_text('STRIPE_SECRET_KEY=previous\nJWT_SECRET=previous\nDATABASE_URL=kept\n')
+        text = self.assert_success(self.run_setup('--qa'))
         self.assertIn('RUN_ENV="qa"', text)
-        self.assertIn('STRIPE_SECRET_KEY="sk_test_synthetic"', text)
-        self.assertIn('JWT_SECRET="qa-vault-secret"', text)
-        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
-        self.assertEqual((self.cwd / '.env').read_bytes(), local)
-        self.assertEqual(self.run_setup('--qa', EXPECTED_ITEM='0a291e2c-4ae4-436d-8730-ddf301a544d7').returncode, 0)
-        self.assertEqual(path.read_text(), text)
-        self.assertNotIn('sk_test_synthetic', result.stdout + result.stderr)
+        self.assertIn('STRIPE_SECRET_KEY=""', text)
+        self.assertIn('DATABASE_URL=kept', text)
+        self.assertNotIn('previous', text)
+        self.assertEqual(self.assert_success(self.run_setup('--qa')), text)
 
-    def test_qa_without_cli_requires_own_test_key(self):
-        (self.bin / 'bw').unlink()
-        (self.cwd / '.env').write_text('STRIPE_SECRET_KEY=sk_test_local\n')
-        result = self.run_setup('--qa')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse((self.cwd / '.env.qa').exists())
-        (self.cwd / '.env.qa').write_text('STRIPE_SECRET_KEY=rk_test_existing\n')
-        result = self.run_setup('--qa')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('STRIPE_SECRET_KEY=rk_test_existing', (self.cwd / '.env.qa').read_text())
+    def test_qa_accepts_any_or_missing_provider_credential(self):
+        for key in ('', 'synthetic-unclassified', 'sk_live_synthetic', 'pk_test_synthetic'):
+            with self.subTest(key=key):
+                (self.cwd / '.env').unlink(missing_ok=True)
+                self.fields([{'name': 'STRIPE_SECRET_KEY', 'value': key}, {'name': 'JWT_SECRET', 'value': 'synthetic'}])
+                text = self.assert_success(self.run_setup('--qa', EXPECTED_ITEM='0a291e2c-4ae4-436d-8730-ddf301a544d7'))
+                self.assertIn(f'STRIPE_SECRET_KEY="{key}"', text)
 
-    def test_qa_rejects_unsafe_existing_file_without_changing_either_file(self):
-        (self.bin / 'bw').unlink()
-        local = b'OTHER=local\n'
-        (self.cwd / '.env').write_bytes(local)
-        for content in ('RUN_ENV=local\nSTRIPE_SECRET_KEY=sk_test_safe\n',
-                        'STRIPE_SECRET_KEY=sk_live_synthetic\n',
-                        'STRIPE_SECRET_KEY=pk_test_synthetic\n',
-                        'STRIPE_SECRET_KEY=sk_test_\n',
-                        'STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}\n'):
-            with self.subTest(content=content):
-                path = self.cwd / '.env.qa'
-                path.write_text(content)
-                result = self.run_setup('--qa')
-                self.assertNotEqual(result.returncode, 0)
-                self.assertEqual(path.read_text(), content)
-                self.assertEqual((self.cwd / '.env').read_bytes(), local)
-                self.assertNotIn('synthetic', result.stdout + result.stderr)
-
-    def test_qa_symlink_concurrent_update_and_vault_failure_preserve_files(self):
-        local = self.cwd / '.env'
-        local.write_text('OTHER=local\n')
-        qa = self.cwd / '.env.qa'
-        qa.symlink_to(local)
-        result = self.run_setup('--qa')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertTrue(qa.is_symlink())
-        self.assertEqual(local.read_text(), 'OTHER=local\n')
-        qa.unlink()
-        original = 'STRIPE_SECRET_KEY=sk_test_existing\n'
-        qa.write_text(original)
-        self.fields([{'name': 'STRIPE_SECRET_KEY', 'value': 'sk_test_synthetic'}])
+    def test_qa_symlink_concurrency_and_vault_failure_preserve_shared_file(self):
+        target = self.cwd / 'other'
+        target.write_text('OTHER=untouched\n')
+        env = self.cwd / '.env'
+        env.symlink_to(target)
+        self.assertNotEqual(self.run_setup('--qa').returncode, 0)
+        self.assertTrue(env.is_symlink())
+        self.assertEqual(target.read_text(), 'OTHER=untouched\n')
+        env.unlink()
+        original = 'RUN_ENV=local\nSTRIPE_SECRET_KEY=previous\n'
+        env.write_text(original)
         for stage in ('status', 'get'):
             result = self.run_setup('--qa', EXPECTED_ITEM='0a291e2c-4ae4-436d-8730-ddf301a544d7', FAIL=stage)
             self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(qa.read_text(), original)
-            self.assertNotIn('synthetic-secret-diagnostic', result.stdout + result.stderr)
-        result = self.run_setup('--qa', EXPECTED_ITEM='0a291e2c-4ae4-436d-8730-ddf301a544d7', CONCURRENT='1', ENV_FILE='.env.qa')
+            self.assertEqual(env.read_text(), original)
+        result = self.run_setup('--qa', EXPECTED_ITEM='0a291e2c-4ae4-436d-8730-ddf301a544d7', CONCURRENT='1')
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(qa.read_text(), 'OTHER=concurrent\n')
-        self.assertEqual(local.read_text(), 'OTHER=local\n')
-        self.assertFalse(list(self.cwd.glob('.env.*.*')))
-
-    def test_qa_rejects_missing_or_unsafe_vault_test_key(self):
-        for key in ('', 'sk_live_synthetic', 'rk_live_synthetic', 'pk_test_synthetic', 'sk_test_'):
-            self.fields([{'name': 'STRIPE_SECRET_KEY', 'value': key}, {'name': 'JWT_SECRET', 'value': 'synthetic'}])
-            result = self.run_setup('--qa', EXPECTED_ITEM='0a291e2c-4ae4-436d-8730-ddf301a544d7')
-            self.assertNotEqual(result.returncode, 0)
-            self.assertFalse((self.cwd / '.env.qa').exists())
-            self.assertNotIn('synthetic', result.stdout + result.stderr)
+        self.assertEqual(env.read_text(), 'OTHER=concurrent\n')
 
     def test_imports_same_name_fields_and_keeps_private_file(self):
         text = self.assert_success(self.run_setup(BW_SESSION='inherited', EXPECTED_SESSION='inherited'))
@@ -237,7 +241,9 @@ class SetupEnvTests(unittest.TestCase):
         existing = ''.join(f'{name}="existing-value"\n' for name in excluded)
         (self.cwd / '.env').write_text(existing)
         text = self.assert_success(self.run_setup())
-        self.assertTrue(text.startswith(existing))
+        self.assertIn('RUN_ENV="local"', text)
+        for name in excluded[1:]:
+            self.assertIn(f'{name}="existing-value"', text)
 
     def test_unauthenticated_and_locked_without_terminal_leave_bytes(self):
         for status, instruction in [('unauthenticated', 'bw login'), ('locked', 'terminal')]:
@@ -341,7 +347,7 @@ class SetupEnvTests(unittest.TestCase):
                 if qa:
                     self.fields([{'name': 'SHOPIFY_ACCESS_TOKEN', 'value': 'synthetic-vault-token'},
                                  {'name': 'STRIPE_SECRET_KEY', 'value': 'sk_test_synthetic'}])
-                selected = api / ('.env.qa' if qa else '.env')
+                selected = api / '.env'
                 child_env = self.env | ({'EXPECTED_ITEM': '0a291e2c-4ae4-436d-8730-ddf301a544d7'} if qa else {})
                 result = subprocess.run([just, '--justfile', str(api / 'justfile'), 'setup', *args],
                                         cwd=api, env=child_env, stdin=subprocess.DEVNULL, capture_output=True, text=True)
@@ -425,74 +431,49 @@ class RunEnvTests(unittest.TestCase):
         path = self.root / 'events.jsonl'
         return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
-    def test_qa_sanitizes_parent_and_outer_dotenv_for_migration_and_api(self):
-        names = ('DATABASE_URL', 'JWT_SECRET', 'CRON_SECRET', 'SHOPIFY_ACCESS_TOKEN', 'RESEND_API_KEY',
-                 'PAYPAL_CLIENT_ID', 'PAYPAL_CLIENT_SECRET', 'STRIPE_SECRET_KEY', 'S3_ACCESS_KEY_ID',
-                 'S3_SECRET_ACCESS_KEY', 'SHIPPING_SENDER_NAME', 'SHIPPING_SENDER_PHONE',
-                 'SHIPPING_SENDER_EMAIL', 'SHIPPING_SENDER_ADDRESS', 'SHIPPING_SENDER_SUB_DISTRICT',
-                 'SHIPPING_SENDER_DISTRICT', 'SHIPPING_SENDER_PROVINCE', 'SHIPPING_SENDER_POSTCODE',
-                 'SHIPPING_SENDER_COUNTRY_CODE')
-        inherited = {name: 'inherited-local' for name in names}
-        inherited.update(STRIPE_SECRET_KEY='sk_live_synthetic', RUN_ENV='prod', RUST_LOG='debug',
-                         BW_SESSION='synthetic-session', E2E_COMPOSE_PROJECT='synthetic-project')
-        (self.api / '.env').write_text(''.join(f'{name}=outer-local\n' for name in names))
-        (self.api / '.env.qa').write_text('RUN_ENV=prod\nDATABASE_URL=qa-db\nSTRIPE_SECRET_KEY=sk_test_synthetic\nJWT_SECRET=qa-jwt\n')
-        result = self.run_recipe('run', '--qa', **inherited)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        consumers = [event for event in self.events() if event['command'] in ('cargo', 'api')]
-        self.assertEqual([event['args'] for event in consumers[:2]],
-                         [['sqlx', '--no-dotenv', 'migrate', 'run'], ['build', '--locked', '-p', 'api', '--bin', 'api']])
-        self.assertTrue(any(event['command'] == 'api' for event in consumers))
-        for event in consumers:
-            child = event['env']
-            self.assertEqual(child['RUN_ENV'], 'qa')
-            self.assertEqual(child['DATABASE_URL'], 'qa-db')
-            self.assertEqual(child['STRIPE_SECRET_KEY'], 'sk_test_synthetic')
-            self.assertEqual(child['JWT_SECRET'], 'qa-jwt')
-            for name in names:
-                if name not in ('DATABASE_URL', 'STRIPE_SECRET_KEY', 'JWT_SECRET'):
-                    self.assertNotIn(name, child)
-            for name in ('RUST_LOG', 'BW_SESSION', 'E2E_COMPOSE_PROJECT'):
-                self.assertEqual(child[name], inherited[name])
-        self.assertNotIn('sk_test_synthetic', result.stdout + result.stderr)
-        self.assertEqual(self.events()[-1]['args'], ['compose', '-f', 'docker-compose.yml', 'stop', 'local-s3'])
-
-    def test_local_alias_and_flag_preserve_explicit_environment_precedence(self):
-        (self.api / '.env').write_text('RUN_ENV=prod\nDATABASE_URL=file-db\nSTRIPE_SECRET_KEY=sk_live_file\n')
-        for args in (('run',), ('run', '--local')):
-            with self.subTest(args=args):
-                result = self.run_recipe(*args, DATABASE_URL='explicit-db', STRIPE_SECRET_KEY='sk_live_explicit', RUN_ENV='qa', S3_EXISTS='1')
+    def test_noarg_run_loads_shared_dotenv_for_migrations_and_api(self):
+        for mode in ('local', 'qa'):
+            with self.subTest(mode=mode):
+                (self.root / 'events.jsonl').unlink(missing_ok=True)
+                (self.api / '.docker-started').unlink(missing_ok=True)
+                (self.api / '.env').write_text(f'RUN_ENV={mode}\nDATABASE_URL=file-db\nSTRIPE_SECRET_KEY=arbitrary-provider-key\n')
+                result = self.run_recipe('run')
                 self.assertEqual(result.returncode, 0, result.stderr)
-        consumers = [event for event in self.events() if event['command'] in ('cargo', 'api')]
-        for event in consumers:
-            self.assertEqual(event['env']['RUN_ENV'], 'local')
-            self.assertEqual(event['env']['DATABASE_URL'], 'explicit-db')
-            self.assertEqual(event['env']['STRIPE_SECRET_KEY'], 'sk_live_explicit')
+                consumers = [event for event in self.events() if event['command'] in ('cargo', 'api')]
+                self.assertEqual([event['args'] for event in consumers[:2]],
+                                 [['sqlx', '--no-dotenv', 'migrate', 'run'], ['build', '--locked', '-p', 'api', '--bin', 'api']])
+                self.assertTrue(any(event['command'] == 'api' for event in consumers))
+                for event in consumers:
+                    self.assertEqual(event['env']['RUN_ENV'], mode)
+                    self.assertEqual(event['env']['DATABASE_URL'], 'file-db')
+                    self.assertEqual(event['env']['STRIPE_SECRET_KEY'], 'arbitrary-provider-key')
+                self.assertEqual(self.events()[-1]['args'], ['compose', '-f', 'docker-compose.yml', 'stop', 'local-s3'])
+
+    def test_inherited_precedence_and_unowned_s3_preserved(self):
+        (self.api / '.env').write_text('RUN_ENV=local\nDATABASE_URL=file-db\nSTRIPE_SECRET_KEY=file-key\n')
+        result = self.run_recipe('run', RUN_ENV='qa', DATABASE_URL='inherited-db', STRIPE_SECRET_KEY='inherited-key', S3_EXISTS='1')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for event in self.events():
+            if event['command'] in ('cargo', 'api'):
+                self.assertEqual(event['env']['RUN_ENV'], 'qa')
+                self.assertEqual(event['env']['DATABASE_URL'], 'inherited-db')
+                self.assertEqual(event['env']['STRIPE_SECRET_KEY'], 'inherited-key')
         self.assertFalse(any(event['args'][-2:] == ['stop', 'local-s3'] for event in self.events()))
 
-    def test_missing_qa_files_or_database_and_unsafe_keys_fail_before_docker(self):
-        (self.api / '.env').write_text('DATABASE_URL=local-db\nSTRIPE_SECRET_KEY=sk_test_local\n')
-        path = self.api / '.env.qa'
-        for text in (None, 'DATABASE_URL=qa-db\n', 'STRIPE_SECRET_KEY=sk_test_synthetic\n',
-                     'DATABASE_URL=qa-db\nSTRIPE_SECRET_KEY=sk_live_synthetic\n',
-                     'DATABASE_URL=qa-db\nSTRIPE_SECRET_KEY=pk_test_synthetic\n',
-                     'DATABASE_URL=qa-db\nSTRIPE_SECRET_KEY=sk_test_\n',
-                     'DATABASE_URL=qa-db\nSTRIPE_SECRET_KEY="sk_test_bad space"\n'):
-            with self.subTest(text=text):
-                if text is not None:
-                    path.write_text(text)
-                result = self.run_recipe('run', '--qa')
-                self.assertNotEqual(result.returncode, 0)
-                self.assertFalse(self.events(), "A dependency command ran before validation")
-        path.write_text('DATABASE_URL=qa-db\nSTRIPE_SECRET_KEY=rk_test_synthetic\n')
-        (self.api / 'application.qa.toml').unlink()
-        result = self.run_recipe('run', '--qa')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(self.events(), "A dependency command ran before validation")
+    def test_no_run_mode_or_credential_preflight(self):
+        result = self.run_recipe('run')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for event in self.events():
+            if event['command'] in ('cargo', 'api'):
+                self.assertNotIn('RUN_ENV', event['env'])
+                self.assertNotIn('STRIPE_SECRET_KEY', event['env'])
 
     def test_invalid_recipe_flags_fail_before_setup_or_docker(self):
         for recipe in ('setup', 'run'):
-            for args in (('local',), ('--bad',), ('--qa', '--local'), ('--local', 'excess')):
+            invalid = [('local',), ('--bad',), ('--qa', '--local'), ('--local', 'excess')]
+            if recipe == 'run':
+                invalid.extend([('--qa',), ('--local',)])
+            for args in invalid:
                 with self.subTest(recipe=recipe, args=args):
                     result = self.run_recipe(recipe, *args)
                     self.assertNotEqual(result.returncode, 0)
@@ -501,8 +482,8 @@ class RunEnvTests(unittest.TestCase):
                     self.assertFalse((self.api / '.env.qa').exists())
 
     def test_failed_migration_runs_owned_s3_cleanup(self):
-        (self.api / '.env.qa').write_text('DATABASE_URL=qa-db\nSTRIPE_SECRET_KEY=rk_test_synthetic\n')
-        result = self.run_recipe('run', '--qa', CARGO_FAIL='1')
+        (self.api / '.env').write_text('RUN_ENV=qa\nDATABASE_URL=qa-db\n')
+        result = self.run_recipe('run', CARGO_FAIL='1')
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(self.events(), result.stderr)
         self.assertEqual(self.events()[-1]['args'], ['compose', '-f', 'docker-compose.yml', 'stop', 'local-s3'])

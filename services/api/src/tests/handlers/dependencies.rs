@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 pub(crate) fn state(f: &Fixture) -> AppState {
     let settings = serde_json::from_value(json!({
         "client":{"shopify":{"timeout_secs":3,"admin_api_url":f.url.as_str(),"access_token":"fixture"}},
-        "browser":{"public_origin":"http://localhost:8084","insecure_local":true},
+        "browser":{"allowed_origins":["http://localhost:8084"],"insecure_local":true},
         "server":{"host":"localhost","port":3000},
         "database":{"url":"unused","max_connections":1,"min_connections":1},
         "scheduler":{"implementation":"vps","poll_interval_secs":1,"retention_interval_secs":3600,"invocation_budget_secs":240,"retention_reserve_secs":5,"enabled":false,"concurrency":1,"max_attempts":2,"retry_backoff_secs":1,"lease_secs":5,"max_payload_bytes":20_971_520,"max_email_bytes":20_971_520},

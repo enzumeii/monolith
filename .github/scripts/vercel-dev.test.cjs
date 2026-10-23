@@ -46,7 +46,7 @@ process.exit(7);
  for(const key of ['RUN_ENV','VERCEL_ENV','VERCEL_URL','DATABASE_URL','JWT_SECRET','CRON_SECRET']) delete env[key];
  if(!execute) return {root,env:{...env,...inherited}};
  const result=apiRun
-  ?spawnSync('just',['run','--local'],{cwd:path.join(root,'services/api'),env:{...env,...inherited},encoding:'utf8'})
+  ?spawnSync('just',['run'],{cwd:path.join(root,'services/api'),env:{...env,...inherited},encoding:'utf8'})
   :spawnSync(process.execPath,['scripts/dev-vercel.mjs',...args],{cwd:root,env:{...env,...inherited},encoding:'utf8'});
  return {root,result,observed:fs.existsSync(path.join(root,'observed.json'))?JSON.parse(fs.readFileSync(path.join(root,'observed.json'))):null};
 }

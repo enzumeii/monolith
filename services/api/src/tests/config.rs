@@ -3,6 +3,57 @@ use super::*;
 use config::{Config, File, FileFormat};
 
 #[test]
+fn production_allowed_origins_do_not_require_hostname_metadata() {
+    for (deployment, production) in [
+        (None, None),
+        (
+            Some("unique-preview.vercel.app"),
+            Some("convention.enzumeii.com"),
+        ),
+        (Some("invalid/path"), Some("https://invalid.example/path")),
+    ] {
+        let settings = temp_env::with_vars(
+            [
+                ("RUN_ENV", Some("prod")),
+                ("VERCEL_ENV", Some("production")),
+                ("VERCEL_URL", deployment),
+                ("VERCEL_PROJECT_PRODUCTION_URL", production),
+                (
+                    "JWT_SECRET",
+                    Some("abababababababababababababababababababababababababababababababab"),
+                ),
+                (
+                    "DATABASE_URL",
+                    Some("postgres://synthetic:secret@localhost/runtime"),
+                ),
+            ],
+            Settings::new,
+        )
+        .unwrap();
+        assert_eq!(
+            settings.browser.allowed_origins,
+            vec![
+                "https://convention.enzumeii.com",
+                "https://enzumeii.vercel.app"
+            ]
+        );
+        assert!(!settings.browser.insecure_local);
+    }
+}
+
+#[test]
+fn empty_browser_allowed_origins_are_rejected() {
+    let settings: Settings = settings_builder()
+        .set_override("browser.allowed_origins", Vec::<String>::new())
+        .unwrap()
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert!(settings.validate().is_err());
+}
+
+#[test]
 fn local_vercel_development_preserves_selected_scheduler_and_uses_gateway_origin() {
     for implementation in ["vps", "vercel"] {
         let settings = temp_env::with_vars(
@@ -29,7 +80,10 @@ fn local_vercel_development_preserves_selected_scheduler_and_uses_gateway_origin
             },
         )
         .unwrap();
-        assert_eq!(settings.browser.public_origin, "http://localhost:18027");
+        assert_eq!(
+            settings.browser.allowed_origins,
+            vec!["http://localhost:18027"]
+        );
         assert!(settings.browser.insecure_local);
         assert_eq!(
             settings.scheduler.implementation,
@@ -62,8 +116,10 @@ fn vercel_development_metadata_uses_only_explicit_loopback_http() {
             Settings::new,
         )
         .unwrap();
-        assert_eq!(settings.browser.public_origin, format!("http://{host}"));
-        assert_eq!(settings.browser.additional_origins, Vec::<String>::new());
+        assert_eq!(
+            settings.browser.allowed_origins,
+            vec![format!("http://{host}")]
+        );
         assert!(settings.browser.insecure_local);
     }
     for host in [
@@ -91,20 +147,6 @@ fn vercel_development_metadata_uses_only_explicit_loopback_http() {
             "{host}"
         );
     }
-    for mode in ["production", "preview"] {
-        assert!(
-            temp_env::with_vars(
-                [
-                    ("RUN_ENV", Some("prod")),
-                    ("VERCEL_ENV", Some(mode)),
-                    ("VERCEL_URL", Some("localhost:18037")),
-                    ("VERCEL_PROJECT_PRODUCTION_URL", None)
-                ],
-                Settings::new
-            )
-            .is_err()
-        );
-    }
 }
 
 #[test]
@@ -128,8 +170,8 @@ fn production_overlay_and_metadata_use_central_secret_overrides() {
     )
     .unwrap();
     assert_eq!(
-        settings.browser.public_origin,
-        "https://synthetic-deployment.vercel.app"
+        settings.browser.allowed_origins,
+        vec!["https://synthetic-deployment.vercel.app"]
     );
     assert!(!format!("{settings:?}").contains("synthetic-cron-secret"));
     assert!(!settings.browser.insecure_local);
@@ -146,47 +188,86 @@ fn production_overlay_and_metadata_use_central_secret_overrides() {
 }
 
 #[test]
-fn vercel_public_origin_uses_generated_production_alias_and_preview_host() {
-    for (mode, expected) in [
-        ("production", "https://project.vercel.app"),
-        ("preview", "https://unique-preview.vercel.app"),
-    ] {
-        let settings = temp_env::with_vars(
-            [
-                ("RUN_ENV", Some("prod")),
-                ("VERCEL_ENV", Some(mode)),
-                ("VERCEL_URL", Some("unique-preview.vercel.app")),
-                ("VERCEL_PROJECT_PRODUCTION_URL", Some("project.vercel.app")),
-                (
-                    "JWT_SECRET",
-                    Some("abababababababababababababababababababababababababababababababab"),
-                ),
-                (
-                    "DATABASE_URL",
-                    Some("postgres://synthetic:secret@localhost/runtime"),
-                ),
-            ],
-            Settings::new,
-        )
-        .unwrap();
-        assert_eq!(settings.browser.public_origin, expected);
-        assert_eq!(
-            settings.browser.additional_origins,
-            if mode == "production" {
-                vec!["https://convention.enzumeii.com"]
-            } else {
-                vec![]
-            }
-        );
-        assert!(!settings.browser.insecure_local);
-    }
+fn preview_uses_only_its_generated_origin_and_ignores_production_metadata() {
+    let settings = temp_env::with_vars(
+        [
+            ("RUN_ENV", Some("prod")),
+            ("VERCEL_ENV", Some("preview")),
+            ("VERCEL_URL", Some("unique-preview.vercel.app")),
+            (
+                "VERCEL_PROJECT_PRODUCTION_URL",
+                Some("convention.enzumeii.com"),
+            ),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
+            (
+                "DATABASE_URL",
+                Some("postgres://synthetic:secret@localhost/runtime"),
+            ),
+        ],
+        Settings::new,
+    )
+    .unwrap();
+    assert_eq!(
+        settings.browser.allowed_origins,
+        vec!["https://unique-preview.vercel.app"]
+    );
+    assert!(!settings.browser.insecure_local);
 }
 
 #[test]
-fn vercel_metadata_rejects_untrusted_origins_and_missing_host() {
+fn production_forces_secure_cookies_even_if_file_requests_insecure_local() {
+    let settings = temp_env::with_vars(
+        [
+            ("VERCEL_ENV", Some("production")),
+            ("VERCEL_URL", None),
+            ("VERCEL_PROJECT_PRODUCTION_URL", None),
+        ],
+        || {
+            Settings::load(
+                settings_builder()
+                    .set_override(
+                        "browser.allowed_origins",
+                        vec!["https://configured.example.test"],
+                    )
+                    .unwrap()
+                    .set_override("browser.insecure_local", true)
+                    .unwrap(),
+                "prod",
+            )
+        },
+    )
+    .unwrap();
+    assert!(!settings.browser.insecure_local);
+    assert_eq!(
+        settings.browser.allowed_origins,
+        vec!["https://configured.example.test"]
+    );
+}
+
+#[test]
+fn preview_metadata_rejects_untrusted_origins_and_missing_host() {
+    let overlong_label = format!("{}.vercel.app", "a".repeat(64));
+    let overlong_hostname = format!(
+        "{}.{}.{}.{}.vercel.app",
+        "a".repeat(63),
+        "b".repeat(63),
+        "c".repeat(63),
+        "d".repeat(63)
+    );
     for host in [
         None,
         Some("evil.example"),
+        Some("localhost:18037"),
+        Some("*.vercel.app"),
+        Some("-project.vercel.app"),
+        Some("project-.vercel.app"),
+        Some("project..vercel.app"),
+        Some("project_name.vercel.app"),
+        Some(overlong_label.as_str()),
+        Some(overlong_hostname.as_str()),
         Some("https://project.vercel.app"),
         Some("project.vercel.app/path"),
         Some("user@project.vercel.app"),
@@ -294,7 +375,10 @@ fn new_reads_non_secret_configuration_only_from_toml() {
     .expect("non-secret environment values must not affect settings");
     assert_eq!(settings.server.host, "0.0.0.0");
     assert_eq!(settings.server.port, 3000);
-    assert_eq!(settings.browser.public_origin, "http://localhost:8084");
+    assert_eq!(
+        settings.browser.allowed_origins,
+        vec!["http://localhost:8084"]
+    );
     assert!(settings.browser.insecure_local);
     assert_eq!(settings.client.unwrap().shopify.unwrap().timeout_secs, 10);
 }
@@ -396,7 +480,7 @@ fn builder_token_precedence_and_missing_url_follow_normal_configuration() {
             server = { host = "localhost", port = 3000 }
             database = { max_connections = 1, min_connections = 1 }
             scheduler = { implementation="vps", poll_interval_secs=1, retention_interval_secs=3600, invocation_budget_secs=240, retention_reserve_secs=5, enabled=false, concurrency=1, max_attempts=2, retry_backoff_secs=1, lease_secs=5, max_payload_bytes=20971520, max_email_bytes=20971520 }
-            browser = { public_origin = "http://localhost:8084", insecure_local = true }
+            browser = { allowed_origins = ["http://localhost:8084"], insecure_local = true }
         "#;
         let builder = config::Config::builder()
             .add_source(config::File::from_str(source, config::FileFormat::Toml))
@@ -671,7 +755,7 @@ fn scheduler_limits_are_validated_at_startup() {
     let settings: Settings = Config::builder()
         .add_source(File::with_name("application"))
         .add_source(File::with_name("application.local"))
-        .set_override("browser.public_origin", "http://localhost:8084")
+        .set_override("browser.allowed_origins", vec!["http://localhost:8084"])
         .unwrap()
         .set_override("database.url", "postgres://unused")
         .unwrap()
@@ -750,27 +834,56 @@ fn local_toml_can_choose_either_cron_without_deployment_metadata() {
             assert_eq!(settings.scheduler.implementation, expected);
             assert_eq!(settings.scheduler.poll_interval_secs, 1);
             assert_eq!(settings.scheduler.retention_interval_secs, 2);
-            assert_eq!(settings.browser.public_origin, "http://localhost:8084");
+            assert_eq!(
+                settings.browser.allowed_origins,
+                vec!["http://localhost:8084"]
+            );
         }
     });
 }
 
 #[test]
-fn production_forces_vercel_even_when_toml_selects_vps() {
+fn production_preserves_toml_scheduler_selection() {
     temp_env::with_vars(
         [
             ("VERCEL_ENV", Some("production")),
-            ("VERCEL_URL", Some("preview.vercel.app")),
-            ("VERCEL_PROJECT_PRODUCTION_URL", Some("project.vercel.app")),
+            ("VERCEL_URL", None),
+            ("VERCEL_PROJECT_PRODUCTION_URL", None),
+            (
+                "DATABASE_URL",
+                Some("postgres://synthetic:synthetic@localhost/runtime"),
+            ),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
         ],
         || {
-            let settings = Settings::load(settings_builder(), "prod").unwrap();
-            assert_eq!(
-                settings.scheduler.implementation,
-                CronImplementation::Vercel
-            );
-            assert_eq!(settings.browser.public_origin, "https://project.vercel.app");
-            assert!(!settings.browser.insecure_local);
+            for (value, expected) in [
+                ("vps", CronImplementation::Vps),
+                ("vercel", CronImplementation::Vercel),
+            ] {
+                let overlay = format!("[scheduler]\nimplementation={value:?}");
+                let settings = Settings::load(
+                    settings_builder()
+                        .add_source(File::from_str(
+                            include_str!("../../application.prod.toml"),
+                            FileFormat::Toml,
+                        ))
+                        .add_source(File::from_str(&overlay, FileFormat::Toml)),
+                    "prod",
+                )
+                .unwrap();
+                assert_eq!(settings.scheduler.implementation, expected);
+                assert_eq!(
+                    settings.browser.allowed_origins,
+                    vec![
+                        "https://convention.enzumeii.com",
+                        "https://enzumeii.vercel.app"
+                    ]
+                );
+                assert!(!settings.browser.insecure_local);
+            }
         },
     );
 }
@@ -892,65 +1005,99 @@ fn s3_absent_credentials_remain_optional_and_inherited_values_are_preserved() {
 }
 
 #[test]
-fn additional_browser_origins_require_exact_https_origins() {
-    for origin in [
-        "http://localhost:8084",
-        "http://custom.example.test",
-        "https://*.example.test",
-        "https://user@custom.example.test",
-        "https://user:pass@custom.example.test",
-        "https://custom.example.test/",
-        "https://custom.example.test/backoffice/",
-        "https://custom.example.test?query=1",
-        "https://custom.example.test#fragment",
-        "null",
-        "*",
-        "custom.example.test",
-        "",
-        "https://custom.example.test:invalid",
-        "https://custom.example.test:65536",
-        "https://custom.example.test:",
-    ] {
-        let settings: Settings = settings_builder()
-            .set_override("browser.additional_origins", vec![origin])
-            .unwrap()
-            .build()
-            .unwrap()
-            .try_deserialize()
-            .unwrap();
-        assert!(settings.validate().is_err(), "{origin}");
+fn browser_allowed_origins_reject_malformed_values_in_any_position() {
+    for insecure_local in [false, true] {
+        for origin in [
+            "http://custom.example.test",
+            "https://*.example.test",
+            "https://user@custom.example.test",
+            "https://user:pass@custom.example.test",
+            "https://custom.example.test/",
+            "https://custom.example.test/backoffice/",
+            "https://custom.example.test?query=1",
+            "https://custom.example.test#fragment",
+            "null",
+            "*",
+            "custom.example.test",
+            "",
+            "https://custom.example.test:invalid",
+            "https://custom.example.test:65536",
+            "https://custom.example.test:",
+        ] {
+            for origins in [
+                vec![origin, "https://valid.example.test"],
+                vec!["https://valid.example.test", origin],
+            ] {
+                let settings: Settings = settings_builder()
+                    .set_override("browser.allowed_origins", origins)
+                    .unwrap()
+                    .set_override("browser.insecure_local", insecure_local)
+                    .unwrap()
+                    .build()
+                    .unwrap()
+                    .try_deserialize()
+                    .unwrap();
+                assert!(
+                    settings.validate().is_err(),
+                    "{origin}, insecure_local={insecure_local}"
+                );
+            }
+        }
     }
 }
 
 #[test]
-fn additional_browser_origins_default_empty_and_preserve_exact_https_values() {
-    let settings: Settings = settings_builder()
-        .build()
-        .unwrap()
-        .try_deserialize()
-        .unwrap();
-    assert_eq!(settings.browser.additional_origins, Vec::<String>::new());
-    for origin in [
-        "https://convention.enzumeii.com",
-        "https://custom.example.test:8443",
+fn browser_allowed_origins_accept_https_and_only_explicit_loopback_http() {
+    for (origins, insecure_local) in [
+        (
+            vec![
+                "https://convention.enzumeii.com",
+                "https://custom.example.test:8443",
+            ],
+            false,
+        ),
+        (
+            vec!["http://localhost:8084", "https://convention.enzumeii.com"],
+            true,
+        ),
+        (
+            vec![
+                "https://convention.enzumeii.com",
+                "http://127.0.0.1:8084",
+                "http://[::1]:8084",
+            ],
+            true,
+        ),
     ] {
         let settings: Settings = settings_builder()
-            .set_override("browser.additional_origins", vec![origin])
+            .set_override("browser.allowed_origins", origins)
+            .unwrap()
+            .set_override("browser.insecure_local", insecure_local)
             .unwrap()
             .build()
             .unwrap()
             .try_deserialize()
             .unwrap();
         settings.validate().unwrap();
-        assert_eq!(
-            settings.browser.origins().collect::<Vec<_>>(),
-            vec!["http://localhost:8084", origin]
-        );
     }
+    let settings: Settings = settings_builder()
+        .set_override("browser.allowed_origins", vec!["http://localhost:8084"])
+        .unwrap()
+        .set_override("browser.insecure_local", false)
+        .unwrap()
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert!(settings.validate().is_err());
+    assert!(
+        serde_json::from_value::<BrowserConfig>(serde_json::json!({"insecure_local": false}))
+            .is_err()
+    );
 }
 
 #[test]
-fn vercel_nonproduction_metadata_clears_file_additional_origins() {
+fn vercel_nonproduction_metadata_replaces_the_configured_allowed_origins() {
     for (mode, environment, host) in [
         ("local", "development", "localhost:18027"),
         ("prod", "development", "localhost:18027"),
@@ -965,8 +1112,11 @@ fn vercel_nonproduction_metadata_clears_file_additional_origins() {
                 Settings::load(
                     settings_builder()
                         .set_override(
-                            "browser.additional_origins",
-                            vec!["https://custom.example.test"],
+                            "browser.allowed_origins",
+                            vec![
+                                "https://custom.example.test",
+                                "https://another.example.test",
+                            ],
                         )
                         .unwrap(),
                     mode,
@@ -975,49 +1125,51 @@ fn vercel_nonproduction_metadata_clears_file_additional_origins() {
         )
         .unwrap();
         assert_eq!(
-            settings.browser.additional_origins,
-            Vec::<String>::new(),
+            settings.browser.allowed_origins,
+            vec![if environment == "development" {
+                format!("http://{host}")
+            } else {
+                format!("https://{host}")
+            }],
             "{mode}: {environment}"
         );
-        assert_eq!(settings.browser.origins().count(), 1);
+        assert_eq!(
+            settings.browser.insecure_local,
+            environment == "development"
+        );
     }
 }
 
 #[test]
-fn qa_accepts_only_nonempty_test_server_keys() {
-    for key in [Some("sk_test_synthetic"), Some("rk_test_synthetic")] {
-        temp_env::with_var("STRIPE_SECRET_KEY", key, || {
-            let settings = Settings::load(settings_builder(), "qa").unwrap();
-            assert_eq!(
-                settings
-                    .client
-                    .unwrap()
-                    .stripe
-                    .unwrap()
-                    .secret_key
-                    .as_deref(),
-                key
-            );
-        });
-    }
+fn all_environments_keep_optional_stripe_key_semantics() {
     for key in [
         None,
         Some(""),
-        Some("sk_test_"),
-        Some("rk_test_"),
         Some("sk_live_synthetic"),
-        Some("rk_live_synthetic"),
-        Some("pk_test_synthetic"),
-        Some("unknown"),
-        Some(" sk_test_synthetic"),
+        Some("unclassified_synthetic"),
     ] {
-        temp_env::with_var("STRIPE_SECRET_KEY", key, || {
-            let error = Settings::load(settings_builder(), "qa").unwrap_err();
-            assert!(error.to_string().contains("STRIPE_SECRET_KEY"));
-            if let Some(key) = key.filter(|key| key.len() > 8) {
-                assert!(!error.to_string().contains(key));
-            }
-        });
+        temp_env::with_vars(
+            [
+                ("STRIPE_SECRET_KEY", key),
+                ("VERCEL_ENV", Some("preview")),
+                ("VERCEL_URL", Some("synthetic.vercel.app")),
+            ],
+            || {
+                for mode in ["local", "qa", "prod"] {
+                    let settings = Settings::load(settings_builder(), mode).unwrap();
+                    assert_eq!(
+                        settings
+                            .client
+                            .unwrap()
+                            .stripe
+                            .unwrap()
+                            .secret_key
+                            .as_deref(),
+                        key,
+                    );
+                }
+            },
+        );
     }
 }
 
@@ -1027,43 +1179,31 @@ fn qa_startup_probe() {
         return;
     };
     let result = Settings::new();
-    match expected.as_str() {
-        "qa" => {
-            let settings = result.unwrap();
-            assert_eq!(settings.server.port, 3099);
-            assert_eq!(settings.browser.public_origin, "http://localhost:8084");
-            assert_eq!(settings.scheduler.implementation, CronImplementation::Vps);
-            let client = settings.client.unwrap();
-            assert_eq!(client.s3.unwrap().endpoint, "http://localhost:3001");
-            assert_eq!(
-                client.stripe.unwrap().base_url,
-                "https://api.stripe.com/v1/"
-            );
-        }
-        "invalid-private-file" => {
-            let error = result.unwrap_err().to_string();
-            assert!(error.contains("QA private environment file"));
-            assert!(!error.contains("synthetic-secret"));
-        }
-        "missing-overlay" => assert!(result.unwrap_err().to_string().contains("application.qa")),
-        "key" => assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("STRIPE_SECRET_KEY")
-        ),
-        "explicit-mode" => assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("explicit RUN_ENV=qa")
-        ),
-        _ => panic!("unknown synthetic config probe"),
+    if expected == "missing-overlay" {
+        assert!(result.unwrap_err().to_string().contains("application.qa"));
+        return;
     }
+    let settings = result.unwrap();
+    assert_eq!(
+        settings.server.port,
+        if expected == "qa" { 3099 } else { 3098 }
+    );
+    assert_eq!(
+        settings.browser.allowed_origins,
+        vec!["http://localhost:8084"]
+    );
+    assert!(settings.browser.insecure_local);
+    assert_eq!(settings.scheduler.implementation, CronImplementation::Vps);
+    let client = settings.client.unwrap();
+    assert_eq!(client.s3.unwrap().endpoint, "http://localhost:3001");
+    let stripe = client.stripe.unwrap();
+    assert_eq!(stripe.base_url, "https://api.stripe.com/v1/");
+    assert_eq!(stripe.timeout_secs, 10);
+    assert_eq!(stripe.secret_key, env::var("QA_EXPECTED_KEY").ok());
 }
 
 #[test]
-fn qa_startup_isolates_private_files_and_requires_its_overlay() {
+fn ordinary_dotenv_selects_qa_with_inherited_precedence_and_required_overlay() {
     let fixture = std::env::temp_dir().join(format!("monolith-qa-config-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir(&fixture).unwrap();
     std::fs::write(
@@ -1073,7 +1213,10 @@ fn qa_startup_isolates_private_files_and_requires_its_overlay() {
     .unwrap();
     std::fs::write(
         fixture.join("application.local.toml"),
-        "[server]\nport = 3098\n",
+        format!(
+            "{}\n[server]\nport = 3098\n",
+            include_str!("../../application.local.toml")
+        ),
     )
     .unwrap();
     std::fs::write(
@@ -1084,76 +1227,59 @@ fn qa_startup_isolates_private_files_and_requires_its_overlay() {
         ),
     )
     .unwrap();
+    let run =
+        |expected: &str, mode: Option<&str>, key: Option<&str>, expected_key: Option<&str>| {
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child
+                .args(["--exact", "config::tests::qa_startup_probe", "--nocapture"])
+                .current_dir(&fixture)
+                .env_clear()
+                .env("QA_CONFIG_PROBE", expected)
+                .env(
+                    "DATABASE_URL",
+                    "postgres://synthetic:synthetic@localhost/qa",
+                )
+                .env("JWT_SECRET", "ab".repeat(32));
+            if let Some(mode) = mode {
+                child.env("RUN_ENV", mode);
+            }
+            if let Some(key) = key {
+                child.env("STRIPE_SECRET_KEY", key);
+            }
+            if let Some(key) = expected_key {
+                child.env("QA_EXPECTED_KEY", key);
+            }
+            let output = child.output().unwrap();
+            assert!(
+                output.status.success(),
+                "{expected}: {}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
     std::fs::write(
         fixture.join(".env"),
-        "STRIPE_SECRET_KEY=sk_live_synthetic\nRUN_ENV=qa\n",
+        "RUN_ENV=qa\nSTRIPE_SECRET_KEY=synthetic-dotenv-key\n",
     )
     .unwrap();
-    let run = |expected: &str, mode: Option<&str>, key: Option<&str>| {
-        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
-        child
-            .args(["--exact", "config::tests::qa_startup_probe", "--nocapture"])
-            .current_dir(&fixture)
-            .env_clear()
-            .env("QA_CONFIG_PROBE", expected)
-            .env(
-                "DATABASE_URL",
-                "postgres://synthetic:synthetic@localhost/qa",
-            )
-            .env("JWT_SECRET", "ab".repeat(32));
-        if let Some(mode) = mode {
-            child.env("RUN_ENV", mode);
-        }
-        if let Some(key) = key {
-            child.env("STRIPE_SECRET_KEY", key);
-        }
-        let output = child.output().unwrap();
-        assert!(
-            output.status.success(),
-            "{expected}: {}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    };
-    run("key", Some("qa"), None);
-    run("qa", Some("qa"), Some("sk_test_synthetic"));
-    std::fs::write(
-        fixture.join(".env.qa"),
-        "STRIPE_SECRET_KEY=rk_test_synthetic\n",
-    )
-    .unwrap();
-    run("qa", Some("qa"), None);
-    run("key", Some("qa"), Some("sk_live_inherited"));
-    run("explicit-mode", None, None);
-    std::fs::remove_file(fixture.join("application.qa.toml")).unwrap();
-    run("missing-overlay", Some("qa"), Some("sk_test_synthetic"));
-    std::fs::write(
-        fixture.join(".env.qa"),
-        "STRIPE_SECRET_KEY=\"synthetic-secret\n",
-    )
-    .unwrap();
+    run("qa", None, None, Some("synthetic-dotenv-key"));
     run(
-        "invalid-private-file",
-        Some("qa"),
-        Some("sk_test_synthetic"),
+        "local",
+        Some("local"),
+        Some("synthetic-inherited-key"),
+        Some("synthetic-inherited-key"),
     );
+    run(
+        "qa",
+        Some("qa"),
+        Some("synthetic-inherited-key"),
+        Some("synthetic-inherited-key"),
+    );
+    std::fs::write(fixture.join(".env"), "RUN_ENV=qa\n").unwrap();
+    run("qa", None, None, None);
+    std::fs::write(fixture.join(".env"), "").unwrap();
+    run("local", None, None, None);
+    std::fs::remove_file(fixture.join("application.qa.toml")).unwrap();
+    run("missing-overlay", Some("qa"), None, None);
     std::fs::remove_dir_all(fixture).unwrap();
-}
-
-#[test]
-fn local_and_production_keep_optional_stripe_key_semantics() {
-    for key in [None, Some(""), Some("sk_live_synthetic")] {
-        temp_env::with_vars(
-            [
-                ("STRIPE_SECRET_KEY", key),
-                ("VERCEL_ENV", Some("preview")),
-                ("VERCEL_URL", Some("synthetic.vercel.app")),
-            ],
-            || {
-                for mode in ["local", "prod"] {
-                    assert!(Settings::load(settings_builder(), mode).is_ok());
-                }
-            },
-        );
-    }
 }

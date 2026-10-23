@@ -23,9 +23,7 @@ pub struct JwtSettings {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct BrowserConfig {
-    #[serde(default)]
-    pub additional_origins: Vec<String>,
-    pub public_origin: String,
+    pub allowed_origins: Vec<String>,
     pub insecure_local: bool,
 }
 #[derive(Debug, Deserialize, Clone)]
@@ -191,35 +189,20 @@ impl Settings {
                 "Shipping sender profile is incomplete".into(),
             ));
         }
-        validate_browser_origin(&self.browser.public_origin, self.browser.insecure_local)?;
-        for origin in &self.browser.additional_origins {
-            validate_browser_origin(origin, false)?;
+        if self.browser.allowed_origins.is_empty() {
+            return Err(ConfigError::Message(
+                "Browser allowed origins must not be empty".into(),
+            ));
+        }
+        for origin in &self.browser.allowed_origins {
+            validate_browser_origin(origin, self.browser.insecure_local)?;
         }
         Ok(())
     }
 
     pub fn new() -> Result<Self, ConfigError> {
-        let explicit_qa = env::var("RUN_ENV").as_deref() == Ok("qa");
-        if explicit_qa {
-            match dotenvy::from_path(".env.qa") {
-                Ok(()) => {}
-                Err(dotenvy::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(_) => {
-                    return Err(ConfigError::Message(
-                        "Unable to load QA private environment file".into(),
-                    ));
-                }
-            }
-        } else {
-            let _ = dotenvy::dotenv();
-        }
+        let _ = dotenvy::dotenv();
         let mode = env::var("RUN_ENV").unwrap_or_else(|_| "local".into());
-        if mode == "qa" && !explicit_qa {
-            return Err(ConfigError::Message(
-                "QA startup requires explicit RUN_ENV=qa before loading private environment files"
-                    .into(),
-            ));
-        }
         Self::load(
             Config::builder()
                 .add_source(File::with_name("application"))
@@ -235,17 +218,15 @@ impl Settings {
             ));
         }
         if mode == "prod" {
-            builder = builder.set_override("scheduler.implementation", "vercel")?;
+            builder = builder.set_override("browser.insecure_local", false)?;
         }
-        if mode == "prod" || env::var("VERCEL_ENV").as_deref() == Ok("development") {
+        if (mode == "prod" || env::var("VERCEL_ENV").as_deref() == Ok("development"))
+            && env::var("VERCEL_ENV").as_deref() != Ok("production")
+        {
             let (origin, insecure_local) = deployment_origin()?;
             builder = builder
-                .set_override("browser.public_origin", origin)?
+                .set_override("browser.allowed_origins", vec![origin])?
                 .set_override("browser.insecure_local", insecure_local)?;
-            if env::var("VERCEL_ENV").as_deref() != Ok("production") {
-                builder =
-                    builder.set_override("browser.additional_origins", Vec::<String>::new())?;
-            }
         }
         if let Ok(secret) = env::var("CRON_SECRET") {
             builder = builder.set_override("cron_secret", secret)?;
@@ -297,31 +278,7 @@ impl Settings {
         }
         let settings: Self = builder.build()?.try_deserialize()?;
         settings.validate()?;
-        if mode == "qa" {
-            let key = settings
-                .client
-                .as_ref()
-                .and_then(|client| client.stripe.as_ref())
-                .and_then(|stripe| stripe.secret_key.as_deref());
-            if !key.is_some_and(|key| {
-                ["sk_test_", "rk_test_"].iter().any(|prefix| {
-                    key.strip_prefix(prefix)
-                        .is_some_and(|suffix| !suffix.is_empty())
-                }) && !key.chars().any(char::is_whitespace)
-            }) {
-                return Err(ConfigError::Message(
-                    "QA requires STRIPE_SECRET_KEY to be a nonempty sk_test_ or rk_test_ server key".into(),
-                ));
-            }
-        }
         Ok(settings)
-    }
-}
-
-impl BrowserConfig {
-    pub(crate) fn origins(&self) -> impl Iterator<Item = &str> {
-        std::iter::once(self.public_origin.as_str())
-            .chain(self.additional_origins.iter().map(String::as_str))
     }
 }
 
@@ -340,8 +297,7 @@ fn validate_browser_origin(value: &str, insecure_local: bool) -> Result<(), Conf
     if authority.as_str().contains(['@', '*'])
         || (authority.as_str() != authority.host() && authority.port_u16().is_none())
         || format!("{scheme}://{authority}") != value
-        || (insecure_local && (scheme != "http" || !loopback))
-        || (!insecure_local && scheme != "https")
+        || !(scheme == "https" || (insecure_local && scheme == "http" && loopback))
     {
         return Err(ConfigError::Message(
             "Browser cookies require HTTPS or explicit loopback HTTP".into(),
@@ -354,20 +310,14 @@ fn deployment_origin() -> Result<(String, bool), ConfigError> {
     let environment = env::var("VERCEL_ENV").map_err(|_| {
         ConfigError::Message("Vercel deployment environment metadata is required".into())
     })?;
-    if !matches!(
-        environment.as_str(),
-        "production" | "preview" | "development"
-    ) {
+    if !matches!(environment.as_str(), "preview" | "development") {
         return Err(ConfigError::Message(
             "Invalid Vercel deployment environment metadata".into(),
         ));
     }
-    let hostname = if environment == "production" {
-        env::var("VERCEL_PROJECT_PRODUCTION_URL").or_else(|_| env::var("VERCEL_URL"))
-    } else {
-        env::var("VERCEL_URL")
-    }
-    .map_err(|_| ConfigError::Message("Vercel public deployment metadata is required".into()))?;
+    let hostname = env::var("VERCEL_URL").map_err(|_| {
+        ConfigError::Message("Vercel public deployment metadata is required".into())
+    })?;
     let development = environment == "development";
     if development {
         let valid = hostname.rsplit_once(':').is_some_and(|(host, port)| {
@@ -381,8 +331,10 @@ fn deployment_origin() -> Result<(String, bool), ConfigError> {
             ));
         }
     } else if !hostname.ends_with(".vercel.app")
+        || hostname.len() > 253
         || hostname.split('.').any(|label| {
             label.is_empty()
+                || label.len() > 63
                 || label.starts_with('-')
                 || label.ends_with('-')
                 || !label

@@ -6,16 +6,15 @@ Run `../../init.sh` to install the CLI packages after installing Rust, Docker, a
 
 Optionally install [Bitwarden CLI](https://bitwarden.com/help/cli/) with `npm install -g @bitwarden/cli`, then run `bw login`. `just setup --local` reads same-named credential custom fields from item `87323839-368f-4288-a4a5-9b0320699892`; `just setup --qa` uses item `0a291e2c-4ae4-436d-8730-ddf301a544d7`; a locked vault prompts for your master password in your terminal. Keep passwords and session tokens in your terminal, never in chat or `.env`.
 
-Without Bitwarden CLI, local setup uses local defaults. QA setup requires a Stripe test key (`sk_test_` or `rk_test_`) from its vault item or an existing `.env.qa`. Setup installs pinned dprint under `.tools/`, caches its plugins, and fills missing/empty settings in `.env` (local) or `.env.qa` (QA) while preserving nonempty values. Bitwarden imports only `JWT_SECRET`, `CRON_SECRET`, `SHOPIFY_ACCESS_TOKEN`, `RESEND_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, and `STRIPE_SECRET_KEY`; clear an assignment before rerunning to replace it. Missing fields use local defaults: random `JWT_SECRET` and `CRON_SECRET` values, synthetic local S3 keys/sender profile, and empty optional provider credentials. Vault failures leave the selected environment file unchanged. QA writes `.env.qa` atomically with owner-only permissions and does not copy local credentials. Use your real sender profile and S3 credentials before production use; the common PayPal URL is production, and QA does not make other providers sandbox services.
+Setup installs pinned dprint under `.tools/`, caches its plugins and writes the existing `.env` atomically with owner-only permissions. It sets `RUN_ENV` to the selected mode. Same-mode setup preserves nonempty values; switching modes replaces the imported credential allowlist from the selected item or defaults, while preserving database, S3, sender and unrelated values. The allowlist is `JWT_SECRET`, `CRON_SECRET`, `SHOPIFY_ACCESS_TOKEN`, `RESEND_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` and `STRIPE_SECRET_KEY`. Without Bitwarden CLI, the same preservation/switch policy uses generated signing/cron defaults and empty optional provider defaults. Vault failures leave `.env` unchanged. Keep real sender profiles and S3 credentials private.
 
 ## Run locally
 
-- `just setup --local` installs formatter tooling and fills missing/empty `.env` settings; `just setup` is the same local command.
-- `just setup --qa` installs the same tooling and prepares separate `.env.qa` credentials for Stripe sandbox use.
-- `just run --local` reads `.env` and `application.local.toml`; `just run` is the same local command.
-- `just run --qa` reads `.env.qa` and `application.qa.toml`, requires a Stripe test key and clears inherited application secrets before loading QA credentials.
-- Both run modes start API at `localhost:3000`, local S3 at `localhost:3001` and use browser origin `http://localhost:8084`. Stripe uses `https://api.stripe.com/v1/` in both modes; the key selects test/live mode. See [sandbox exercise](../../docs/development.md#stripe-hosted-checkout).
-- Edit the selected overlay scheduler `implementation` (`vps` or `vercel`) to choose local cron execution. `RUN_ENV=prod` uses production overrides and forces Vercel cron.
+- `just setup` or `just setup --local` installs formatter tooling and selects local credentials in `.env`.
+- `just setup --qa` selects QA credentials in the same `.env`.
+- `just run` reads `RUN_ENV` from the environment or `.env` and selects `application.local.toml` or the required `application.qa.toml`; absent `RUN_ENV` defaults to local. Exported variables take precedence over `.env`.
+- Local and QA start API at `localhost:3000`, local S3 at `localhost:3001` and allow browser origin `http://localhost:8084`. Stripe uses `https://api.stripe.com/v1/` in both modes; use the QA item's sandbox credential for test payments. See [sandbox exercise](../../docs/development.md#stripe-hosted-checkout). QA mode alone does not select a provider sandbox; the common PayPal URL remains production.
+- Edit the selected overlay's scheduler `implementation` (`vps` or `vercel`) to choose cron execution. `RUN_ENV=prod` reads `application.prod.toml`, which selects Vercel cron.
 
 ## Vercel cron timing
 
