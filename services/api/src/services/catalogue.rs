@@ -3,6 +3,7 @@ use crate::{
     error::{AppError, upstream},
     models::shopify::{PageRequest, ProductStatus, ShopifyId, catalogue::SelectionVariant},
 };
+use axum::http::StatusCode;
 use domain::dto::{
     CatalogueInventoryPolicy, CatalogueProduct, CatalogueResponse, CatalogueUnavailableReason,
     CatalogueVariant,
@@ -30,11 +31,13 @@ pub async fn products(
             .map_err(|error| upstream(error))?;
         let active = matches!(product.status, ProductStatus::Active);
         let mut variants = Vec::new();
-        for variant in product
-            .variants
-            .into_complete_nodes()
-            .map_err(|error| upstream(error))?
-        {
+        for variant in product.variants.into_complete_nodes().map_err(|error| {
+            AppError::new(
+                StatusCode::BAD_GATEWAY,
+                "Product variants exceed the supported catalogue browse limit of 250",
+            )
+            .with_source(error)
+        })? {
             variants.push(selection_variant(variant, active)?);
         }
         products.push(CatalogueProduct {

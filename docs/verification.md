@@ -4,22 +4,36 @@ Results describe this revision's exercised scope, separately from [architecture]
 
 ## ENZ-35 + ENZ-36 convention configuration and catalogue — local verification (2026-10-23)
 
-Final source is `e57bfb4`, following `eb938b1` (conventions) and `4bcd025` (catalogue), on `feat/ENZ-35`. Results are local. The full API regression covers `eb938b1`; the narrow request-validation/layout follow-up has separate focused evidence. Domain/frontend source is unchanged by that follow-up.
+Combined source `a9bf7b0` on `feat/ENZ-35` merges `origin/main` `b3cc7a7` (single browser origin allowlist) with feature source `e57bfb4` and documentation `7597077`. Results are local. The complete API regression below covers this merged source, including the strict request-validation follow-up. Domain/frontend and outbound GraphQL query sources are unchanged from their separately verified revisions. The final review follow-up below has separate scoped evidence; the full recipe remains tied to frozen `a9bf7b0`.
 
 | Check / contract | Actual evidence |
 | --- | --- |
-| API strict check | Existing `just check` passes again after the follow-up: 21 setup-helper tests, pinned dprint, Rust formatting and strict native/E2E Clippy |
-| Full API recipe | Existing `just test` exits 0 at `eb938b1`: 342 native + 175 real-TCP tests, zero failed/ignored; TCP phase 794.06s. At `e57bfb4`, all 18 convention TCP cases pass again (30.13s), including the new strict-query/DELETE-body regression; no second full-suite run is claimed |
+| API strict check | Existing `just check` exits 0 at merged `a9bf7b0`: 21 setup-helper tests, pinned dprint, Rust formatting and strict native/E2E Clippy |
+| Full API recipe | Existing `just test` exits 0 at merged `a9bf7b0`: 345 native + 176 real-TCP tests, zero failed/ignored; TCP phase 703.61s. Includes all 18 convention cases and upstream allowlist/cookie/CORS regressions; recipe completes owned dependency cleanup |
 | Domain boundary | Existing check/test recipes pass: 12 unit tests + 8 contracts, zero failed/ignored; strict native Clippy and `wasm32-unknown-unknown` compilation. Common PatchField cron compatibility and decimal-string wire types covered |
 | Frontend consumers | Existing backoffice check/test pass: 131 app tests plus 20 shared-domain tests; client UI check/test pass: 8 app tests. Both native/WASM strict lint and domain database-free WASM compilation pass |
-| Workspace/static | `cargo fmt --all -- --check` passes. Documentation fences, whole-tree whitespace and three-file scope checks pass |
+| Workspace/static | `cargo fmt --all -- --check` and whole-tree `git diff --check` exit 0 at merged `a9bf7b0`. Final verification-document fence/text and scoped whitespace checks also pass |
 | Postman | Local workspace lint exit 0: 66 entities, zero errors, one pre-existing cron-preview FMT209 warning. Both new GraphQL documents match saved request bytes and executable variable keys. Seven convention examples and catalogue first/continuation examples parse and retain exact `"12.99"`, raw search and cursor variables |
 | Report preservation | 22 existing report/provider request/query files remain byte-identical to base `884fdc0`; catalogue omits supplier cost and uses `available`, while inventory/report `on_hand`, sorting, paging and numeric totals remain unchanged |
-| Controlled endpoint coverage | Eight catalogue and 18 convention E2E scenarios use real API TCP, SQLx/Compose PostgreSQL and controlled Shopify TCP. Assertions cover content/zero-vs-null availability/raw search/paging/overflow; metadata/default false, both roles, cookie origins/PUT preflight, strict query/DELETE body rejection, exact SQL NUMERIC 12.99, policy/eligibility failures, rollback/commit faults and concurrent enable/clear/save/PATCH behavior |
-| Isolation | Owned worktree Cargo target; Compose project `enz35`, PostgreSQL port 15435 / S3 port 15436. Recipe removed owned PostgreSQL/S3 containers, S3 volume and network. No shared production database or provider was used |
-| Detailed evidence | Ignored `.superpowers/sdd/ENZ-35-convention-configuration-variant-pricing/` retains task reports and full check logs; task3 records command exits, source IDs, acceptance matrix and query hashes |
+| Controlled endpoint coverage at `a9bf7b0` | Eight catalogue and 18 convention E2E scenarios use real API TCP, SQLx/Compose PostgreSQL and controlled Shopify TCP. Assertions cover content/zero-vs-null availability/raw search/paging/overflow; metadata/default false, both roles, cookie origins/PUT preflight, strict query/DELETE body rejection, exact SQL NUMERIC 12.99, policy/eligibility failures, rollback/commit faults and concurrent enable/clear/save/PATCH behavior |
+| Isolation | Owned worktree Cargo target; Compose project `enz35`, PostgreSQL port 15435 / S3 port 15436. Recipe removed owned PostgreSQL/S3 containers, S3 volume and network; independent post-recipe queries found no owned resources or API process remaining. No shared production database or provider was used |
+| Detailed evidence | Ignored `.superpowers/sdd/ENZ-35-convention-configuration-variant-pricing/` retains task reports, full check logs and query hashes; `integration-report.md` records merged source, integration audit, command exits, test counts and independent cleanup proof |
 
-Controlled responses establish exercised transport/contracts, not live Shopify schema compatibility, merchant permissions/capabilities, query cost or a real payment. No production migration/deployment, live provider mutation/charge, manual browser UI acceptance or hosted CI is asserted. Integration with subsequently advanced `origin/main` is not covered by these results. Public APIs (ENZ-38), routing (ENZ-41), quotes, checkout and historical order snapshots/protection remain future work; parent deletion currently cascades current memberships.
+### Final review follow-up
+
+The scoped follow-up after `a9bf7b0` changes only the catalogue nested-overflow message and adds the missing extraction regressions. The full 345-native/176-TCP result above remains evidence for frozen `a9bf7b0`; the two added TCP scenarios were exercised by the focused runs below. The full suite was not repeated for this narrow follow-up.
+
+| Check / contract | Actual evidence |
+| --- | --- |
+| Overflow red/green | New real-TCP regression first fails with the old generic error (exit 101), then passes after the catalogue-owned mapper returns exact 502 `Product variants exceed the supported catalogue browse limit of 250`; no partial products, original private cause retained, shared report/upstream mapper unchanged |
+| Focused endpoint matrices | `cargo api-e2e catalogue`: 9 passed, zero failed/ignored, 44.23s; `cargo api-e2e conventions`: 19 passed, zero failed/ignored, 29.43s. Includes existing generic provider failures, both roles, cookie origins/PUT preflight, rollback and concurrency regressions |
+| JSON extraction/no effects | POST/PATCH/PUT each reject malformed JSON with JSON Content-Type and valid JSON with absent/wrong Content-Type: all nine raw requests return exact safe 400. SQLx snapshots prove every owned parent/selection field unchanged and no new POST row; controlled Shopify records zero additional business calls |
+| Strict/static | `just --no-dotenv --justfile services/api/justfile check` exits 0: 21 setup tests, dprint, Rust formatting and both strict Clippy targets. `cargo fmt --all -- --check` and final `git diff --check` exit 0 |
+| Postman | Local lint exits 0: 66 entities, zero errors, same existing cron FMT209 warning. Both executable catalogue descriptions contain exact safe overflow/generic examples; both outbound GraphQL query bytes and variable sets remain identical to source |
+| Isolation/cleanup | Reused owned target and synthetic `enz35` ports 15435/15436 after the full-suite owner released them. Compose used `--env-file /dev/null`; recipe check used `--no-dotenv`. `down -v` exits 0; independent queries find no owned containers, volumes, networks or API process |
+| Detailed evidence | Ignored `final-fix-report.md` and `final-fix-*.log` beside the integration evidence record exact commands, exits and scoped changed paths |
+
+Controlled responses establish exercised transport/contracts, not live Shopify schema compatibility, merchant permissions/capabilities, query cost or a real payment. No production migration/deployment, live provider mutation/charge, manual browser UI acceptance or hosted CI is asserted. Public APIs (ENZ-38), routing (ENZ-41), quotes, checkout and historical order snapshots/protection remain future work; parent deletion currently cascades current memberships.
 
 ## ENZ-27 static services and cron implementations — 2026-10-22 / 23
 

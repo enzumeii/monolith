@@ -1140,6 +1140,76 @@ async fn conventions_accept_boundaries_paginate_and_allow_both_admin_roles() {
     }
 }
 #[tokio::test]
+async fn conventions_reject_malformed_json_and_content_types_without_effects() {
+    use axum::{body::Body, http::HeaderValue};
+
+    const OWNED_STATE: &str = "SELECT jsonb_build_object('conventions',COALESCE((SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM conventions c WHERE left(c.slug,12)=$1),'[]'::jsonb),'variants',COALESCE((SELECT jsonb_agg(to_jsonb(v) ORDER BY v.id) FROM convention_variants v JOIN conventions c ON c.id=v.convention_id WHERE left(c.slug,12)=$1),'[]'::jsonb))";
+    let f = fixture().await;
+    let (c, upstream) = client_with_upstream_script(vec![remote(2)], "http").await;
+    let created = create(&c, &f, input(f.prefix())).await;
+    let path = format!("{URI}/{}", created["id"].as_str().unwrap());
+    let variants = format!("{path}/variants");
+    mutate(
+        &c,
+        &f,
+        "PUT",
+        &variants,
+        json!({"items":[item(2,"12.99")]}),
+        200,
+    )
+    .await;
+    let before: Value = sqlx::query_scalar(OWNED_STATE)
+        .bind(f.prefix())
+        .fetch_one(&f.pool())
+        .await
+        .unwrap();
+    assert_eq!(before["conventions"].as_array().unwrap().len(), 1);
+    assert_eq!(before["variants"].as_array().unwrap().len(), 1);
+    let calls_before = upstream.requests().len();
+    assert_eq!(calls_before, 1);
+    for (method, uri, valid) in [
+        ("POST", URI, input(&format!("{}-rejected", f.prefix()))),
+        (
+            "PATCH",
+            path.as_str(),
+            json!({"name":"Must not change","preorder_enabled":true}),
+        ),
+        ("PUT", variants.as_str(), json!({"items":[item(3,"20")]})),
+    ] {
+        for (content_type, bytes) in [
+            (Some("application/json"), b"{\"broken\":".to_vec()),
+            (None, serde_json::to_vec(&valid).unwrap()),
+            (Some("text/plain"), serde_json::to_vec(&valid).unwrap()),
+        ] {
+            let mut request = authed(method, uri, f.root_id(), AdminRole::Admin);
+            if let Some(content_type) = content_type {
+                request
+                    .headers_mut()
+                    .insert("content-type", HeaderValue::from_static(content_type));
+            }
+            *request.body_mut() = Body::from(bytes);
+            crate::common::assert_report_error(
+                c.send(request).await.unwrap(),
+                400,
+                "Invalid convention request body",
+            )
+            .await;
+            let after: Value = sqlx::query_scalar(OWNED_STATE)
+                .bind(f.prefix())
+                .fetch_one(&f.pool())
+                .await
+                .unwrap();
+            assert_eq!(after, before, "{method} {content_type:?}");
+            assert_eq!(
+                upstream.requests().len(),
+                calls_before,
+                "{method} {content_type:?}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn conventions_wrong_types_nulls_and_unknown_fields_never_reach_shopify() {
     let f = fixture().await;
     let (c, upstream) = client_with_upstream_script(vec![], "http").await;

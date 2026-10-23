@@ -189,12 +189,34 @@ async fn catalogue_validation_authentication_and_unavailable_clients() {
 }
 
 #[tokio::test]
+async fn catalogue_explains_nested_variant_limit_without_returning_partial_products() {
+    let fixture = fixture().await;
+    let mut overflow = product(vec![variant(); 250]);
+    overflow["variants"]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"nested"});
+    let (client, upstream) = client_with_upstream_script(
+        vec![
+            location(),
+            products(vec![product(vec![variant()]), overflow], None),
+        ],
+        "http",
+    )
+    .await;
+    assert_report_error(
+        client
+            .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
+            .await
+            .unwrap(),
+        502,
+        "Product variants exceed the supported catalogue browse limit of 250",
+    )
+    .await;
+    assert_eq!(upstream.requests().len(), 2);
+}
+
+#[tokio::test]
 async fn catalogue_fails_whole_page_for_incomplete_or_invalid_provider_values() {
     let fixture = fixture().await;
     let mut cases = Vec::new();
-    let mut overflow = product(vec![variant()]);
-    overflow["variants"]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"nested"});
-    cases.push(products(vec![overflow], None));
     for path in [
         "id",
         "contextualPricing",
