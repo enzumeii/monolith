@@ -327,6 +327,7 @@ pub struct OrderTransaction {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Order {
+    pub tags: Vec<String>,
     pub id: ShopifyId,
     pub number: i64,
     pub phone: Option<String>,
@@ -742,6 +743,88 @@ impl ShippingOrder {
             })
             .transpose()
     }
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CompletionMoneyBag {
+    pub presentment_money: Money,
+}
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum CompletionDraftStatus {
+    Open,
+    InvoiceSent,
+    Completed,
+}
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CompletionDraft {
+    pub id: ShopifyId,
+    pub ready: bool,
+    pub status: CompletionDraftStatus,
+    #[serde(deserialize_with = "required_nullable")]
+    pub order: Option<ResourceReference>,
+    pub tags: Vec<String>,
+    pub total_price_set: CompletionMoneyBag,
+    #[serde(deserialize_with = "required_nullable")]
+    pub payment_terms: Option<Value>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum CompletionFinancialStatus {
+    Pending,
+    Authorized,
+    PartiallyPaid,
+    PartiallyRefunded,
+    Voided,
+    Paid,
+    Refunded,
+    Expired,
+}
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CompletionOrder {
+    pub id: ShopifyId,
+    pub display_financial_status: CompletionFinancialStatus,
+    #[serde(deserialize_with = "required_nullable")]
+    pub cancelled_at: Option<String>,
+    pub tags: Vec<String>,
+    pub total_price_set: CompletionMoneyBag,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CompletionDraftData {
+    #[serde(deserialize_with = "required_nullable")]
+    pub draft_order: Option<CompletionDraft>,
+}
+#[derive(Deserialize)]
+pub(crate) struct CompletionOrderData {
+    #[serde(deserialize_with = "required_nullable")]
+    pub order: Option<CompletionOrder>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CompleteDraftData {
+    pub draft_order_complete: CompleteDraftPayload,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CompleteDraftPayload {
+    #[serde(deserialize_with = "required_nullable")]
+    pub draft_order: Option<CompletedDraft>,
+    pub user_errors: Vec<MutationUserError>,
+}
+#[derive(Deserialize)]
+pub(crate) struct CompletedDraft {
+    pub id: ShopifyId,
+    #[serde(deserialize_with = "required_nullable")]
+    pub order: Option<ResourceReference>,
+}
+fn required_nullable<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error> {
+    Option::<T>::deserialize(deserializer)
 }
 
 #[cfg(test)]

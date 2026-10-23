@@ -25,6 +25,12 @@ fn exact_prices_remain_strings_and_search_never_discards_selected_items() {
 #[test]
 fn loading_saved_memberships_is_atomic_and_sets_the_persisted_baseline() {
     let item = ConventionVariantDTO {
+        inventory_policy: None,
+        product_title: None,
+        variant_title: None,
+        sku: None,
+        product_image: None,
+        variant_image: None,
         id: "row".into(),
         convention_id: "con".into(),
         shopify_product_id: "11".into(),
@@ -165,6 +171,12 @@ async fn name_only_edit_sends_no_capability_or_enable_fields_on_the_wire() {
 fn display_row() -> crate::api::conventions::SelectedVariant {
     crate::api::conventions::SelectedVariant {
         membership: ConventionVariantDTO {
+            inventory_policy: None,
+            product_title: None,
+            variant_title: None,
+            sku: None,
+            product_image: None,
+            variant_image: None,
             id: "row".into(),
             convention_id: "con".into(),
             shopify_product_id: "1".into(),

@@ -188,7 +188,7 @@ async fn membership_pages_must_match_the_record_page_and_page_size() {
 #[tokio::test]
 async fn selected_variants_decode_enrichment_and_presence_on_get_and_put_without_changing_requests()
 {
-    let extra = r#", "product_title":"Fox shirt", "variant_title":"Blue / M", "sku":null, "product_image":{"url":"https://cdn.test/product.png","altText":"Product"}, "variant_image":{"url":"https://cdn.test/blue.png","alt_text":"Blue"}, "available_quantity":-2"#;
+    let extra = r#", "inventory_policy":"DENY", "product_title":"Fox shirt", "variant_title":"Blue / M", "sku":null, "product_image":{"url":"https://cdn.test/product.png","alt_text":"Product"}, "variant_image":{"url":"https://cdn.test/blue.png","alt_text":"Blue"}"#;
     let enriched = format!("{}{extra}}}", row(2).trim_end_matches('}'));
     let page = format!(r#"{{"items":[{enriched}],"page":1,"per_page":100,"has_next":false}}"#);
     let put = format!(r#"{{"items":[{enriched}]}}"#);
@@ -196,7 +196,28 @@ async fn selected_variants_decode_enrichment_and_presence_on_get_and_put_without
     let rows = rows.expect("valid fixture value");
     assert_eq!(rows[0].variant_title, PatchField::Set("Blue / M".into()));
     assert_eq!(rows[0].sku, PatchField::Clear);
-    assert_eq!(rows[0].available_quantity, PatchField::Set(-2));
+    assert!(rows[0].available_quantity.is_missing());
+    assert_eq!(rows[0].membership.id, "row2");
+    assert_eq!(rows[0].membership.convention_id, ID);
+    assert_eq!(rows[0].membership.shopify_product_id, "1");
+    assert_eq!(rows[0].membership.shopify_variant_id, "2");
+    assert_eq!(rows[0].membership.final_price, "12.99");
+    assert_eq!(
+        rows[0].membership.inventory_policy,
+        Some(domain::dto::CatalogueInventoryPolicy::Deny)
+    );
+    assert!(rows[0].membership.product_title.is_none());
+    assert!(rows[0].membership.variant_title.is_none());
+    assert!(rows[0].membership.sku.is_none());
+    assert!(rows[0].membership.product_image.is_none());
+    assert!(rows[0].membership.variant_image.is_none());
+    let SelectedVariant {
+        _product_image: product_image,
+        ..
+    } = &rows[0];
+    assert!(
+        matches!(product_image, PatchField::Set(image) if image.url == "https://cdn.test/product.png" && image.alt_text.as_deref() == Some("Product"))
+    );
     assert!(
         matches!(&rows[0].variant_image, PatchField::Set(image) if image.url == "https://cdn.test/blue.png")
     );
@@ -208,10 +229,21 @@ async fn selected_variants_decode_enrichment_and_presence_on_get_and_put_without
         }],
     };
     let (result, request) = metadata_response(200, &put, replace_variants(ID, input)).await;
-    assert_eq!(
-        result.expect("valid fixture value").items[0].product_title,
-        PatchField::Set("Fox shirt".into())
+    let saved = result.expect("valid fixture value").items.remove(0);
+    assert_eq!(saved.product_title, PatchField::Set("Fox shirt".into()));
+    assert_eq!(saved.variant_title, PatchField::Set("Blue / M".into()));
+    assert_eq!(saved.sku, PatchField::Clear);
+    assert!(
+        matches!(saved.variant_image, PatchField::Set(image) if image.url == "https://cdn.test/blue.png")
     );
+    assert_eq!(saved.membership.shopify_product_id, "1");
+    assert_eq!(saved.membership.shopify_variant_id, "2");
+    assert_eq!(saved.membership.final_price, "12.99");
+    assert_eq!(
+        saved.membership.inventory_policy,
+        Some(domain::dto::CatalogueInventoryPolicy::Deny)
+    );
+    assert!(saved.available_quantity.is_missing());
     assert!(request.ends_with(
         r#"{"items":[{"shopify_product_id":"1","shopify_variant_id":"2","final_price":"12.990"}]}"#
     ));
@@ -222,6 +254,13 @@ async fn selected_variants_decode_enrichment_and_presence_on_get_and_put_without
     let (result, _) = metadata_response(200, &legacy, all_variants(ID)).await;
     let row = result.expect("valid fixture value").remove(0);
     assert!(row.product_title.is_missing());
+    assert!(row.variant_title.is_missing());
+    let SelectedVariant {
+        _product_image: product_image,
+        ..
+    } = &row;
+    assert!(product_image.is_missing());
+    assert!(row.membership.inventory_policy.is_none());
     assert!(row.sku.is_missing());
     assert!(row.variant_image.is_missing());
     assert!(row.available_quantity.is_missing());

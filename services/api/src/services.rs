@@ -1,13 +1,13 @@
 pub mod accounting;
 pub mod admin;
 pub mod auth;
+pub mod checkout_completion;
+pub(crate) mod cron;
 
 pub mod inventories;
 pub mod orders;
 
 mod pagination;
-
-pub(crate) mod cron;
 
 pub mod catalogue;
 

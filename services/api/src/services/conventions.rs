@@ -4,7 +4,9 @@ use crate::{
     client::{s3::S3Client, shopify::ShopifyClient},
     error::{AppError, upstream},
     models::{
-        conventions::{Convention, ConventionInput, ConventionVariant},
+        conventions::{
+            Convention, ConventionInput, ConventionVariant, SelectedVariant, VariantDisplay,
+        },
         shopify::{ProductStatus, ShopifyId},
     },
     repositories::conventions as repo,
@@ -207,7 +209,8 @@ pub(crate) async fn prepare_save(
 pub(crate) async fn validate_selection(
     client: &ShopifyClient,
     items: &[ConventionVariantInput],
-) -> Result<(), AppError> {
+) -> Result<Vec<SelectedVariant>, AppError> {
+    let mut validated = Vec::with_capacity(items.len());
     for item in items {
         let id = ShopifyId::new(&item.shopify_variant_id)
             .map_err(|_| validate::invalid("Invalid Shopify variant ID"))?;
@@ -229,12 +232,24 @@ pub(crate) async fn validate_selection(
                 "Shopify variant is not eligible for preorders",
             ));
         }
+        validated.push(SelectedVariant {
+            input: item.clone(),
+            display: VariantDisplay {
+                inventory_policy: Some(remote.inventory_policy),
+                product_title: Some(remote.product.title),
+                variant_title: Some(remote.title),
+                sku: remote.sku,
+                product_image: remote.product.featured_image,
+                variant_image: remote.image,
+            },
+        });
     }
-    Ok(())
+    Ok(validated)
 }
 pub(crate) async fn finish_save(
     pool: &PgPool,
     prepared: PreparedSave,
+    validated: Vec<SelectedVariant>,
 ) -> Result<ConventionVariantsResponse, AppError> {
     let mut tx = pool.begin().await?;
     let current = repo::lock(&mut tx, prepared.id)
@@ -247,7 +262,11 @@ pub(crate) async fn finish_save(
             "Convention payment methods changed during validation; retry",
         ));
     }
-    let existing = inputs(repo::variants(&mut *tx, prepared.id).await?);
+    let existing_records = repo::variants(&mut *tx, prepared.id).await?;
+    let existing: Vec<_> = existing_records
+        .iter()
+        .map(ConventionVariant::input)
+        .collect();
     if current.preorder_enabled && prepared.items.is_empty() {
         return Err(conflict(
             "Disable preorders before clearing selected variants",
@@ -260,7 +279,27 @@ pub(crate) async fn finish_save(
             "Convention selection changed during validation; retry",
         ));
     }
-    let records = repo::replace(&mut tx, prepared.id, &prepared.items).await?;
+    let items = prepared
+        .items
+        .into_iter()
+        .map(|input| {
+            let display = validated
+                .iter()
+                .find(|item| item.input == input)
+                .map(|item| Ok(item.display.clone()))
+                .or_else(|| {
+                    existing_records
+                        .iter()
+                        .find(|item| item.input() == input)
+                        .map(ConventionVariant::display)
+                })
+                .ok_or_else(|| {
+                    conflict("Convention selection changed during validation; retry")
+                })??;
+            Ok(SelectedVariant { input, display })
+        })
+        .collect::<Result<Vec<_>, AppError>>()?;
+    let records = repo::replace(&mut tx, prepared.id, &items).await?;
     tx.commit().await?;
     Ok(ConventionVariantsResponse {
         items: records

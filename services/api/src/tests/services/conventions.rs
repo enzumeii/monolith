@@ -3,6 +3,10 @@ use super::*;
 use chrono::{DateTime, Utc};
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep the rollback-only session, schema and atomic snapshot timestamp assertions together"
+)]
 async fn convention_timestamps_stay_utc_in_a_non_utc_database_session() {
     let url = std::env::var("E2E_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://e2e:e2e@127.0.0.1:5433/e2e".into());
@@ -40,16 +44,89 @@ async fn convention_timestamps_stay_utc_in_a_non_utc_database_session() {
         database_now
     );
     let mut connection = pool.acquire().await.unwrap();
-    let mut items = vec![ConventionVariantInput {
-        shopify_product_id: "gid://shopify/Product/1".into(),
-        shopify_variant_id: "gid://shopify/ProductVariant/2".into(),
-        final_price: "12.99".into(),
+    let mut items = vec![SelectedVariant {
+        input: ConventionVariantInput {
+            shopify_product_id: "gid://shopify/Product/1".into(),
+            shopify_variant_id: "gid://shopify/ProductVariant/2".into(),
+            final_price: "12.99".into(),
+        },
+        display: VariantDisplay {
+            product_title: Some("Product".into()),
+            ..VariantDisplay::default()
+        },
     }];
     let first = repo::replace(&mut connection, id, &items)
         .await
         .unwrap()
         .remove(0)
         .into_dto("THB")
+        .unwrap();
+    assert_eq!(first.inventory_policy, None);
+    let mut previous = first.clone();
+    for policy in [
+        domain::dto::CatalogueInventoryPolicy::Deny,
+        domain::dto::CatalogueInventoryPolicy::Continue,
+    ] {
+        items[0].display.inventory_policy = Some(policy);
+        let saved = repo::replace(&mut connection, id, &items)
+            .await
+            .unwrap()
+            .remove(0)
+            .into_dto("THB")
+            .unwrap();
+        assert_eq!(saved.inventory_policy, Some(policy));
+        assert_eq!(saved.id, first.id);
+        assert_eq!(saved.created_at, first.created_at);
+        assert!(
+            DateTime::parse_from_rfc3339(&saved.updated_at).unwrap()
+                > DateTime::parse_from_rfc3339(&previous.updated_at).unwrap()
+        );
+        previous = saved;
+    }
+    items[0].display.inventory_policy = None;
+    let cleared = repo::replace(&mut connection, id, &items)
+        .await
+        .unwrap()
+        .remove(0)
+        .into_dto("THB")
+        .unwrap();
+    assert_eq!(cleared.inventory_policy, None);
+    assert!(
+        DateTime::parse_from_rfc3339(&cleared.updated_at).unwrap()
+            > DateTime::parse_from_rfc3339(&previous.updated_at).unwrap()
+    );
+    let columns: Vec<(String, String)> = sqlx::query_as(
+        "SELECT column_name, is_nullable
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'convention_variants'
+           AND column_name IN ('inventory_policy', 'product_image_alt_text', 'variant_image_alt_text')
+         ORDER BY column_name",
+    )
+    .fetch_all(&mut *connection)
+    .await
+    .unwrap();
+    assert_eq!(columns, vec![("inventory_policy".into(), "YES".into())]);
+    sqlx::query("SAVEPOINT invalid_policy")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    let invalid = sqlx::query(
+        "UPDATE convention_variants
+         SET inventory_policy = 'UNKNOWN'
+         WHERE convention_id = $1",
+    )
+    .bind(id)
+    .execute(&mut *connection)
+    .await
+    .unwrap_err();
+    assert_eq!(
+        invalid.as_database_error().unwrap().code().as_deref(),
+        Some("23514")
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT invalid_policy")
+        .execute(&mut *connection)
+        .await
         .unwrap();
     input.preorder_enabled = true;
     let updated = logo::project(
@@ -58,7 +135,7 @@ async fn convention_timestamps_stay_utc_in_a_non_utc_database_session() {
     )
     .await
     .unwrap();
-    items[0].final_price = "13.99".into();
+    items[0].input.final_price = "13.99".into();
     let changed = repo::replace(&mut connection, id, &items)
         .await
         .unwrap()

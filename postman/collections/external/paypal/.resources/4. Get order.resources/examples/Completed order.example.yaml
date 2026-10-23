@@ -1,0 +1,40 @@
+$kind: http-example
+name: Completed order
+response:
+  statusCode: 200
+  statusText: OK
+  body:
+    type: json
+    content: |
+      {
+        "id": "ORDERFIXTURE",
+        "intent": "CAPTURE",
+        "status": "COMPLETED",
+        "purchase_units": [
+          {
+            "reference_id": "unit-fixture",
+            "custom_id": "checkout-fixture",
+            "invoice_id": "invoice-fixture",
+            "payee": {
+              "merchant_id": "MERCHANTFIXTURE"
+            },
+            "amount": {
+              "currency_code": "THB",
+              "value": "12.34"
+            },
+            "payments": {
+              "captures": [
+                {
+                  "id": "CAPTUREFIXTURE",
+                  "status": "COMPLETED",
+                  "amount": {
+                    "currency_code": "THB",
+                    "value": "12.34"
+                  },
+                  "final_capture": true
+                }
+              ]
+            }
+          }
+        ]
+      }

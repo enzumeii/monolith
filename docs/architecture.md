@@ -161,9 +161,9 @@ flowchart LR
 | --- | --- |
 | ProductsWithVariants | Report product connection with bounded variants and location inventory/pricing metadata |
 | CatalogueProducts | One root product page with current product content, exact contextual source price and location `available`; fixed 250 variants, no supplier cost |
-| ConventionVariant | One direct variant lookup for product association, product status, tracking and inventory policy; no catalogue scan |
+| ConventionVariant | One direct variant lookup for product association, product status, tracking, inventory policy and display snapshots; no catalogue scan |
 | OrdersByTag | Matching-order connection including bounded report lines |
-| OrdersByPayment | One accounting-enrichment order page; retained operation name |
+| OrdersByPayment | One accounting-enrichment order page with actual order tags; retained operation name |
 | Location | Location existence before inventory report queries |
 | FindInventoryToActivate | One raw inventory-level page; no eligibility filtering |
 | ActivateExistingInventory | Raw mutation userErrors and optional output; activation takes item/location IDs and a stable UUID; no quantity arguments |
@@ -234,7 +234,7 @@ These operations use the existing ADMIN/SUPER_ADMIN protected group and browser 
 | `GET /conventions/{id}` | Read one UUID-identified convention |
 | `PATCH /conventions/{id}` | Patch metadata, logo location, methods or manual enable flag; slug/currency are not writable |
 | `DELETE /conventions/{id}` | Delete convention and cascade its current variant memberships |
-| `GET /conventions/{id}/variants` | Page/per-page current selections with exact `final_price` strings |
+| `GET /conventions/{id}/variants` | Page/per-page current selections with exact `final_price` strings and persisted product/variant titles, SKU and representative images |
 | `PUT /conventions/{id}/variants` | Atomically replace all selections, at most 250 unique Shopify variant IDs |
 | `GET /conventions/catalogue` | One Shopify product page for a required location GID, active-product search guard and root cursor; return tracked variants only |
 
@@ -253,20 +253,23 @@ flowchart LR
 | Ownership / state | Current behavior |
 | --- | --- |
 | Shared DTOs | `domain::dto::conventions` owns wire contracts; `dto::common::PatchField` preserves missing/null/value semantics and the root `domain::dto::PatchField` export; cron uses the same type |
-| API persistence | `TIMESTAMPTZ` timestamps decode and serialize in UTC; event dates remain calendar dates. `conventions` stores UUID, unique slug, name/logo location, country, event dates, description Markdown, manual enable flag, currency, payment methods and timestamps. `convention_variants` stores UUID, parent, Shopify product/variant GIDs, positive finite `NUMERIC` final price and timestamps; parent+variant is unique |
+| API persistence | `TIMESTAMPTZ` timestamps decode and serialize in UTC; event dates remain calendar dates. `conventions` stores UUID, unique slug, name/logo location, country, event dates, description Markdown, manual enable flag, currency, payment methods and timestamps. `convention_variants` stores UUID, parent, Shopify product/variant GIDs, positive finite `NUMERIC` final price, nullable product/variant title, SKU, representative image URLs and DENY/CONTINUE inventory-policy snapshots, and timestamps; parent+variant is unique |
+| Migration | The unpublished convention migration creates five nullable display TEXT columns and nullable inventory_policy constrained to DENY/CONTINUE directly in `convention_variants`; no separate display-metadata migration or backfill is required |
 | Immutable identity | API excludes slug/currency from PATCH; a database trigger also rejects changes. One convention has one user-supplied currency stored in the database; no currency allowlist configuration |
 | Price representation | Major-unit decimal strings such as `"12.99"` pass through exact decimal validation and PostgreSQL `NUMERIC`, without floating point. Responses use currency precision; positive amounts must fit signed 64-bit minor units and selected payment-method precision |
 | Writes | Services own transactions and parent-row locks; repositories own SQL. Shopify validation precedes the transaction; changed selection/payment assumptions are rechecked under the lock and conflicting validation returns 409 |
 | Eligibility validation | New/changed selections use direct Shopify variant reads; every selection is revalidated while enabled and when enabling. Product must exist, match the submitted product, be ACTIVE, track inventory and use DENY. This does not reserve or check location stock |
 | Manual enablement | Enabling requires nonempty eligible selections and supported currency/methods/prices; clearing an enabled convention is rejected until disabled. Event dates are metadata, without scheduling, lifecycle, version, readiness or display-order fields |
+| Display snapshots | Existing Shopify validation returns trusted product/variant titles, nullable SKU, product featured image URL, variant image URL and inventory policy. Saved images expose null alt text. Required saves write price and snapshot atomically; explicit nulls clear old metadata. Unchanged disabled saves retain the latest locked row snapshot and timestamps. GET uses PostgreSQL only, including during provider failure; rows with missing display data or policy remain nullable until required validation, without automatic backfill |
+| Router composition | Admin nests the relative convention child router under `/conventions`; canonical collection URL stays slashless with no trailing-slash redirect; outer `/v1` alias and middleware remain shared |
 | Future consumers | Current reads use the list service with its optional enabled filter and the UUID lookup; manual enable/disable remains on PATCH. Public APIs (ENZ-38), routing (ENZ-41), quotes, checkout and historical order snapshots/protection remain future work; current deletion cascades only current membership |
 
 | Catalogue contract | Behavior |
 | --- | --- |
-| Content | Current Shopify product title/status/description/image, variant title/SKU/image/options and inventory-item ID; no invented variant description or supplier cost |
+| Content | Current Shopify product title/description/image, variant title/SKU/image/options and inventory-item ID; no invented variant description or supplier cost |
 | Source price | Exact current contextual Shopify amount string and currency; distinct from persisted convention final prices |
 | Available quantity | Requested location `available` integer; active zero/negative values remain numbers and zero remains eligible. Missing/inactive levels return null with an ineligibility reason; CONTINUE variants remain visible as ineligible; inactive products and untracked variants are omitted |
-| Search / paging | The service supplies `status:active`, grouping optional raw search as `status:active AND (<search>)`; products with no tracked variants are omitted. One root page with opaque cursor and unchanged upstream metadata, including empty filtered pages; variants fixed `first:250`, without child paging. Any nested overflow or incomplete provider page fails safely with 502 |
+| Search / paging | The service supplies `status:active AND tracks_inventory:true`, grouping optional raw search as `status:active AND tracks_inventory:true AND (<search>)`; products with no tracked variants are omitted. One root page with opaque cursor and unchanged upstream metadata, including empty filtered pages; variants fixed `first:250`, without child paging. Any nested overflow or incomplete provider page fails safely with 502 |
 | Failure / inventory boundary | Missing location 404; unavailable client 503; upstream 502/timeout 504. Catalogue reads do not change stock. Existing inventory/report `on_hand`, filtering, supplier-cost and numeric-total semantics remain unchanged |
 
 ## Inventory enablement
@@ -302,3 +305,71 @@ flowchart LR
 ## Convention administration
 
 [Convention administration and logo storage](conventions.md) describes saved and draft state, catalogue selection and persistent S3 logo locations and short-lived signed preview access.
+
+## PayPal payment provider boundary
+
+| Layer | Responsibility |
+| --- | --- |
+| Shared PayPal client | One provider operation per call: create/get/capture Orders v2, get capture and verify webhook signature. Reuse pooled HTTP, OAuth caching and bounded transport retry behavior; create/capture request IDs stay caller-owned |
+| `client::paypal::payment` | `verify_payment` compares authoritative current order/capture evidence with trusted order ID, merchant, configured API origin, purchase-unit reference/custom correlation and positive integer minor-unit money. Return explicit pending/approved-unpaid, terminal-unpaid or verified-paid outcome |
+| Evidence | Require one intended purchase unit, a completed order and one linked final completed capture, independently retrieved with the same ID. Exact money/merchant/correlation and consistent optional identity fields are required; unknown, inconsistent, refunded or reversed evidence fails closed |
+| Currency precision | Reuse `CurrencyCode` variants with exact canonical input spelling. Preserve the supported zero/two-decimal currency set; unsupported, unknown and noncanonical codes fail verification |
+| Client errors | Invalid trusted expectations return `ClientErrorKind::InvalidInput`; inconsistent provider evidence returns `Protocol`. Upstream client failures retain their kind, source and original location. Future consuming application code owns HTTP mapping and provider-independent orchestration |
+| Authenticated events | Validate transmission headers and full envelope, require successful PayPal verification postback, then expose typed event identity. Authentication/event type does not establish payment success; event and polling consumers use current-resource verification |
+| Consumer boundary | Trusted callers own authorization, return destinations, durable create/capture IDs, retention-aware ambiguous-write recovery, replay handling and stored business state. This provider slice has no application payment routes, webhook ingestion, payment/event tables or fulfillment effects |
+| Configuration | Optional shared client uses TOML API origin/timeout and environment-supplied credentials. QA selects the Sandbox REST origin. Trusted expectations come from the checkout/draft owner, never browser/event/provider-copied totals |
+| Shopify consumer | Stateless draft completion below reuses this verifier. The consuming flow binds payment to draft and owns authorization, persistence, serialization and uncertain-outcome recovery; the PayPal provider boundary remains read-only |
+
+Buyer approval alone does not collect a PayPal wallet payment. The caller explicitly captures an approved order with its stable request ID; verification remains read-only. [PayPal operations](development.md#paypal-orders) records caller inputs and manual verification limits.
+
+```mermaid
+sequenceDiagram
+    participant Consumer as Trusted consuming flow
+    participant Client as PayPal client
+    participant PP as PayPal
+    participant Verifier as client::paypal::payment
+    Consumer->>Client: Create order with stable request ID
+    Client->>PP: Create CAPTURE order
+    PP-->>Consumer: Order and approval link
+    Consumer->>PP: Buyer approval
+    Consumer->>Client: Capture with stable request ID
+    Client->>PP: Capture approved order
+    Consumer->>Verifier: Trusted expected order, merchant, origin, money and correlation
+    Verifier->>Client: Retrieve current order and capture
+    Client->>PP: Read authoritative resources
+    Verifier-->>Consumer: Pending/unpaid or verified paid
+    Note over Consumer: Own authorization, replay handling, persistence and fulfillment
+```
+
+
+## Externally paid Shopify draft completion
+
+| Owner | Contract |
+| --- | --- |
+| Trusted consuming flow | Supply the actual DraftOrder ID and independently trusted Stripe/PayPal expected payment context. Own authorization, payment-to-draft association, durable operation identity, cross-request serialization, polling and webhook dispatch |
+| `services/checkout_completion.rs` | Invoke the existing provider verifier, compare exact draft presentment money, then read/complete the draft and reconcile verified payment-reference tags on the real linked order |
+| Shopify client | Single-operation draft/order reads, one-shot draft completion and additive order tag edits; preserve unrelated tags and confirm requested references by order readback |
+| Completion modes | `CompleteIfOpen` permits completing an eligible open draft. `ReconcileOnly` only reads/reconciles; after an uncertain completion the caller must retain uncertainty and use this mode |
+| Completion evidence | Verified provider payment, matching real draft/order identity and money, paid/not-cancelled order and confirmed owned tags. Stripe refund/dispute evidence prevents completion without changing the provider verifier's original-payment semantics |
+| Retry boundary | Replays read Shopify truth. A linked completed order permits tag reconciliation without another completion. No checkout/payment tables, process-local completion cache, guest UUID endpoint or exactly-once guarantee |
+| Native confirmation | Shopify draft completion remains the confirmation-email mechanism; controlled fixtures do not prove merchant email delivery |
+| Accounting | Existing provider collection and Shopify matching copy actual order tags to transaction DTOs and CSV. No local mappings, saved-order fallback, extra Charge/account lookup or cron change |
+
+```mermaid
+sequenceDiagram
+    participant Caller as Trusted consuming flow
+    participant Service as Draft completion
+    participant Provider as Existing payment verifier
+    participant Shopify as Shopify client
+    Caller->>Service: Draft ID, expected payment, completion mode
+    Service->>Provider: Verify current authoritative payment
+    Provider-->>Service: Pending/unpaid or verified evidence
+    Service->>Shopify: Read draft and linked order
+    opt Verified eligible open draft and CompleteIfOpen
+        Service->>Shopify: Complete draft once
+    end
+    Service->>Shopify: Read real paid order, add missing owned tags
+    Service->>Shopify: Confirm order and tag readback
+    Service-->>Caller: Outcome or reconciliation required
+    Note over Caller: Retain uncertain outcome; retry with ReconcileOnly
+```

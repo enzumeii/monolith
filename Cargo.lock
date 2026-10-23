@@ -4433,6 +4433,7 @@ name = "report-generator"
 version = "0.1.0"
 dependencies = [
  "domain",
+ "serde_json",
 ]
 
 [[package]]

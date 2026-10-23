@@ -1,10 +1,81 @@
 # Verification
 
+## ENZ-35 PR #57 latest-main integration — local verification (2026-10-23)
+
+The integrated source merges review fixes `fb08fff6e635bbc2b19af78f71485ff966ae64a6` with main `7bd6c2e050f7991e9f6eeeeb5127c2483d79eeba`. Three additive conflicts retain both Shopify client operation groups, convention catalogue documentation and complete verification histories. PayPal crate visibility and fail-closed currency handling remain intact. Independent review identified and cleared one semantic interaction: the expanded currency enum must not silently widen draft-completion payment support.
+
+| Check | Actual result |
+| --- | --- |
+| Completion currency compatibility | Focused regression fails before repair for newly named KRW/VND/AED/INR, then passes 4/4. Explicit arms preserve main's exact 31 supported currencies and precisions; every other enum variant remains unsupported. Existing completion behavior and tests remain intact |
+| Final native / strict checks | Repaired source exits 0: 443 native tests (22.19s), zero failed/ignored, with PostgreSQL ready; Rust formatting and strict all-target/E2E Clippy pass. The preceding full API check also passes 34 setup-helper tests and GraphQL/JSON formatting |
+| Focused real-TCP integration | Initial resolved integration tree `7d2acce9f37991bc71dc0d913e68b47e59e70924` passes 10 catalogue (45.13s) and 24 convention (37.67s) cases. The later two-file completion-helper repair does not change these endpoint paths; those TCP modules were not repeated |
+| Shared contracts | Domain check and test pass 14 unit + 8 contract cases, strict lint and WASM compilation on the integrated DTOs; the isolated completion-helper repair does not change domain code |
+| Preservation / isolation | All 51 upstream changed paths retain their additions; the completion helper and its focused tests have the documented compatibility correction. All 57 disjoint feature paths remain identical. Final owned Compose down-v exits 0; container, volume, network and API-process audits are empty |
+| Evidence / limits | Ignored final-integration-*.json/log/sh scripts and precision-repair-report.md retain source hashes, reviewed index binding, exact commands, red/green proof and actual exits. The full 184-TCP result above remains bound to the pre-integration review fixes. No repeated full local TCP/coverage run, fresh hosted-CI, live-provider, browser or deployment claim |
+
+## ENZ-35 PR #57 catalogue and inventory-policy snapshots — local verification (2026-10-23)
+
+Results bind to the frozen 26-path working-tree delta atop `b996cbdb6c4eb39bcabf41e3eee156521e055dc0`, which includes main `0c506da45e1d0e0498e508b2dd475eb3767a712d`. Complete diff SHA256: `64f64a712993267f8720dab5c1b827e361412e9bf4f718201dc8e2ea51d30b92`. Later main revisions require separate integration evidence; older checkpoints below retain their original bindings.
+
+| Check | Actual result |
+| --- | --- |
+| Shared contracts | Expected red drops inventory_policy before implementation; domain check and test pass: 14 unit + 8 contract cases, strict lint and WASM compilation |
+| API strict / integration | Exit 0: 34 setup-helper tests, dprint, Rust formatting, strict all-target/E2E Clippy. Removed the duplicate cron declaration and retained PayPal's explicit supported-currency policy with fail-closed rejection for the expanded enum; focused payment-money tests pass 4/4 |
+| Final full API recipe | Exit 0: 423 native tests (22.60s) + 184 real-TCP tests (692.76s), zero failed/ignored. One final native run with PostgreSQL ready, then all TCP modules, followed by owned Compose down-v |
+| Catalogue / snapshots | Active/tracked root search, grouped OR search, absent public product status, generic upstream completeness failure, cursor metadata, DENY admission, nullable policy snapshots, strict stored/provider decoding, URL-only saved images, policy-only timestamps, legacy no-call behavior, atomic refresh/null clearing and concurrent locked-row preservation pass |
+| Fresh schema | 26 columns across convention tables; five nullable display columns plus nullable inventory_policy TEXT constrained to DENY/CONTINUE, no image-alt columns. SQLx applies only the original convention CREATE migration; no production migration or backfill |
+| Postman / static | Root workspace lint: 77 entities, zero errors, one existing cron-preview FMT209 warning. Both external GraphQL queries and variable keys match source exactly; workspace formatting and diff checks pass |
+| Isolation / cleanup | Compose enz35, PostgreSQL15435/S315436, owned target, synthetic credentials and dotenv discovery disabled. Recipe and cleanup exit 0; independent label/process audit finds no owned containers, volumes, networks or API processes. All 26 frozen hashes remain unchanged before this evidence-only update |
+| Evidence / limits | Ignored latest-source-freeze.json, latest-source.diff, latest-api-full.log, latest-schema-proof.log and latest-cleanup-audit.json retain source binding, actual execution and cleanup. No local coverage duplicate, live-provider, browser, deployment or fresh hosted-CI claim |
+
+## ENZ-35 PR #57 migration fold — local verification (2026-10-23)
+
+The direct user-authorized correction folds seven nullable display TEXT fields into the original unpublished `20261023090000_conventions.sql` and removes the separate display-metadata migration. Results bind to `migration-fold-source-freeze.json` atop `b2bf1d3c06b6076b320cd57314d80154fb55a45a`; API, provider, DTO, routing and test implementation remain unchanged.
+
+| Check | Actual result |
+| --- | --- |
+| Effective schema | PostgreSQL catalog comparison of former CREATE-plus-ALTER against folded CREATE is identical: all 27 columns across both tables, including physical order, types, nullable/default semantics, constraints, indexes, function and trigger. Display fields remain nullable TEXT with no defaults; timestamp definitions are unchanged |
+| Fresh migrations | Real SQLx applies the committed migration sequence to fresh owned Compose PostgreSQL. Ledger records `20261023090000` once and no removed additive migration; no backfill or production migration |
+| Native / convention TCP | Exit 0: 389 native tests (22.40s) and 24 real-TCP convention tests (38.59s), zero failed/ignored. Missing-data rows, snapshot refresh/null clearing/provider failure, locked snapshot retention, UTC, constraints, rollback and routes remain covered |
+| Strict / static | Exit 0: API check including 34 setup-helper tests, dprint, Rust formatting and strict all-target/E2E Clippy; workspace formatting and diff whitespace checks pass |
+| Isolation / cleanup | Owned `enz35` Compose on PostgreSQL15435/S315436, existing target, synthetic credentials and dotenv discovery disabled. Down-v exits 0; Docker label and owned API-process audits are empty. Frozen product/documentation hashes are preserved |
+| Evidence / limits | Ignored `migration-fold-*.log`, `migration-fold-results.json`, schema equality and cleanup JSON retain commands and actual exits. Initial proof stopped on a harness count typo (30 instead of 27) before Cargo tests, cleaned up, then the corrected fresh run passed. Earlier full 184-TCP evidence remains bound to v4 below; fresh full hosted CI/coverage remains delivery-owned. No live-provider, browser, deployment or production-database action |
+
+## ENZ-35 PR #57 display metadata and route nesting — local verification (2026-10-23)
+
+Historical results below apply to approved v4 commit `b2bf1d3c06b6076b320cd57314d80154fb55a45a`, whose delta atop `34e1e9645830cc6e908e839f77d3251161034ea8` is bound to ignored `delta-source-freeze-v2.json` under `.superpowers/review-comments/PR-57/2026-10-23/`. The later migration fold has separate fresh evidence above.
+
+| Check | Actual result |
+| --- | --- |
+| Shared contracts | Expected red loses display fields before implementation; final domain tests pass 13 unit + 8 contract cases, zero failed/ignored. Domain check passes strict lint and WASM compilation |
+| API strict check | Exit 0: 34 setup-helper tests, Rust/GraphQL formatting, strict native/all-target and TCP-test Clippy |
+| Final full API recipe | Exit 0: 389 native + 184 real-TCP tests, zero failed/ignored; TCP phase 692.05s. Native suite runs once with Compose PostgreSQL ready; recipe removes owned PostgreSQL/S3 containers, volume and network |
+| Convention regressions | All 24 cases pass, including five new TCP cases for snapshot refresh/null clearing/offline retention, nullable legacy data, missing/malformed requested provider fields, slashless nested routes and aliases, and latest locked snapshot retention. Existing lifecycle, last-completed-save, later-provider failure, write/commit rollback, pagination, auth/cookie/CORS, currency and UTC regressions remain green |
+| Postman / static | Lint from the actual workspace root: 72 entities, zero errors, one existing cron-preview FMT209 warning. Three touched YAML requests parse; ConventionVariant query bytes and variable keys match the formatted GraphQL source. Workspace format and diff checks pass |
+| Cleanup | Independent v4 post-run audit finds no enz35 containers, volumes, networks or API processes |
+| Limits | Controlled Shopify TCP and real PostgreSQL/S3 dependencies only. No live merchant/browser/deployment run or extra local coverage run; fresh hosted CI remains delivery work |
+
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
 
 ## ENZ-37 convention administration and logo uploads — local verification (2026-10-23)
 
 The feature is stacked above ENZ-35/36. The PR #58 follow-up verifies the revised logo contract; earlier feature results below are historical evidence. No live provider, production migration or deployment is asserted.
+
+### Latest-target PR #58 conflict resolution
+
+Integrated committed backend `78f1f43` into UI `467bdce`, preserving S3 logo handling/options and the backend's persisted variant display/inventory-policy snapshots. Both branches' contract/native/TCP test cases remain represented; catalogue rendering no longer expects the removed public product-status field.
+
+| Check | Result |
+| --- | --- |
+| API | Owning check passes: 34 setup tests, formatting and strict lint. Full isolated recipe passes 449 native and 197 real-TCP tests, zero failures/ignored; TCP runtime708.35s |
+| UI/shared contracts | Backoffice native/WASM check, 170 tests and web build pass; domain16 unit +8 contract tests and WASM check pass. Current GET/PUT response tests preserve metadata presence/null semantics, IDs, policy and exact prices |
+| Other merged consumers | Client-ui check/test8, report-generator native/WASM check/test7, root workflow/shell/Vercel checks and111 Node tests pass. Postman lint: zero errors and one existing unrelated cron preview warning |
+| Actual merged API browser | Catalogue search at location1 shows titles, SKU, actual loaded variant image and stock7/0; selections survive pages with exact overrides17.29/23.45. Controlled provider failure writes no rows and retains price/metadata drafts; retry persists both rows and leaves the independent metadata draft intact |
+| Actual persistence/reload | PostgreSQL rows contain corresponding titles, SKU, variant image URL, DENY policy and exact prices. Fresh browser reload with the controlled provider unavailable retains the metadata/images/prices, without loading catalogue results. No response proxy or metadata injection was used |
+| Layout | Desktop and375px screenshots inspected; actual images load and remain at most96×96. Narrow document360px fits viewport375px;640px table scrolls within302px container. Temporary viewport override reset |
+| Review/cleanup | Independent API/domain/docs and UI reviews report no actionable regressions. Temporary E2E registration restored byte-for-byte; owned API/upstream/UI processes and Compose containers/network/volume removed |
+
+Selected API responses still omit available quantity. In-session catalogue observations remain labeled by location; fresh saved rows truthfully show “Not available”. Older nullable display rows are not automatically backfilled. No live Shopify/S3/payment mutation occurred; only a public HTTPS synthetic image was read. Screenshots were inspected in browser output; no exported screenshot artifact is included. Source-bound logs, approval, manifests and controlled database evidence remain ignored under `.superpowers/pr58-conflict-20261023/`. Hosted publication/mergeability checks are recorded separately; local passes do not imply hosted CI success.
 
 ### Variant viewer and pinned-base conflict resolution
 
@@ -143,6 +214,74 @@ Merged source `ddaf159` integrates feature head `d2e337f` with upstream `1622b23
 | Detailed evidence | Ignored `refresh-report.md`, `refresh-verify.sh` and `refresh-*.log` retain identity, exact commands/exits, 355/9/19 counts, conflict preservation proof and cleanup audit |
 
 Controlled responses establish exercised transport/contracts, not live Shopify schema compatibility, merchant permissions/capabilities, query cost or a real payment. No production migration/deployment, live provider mutation/charge, manual browser UI acceptance or hosted CI is asserted. Public APIs (ENZ-38), routing (ENZ-41), quotes, checkout and historical order snapshots/protection remain future work; parent deletion currently cascades current memberships.
+
+## ENZ-45 stateless completion remediation — 2026-10-23
+
+This contract supersedes PR #56's earlier stateful checkout design. Verification results for the superseded design do not establish acceptance of this refactor. The initial stateless remediation at `66c03bd` and its continuation onto `d1ae724` passed the bounded checks below. The later dependency moves PayPal verification into its client module with typed errors and enum currency handling; no mounted endpoint changes in that continuation.
+
+| Scope | Current implementation / verification boundary |
+| --- | --- |
+| Completion | Trusted server-side caller context, existing authoritative Stripe/PayPal verification, exact draft/order money, real Shopify linked-order readback and additive verified reference tags |
+| Recovery | `CompleteIfOpen` versus `ReconcileOnly`; caller retains uncertainty and serialization. Reconciliation-only calls never issue completion. No local checkout/payment ledger, guest UUID endpoint, cache or exactly-once claim |
+| Reporting | Actual Shopify order tags flow through existing matching, DTOs and CSV; no saved-order fallback, database mapping, extra provider lookup or cron change |
+| API checks | Final continuation formatting, strict all-target/E2E Clippy, 34 setup-helper tests and all 430 native tests pass, including 14 completion and 47 PayPal cases. The earlier full API recipe passes 150 real TCP tests; endpoint code and the accounting regression remain unchanged by the client-only continuation, so that suite is not repeated. Zero failed or ignored; owned Compose containers, volumes and networks removed |
+| Shared code and exports | Domain 18, report-generator 7 and backoffice 131 tests pass, including actual CSV/ZIP tag bytes. Native/WASM checks, root workflow/shell/configuration checks and workspace formatting pass |
+| Contracts and review | Stripe 9, PayPal 7, Shopify 15 and internal 30 Postman files lint with zero diagnostics; all 10 Shopify query/variable pairs match source. Accounting tag regression fails when the tag assignment is removed and passes restored. Independent final review finds no actionable gaps; cron, routes, repositories and migrations match the dependency |
+| Hosted checks | Main-only PR workflow does not run for the stacked `feat/ENZ-44` target; current-head hosted CI is waived by the approved plan. Historical CI and Vercel preview are separate evidence |
+| Limits | No live Shopify/email proof, production migration or provider mutation. Trusted caller authorization/durable ownership, future public/browser/webhook integration and merchant-specific behavior remain outside this slice |
+
+## ENZ-44 PayPal client boundary and currency enum — 2026-10-23
+
+| Local evidence | Result |
+| --- | --- |
+| Current scope | Verification and evidence/money helpers live under `client::paypal::payment`, returning typed ClientError. Existing CurrencyCode variants govern precision with strict canonical spelling; wire fields and supported currencies are unchanged. |
+| Complete API check | 34 setup-helper tests, formatting and strict API/all-target/E2E Clippy pass. |
+| Full API test recipe | 412 native tests and 150 HTTP E2E tests pass; zero failed or ignored. Owned Compose containers, volumes, network and API processes are gone. |
+| Focused PayPal regressions | All47 provider/payment/event tests pass, including accepted currency scales, unsupported/noncanonical inputs, checked money, GET-only verification and typed upstream error causes/locations. These tests are included in the native total. |
+| Independent review and binding | No actionable findings. All509 source-manifest files stayed unchanged through verification; the final documentation result row is added afterward. |
+| Unchanged-contract evidence | Domain/Postman/shared currency/wire/config files are unchanged from b9a7695; its18 domain tests, strict/WASM checks and external Postman32file lint remain the bounded receipts below. Hosted CI is recorded separately for the new published head. |
+| Limits | No new Sandbox charge or genuine signed-webhook acceptance test. Earlier Sandbox receipts are historical; consuming flows still own application HTTP mapping, replay/state handling and Shopify completion. |
+
+## Historical ENZ-44 PayPal provider boundary at b9a7695 — 2026-10-23
+
+These receipts describe `b9a7695`, before moving payment verification into `client::paypal::payment` and reusing `CurrencyCode`. They do not verify the subsequent client-module, error-boundary or currency-enum changes; that continuation requires separate results.
+
+| Local evidence | Result |
+| --- | --- |
+| Resolved parent merge | Integrates main `10d5985` after #55 merged. Latest Stripe client/payment implementation and tests match main; PayPal Sandbox QA override is retained. |
+| Complete API check | 34 setup-helper tests, formatting and strict API/all-target/E2E Clippy pass. |
+| Full API test recipe | 407 native tests and 150 HTTP E2E tests pass; zero failed or ignored. Isolated Compose containers, volumes and network are removed. |
+| Provider/verifier coverage | Controlled HTTP cases verify approved-but-unpaid, final completed capture, exact money/identity, inconsistent evidence, dependency errors and authenticated typed events. Verification makes no payment mutation. |
+| Domain and collections | Domain formatting, strict lint, WASM compilation and 18 tests pass. External Postman lint scans32 files with zero diagnostics. Internal lint retains the unchanged unrelated transaction FMT209 baseline. |
+| Independent review | No actionable findings in the reduced provider slice or resolved merge. No public PayPal gateway, payment/event ledger or Shopify completion remains. |
+| Limits | No new Sandbox charge. Historical receipts below establish approval/capture semantics only. Genuine signed-webhook acceptance is unverified because no webhook is registered. Hosted CI and Vercel results are separate published-head evidence. |
+
+## Historical ENZ-44 PayPal gateway — 2026-10-23
+
+These receipts describe the superseded database-backed gateway. The current provider slice removes its public routes, payment/event tables, capability policy and ingestion loop; these results do not verify the stateless refactor. Current refactor checks are recorded separately after execution.
+
+| Local evidence | Result |
+| --- | --- |
+| Focused real-network endpoints |33 new payment/webhook tests pass together on final scoped source, zero failed/ignored;91.90s. Affected native service tests15/15 pass;0.20s. Actual API child, Compose PostgreSQL and controlled PayPal TCP server exercise routing, SQLx and outbound HTTP. Dedicated PostgreSQL15444/S315445; default checkout target cache. |
+| Request and ownership boundaries | Strict body/path/header validation, exact money, canonical guest capability, ownership, idempotency and immutable inputs; status never initiates capture. |
+| Payment and webhook evidence | Authoritative order/capture verification, optional redundant provider fields absent, pending/terminal/mismatched evidence, retries/response loss/retention, duplicate references, concurrent capture/event reconciliation and verified webhook deduplication. |
+| Dependency failures | OAuth/order/capture/signature failures include HTTP rejection, malformed response, timeout and connection loss. Owned PostgreSQL triggers test write/transaction failures; isolated child-session search path tests SELECT failures without shared schema/data mutation. |
+| Review regressions | Observed RED fixed and covered: busy/pending completed webhooks remain retryable; embedded identity conflicts reject; typed unusable create and zero/multiple captures reject. A later second capture on one payment retains both captures/MULTIPLE review flag and processes the valid event; fresh wrong capture ID still rejects. Retrieval faults leave PENDING receipts and identical-event retry completes them. |
+| Static checks | Strict API all-target/E2E Clippy, API formatting and diff whitespace checks pass. Owned test containers/network/volume are removed with independent empty readbacks. All four new internal Postman requests lint without errors/warnings. Full internal lint has one pre-existing unrelated FMT209 queryParams/URL mismatch in the transactions request. |
+| Limits | No live PayPal Sandbox, real approval UI/signatures, Shopify draft conversion or browser journey. Provider evidence-field permutations are not exhaustive; detailed cases/limits are in ignored task artifacts. Parent full API checks and exact-head hosted CI remain separate evidence. |
+
+
+### Historical ENZ-44 PayPal Sandbox QA continuation
+
+This later real-Sandbox evidence superseded the earlier no-Sandbox limit for the old gateway only. It confirms the approval/capture distinction, not acceptance of the current stateless provider slice. QA overrides the REST origin with `https://api-m.sandbox.paypal.com`; buyer approval uses `www.sandbox.paypal.com`. Existing ignored QA credentials were loaded by the ordinary settings reader.
+
+| Real Sandbox check | Observed result |
+| --- | --- |
+| Create, approval and capture | Application TCP create201; buyer approved the same USD1.00 order; capture200/COMPLETED; real capture lookup and trusted verification both confirm USD1.00/COMPLETED. |
+| Durable identity and ownership | Create replay200 reuses the order; capture replay200 reuses the same capture with one evidence record; wrong owner404; preapproval capture/trusted verification409; wrong expected amount409. |
+| Webhook limit | No webhooks registered. Deliberately malformed signature request returns provider400/application502 without storing an event; genuine signed verification/ingestion remains untested. |
+| QA configuration limit | Checked-in QA sets the API origin only. The smoke injected a temporary payment policy with the discovered merchant and a deliberately invalid webhook ID for negative tests; the old gateway required the complete merchant/webhook/currency/redirect policy, which has since been removed. Buyer return-page UI was a test placeholder. |
+| Cleanup and evidence | Temporary Rust source restored exactly; owned test processes and Compose containers/volumes/networks removed; plaintext capability/resume payloads deleted. Sanitized details: `.superpowers/sdd/2026-10-23-ENZ-44-paypal/sandbox-qa/report.md`. No production payment, Shopify write or publication. |
 
 ## ENZ-27 static services and cron implementations — 2026-10-22 / 23
 

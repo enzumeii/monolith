@@ -32,7 +32,7 @@ fn item(number: u64, price: &str) -> Value {
     json!({"shopify_product_id":"gid://shopify/Product/1","shopify_variant_id":format!("gid://shopify/ProductVariant/{number}"),"final_price":price})
 }
 fn remote(number: u64) -> Value {
-    json!({"productVariant":{"id":format!("gid://shopify/ProductVariant/{number}"),"product":{"id":"gid://shopify/Product/1","status":"ACTIVE"},"inventoryPolicy":"DENY","inventoryItem":{"tracked":true}}})
+    json!({"productVariant":{"id":format!("gid://shopify/ProductVariant/{number}"),"title":"Blue","sku":"SKU-2","image":{"url":"https://example.test/variant.png"},"product":{"id":"gid://shopify/Product/1","title":"Product","featuredImage":{"url":"https://example.test/product.png"},"status":"ACTIVE"},"inventoryPolicy":"DENY","inventoryItem":{"tracked":true}}})
 }
 async fn create(
     c: &crate::common::TestClient,
@@ -97,7 +97,19 @@ async fn conventions_lifecycle_exact_prices_replacement_and_cascade() {
         .iter()
         .find(|v| v["shopify_variant_id"] == "gid://shopify/ProductVariant/2")
         .unwrap();
+    assert_eq!(selected["inventory_policy"], "DENY");
     assert_eq!(selected["final_price"], "12.99");
+    assert_eq!(selected["product_title"], "Product");
+    assert_eq!(selected["variant_title"], "Blue");
+    assert_eq!(selected["sku"], "SKU-2");
+    assert_eq!(
+        selected["product_image"],
+        json!({"url":"https://example.test/product.png","alt_text":null})
+    );
+    assert_eq!(
+        selected["variant_image"],
+        json!({"url":"https://example.test/variant.png","alt_text":null})
+    );
     let row = selected["id"].clone();
     let amount: String = sqlx::query_scalar(
         "SELECT final_price::text
@@ -724,12 +736,12 @@ async fn conventions_upstream_identity_policy_and_unavailable_failures() {
         ("id", json!("gid://shopify/ProductVariant/3"), 502),
         (
             "product",
-            json!({"id":"gid://shopify/Product/2","status":"ACTIVE"}),
+            json!({"id":"gid://shopify/Product/2","title":"Other","featuredImage":null,"status":"ACTIVE"}),
             400,
         ),
         (
             "product",
-            json!({"id":"gid://shopify/Product/1","status":"DRAFT"}),
+            json!({"id":"gid://shopify/Product/1","title":"Product","featuredImage":null,"status":"DRAFT"}),
             400,
         ),
         ("inventoryPolicy", json!("CONTINUE"), 400),
@@ -770,13 +782,15 @@ async fn conventions_upstream_identity_policy_and_unavailable_failures() {
 #[tokio::test]
 async fn conventions_database_constraints_and_later_write_or_commit_faults_roll_back() {
     let f = fixture().await;
+    let mut changed_remote = remote(2);
+    changed_remote["productVariant"]["title"] = json!("Never persisted");
     let (c, _upstream) = client_with_upstream_script(
         vec![
             remote(2),
             remote(3),
-            remote(2),
+            changed_remote.clone(),
             remote(4),
-            remote(2),
+            changed_remote,
             remote(4),
         ],
         "http",
@@ -1513,7 +1527,9 @@ async fn conventions_concurrent_disjoint_metadata_patches_preserve_omitted_field
 #[tokio::test]
 async fn conventions_concurrent_variant_saves_use_last_completed_save_without_partial_state() {
     let f = fixture().await;
-    let (c, _upstream) = client_with_upstream_script(vec![remote(2), remote(2)], "http").await;
+    let mut earlier_remote = remote(2);
+    earlier_remote["productVariant"]["title"] = json!("Earlier snapshot");
+    let (c, _upstream) = client_with_upstream_script(vec![remote(2), earlier_remote], "http").await;
     let created = create(&c, &f, input(f.prefix())).await;
     let variants = format!("{URI}/{}/variants", created["id"].as_str().unwrap());
     let original = mutate(
@@ -1537,7 +1553,9 @@ async fn conventions_concurrent_variant_saves_use_last_completed_save_without_pa
             async move {
                 a.notify_one();
                 r.notified().await;
-                axum::Json(json!({"data":remote(2)}))
+                let mut data = remote(2);
+                data["productVariant"]["title"] = json!("Later snapshot");
+                axum::Json(json!({"data":data}))
             }
         }),
     );
@@ -1569,11 +1587,13 @@ async fn conventions_concurrent_variant_saves_use_last_completed_save_without_pa
     )
     .await;
     assert_eq!(earlier["items"][0]["final_price"], "30.00");
+    assert_eq!(earlier["items"][0]["variant_title"], "Earlier snapshot");
     release.notify_one();
     let response = late.await.unwrap();
     assert_eq!(response.status(), 200);
     let saved = body_json(response).await;
     assert_eq!(saved["items"][0]["final_price"], "20.00");
+    assert_eq!(saved["items"][0]["variant_title"], "Later snapshot");
     assert_eq!(saved["items"][0]["id"], original["items"][0]["id"]);
     let r = c
         .send(authed("GET", &variants, root, AdminRole::Admin))
@@ -1730,6 +1750,365 @@ async fn conventions_reject_extra_query_and_delete_payload_without_effects() {
         .await
         .unwrap();
     assert_eq!(response.status(), 204);
+}
+
+#[tokio::test]
+async fn conventions_display_snapshots_refresh_clear_and_survive_provider_failure() {
+    let f = fixture().await;
+    let mut refreshed = remote(2);
+    refreshed["productVariant"]["title"] = json!("Updated blue");
+    refreshed["productVariant"]["sku"] = Value::Null;
+    refreshed["productVariant"]["image"] = Value::Null;
+    refreshed["productVariant"]["product"]["featuredImage"] = Value::Null;
+    let mut metadata_only = remote(2);
+    metadata_only["productVariant"]["title"] = json!("Latest title");
+    metadata_only["productVariant"]["image"] = Value::Null;
+    let (c, upstream) =
+        client_with_upstream_script(vec![remote(2), refreshed, remote(2), metadata_only], "http")
+            .await;
+    let created = create(&c, &f, input(f.prefix())).await;
+    let path = format!("{URI}/{}", created["id"].as_str().unwrap());
+    let variants = format!("{path}/variants");
+    let first = mutate(
+        &c,
+        &f,
+        "PUT",
+        &variants,
+        json!({"items":[item(2,"12.99")]}),
+        200,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE convention_variants
+         SET inventory_policy = 'CONTINUE'
+         WHERE convention_id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(created["id"].as_str().unwrap()).unwrap())
+    .execute(&f.pool())
+    .await
+    .unwrap();
+    let changed = mutate(
+        &c,
+        &f,
+        "PUT",
+        &variants,
+        json!({"items":[item(2,"15")]}),
+        200,
+    )
+    .await;
+    assert_eq!(changed["items"][0]["inventory_policy"], "DENY");
+    assert_eq!(changed["items"][0]["id"], first["items"][0]["id"]);
+    assert_eq!(
+        changed["items"][0]["created_at"],
+        first["items"][0]["created_at"]
+    );
+    assert_ne!(
+        changed["items"][0]["updated_at"],
+        first["items"][0]["updated_at"]
+    );
+    assert_eq!(changed["items"][0]["variant_title"], "Updated blue");
+    assert_eq!(changed["items"][0]["final_price"], "15.00");
+    for key in ["sku", "product_image", "variant_image"] {
+        assert!(changed["items"][0][key].is_null(), "{key}");
+    }
+    let offline = client().await;
+    let unchanged = mutate(
+        &offline,
+        &f,
+        "PUT",
+        &variants,
+        json!({"items":[item(2,"15")]}),
+        200,
+    )
+    .await;
+    assert_eq!(unchanged, changed);
+    let get = offline
+        .send(authed("GET", &variants, f.root_id(), AdminRole::Admin))
+        .await
+        .unwrap();
+    assert_eq!(get.status(), 200);
+    assert_eq!(body_json(get).await["items"], changed["items"]);
+    mutate(
+        &c,
+        &f,
+        "PATCH",
+        &path,
+        json!({"preorder_enabled":true}),
+        200,
+    )
+    .await;
+    let updated = mutate(
+        &c,
+        &f,
+        "PUT",
+        &variants,
+        json!({"items":[item(2,"15")]}),
+        200,
+    )
+    .await;
+    assert_eq!(updated["items"][0]["variant_title"], "Latest title");
+    assert_ne!(
+        updated["items"][0]["updated_at"],
+        changed["items"][0]["updated_at"]
+    );
+    assert_eq!(updated["items"][0]["id"], first["items"][0]["id"]);
+    let stored: (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+        Option<String>,
+    ) = sqlx::query_as(
+        "SELECT variant_title, sku, variant_image_url, final_price::text, inventory_policy
+         FROM convention_variants
+         WHERE convention_id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(created["id"].as_str().unwrap()).unwrap())
+    .fetch_one(&f.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        stored,
+        (
+            Some("Latest title".into()),
+            Some("SKU-2".into()),
+            None,
+            "15.00".into(),
+            Some("DENY".into())
+        )
+    );
+    let (failing, _failing_upstream) = client_with_upstream_script(vec![remote(2)], "http").await;
+    mutate(
+        &failing,
+        &f,
+        "PUT",
+        &variants,
+        json!({"items":[item(2,"20"),item(3,"30")]}),
+        502,
+    )
+    .await;
+    let get = offline
+        .send(authed("GET", &variants, f.root_id(), AdminRole::Admin))
+        .await
+        .unwrap();
+    assert_eq!(body_json(get).await["items"], updated["items"]);
+    assert_eq!(upstream.requests().len(), 4);
+}
+
+#[tokio::test]
+async fn conventions_legacy_display_stays_null_until_required_validation() {
+    let f = fixture().await;
+    let (c, upstream) = client_with_upstream_script(vec![remote(2)], "http").await;
+    let created = create(&c, &f, input(f.prefix())).await;
+    let id = uuid::Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
+    sqlx::query(
+        "INSERT INTO convention_variants (
+             convention_id, shopify_product_id, shopify_variant_id, final_price
+         )
+         VALUES ($1, 'gid://shopify/Product/1', 'gid://shopify/ProductVariant/2', 12.99)",
+    )
+    .bind(id)
+    .execute(&f.pool())
+    .await
+    .unwrap();
+    let path = format!("{URI}/{id}/variants");
+    let get = c
+        .send(authed("GET", &path, f.root_id(), AdminRole::Admin))
+        .await
+        .unwrap();
+    assert_eq!(get.status(), 200);
+    let legacy = body_json(get).await;
+    for key in [
+        "inventory_policy",
+        "product_title",
+        "variant_title",
+        "sku",
+        "product_image",
+        "variant_image",
+    ] {
+        assert_eq!(legacy["items"][0].get(key), Some(&Value::Null), "{key}");
+    }
+    let unchanged = mutate(
+        &c,
+        &f,
+        "PUT",
+        &path,
+        json!({"items":[item(2,"12.99")]}),
+        200,
+    )
+    .await;
+    assert_eq!(unchanged["items"], legacy["items"]);
+    assert_eq!(upstream.requests(), [] as [Value; 0]);
+    let refreshed = mutate(&c, &f, "PUT", &path, json!({"items":[item(2,"15")]}), 200).await;
+    assert_eq!(refreshed["items"][0]["inventory_policy"], "DENY");
+    assert_eq!(refreshed["items"][0]["product_title"], "Product");
+    assert_eq!(refreshed["items"][0]["id"], legacy["items"][0]["id"]);
+    assert_eq!(upstream.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn conventions_malformed_display_metadata_preserves_saved_price_and_snapshot() {
+    let f = fixture().await;
+    let (c, _upstream) = client_with_upstream_script(vec![remote(2)], "http").await;
+    let created = create(&c, &f, input(f.prefix())).await;
+    let path = format!("{URI}/{}/variants", created["id"].as_str().unwrap());
+    let first = mutate(
+        &c,
+        &f,
+        "PUT",
+        &path,
+        json!({"items":[item(2,"12.99")]}),
+        200,
+    )
+    .await;
+    for (parent, key) in [
+        ("", "title"),
+        ("", "sku"),
+        ("", "image"),
+        ("/product", "title"),
+        ("/product", "featuredImage"),
+        ("/image", "url"),
+        ("/product/featuredImage", "url"),
+    ] {
+        for missing in [true, false] {
+            let mut data = remote(2);
+            let object = data
+                .pointer_mut(&format!("/productVariant{parent}"))
+                .unwrap()
+                .as_object_mut()
+                .unwrap();
+            if missing {
+                object.remove(key);
+            } else {
+                object.insert(key.into(), json!(17));
+            }
+            let (bad, _bad_upstream) = client_with_upstream_script(vec![data], "http").await;
+            let error = mutate(&bad, &f, "PUT", &path, json!({"items":[item(2,"20")]}), 502).await;
+            assert_eq!(error, json!({"error":"Upstream request failed"}));
+            let get = c
+                .send(authed("GET", &path, f.root_id(), AdminRole::Admin))
+                .await
+                .unwrap();
+            assert_eq!(body_json(get).await["items"], first["items"]);
+        }
+    }
+}
+
+#[tokio::test]
+async fn conventions_nested_collection_preserves_slashless_url_and_alias() {
+    let f = fixture().await;
+    let c = client().await;
+    for path in [URI, "/v1/admin/conventions"] {
+        let response = c
+            .send(authed("GET", path, f.root_id(), AdminRole::Admin))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert!(!response.headers().contains_key("location"));
+        let response = c
+            .send(authed(
+                "GET",
+                &format!("{path}/"),
+                f.root_id(),
+                AdminRole::Admin,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 404);
+        assert!(!response.headers().contains_key("location"));
+    }
+    mutate(
+        &c,
+        &f,
+        "POST",
+        &format!("{URI}?unknown=1"),
+        input(f.prefix()),
+        400,
+    )
+    .await;
+    create(&c, &f, input(f.prefix())).await;
+}
+
+#[tokio::test]
+async fn conventions_unchecked_selection_retains_latest_locked_snapshot() {
+    let f = fixture().await;
+    let (c, upstream) = client_with_upstream_script(vec![remote(2)], "http").await;
+    let created = create(&c, &f, input(f.prefix())).await;
+    let id = uuid::Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
+    let variants = format!("{URI}/{id}/variants");
+    mutate(
+        &c,
+        &f,
+        "PUT",
+        &variants,
+        json!({"items":[item(2,"12.99")]}),
+        200,
+    )
+    .await;
+    let arrived = std::sync::Arc::new(tokio::sync::Notify::new());
+    let release = std::sync::Arc::new(tokio::sync::Notify::new());
+    let a = arrived.clone();
+    let r = release.clone();
+    let router = axum::Router::new().route(
+        "/graphql.json",
+        axum::routing::post(move || {
+            let a = a.clone();
+            let r = r.clone();
+            async move {
+                a.notify_one();
+                r.notified().await;
+                axum::Json(json!({"data":remote(3)}))
+            }
+        }),
+    );
+    let (blocking, pending_upstream) = crate::common::client_with_upstream(router).await;
+    let root = f.root_id();
+    let path = variants.clone();
+    let pending = tokio::spawn(async move {
+        blocking
+            .send(authed_json(
+                "PUT",
+                &path,
+                root,
+                AdminRole::Admin,
+                &json!({"items":[item(2,"12.99"),item(3,"20")]}),
+            ))
+            .await
+            .unwrap()
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(3), arrived.notified())
+        .await
+        .unwrap();
+    let latest: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
+        "UPDATE convention_variants
+         SET variant_title = 'Concurrent snapshot',
+             inventory_policy = 'CONTINUE',
+             updated_at = GREATEST(CURRENT_TIMESTAMP, updated_at + INTERVAL '1 microsecond')
+         WHERE convention_id = $1
+           AND shopify_variant_id = 'gid://shopify/ProductVariant/2'
+         RETURNING updated_at",
+    )
+    .bind(id)
+    .fetch_one(&f.pool())
+    .await
+    .unwrap();
+    release.notify_one();
+    let response = pending.await.unwrap();
+    assert_eq!(response.status(), 200);
+    let saved = body_json(response).await;
+    let retained = saved["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["shopify_variant_id"] == "gid://shopify/ProductVariant/2")
+        .unwrap();
+    assert_eq!(retained["inventory_policy"], "CONTINUE");
+    assert_eq!(retained["variant_title"], "Concurrent snapshot");
+    let saved_at =
+        chrono::DateTime::parse_from_rfc3339(retained["updated_at"].as_str().unwrap()).unwrap();
+    assert_eq!(saved_at, latest);
+    assert_eq!(upstream.requests().len(), 1);
+    drop(pending_upstream);
 }
 
 #[path = "conventions/logo.rs"]

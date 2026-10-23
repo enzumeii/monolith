@@ -7,6 +7,7 @@ const config = JSON.parse(await readFile(new URL('../vercel.json', import.meta.u
 const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
 assert.equal(packageJson.devDependencies.vercel, '65.1.0');
 assert.equal(validateConfig(config), null, 'Pinned Vercel CLI configuration validation');
+assert.equal(config.git?.deploymentEnabled, false, 'Vercel Git deployments must remain disabled');
 const { LocalFileSystemDetector, resolveAllConfiguredServicesV2 } = require_dist2();
 const resolved = await resolveAllConfiguredServicesV2(config.services, new LocalFileSystemDetector(process.cwd()));
 assert.deepEqual(resolved.errors, []);

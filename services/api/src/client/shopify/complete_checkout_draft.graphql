@@ -1,0 +1,14 @@
+mutation CompleteCheckoutDraft($id: ID!, $paymentPending: Boolean!) {
+  draftOrderComplete(id: $id, paymentPending: $paymentPending) {
+    draftOrder {
+      id
+      order {
+        id
+      }
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}

@@ -73,6 +73,7 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
         json!({"has_next_page":true,"end_cursor":"next"})
     );
     let p = &body["products"][0];
+    assert!(p.get("status").is_none());
     assert_eq!(p["id"], "gid://shopify/Product/1");
     assert_eq!(p["description"], "A cotton shirt");
     assert_eq!(p["featured_image"]["url"], "https://example.test/shirt.jpg");
@@ -109,11 +110,11 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
     assert_eq!(requests.len(), 4);
     assert_eq!(
         requests[1]["variables"],
-        json!({"locationId":"gid://shopify/Location/1","first":1,"after":"opaque","search":"status:active AND (collection_id:123 OR title:head*)"})
+        json!({"locationId":"gid://shopify/Location/1","first":1,"after":"opaque","search":"status:active AND tracks_inventory:true AND (collection_id:123 OR title:head*)"})
     );
     assert_eq!(
         requests[3]["variables"],
-        json!({"locationId":"gid://shopify/Location/1","first":25,"after":null,"search":"status:active"})
+        json!({"locationId":"gid://shopify/Location/1","first":25,"after":null,"search":"status:active AND tracks_inventory:true"})
     );
 }
 
@@ -197,7 +198,7 @@ async fn catalogue_validation_authentication_and_unavailable_clients() {
 }
 
 #[tokio::test]
-async fn catalogue_explains_nested_variant_limit_without_returning_partial_products() {
+async fn catalogue_rejects_incomplete_nested_variants_without_returning_partial_products() {
     let fixture = fixture().await;
     let mut overflow = product(vec![variant(); 250]);
     overflow["variants"]["pageInfo"] = json!({"hasNextPage":true,"endCursor":"nested"});
@@ -215,7 +216,7 @@ async fn catalogue_explains_nested_variant_limit_without_returning_partial_produ
             .await
             .unwrap(),
         502,
-        "Product variants exceed the supported catalogue browse limit of 250",
+        "Upstream request failed",
     )
     .await;
     assert_eq!(upstream.requests().len(), 2);
@@ -440,7 +441,7 @@ async fn catalogue_accepts_maximum_boundaries_and_opaque_search_without_normaliz
         );
         assert_eq!(
             upstream.requests()[1]["variables"],
-            json!({"locationId":"gid://shopify/Location/1","first":size,"after":cursor,"search":format!("status:active AND ({search})")})
+            json!({"locationId":"gid://shopify/Location/1","first":size,"after":cursor,"search":format!("status:active AND tracks_inventory:true AND ({search})")})
         );
     }
 }

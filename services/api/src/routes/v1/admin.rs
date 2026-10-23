@@ -14,7 +14,7 @@ pub fn router() -> Router<AppState> {
                 axum::extract::DefaultBodyLimit::max(crate::storage::convention_logo::MAX_BYTES),
             ),
         )
-        .merge(conventions::router())
+        .nest("/conventions", conventions::router())
         .nest("/inventories", inventories::router())
         .nest("/orders", orders::router())
         .nest("/cron", cron::router())

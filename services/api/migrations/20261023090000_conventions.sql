@@ -23,6 +23,12 @@ CREATE TABLE convention_variants (
     final_price NUMERIC NOT NULL CHECK (final_price > 0 AND final_price < 'Infinity'::numeric),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    product_title TEXT,
+    variant_title TEXT,
+    sku TEXT,
+    product_image_url TEXT,
+    variant_image_url TEXT,
+    inventory_policy TEXT CHECK (inventory_policy IN ('DENY', 'CONTINUE')),
     UNIQUE (convention_id, shopify_variant_id)
 );
 

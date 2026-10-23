@@ -262,6 +262,7 @@ fn apply(
     let tx = &mut payment.transaction;
     tx.shopify_order_id = id;
     tx.shopify_order_number = order.number;
+    tx.shopify_order_tags.clone_from(&order.tags);
     tx.customer_name = order
         .shipping_address
         .as_ref()

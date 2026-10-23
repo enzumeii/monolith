@@ -32,7 +32,6 @@ struct SourceVariant {
     product_id: String,
     product_title: String,
     description: String,
-    product_status: String,
     id: String,
     title: String,
     sku: Option<String>,
@@ -72,7 +71,6 @@ impl BrowsePage {
                     product_id: product.id.clone(),
                     product_title: product.title.clone(),
                     description: product.description.clone(),
-                    product_status: product.status.clone(),
                     id: variant.id,
                     title: variant.title,
                     sku: variant.sku,
@@ -269,7 +267,7 @@ pub fn SelectionEditor(
                         h4 { "{source.product_title}" }
                         p { "Variant: {source.title}" }
                         p { "SKU: " {detail_text(source.sku.as_deref(), "SKU unavailable")} }
-                        p { "{source.description}" } p { "{source.options}" } p { "Product status: {source.product_status}" }
+                        p { "{source.description}" } p { "{source.options}" }
                         p { "Source price: {source.price} {source.currency}" } p { "Available stock: {stock_label(source.available)}" }
                         p { if source.eligible { "Eligible" } else { "Unavailable: {source.reason}" } }
                         button { r#type: "button", class: "ghost", disabled: !current.loaded || memberships.pending() || saving.read().pending() || !source.eligible || current.items.contains_key(&source.id) || current.items.len() >= 250,

@@ -1,0 +1,13 @@
+$kind: http-request
+description: "Required: paypal API base URL, paypal_order_id; bearer uses local vault paypal_access_token. Success 200 returns id/status/purchase_units and captures when present. Read only; follow the configured API URL, never returned resource links. Failures 401/403/404/429/5xx. Missing intent, payee, amount, association or final completed capture cannot prove checkout payment. APPROVED/AUTHORIZE alone are insufficient; evidence is checked against the persisted attempt and trusted endpoint environment."
+url: "{{paypal}}/v2/checkout/orders/{{paypal_order_id}}"
+method: GET
+order: 4000
+auth:
+  type: inherit
+  credentials:
+    id: 5daed635-8af6-4e64-9242-a4be048bc73a
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: "pm.test(\"Provider response contract\", function () { pm.response.to.have.status(200); pm.expect(pm.response.json().id).to.be.a(\"string\"); });"

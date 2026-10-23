@@ -1,8 +1,9 @@
 use crate::{
     error::AppError,
-    models::conventions::{Convention, ConventionInput, ConventionVariant, method_values},
+    models::conventions::{
+        Convention, ConventionInput, ConventionVariant, SelectedVariant, method_values,
+    },
 };
-use domain::dto::ConventionVariantInput;
 use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
@@ -121,7 +122,9 @@ where
 {
     Ok(sqlx::query_as(
         "SELECT id, convention_id, shopify_product_id, shopify_variant_id,
-                final_price::text, created_at, updated_at
+                final_price::text, product_title, variant_title, sku,
+                product_image_url, variant_image_url, inventory_policy,
+                created_at, updated_at
          FROM convention_variants
          WHERE convention_id = $1
          ORDER BY created_at, id",
@@ -134,11 +137,11 @@ where
 pub(crate) async fn replace(
     c: &mut PgConnection,
     id: Uuid,
-    items: &[ConventionVariantInput],
+    items: &[SelectedVariant],
 ) -> Result<Vec<ConventionVariant>, AppError> {
     let ids: Vec<_> = items
         .iter()
-        .map(|v| v.shopify_variant_id.as_str())
+        .map(|v| v.input.shopify_variant_id.as_str())
         .collect();
     sqlx::query(
         "DELETE FROM convention_variants
@@ -149,18 +152,34 @@ pub(crate) async fn replace(
     .bind(ids)
     .execute(&mut *c)
     .await?;
-    for item in items {
+    for selected in items {
+        let item = &selected.input;
+        let display = &selected.display;
         sqlx::query(
             "INSERT INTO convention_variants (
-                 convention_id, shopify_product_id, shopify_variant_id, final_price
+                 convention_id, shopify_product_id, shopify_variant_id, final_price,
+                 product_title, variant_title, sku, product_image_url, variant_image_url,
+                 inventory_policy
              )
-             VALUES ($1, $2, $3, $4::text::numeric)
+             VALUES ($1, $2, $3, $4::text::numeric, $5, $6, $7, $8, $9, $10)
              ON CONFLICT (convention_id, shopify_variant_id) DO UPDATE
              SET shopify_product_id = EXCLUDED.shopify_product_id,
                  final_price = EXCLUDED.final_price,
+                 product_title = EXCLUDED.product_title,
+                 variant_title = EXCLUDED.variant_title,
+                 sku = EXCLUDED.sku,
+                 product_image_url = EXCLUDED.product_image_url,
+                 variant_image_url = EXCLUDED.variant_image_url,
+                 inventory_policy = EXCLUDED.inventory_policy,
                  updated_at = CASE
                      WHEN convention_variants.final_price IS DISTINCT FROM EXCLUDED.final_price
                        OR convention_variants.shopify_product_id IS DISTINCT FROM EXCLUDED.shopify_product_id
+                       OR (convention_variants.product_title, convention_variants.variant_title,
+                           convention_variants.sku, convention_variants.product_image_url,
+                           convention_variants.variant_image_url, convention_variants.inventory_policy)
+                          IS DISTINCT FROM
+                          (EXCLUDED.product_title, EXCLUDED.variant_title, EXCLUDED.sku,
+                           EXCLUDED.product_image_url, EXCLUDED.variant_image_url, EXCLUDED.inventory_policy)
                      THEN GREATEST(CURRENT_TIMESTAMP, convention_variants.updated_at + INTERVAL '1 microsecond')
                      ELSE convention_variants.updated_at
                  END",
@@ -169,6 +188,15 @@ pub(crate) async fn replace(
         .bind(&item.shopify_product_id)
         .bind(&item.shopify_variant_id)
         .bind(&item.final_price)
+        .bind(&display.product_title)
+        .bind(&display.variant_title)
+        .bind(&display.sku)
+        .bind(display.product_image.as_ref().map(|image| &image.url))
+        .bind(display.variant_image.as_ref().map(|image| &image.url))
+        .bind(display.inventory_policy.map(|policy| match policy {
+            domain::dto::CatalogueInventoryPolicy::Deny => "DENY",
+            domain::dto::CatalogueInventoryPolicy::Continue => "CONTINUE",
+        }))
         .execute(&mut *c)
         .await?;
     }

@@ -12,3 +12,4 @@ auth:
   type: inherit
   credentials:
     id: 44bc4504-b8a5-4b4d-b887-d7458a64aaf2
+examples: ./.resources/Retrieve Checkout Session.resources/examples

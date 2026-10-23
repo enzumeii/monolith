@@ -1,0 +1,14 @@
+query CheckoutOrder($id: ID!) {
+  order(id: $id) {
+    id
+    displayFinancialStatus
+    cancelledAt
+    tags
+    totalPriceSet {
+      presentmentMoney {
+        amount
+        currencyCode
+      }
+    }
+  }
+}

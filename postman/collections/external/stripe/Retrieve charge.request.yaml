@@ -1,5 +1,5 @@
 $kind: http-request
-description: ""
+description: "Read-only Charge GET; use the server-owned PaymentIntent latest_charge ID. A successful payment requires captured and paid, no refund/dispute, matching exact amount_captured/currency/payment_intent and explicit livemode. Example safe fields: id ch_fixture, paid true, captured true, amount_captured 1234, amount_refunded 0, refunded false, disputed false, currency thb, livemode false, payment_intent pi_fixture. Credentials are inherited; errors include 401/403/404/429."
 url: "{{stripe}}/charges/:charge_id"
 method: GET
 pathVariables:

@@ -20,13 +20,12 @@ pub struct CatalogueResponse {
 pub struct CatalogueProduct {
     pub id: String,
     pub title: String,
-    pub status: String,
     pub description: String,
     pub featured_image: Option<CatalogueImage>,
     pub variants: Vec<CatalogueVariant>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct CatalogueImage {
     pub url: String,
     #[serde(alias = "altText")]
