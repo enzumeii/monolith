@@ -1,12 +1,14 @@
 # Service architecture
 
-The application consists of an Axum API, a client-only Dioxus backoffice, shared wire contracts, and a placeholder client UI. [Development and operations](development.md) describes configuration and commands; [verification](verification.md) records measured results and limits.
+The application consists of an Axum API, two static Dioxus CSR applications, and shared libraries. Vercel serves the existing applications through two static services and one API container. [Development and operations](development.md) describes configuration and commands; [verification](verification.md) records measured results and limits.
 
 ## Ownership and dependencies
 
 ```mermaid
 flowchart LR
-    UI["Dioxus backoffice"] -->|"HTTP, cookies, Origin"| API["Axum routes and handlers"]
+    STATIC["Static /backoffice/ and /user/ HTML · WASM · assets"] --> UI["Dioxus browser applications"]
+    UI -->|"Same-origin /api/v1"| API["Axum routes and handlers"]
+    CRON["Daily Vercel Cron"] -->|"Authenticated GET /_cron"| API
     API --> SERVICES["Services: use cases and transactions"]
     SERVICES --> REPO["Repositories: SQLx queries"]
     REPO --> DB[("PostgreSQL")]
@@ -25,8 +27,8 @@ flowchart LR
 | `services/api` | HTTP endpoints, authentication, authorization, persistence, outbound clients | Database objects, principals, JWT claims, and Shopify wire DTOs remain API-owned |
 | `crates/domain` | Shared request/response DTOs and wire enums, including `ErrorResponse` used by the API and backoffice | No database models, SQLx, JWT claims, or transactions |
 | `crates/report-generator` | Shared inventory/accounting table projections and CSV serialization for API scheduled reports and backoffice exports | Wire DTO inputs; no provider calls, persistence or browser download transport |
-| `apps/backoffice` | Browser pages, forms, direct API requests, session coordination | Public configuration only; Axum owns cookies, CORS, and origin checks |
-| `apps/client-ui` | Placeholder client application | No implemented service integration |
+| `apps/backoffice` | CSR browser pages and session coordination; static metadata in `vercel/` | Direct public API calls; API owns cookies and authorization |
+| `apps/client-ui` | Existing CSR browser shell; static metadata in `vercel/` | Owns `/user`; browser feature coverage remains limited |
 
 AppState constructs optional outbound clients once and shares their HTTP pools. Handlers resolve shared client availability and pass only concrete dependencies to services; optional initialization failures affect report availability without stopping unrelated endpoints.
 
@@ -35,7 +37,7 @@ AppState constructs optional outbound clients once and shares their HTTP pools. 
 | API path | Responsibility |
 | --- | --- |
 | `src/lib.rs` | Module declarations and public re-exports, including `shopify_models` |
-| `src/main.rs` | Configuration, database startup, listener, maintenance/scheduler tasks, graceful shutdown |
+| `src/main.rs` | Application configuration, database startup, listener and graceful shutdown; owns the selected cron implementation and its task lifecycle |
 | `src/config.rs` / `src/state.rs` | Typed settings; pool, settings, and signing key in application state |
 | `src/routes/` / `src/handlers/` | Route composition; HTTP inputs, responses, and transport |
 | `src/handlers/dependencies.rs` | Resolve shared optional clients and preserve availability errors before service calls; accounting requires concrete Stripe, PayPal and Shopify references |
@@ -66,6 +68,14 @@ AppState constructs optional outbound clients once and shares their HTTP pools. 
 
 ## HTTP and authentication
 
+| Public Vercel path | API behavior |
+| --- | --- |
+| `/api/v1` | Existing v1 handlers, bearer/cookie authentication and roles |
+| `/api/healthz` | Existing health handler |
+| `/_cron` | Authenticated Vercel-only bounded tick |
+| Native aliases | `/v1` and `/healthz` remain available on the API listener; no Vercel rewrite |
+
+
 ```mermaid
 sequenceDiagram
     participant UI as Browser
@@ -93,7 +103,7 @@ sequenceDiagram
 | Revocation limit | Existing access JWTs remain valid until expiry; no immediate access-token revocation |
 | Concurrent issuance | An in-flight login may issue after a concurrent password change; no cross-request global locking |
 | Write authorization | Route checks and current actor lookup in services |
-| Retention | Startup/hourly cleanup; at most 500 expired/revoked rows per batch with `SKIP LOCKED` |
+| Retention | Hourly VPS task or reserved Vercel invocation time; shared cleanup batches retain `SKIP LOCKED` |
 
 | Browser transport | Policy |
 | --- | --- |
@@ -111,7 +121,7 @@ flowchart LR
     FILE["Public application.toml"] --> LOAD["Load typed settings once"]
     LOAD --> RESTORE["Restore session"]
     EVENTS["Login, logout, profile change"] --> LOCK["Browser Web Lock"]
-    LOCK --> REQUEST["Direct API request"]
+    LOCK --> REQUEST["Same-origin /api/v1 request"]
     REQUEST --> OWNER["Epoch and sequence ownership"]
     OWNER --> VIEWER["Safe viewer signals"]
     VIEWER --> SYNC["BroadcastChannel"]
@@ -126,7 +136,7 @@ flowchart LR
 | Stale responses | Session epoch/sequence checks reject earlier account state; report/trigger feature ownership keys account ID and role, preserving manual state through same-owner refresh and suppressing stale completions after an owner change |
 | Other tabs/focus | Broadcast notifications and refresh-based restoration |
 | Pagination | Dioxus resources own fetch lifecycle; disable navigation while pending |
-| Deployment configuration | Publishing selected local/prod source as one application.toml is planned; selection is not implemented |
+| Deployment configuration | Build helper publishes selected local/prod source as one application.toml; restores source configuration after build |
 
 ## Outbound Shopify operations
 
@@ -168,8 +178,8 @@ flowchart LR
 | Client failures | ClientError captures file/line/column automatically and retains typed ClientErrorKind failures and transport/decoder sources. AppError derives optional client_origin from direct/shared/wrapped client causes alongside its own mapping location. One ERROR at response/background handling; no events during creation/conversion/propagation; safe Display/Debug |
 | Sensitive fields | Configuration Debug redacts secrets; do not log raw requests, upstream bodies, or client error fields |
 | Persistence | Transactions remain service-owned, SQL remains repository-owned; intentional admin/seed migrations are preserved |
-| Runtime | Standalone Axum listener and Tokio maintenance; no serverless adapter or production deployment mechanism |
-| Capacity | Default database pool has one connection; throughput and deployment guarantees require separate evidence |
+| Runtime | Two static services and one API listener; VPS periodic tasks or Vercel authenticated bounded HTTP tick |
+| Capacity | Production database pool permits two connections; bounded cron/report capacity requires workload evidence |
 
 ## Inventory and order reports
 

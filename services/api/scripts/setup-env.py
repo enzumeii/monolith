@@ -14,7 +14,7 @@ import tempfile
 
 ITEM_ID = '87323839-368f-4288-a4a5-9b0320699892'
 KEYS = (
-    'JWT_SECRET', 'SHOPIFY_ACCESS_TOKEN', 'RESEND_API_KEY',
+    'JWT_SECRET', 'CRON_SECRET', 'SHOPIFY_ACCESS_TOKEN', 'RESEND_API_KEY',
     'PAYPAL_CLIENT_ID', 'PAYPAL_CLIENT_SECRET', 'STRIPE_SECRET_KEY',
 )
 ASSIGNMENT = re.compile(r'^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_.]*)[ \t]*=(.*)', re.S)
@@ -107,9 +107,11 @@ def local_defaults():
         'RUN_ENV': 'local',
         'DATABASE_URL': 'postgres://user:pass@127.0.0.1:5432/core',
         'JWT_SECRET': secrets.token_hex(32),
+        'CRON_SECRET': secrets.token_hex(32),
         'SHOPIFY_ACCESS_TOKEN': '', 'RESEND_API_KEY': '',
         'PAYPAL_CLIENT_ID': '', 'PAYPAL_CLIENT_SECRET': '', 'STRIPE_SECRET_KEY': '',
-        'BLOB_READ_WRITE_TOKEN': 'vercel_blob_rw_local_synthetic',
+        'S3_ACCESS_KEY_ID': 'synthetic-local-access',
+        'S3_SECRET_ACCESS_KEY': 'synthetic-local-secret',
         'SHIPPING_SENDER_NAME': f'Synthetic Sender {token}',
         'SHIPPING_SENDER_PHONE': f'000{secrets.randbelow(10_000_000):07d}',
         'SHIPPING_SENDER_EMAIL': 'shipping@enzumeii.com',

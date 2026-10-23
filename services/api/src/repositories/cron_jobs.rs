@@ -214,8 +214,23 @@ pub(crate) async fn save_checkpoint(
     if !updated {
         return Ok(false);
     }
-    Ok(sqlx::query("UPDATE report_results SET generated_at=$2, files=$3 WHERE id=$1 AND (generated_at IS NULL OR generated_at=$2)")
-        .bind(id).bind(next.generated_at).bind(sqlx::types::Json(next.receipts())).execute(connection).await?.rows_affected() == 1)
+    let updated = sqlx::query("UPDATE report_results SET generated_at=$2 WHERE id=$1 AND (generated_at IS NULL OR generated_at=$2)")
+        .bind(id).bind(next.generated_at).execute(&mut *connection).await?.rows_affected() == 1;
+    if !updated {
+        return Ok(false);
+    }
+    for (position, file) in next.files.iter().enumerate() {
+        if let Some(receipt) = &file.receipt {
+            super::report_result_files::insert(
+                connection,
+                id,
+                i32::try_from(position).map_err(|_| crate::models::cron::saved_invalid())?,
+                receipt,
+            )
+            .await?;
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(test)]

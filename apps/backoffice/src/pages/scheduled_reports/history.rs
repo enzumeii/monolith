@@ -132,7 +132,7 @@ pub fn History(query: String) -> Element {
                                             "{record.parameters}"
                                         }
                                         td { ReportOutcome { report: record.clone() } }
-                                        td { ReportFiles { files: record.files.clone(), compact: true } }
+                                        td { ReportFiles { report_id: record.id.clone(), files: record.files.clone(), compact: true } }
                                     }
                                 }
                             }

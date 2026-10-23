@@ -4,6 +4,20 @@ use chrono::{DateTime, NaiveDateTime, Timelike, Utc};
 use domain::dto::ListReportResultsQuery;
 use domain::dto::ScheduleReportType;
 
+pub(crate) fn validate_download_path(
+    path: Result<axum::extract::Path<(String, String)>, axum::extract::rejection::PathRejection>,
+) -> Result<(uuid::Uuid, String), AppError> {
+    let axum::extract::Path((id, filename)) =
+        path.map_err(|_| invalid("Invalid report file path"))?;
+    let id = id
+        .parse()
+        .map_err(|_| invalid("Invalid report identifier"))?;
+    if !validate_csv_filename(&filename) {
+        return Err(invalid("Invalid report filename"));
+    }
+    Ok((id, filename))
+}
+
 pub(crate) fn validate_filter(query: &ListReportResultsQuery) -> Result<ResultFilter, AppError> {
     let (page, per_page) = super::configs::validate_page(query.page, query.per_page)?;
     let generated_from = query
@@ -101,10 +115,6 @@ pub(crate) fn validate_saved_parameters(
     }))
 }
 
-fn invalid(message: &'static str) -> AppError {
-    AppError::new(StatusCode::BAD_REQUEST, message)
-}
-
 pub(crate) fn validate_csv_filename(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 200
@@ -125,15 +135,77 @@ pub(crate) fn validate_saved_file(
     {
         return Err(invalid());
     }
-    let url = reqwest::Url::parse(&file.download_url).map_err(|_| invalid())?;
-    if !matches!(url.scheme(), "http" | "https")
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
+    let bucket = &file.bucket;
+    if !(3..=63).contains(&bucket.len())
+        || bucket.contains("..")
+        || !bucket.as_bytes()[0].is_ascii_alphanumeric()
+        || !bucket.as_bytes()[bucket.len() - 1].is_ascii_alphanumeric()
+        || !bucket
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'.'))
+        || bucket.parse::<std::net::Ipv4Addr>().is_ok()
     {
         return Err(invalid());
     }
+    validate_storage_key(&file.storage_key, &file.filename, &file.sha256)
+}
+
+pub(crate) fn validate_saved_file_for_report(
+    file: &crate::models::cron::report::SavedFile,
+    kind: ScheduleReportType,
+    id: uuid::Uuid,
+    generated_at: Option<NaiveDateTime>,
+) -> Result<(), AppError> {
+    validate_saved_file(file)?;
+    let generated_at = generated_at.ok_or_else(crate::models::cron::saved_invalid)?;
+    let kind = match kind {
+        ScheduleReportType::Inventory => "inventory",
+        ScheduleReportType::Transaction => "transaction",
+    };
+    let parts = file.storage_key.split('/').collect::<Vec<_>>();
+    if parts[0] != kind
+        || parts[2] != id.to_string()
+        || parts[1]
+            != generated_at
+                .and_utc()
+                .with_timezone(&chrono_tz::Asia::Bangkok)
+                .format("%Y%m%d")
+                .to_string()
+    {
+        return Err(crate::models::cron::saved_invalid());
+    }
     Ok(())
+}
+
+pub(crate) fn validate_storage_key(
+    key: &str,
+    filename: &str,
+    sha256: &str,
+) -> Result<(), AppError> {
+    let parts = key.split('/').collect::<Vec<_>>();
+    if parts.len() != 5
+        || !matches!(
+            (parts[0], filename),
+            ("inventory", "inventory.csv") | ("transaction", "transactions.csv" | "items.csv")
+        )
+        || parts[1].len() != 8
+        || !parts[1].bytes().all(|b| b.is_ascii_digit())
+        || chrono::NaiveDate::parse_from_str(parts[1], "%Y%m%d").is_err()
+        || uuid::Uuid::parse_str(parts[2]).map_or(true, |id| id.to_string() != parts[2])
+        || sha256.len() != 64
+        || !sha256
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        || parts[3] != sha256
+        || parts[4] != filename
+    {
+        return Err(crate::models::cron::saved_invalid());
+    }
+    Ok(())
+}
+
+fn invalid(message: &'static str) -> AppError {
+    AppError::new(StatusCode::BAD_REQUEST, message)
 }
 
 #[cfg(test)]

@@ -1,0 +1,11 @@
+$kind: collection
+order: 5000
+auth:
+  - id: 50da802f-f8d1-4fe8-8ac7-f8c61c3962ae
+    type: awsv4
+    name: Private S3 SigV4
+    credentials:
+      accessKey: "{{s3_access_key_id}}"
+      secretKey: "{{s3_secret_access_key}}"
+      region: "{{s3_region}}"
+      service: s3

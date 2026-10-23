@@ -18,9 +18,15 @@ description: |
   400: invalid date bounds. 503: Stripe client unavailable, PayPal client unavailable or Shopify client unavailable.
   502/504: actual upstream failure, unusable provider data or timeout; no partial report.
   Error bodies retain the existing safe {"error":"..."} contract.
-url: "{{server}}/v1/admin/transactions?date_from=2026-10-01T00:00:00+07:00&date_to=2026-10-31T23:59:59+07:00"
+url: "{{server}}/v1/admin/transactions?date_from=2026-10-01T00:00:00+07:00&date_to=2026-10-02T23:59:59+07:00"
 method: GET
 queryParams:
-  date_from: 2026-10-01T00:00:00+07:00
-  date_to: 2026-10-31T23:59:59+07:00
+  - key: date_from
+    value: 2026-10-01T00:00:00+07:00
+    disabled: false
+    description: ""
+  - key: date_to
+    value: 2026-10-02T23:59:59+07:00
+    disabled: false
+    description: ""
 order: 1000

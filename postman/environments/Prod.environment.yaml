@@ -1,7 +1,7 @@
 name: Prod
 values:
   - key: server
-    value: ''
+    value: 'https://deployment-name.vercel.app/api'
   - key: shopify
     value: 'https://enzumeii.myshopify.com/admin/api/2026-10'
   - key: resend
@@ -10,3 +10,11 @@ values:
     value: 'https://api-m.paypal.com'
   - key: stripe
     value: 'https://api.stripe.com/v1'
+  - key: s3_endpoint
+    value: 'https://jbcvsgdvhvzitweteqfo.storage.supabase.co/storage/v1/s3'
+  - key: s3_region
+    value: ap-southeast-1
+  - key: s3_access_key_id
+    value: ''
+  - key: s3_secret_access_key
+    value: ''

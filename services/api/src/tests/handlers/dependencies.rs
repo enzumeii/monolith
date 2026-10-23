@@ -10,7 +10,7 @@ pub(crate) fn state(f: &Fixture) -> AppState {
         "browser":{"public_origin":"http://localhost:8084","insecure_local":true},
         "server":{"host":"localhost","port":3000},
         "database":{"url":"unused","max_connections":1,"min_connections":1},
-        "scheduler":{"enabled":false,"poll_interval_secs":1,"concurrency":1,"max_attempts":2,"retry_backoff_secs":1,"lease_secs":5,"max_payload_bytes":20_971_520,"max_email_bytes":20_971_520},
+        "scheduler":{"implementation":"vps","poll_interval_secs":1,"retention_interval_secs":3600,"invocation_budget_secs":240,"retention_reserve_secs":5,"enabled":false,"concurrency":1,"max_attempts":2,"retry_backoff_secs":1,"lease_secs":5,"max_payload_bytes":20_971_520,"max_email_bytes":20_971_520},
         "jwt":{"secret":"1111111111111111111111111111111111111111111111111111111111111111"}
     }))
     .unwrap();

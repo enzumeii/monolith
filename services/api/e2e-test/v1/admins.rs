@@ -14,7 +14,7 @@ async fn list_returns_seeded_super_admin_with_default_pagination() {
         .await
         .send(common::authed(
             "GET",
-            "/v1/admins",
+            "/api/v1/admins",
             db.root_id(),
             AdminRole::Admin,
         ))
@@ -36,7 +36,7 @@ async fn list_rejects_page_zero() {
         .await
         .send(common::authed(
             "GET",
-            "/v1/admins?page=0",
+            "/api/v1/admins?page=0",
             db.root_id(),
             AdminRole::Admin,
         ))
@@ -55,7 +55,7 @@ async fn get_returns_the_admin() {
         .await
         .send(common::authed(
             "GET",
-            &format!("/v1/admins/{id}"),
+            &format!("/api/v1/admins/{id}"),
             id,
             AdminRole::Admin,
         ))
@@ -74,7 +74,7 @@ async fn missing_admin_targets_return_not_authorized() {
     let db = common::fixture().await;
     let client = common::client().await;
     for method in ["GET", "PATCH", "DELETE"] {
-        let uri = "/v1/admins/9223372036854775807";
+        let uri = "/api/v1/admins/9223372036854775807";
         let request = if method == "PATCH" {
             common::authed_json(
                 method,
@@ -105,7 +105,7 @@ async fn update_allows_self_rename() {
         .await
         .send(common::authed_json(
             "PATCH",
-            &format!("/v1/admins/{id}"),
+            &format!("/api/v1/admins/{id}"),
             id,
             AdminRole::Admin,
             &serde_json::json!({ "username": db.username("renamed"), "password": null }),
@@ -130,7 +130,7 @@ async fn update_rejects_other_admins_records() {
         .await
         .send(common::authed_json(
             "PATCH",
-            &format!("/v1/admins/{target}"),
+            &format!("/api/v1/admins/{target}"),
             target + 1000,
             AdminRole::Admin,
             &serde_json::json!({ "username": db.username("renamed"), "password": null }),
@@ -172,7 +172,7 @@ async fn update_allows_super_admin_cross_account_and_revokes_target_tokens() {
             .send(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/auth/login")
+                    .uri("/api/v1/auth/login")
                     .header("content-type", "application/json")
                     .body(Body::from(
                         serde_json::json!({ "username": username, "password": password })
@@ -189,7 +189,7 @@ async fn update_allows_super_admin_cross_account_and_revokes_target_tokens() {
         .await
         .send(common::authed_json(
             "PATCH",
-            &format!("/v1/admins/{target}"),
+            &format!("/api/v1/admins/{target}"),
             super_admin,
             AdminRole::SuperAdmin,
             &serde_json::json!({ "password": "new-secret-password" }),
@@ -218,7 +218,7 @@ async fn update_allows_super_admin_cross_account_and_revokes_target_tokens() {
         .send(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/login")
+                .uri("/api/v1/auth/login")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({ "username": db.username("cross-target"), "password": "new-secret-password" })
@@ -240,7 +240,7 @@ async fn add_requires_super_admin() {
         .clone()
         .send(common::authed_json(
             "POST",
-            "/v1/admins",
+            "/api/v1/admins",
             db.root_id(),
             AdminRole::Admin,
             &serde_json::json!({ "username": db.username("new"), "password": "long-test-password", "role": "ADMIN" }),
@@ -252,7 +252,7 @@ async fn add_requires_super_admin() {
     let by_super = router
         .send(common::authed_json(
             "POST",
-            "/v1/admins",
+            "/api/v1/admins",
             db.root_id(),
             AdminRole::SuperAdmin,
             &serde_json::json!({ "username": db.username("new"), "password": "long-test-password", "role": "ADMIN" }),
@@ -283,7 +283,7 @@ async fn delete_rejects_self_delete() {
         .await
         .send(common::authed(
             "DELETE",
-            &format!("/v1/admins/{self_admin}"),
+            &format!("/api/v1/admins/{self_admin}"),
             self_admin,
             AdminRole::SuperAdmin,
         ))
@@ -309,7 +309,7 @@ async fn delete_requires_super_admin_and_protects_super_admins() {
         .await
         .send(common::authed(
             "DELETE",
-            &format!("/v1/admins/{target}"),
+            &format!("/api/v1/admins/{target}"),
             db.root_id(),
             AdminRole::Admin,
         ))
@@ -321,7 +321,7 @@ async fn delete_requires_super_admin_and_protects_super_admins() {
         .await
         .send(common::authed(
             "DELETE",
-            &format!("/v1/admins/{target}"),
+            &format!("/api/v1/admins/{target}"),
             db.root_id(),
             AdminRole::SuperAdmin,
         ))
@@ -347,7 +347,7 @@ async fn delete_requires_super_admin_and_protects_super_admins() {
         .await
         .send(common::authed(
             "DELETE",
-            &format!("/v1/admins/{sa_id}"),
+            &format!("/api/v1/admins/{sa_id}"),
             other_super,
             AdminRole::SuperAdmin,
         ))
@@ -368,7 +368,7 @@ async fn create_rejects_empty_credentials_and_reports_duplicate_username() {
             .clone()
             .send(common::authed_json(
                 "POST",
-                "/v1/admins",
+                "/api/v1/admins",
                 db.root_id(),
                 AdminRole::SuperAdmin,
                 &payload,
@@ -384,7 +384,7 @@ async fn create_rejects_empty_credentials_and_reports_duplicate_username() {
         AdminRole::Admin,
     )
     .await;
-    let response = app.send(common::authed_json("POST", "/v1/admins", db.root_id(), AdminRole::SuperAdmin, &serde_json::json!({"username":db.username("existing"), "password":"long-test-password", "role":"ADMIN"}))).await.unwrap();
+    let response = app.send(common::authed_json("POST", "/api/v1/admins", db.root_id(), AdminRole::SuperAdmin, &serde_json::json!({"username":db.username("existing"), "password":"long-test-password", "role":"ADMIN"}))).await.unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
 }
 
@@ -410,7 +410,7 @@ async fn failed_session_revocation_rolls_back_password_update() {
         .await
         .send(common::authed_json(
             "PATCH",
-            &format!("/v1/admins/{id}"),
+            &format!("/api/v1/admins/{id}"),
             id,
             AdminRole::Admin,
             &serde_json::json!({"password":"new-password-value"}),
@@ -511,7 +511,7 @@ async fn update_admin(
         .await
         .send(common::authed_json(
             "PATCH",
-            &format!("/v1/admins/{id}"),
+            &format!("/api/v1/admins/{id}"),
             actor,
             role,
             &serde_json::to_value(request).unwrap(),
@@ -550,7 +550,7 @@ async fn list_covers_first_last_and_empty_pages_without_resetting_shared_rows() 
             .await
             .send(common::authed(
                 "GET",
-                &format!("/v1/admins?page={page}&per_page=2"),
+                &format!("/api/v1/admins?page={page}&per_page=2"),
                 db.root_id(),
                 AdminRole::SuperAdmin,
             ))
@@ -575,7 +575,7 @@ async fn cookie_self_update_revokes_account_sessions() {
     let b = super::auth::cookie_pair(
         &super::auth::cookie_login(&db.username("root"), "fixture-root-password").await,
     );
-    let uri = format!("/v1/admins/{}", db.root_id());
+    let uri = format!("/api/v1/admins/{}", db.root_id());
     let response = common::client()
         .await
         .send(
@@ -606,7 +606,7 @@ async fn cookie_self_update_revokes_account_sessions() {
     );
     for cookie in [&a, &b] {
         assert_eq!(
-            super::auth::cookie_request("POST", "/v1/auth/refresh", cookie)
+            super::auth::cookie_request("POST", "/api/v1/auth/refresh", cookie)
                 .await
                 .status(),
             StatusCode::UNAUTHORIZED

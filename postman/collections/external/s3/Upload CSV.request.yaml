@@ -1,0 +1,24 @@
+$kind: http-request
+description: Upload frozen CSV bytes using SigV4 to the private reports bucket. Identical bytes may replace the same deterministic key. Use an owned synthetic fixture for local checks. Success 200; credentials rejected 403.
+url: "{{s3_endpoint}}/reports/:key"
+method: PUT
+pathVariables:
+  - key: key
+    value: test
+    description: ""
+order: 1000
+auth:
+  type: inherit
+  credentials:
+    id: 50da802f-f8d1-4fe8-8ac7-f8c61c3962ae
+headers:
+  Content-Type: text/csv; charset=utf-8
+body:
+  type: text
+  content: |
+    id,title
+    1,synthetic
+scripts:
+  - type: afterResponse
+    code: ""
+    language: text/javascript

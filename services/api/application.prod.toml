@@ -1,0 +1,7 @@
+[scheduler]
+implementation = "vercel"
+
+[browser]
+# Filled at startup from Vercel deployment metadata; /backoffice and /user share this origin.
+public_origin = ""
+insecure_local = false

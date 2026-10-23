@@ -23,7 +23,8 @@ async fn dispatch_visits_every_page_and_coalesces_inventory_without_duplicates()
     for (table, expected) in [
         ("cron_configurations", 9_i64),
         ("cron_jobs", 10),
-        ("report_results", 8),
+        ("report_result_files", 8),
+        ("report_results", 7),
     ] {
         let actual:i64=sqlx::query_scalar("SELECT COUNT(*) FROM pg_attribute WHERE attrelid=$1::regclass AND attnum>0 AND NOT attisdropped")
             .bind(table).fetch_one(&state.pool).await.unwrap();

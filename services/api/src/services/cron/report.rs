@@ -1,5 +1,8 @@
 use crate::{
-    client::{ClientError, paypal::PaypalClient, shopify::ShopifyClient, stripe::StripeClient},
+    client::{
+        ClientError, paypal::PaypalClient, s3::S3Client, shopify::ShopifyClient,
+        stripe::StripeClient,
+    },
     error::AppError,
     models::{
         cron::{
@@ -58,6 +61,56 @@ pub(crate) async fn detail(pool: &PgPool, id: Uuid) -> Result<ReportResultDTO, A
         .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Report result not found"))?
         .into_dto()
 }
+pub(crate) async fn download_url(
+    pool: &PgPool,
+    client: &S3Client,
+    id: Uuid,
+    filename: &str,
+    ttl_secs: u32,
+) -> Result<domain::dto::ReportDownloadUrlDTO, AppError> {
+    let report = repositories::report_results::find(pool, id)
+        .await?
+        .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Report result not found"))?;
+    let file = report
+        .files
+        .iter()
+        .find(|file| file.filename == filename)
+        .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Report file not found"))?;
+    crate::validations::cron::report::validate_saved_file_for_report(
+        file,
+        report_type(&report.report_type)?,
+        report.id,
+        report.generated_at,
+    )?;
+    if file.bucket != client.bucket() {
+        return Err(crate::models::cron::saved_invalid());
+    }
+    let object = client
+        .metadata(&file.storage_key)
+        .await
+        .map_err(|error| crate::error::upstream(error))?
+        .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Report file not found"))?;
+    if object.storage_key != file.storage_key
+        || object.size != file.size_bytes as u64
+        || object.content_type != file.content_type
+    {
+        return Err(AppError::new(
+            StatusCode::BAD_GATEWAY,
+            "Upstream request failed",
+        ));
+    }
+    let download = client
+        .presign_download(&file.storage_key, &file.filename, ttl_secs)
+        .await
+        .map_err(|error| crate::error::upstream(error))?;
+    Ok(domain::dto::ReportDownloadUrlDTO {
+        url: download.url,
+        expires_at: download
+            .expires_at
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+    })
+}
+
 pub(crate) async fn generate(
     audit: &ReportResult,
     providers: Providers<'_>,

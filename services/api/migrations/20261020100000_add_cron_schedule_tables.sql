@@ -33,8 +33,21 @@ CREATE TABLE report_results (
     generated_at TIMESTAMP WITHOUT TIME ZONE NULL,
     status TEXT NOT NULL,
     error TEXT NULL,
-    parameters TEXT NOT NULL,
-    files JSONB NOT NULL DEFAULT '[]'::jsonb
+    parameters TEXT NOT NULL
+);
+
+CREATE TABLE report_result_files (
+    report_result_id UUID NOT NULL REFERENCES report_results(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL CHECK (btrim(filename) <> ''),
+    position INTEGER NOT NULL CHECK (position >= 0),
+    content_type TEXT NOT NULL CHECK (btrim(content_type) <> ''),
+    bucket TEXT NOT NULL CHECK (btrim(bucket) <> ''),
+    storage_key TEXT NOT NULL CHECK (btrim(storage_key) <> ''),
+    size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+    sha256 TEXT NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
+    PRIMARY KEY (report_result_id, filename),
+    UNIQUE (report_result_id, position),
+    UNIQUE (bucket, storage_key)
 );
 
 CREATE INDEX cron_configurations_enabled_idx ON cron_configurations (id) WHERE enabled;

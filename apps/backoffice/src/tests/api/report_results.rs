@@ -57,3 +57,40 @@ async fn history_reports_safe_errors_invalid_payloads_and_unsafe_ids() {
         assert_eq!(get_report(id).await.expect_err("invalid ID").status, 400);
     }
 }
+
+#[tokio::test]
+async fn signing_decodes_expiry_and_preserves_filename_as_a_path_segment() {
+    let body = r#"{"url":"https://storage.test/file.csv?signature=a%2Fb","expires_at":"2026-10-23T00:00:30Z"}"#;
+    let (response, request) = metadata_response(200, body, get_download_url(ID, "a #?%.csv")).await;
+    let signed = response.expect("signed download");
+    assert_eq!(signed.url, "https://storage.test/file.csv?signature=a%2Fb");
+    assert_eq!(signed.expires_at, "2026-10-23T00:00:30Z");
+    assert!(
+        request.starts_with(&format!(
+            "GET /v1/admin/cron/reports/{ID}/files/a%20%23%3F%25.csv/download-url HTTP/1.1"
+        )),
+        "{request}"
+    );
+    assert!(request.contains("x-session-mode: cookie"));
+}
+
+#[tokio::test]
+async fn signing_surfaces_safe_errors_and_rejects_invalid_report_ids() {
+    let (response, _) = metadata_response(
+        503,
+        r#"{"error":"Report storage unavailable"}"#,
+        get_download_url(ID, "inventory.csv"),
+    )
+    .await;
+    assert_eq!(
+        response.expect_err("storage error").to_string(),
+        "Report storage unavailable"
+    );
+    assert_eq!(
+        get_download_url("../reports", "inventory.csv")
+            .await
+            .expect_err("ID")
+            .status,
+        400
+    );
+}

@@ -7,7 +7,7 @@ use axum::{
         header::{AUTHORIZATION, CACHE_CONTROL, ORIGIN},
     },
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use domain::dto::TokenResponse;
@@ -86,33 +86,40 @@ pub(crate) async fn browser_guard(
     State(browser_config): State<BrowserConfig>,
     request: Request,
     next: Next,
-) -> Result<Response, AppError> {
-    let browser = cookie_mode(request.headers())?
-        || (!request.headers().contains_key(AUTHORIZATION)
-            && CookieJar::from_headers(request.headers())
-                .get(cookie_name(&browser_config))
-                .is_some());
-    if browser
-        && !matches!(
-            *request.method(),
-            Method::GET | Method::HEAD | Method::OPTIONS
-        )
-        && request
-            .headers()
-            .get(ORIGIN)
-            .and_then(|value| value.to_str().ok())
-            != Some(browser_config.public_origin.as_str())
-    {
-        return Err(AppError::new(
-            StatusCode::FORBIDDEN,
-            "Your account is forbidden to make this action",
-        ));
+) -> Response {
+    let outcome = async {
+        let browser = cookie_mode(request.headers())?
+            || (!request.headers().contains_key(AUTHORIZATION)
+                && CookieJar::from_headers(request.headers())
+                    .get(cookie_name(&browser_config))
+                    .is_some());
+        if browser
+            && !matches!(
+                *request.method(),
+                Method::GET | Method::HEAD | Method::OPTIONS
+            )
+            && request
+                .headers()
+                .get(ORIGIN)
+                .and_then(|value| value.to_str().ok())
+                != Some(browser_config.public_origin.as_str())
+        {
+            return Err(AppError::new(
+                StatusCode::FORBIDDEN,
+                "Your account is forbidden to make this action",
+            ));
+        }
+        Ok(next.run(request).await)
     }
-    let mut response = next.run(request).await;
+    .await;
+    let mut response = match outcome {
+        Ok(response) => response,
+        Err(error) => error.into_response(),
+    };
     response
         .headers_mut()
         .insert(CACHE_CONTROL, "no-store".parse().expect("static header"));
-    Ok(response)
+    response
 }
 
 fn cookie_name(config: &BrowserConfig) -> &'static str {

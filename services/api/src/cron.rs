@@ -1,47 +1,125 @@
 pub(crate) mod job;
 pub(crate) mod publication;
 pub(crate) mod report;
+pub mod runtime;
 pub(crate) mod schedule;
 use crate::{error::AppError, repositories, services::cron::config, state::AppState};
 use chrono::Utc;
 use tokio::task::JoinSet;
 
-pub async fn run(state: AppState) {
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(
-        state.settings.scheduler.poll_interval_secs,
-    ));
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    loop {
-        interval.tick().await;
-        if let Err(error) = dispatch(&state).await {
-            crate::error::log_background_error("cron dispatch", &error);
-        }
-        if let Err(error) = repositories::cron_jobs::recover(
-            &state.pool,
-            Utc::now().naive_utc(),
-            job::max_attempts(&state),
+pub(crate) async fn invoke(state: &AppState) -> Result<(), AppError> {
+    let settings = &state.settings.scheduler;
+    let deadline = tokio::time::Instant::now()
+        + std::time::Duration::from_secs(settings.invocation_budget_secs);
+    let work_deadline = deadline - std::time::Duration::from_secs(settings.retention_reserve_secs);
+    let reports = if state.settings.scheduler.enabled {
+        drain(state, work_deadline).await
+    } else {
+        Ok(())
+    };
+    tokio::time::timeout_at(
+        deadline,
+        repositories::auth::cleanup_refresh_tokens(&state.pool),
+    )
+    .await
+    .map_err(|_| {
+        AppError::new(
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "Refresh token retention exceeded invocation capacity",
         )
+    })??;
+    reports
+}
+
+pub(crate) async fn run_once(state: &AppState) -> Result<bool, AppError> {
+    if !state.settings.scheduler.enabled {
+        return Ok(false);
+    }
+    let preparation = prepare(state).await.err();
+    let (processed, failure) = batch(state, None).await;
+    if let Some(error) = preparation.or(failure) {
+        return Err(error);
+    }
+    Ok(processed)
+}
+
+async fn prepare(state: &AppState) -> Result<(), AppError> {
+    let dispatched = dispatch(state).await;
+    let recovered = repositories::cron_jobs::recover(
+        &state.pool,
+        Utc::now().naive_utc(),
+        job::max_attempts(state),
+    )
+    .await;
+    dispatched.and(recovered)
+}
+
+async fn drain(state: &AppState, deadline: tokio::time::Instant) -> Result<(), AppError> {
+    let mut failure = tokio::time::timeout_at(deadline, prepare(state))
         .await
-        {
-            crate::error::log_background_error("cron recovery", &error);
+        .map_err(|_| capacity_error())?
+        .err();
+    loop {
+        if tokio::time::Instant::now() >= deadline {
+            return Err(capacity_error());
         }
-        let mut tasks = JoinSet::new();
-        for _ in 0..state.settings.scheduler.concurrency {
-            let state = state.clone();
-            tasks.spawn(async move { execute_one(&state).await });
+        let (processed, error) = batch(state, Some(deadline)).await;
+        if tokio::time::Instant::now() >= deadline {
+            return Err(capacity_error());
         }
-        while let Some(outcome) = tasks.join_next().await {
-            match outcome {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) => crate::error::log_background_error("cron job", &error),
-                Err(error) => tracing::error!(error=%error,"cron task failed"),
-            }
+        if failure.is_none() {
+            failure = error;
+        }
+        if !processed {
+            return failure.map_or(Ok(()), Err);
         }
     }
 }
+
+async fn batch(
+    state: &AppState,
+    deadline: Option<tokio::time::Instant>,
+) -> (bool, Option<AppError>) {
+    // Dropping the owned JoinSet cancels every worker if the caller disappears.
+    let mut tasks = JoinSet::new();
+    for _ in 0..state.settings.scheduler.concurrency {
+        let state = state.clone();
+        tasks.spawn(async move {
+            match deadline {
+                Some(deadline) => tokio::time::timeout_at(deadline, execute_one(&state))
+                    .await
+                    .unwrap_or_else(|_| (false, Err(capacity_error()))),
+                None => execute_one(&state).await,
+            }
+        });
+    }
+    let mut processed = false;
+    let mut failure = None;
+    // Every worker is awaited, including work cancelled at its deadline.
+    while let Some(outcome) = tasks.join_next().await {
+        let (claimed, result) =
+            outcome.unwrap_or_else(|error| (false, Err(AppError::from(anyhow::Error::new(error)))));
+        processed |= claimed;
+        if let Err(error) = result
+            && failure.is_none()
+        {
+            failure = Some(error);
+        }
+    }
+    (processed, failure)
+}
+
+fn capacity_error() -> AppError {
+    AppError::new(
+        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+        "Scheduled reports exceeded invocation capacity; unfinished work will recover on a later trigger",
+    )
+}
+
 pub(crate) async fn dispatch(state: &AppState) -> Result<(), AppError> {
     let now = Utc::now().naive_utc();
     let ids = repositories::cron_configurations::enabled(&state.pool).await?;
+    let mut failure = None;
     for id in ids {
         let result = async {
             let mut transaction = state.pool.begin().await?;
@@ -86,11 +164,13 @@ pub(crate) async fn dispatch(state: &AppState) -> Result<(), AppError> {
             Ok(())
         }
         .await;
-        if let Err(error) = result {
-            crate::error::log_background_error("cron configuration dispatch", &error);
+        if let Err(error) = result
+            && failure.is_none()
+        {
+            failure = Some(error);
         }
     }
-    Ok(())
+    failure.map_or(Ok(()), Err)
 }
 pub(crate) fn retry_at(state: &AppState, attempts: i32) -> Option<chrono::NaiveDateTime> {
     if attempts >= job::max_attempts(state) {
@@ -106,20 +186,23 @@ pub(crate) fn retry_at(state: &AppState, attempts: i32) -> Option<chrono::NaiveD
             + chrono::Duration::seconds(i64::try_from(delay).unwrap_or(i64::MAX)),
     )
 }
-async fn execute_one(state: &AppState) -> Result<(), AppError> {
-    let Some(claim) = job::claim(state).await? else {
-        return Ok(());
+async fn execute_one(state: &AppState) -> (bool, Result<(), AppError>) {
+    let claim = match job::claim(state).await {
+        Ok(Some(claim)) => claim,
+        Ok(None) => return (false, Ok(())),
+        Err(failure) => return (failure.consumed, Err(failure.error)),
     };
-    match with_lease(state, &claim, job::execute(state, &claim)).await {
+    let outcome = match with_lease(state, &claim, job::execute(state, &claim)).await {
         Ok(()) => {
             tracing::info!(job_id = %claim.job.id, scheduled_for = %claim.job.scheduled_for, "cron job completed");
+            Ok(())
         }
-        Err(failure) => {
-            crate::error::log_background_error("cron workflow", &failure.error);
-            job::fail(state, &claim, failure.message).await?;
-        }
-    }
-    Ok(())
+        Err(failure) => match job::fail(state, &claim, failure.message).await {
+            Ok(()) => Err(failure.error),
+            Err(error) => Err(error),
+        },
+    };
+    (true, outcome)
 }
 async fn with_lease<T>(
     state: &AppState,

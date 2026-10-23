@@ -1,4 +1,4 @@
 $kind: collection
 variables:
-  blob_download_url: ""
-  blob_pathname: ""
+  s3_key: ""
+  s3_download_url: ""

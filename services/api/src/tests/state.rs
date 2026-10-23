@@ -3,7 +3,7 @@ use super::*;
 use axum::http::StatusCode;
 use serde_json::json;
 fn settings(shopify: &serde_json::Value) -> Settings {
-    serde_json::from_value(json!({"client":{"shopify":shopify},"browser":{"public_origin":"http://localhost:8084","insecure_local":true},"server":{"host":"localhost","port":3000},"database":{"url":"unused","max_connections":1,"min_connections":1},"scheduler":{"enabled":false,"poll_interval_secs":1,"concurrency":1,"max_attempts":2,"retry_backoff_secs":1,"lease_secs":5,"max_payload_bytes":20_971_520,"max_email_bytes":20_971_520},"jwt":{"secret":"1111111111111111111111111111111111111111111111111111111111111111"}})).unwrap()
+    serde_json::from_value(json!({"client":{"shopify":shopify},"browser":{"public_origin":"http://localhost:8084","insecure_local":true},"server":{"host":"localhost","port":3000},"database":{"url":"unused","max_connections":1,"min_connections":1},"scheduler":{"implementation":"vps","poll_interval_secs":1,"retention_interval_secs":3600,"invocation_budget_secs":240,"retention_reserve_secs":5,"enabled":false,"concurrency":1,"max_attempts":2,"retry_backoff_secs":1,"lease_secs":5,"max_payload_bytes":20_971_520,"max_email_bytes":20_971_520},"jwt":{"secret":"1111111111111111111111111111111111111111111111111111111111111111"}})).unwrap()
 }
 #[tokio::test]
 async fn state_reuses_shopify_client_and_preserves_optional_initialization_failures() {
@@ -206,6 +206,48 @@ async fn stripe_state_shares_client_and_preserves_optional_errors() {
             ));
         } else {
             assert!(state.stripe.is_err());
+        }
+    }
+}
+
+#[tokio::test]
+async fn s3_state_is_optional_shared_and_preserves_initialization_errors() {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://fixture:fixture@localhost/fixture")
+        .unwrap();
+    assert!(
+        app_state(pool.clone(), settings(&json!(null)))
+            .unwrap()
+            .s3
+            .unwrap()
+            .is_none()
+    );
+    for key in [None, Some(""), Some("synthetic-access")] {
+        let mut settings = settings(&json!(null));
+        settings.client.as_mut().unwrap().s3 = Some(crate::config::S3Config {
+            endpoint: "https://example.test/storage/v1/s3".into(),
+            region: "ap-southeast-1".into(),
+            bucket: "reports".into(),
+            force_path_style: true,
+            timeout_secs: 3,
+            signed_url_ttl_secs: 300,
+            access_key_id: key.map(str::to_owned),
+            secret_access_key: Some("synthetic-secret".into()),
+        });
+        let state = app_state(pool.clone(), settings).unwrap();
+        if key == Some("synthetic-access") {
+            assert!(Arc::ptr_eq(
+                state.s3.as_ref().unwrap().as_ref().unwrap(),
+                state.clone().s3.as_ref().unwrap().as_ref().unwrap()
+            ));
+        } else {
+            let error = required_client(&state.s3, "Report storage unavailable")
+                .err()
+                .unwrap();
+            assert_eq!(
+                axum::response::IntoResponse::into_response(error).status(),
+                503
+            );
         }
     }
 }

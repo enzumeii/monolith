@@ -1,3 +1,4 @@
+mod cron;
 mod healthz;
 mod v1;
 
@@ -31,8 +32,16 @@ pub fn router(state: AppState) -> Router {
             axum::http::HeaderName::from_static(crate::middleware::cookies::MODE_HEADER),
         ])
         .expose_headers([axum::http::header::CONTENT_DISPOSITION]);
+    let cron =
+        if state.settings.scheduler.implementation == crate::config::CronImplementation::Vercel {
+            cron::router()
+        } else {
+            Router::new()
+        };
     Router::new()
         .merge(healthz::router())
+        .merge(cron)
+        .nest("/api/v1", v1::router(&state))
         .nest("/v1", v1::router(&state))
         .with_state(state)
         .layer(axum::middleware::from_fn_with_state(

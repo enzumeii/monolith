@@ -41,13 +41,44 @@ pub(crate) struct MailIntent {
     pub html: String,
     pub first_attempt_at: NaiveDateTime,
 }
+impl FileCheckpoint {
+    pub(crate) fn validate(&self) -> Result<(), AppError> {
+        if self.content_type != report_generator::CSV_CONTENT_TYPE {
+            return Err(super::saved_invalid());
+        }
+        crate::validations::cron::report::validate_storage_key(
+            &self.key,
+            &self.filename,
+            &self.sha256,
+        )?;
+        if let Some(receipt) = &self.receipt {
+            crate::validations::cron::report::validate_saved_file(receipt)?;
+            if receipt.filename != self.filename
+                || receipt.storage_key != self.key
+                || receipt.content_type != self.content_type
+                || receipt.size_bytes != self.size_bytes
+                || receipt.sha256 != self.sha256
+            {
+                return Err(super::saved_invalid());
+            }
+        }
+        Ok(())
+    }
+}
+
 impl ExecutionCheckpoint {
     pub(crate) fn validate(&self) -> Result<(), AppError> {
         let parts = self.storage_prefix.split('/').collect::<Vec<_>>();
         if !self.generated_at.nanosecond().is_multiple_of(1000)
             || parts.len() != 3
             || !matches!(parts[0], "inventory" | "transaction")
-            || chrono::NaiveDate::parse_from_str(parts[1], "%Y%m%d").is_err()
+            || parts[1]
+                != self
+                    .generated_at
+                    .and_utc()
+                    .with_timezone(&chrono_tz::Asia::Bangkok)
+                    .format("%Y%m%d")
+                    .to_string()
             || uuid::Uuid::parse_str(parts[2]).is_err()
             || self.files.is_empty()
         {
@@ -62,22 +93,11 @@ impl ExecutionCheckpoint {
             return Err(super::saved_invalid());
         }
         for (file, name) in self.files.iter().zip(expected) {
+            file.validate()?;
             if file.filename != *name
-                || file.key != format!("{}/{}", self.storage_prefix, name)
-                || file.content_type != report_generator::CSV_CONTENT_TYPE
-                || file.sha256.len() != 64
-                || !file.sha256.bytes().all(|b| b.is_ascii_hexdigit())
+                || file.key != format!("{}/{}/{}", self.storage_prefix, file.sha256, name)
             {
                 return Err(super::saved_invalid());
-            }
-            if let Some(receipt) = &file.receipt {
-                if receipt.filename != file.filename
-                    || receipt.storage_key != file.key
-                    || receipt.content_type != file.content_type
-                {
-                    return Err(super::saved_invalid());
-                }
-                crate::validations::cron::report::validate_saved_file(receipt)?;
             }
         }
         if let MailState::Sending(intent) | MailState::Accepted(intent) = &self.mail

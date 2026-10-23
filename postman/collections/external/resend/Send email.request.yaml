@@ -4,7 +4,15 @@ url: "{{resend}}/emails"
 method: POST
 body:
   type: json
-  content: '{"from":"shipping@enzumeii.com","to":["delivered@resend.dev"],"subject":"Hello World","html":"<p>Congrats on sending your <strong>first email</strong>!</p>"}'
+  content: |-
+    {
+    	"from": "shipping@enzumeii.com",
+    	"to": [
+    		"wichayutdew@gmail.com"
+    	],
+    	"subject": "Hello World",
+    	"html": "<p>Congrats on sending your <strong>first email</strong>!</p>"
+    }
 order: 1000
 headers:
   Content-Type: application/json

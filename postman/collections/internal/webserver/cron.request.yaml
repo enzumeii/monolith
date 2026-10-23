@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{server}}/_cron"
+method: GET
+auth:
+  type: bearer
+  credentials:
+    token: "{{vault:cron_secret}}"
+order: 2100
+description: Invoke bounded scheduled reports and refresh-token retention. cron_server is the deployment root (no /api prefix); cron_secret must match CRON_SECRET, supplied privately. Run api server with scheduler implementation=vercel in application.local.toml; production forces Vercel cron. VPS cron returns 404. The shared enabled setting skips reports but keeps retention. Success is 204; 401 rejects authentication; 503 means missing secret or invocation capacity exceeded; provider and database failures are safe errors.
+scripts:
+  - type: afterResponse
+    code: ""
+    language: text/javascript

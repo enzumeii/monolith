@@ -1,0 +1,12 @@
+{
+  "devDependencies": {
+    "vercel": "65.1.0"
+  },
+  "name": "monolith-deployment",
+  "private": true,
+  "scripts": {
+    "check:vercel": "node scripts/check-vercel.mjs",
+    "dev:vercel": "node scripts/dev-vercel.mjs",
+    "build:containers": "bash scripts/build-vercel-containers.sh"
+  }
+}

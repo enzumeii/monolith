@@ -26,7 +26,9 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: .github/scripts/package-lock.json
+          cache-dependency-path: |
+            .github/scripts/package-lock.json
+            package-lock.json
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@1.99.0
         with:
@@ -67,6 +69,9 @@ jobs:
               - 'rust-toolchain.toml'
               - '.cargo/**'
               - '.github/workflows/ci.yml'
+              - 'vercel.json'
+              - 'Dockerfile.*.vercel'
+              - 'scripts/*vercel*'
             backoffice:
               - 'apps/backoffice/**'
               - 'crates/domain/**'
@@ -76,6 +81,9 @@ jobs:
               - 'rust-toolchain.toml'
               - '.cargo/**'
               - '.github/workflows/ci.yml'
+              - 'vercel.json'
+              - 'Dockerfile.*.vercel'
+              - 'scripts/*vercel*'
             client-ui:
               - 'apps/client-ui/**'
               - 'crates/domain/**'
@@ -84,6 +92,9 @@ jobs:
               - 'rust-toolchain.toml'
               - '.cargo/**'
               - '.github/workflows/ci.yml'
+              - 'vercel.json'
+              - 'Dockerfile.*.vercel'
+              - 'scripts/*vercel*'
       - name: Install API formatter
         if: steps.changes.outputs.api == 'true'
         working-directory: services/api
@@ -95,11 +106,13 @@ jobs:
       - name: backoffice check
         if: steps.changes.outputs.backoffice == 'true'
         working-directory: apps/backoffice
-        run: just check
+        run: |
+          just check
       - name: client-ui check
         if: steps.changes.outputs.client-ui == 'true'
         working-directory: apps/client-ui
-        run: just check
+        run: |
+          just check
       - name: Shared report generation check and test
         working-directory: crates/report-generator
         run: |
@@ -145,3 +158,38 @@ jobs:
           files: target/coverage/api/lcov.info,target/coverage/backoffice/lcov.info,target/coverage/client-ui/lcov.info,target/coverage/domain/lcov.info
           disable_search: true
           fail_ci_if_error: true
+
+  check-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-directories: |
+            .tools/vercel-dx
+            apps/backoffice/target/vercel
+            apps/client-ui/target/vercel
+      - name: Install pinned native Dioxus CLI
+        run: bash scripts/install-vercel-dx.sh
+      - name: Build static CSR applications without cloud credentials
+        run: |
+          export PATH="$PWD/.tools/vercel-dx/bin:$PATH"
+          bash scripts/build-vercel-ui.sh backoffice backoffice
+          bash scripts/build-vercel-ui.sh client-ui user
+      - name: Build API container without cloud credentials
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.api.vercel
+          push: false
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api

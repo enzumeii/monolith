@@ -1,6 +1,6 @@
 use std::env;
 
-use config::{Config, ConfigError, File};
+use config::{Config, ConfigBuilder, ConfigError, File, builder::DefaultState};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
@@ -32,7 +32,7 @@ pub struct ClientConfig {
     pub shopify: Option<ShopifyConfig>,
     pub resend: Option<ResendConfig>,
     pub stripe: Option<StripeConfig>,
-    pub vercel_blob: Option<VercelBlobConfig>,
+    pub s3: Option<S3Config>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -74,14 +74,20 @@ impl std::fmt::Debug for ResendConfig {
 }
 
 #[derive(Deserialize, Clone)]
-pub struct VercelBlobConfig {
-    pub api_url: String,
+pub struct S3Config {
+    pub endpoint: String,
+    pub region: String,
+    pub bucket: String,
+    pub force_path_style: bool,
     pub timeout_secs: u64,
-    pub token: Option<String>,
+    pub signed_url_ttl_secs: u32,
+    pub access_key_id: Option<String>,
+    pub secret_access_key: Option<String>,
 }
-impl std::fmt::Debug for VercelBlobConfig {
+
+impl std::fmt::Debug for S3Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("VercelBlobConfig { token: [REDACTED], .. }")
+        f.write_str("S3Config { credentials: [REDACTED], .. }")
     }
 }
 
@@ -97,7 +103,7 @@ impl std::fmt::Debug for StripeConfig {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct Settings {
     pub shipping_sender: Option<ShippingSender>,
     pub client: Option<ClientConfig>,
@@ -106,18 +112,30 @@ pub struct Settings {
     pub database: DatabaseConfig,
     pub jwt: JwtSettings,
     pub scheduler: SchedulerConfig,
+    pub cron_secret: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct SchedulerConfig {
-    pub enabled: bool,
+    pub implementation: CronImplementation,
     pub poll_interval_secs: u64,
+    pub retention_interval_secs: u64,
+    pub invocation_budget_secs: u64,
+    pub retention_reserve_secs: u64,
+    pub enabled: bool,
     pub concurrency: usize,
     pub max_attempts: u32,
     pub retry_backoff_secs: u64,
     pub lease_secs: u64,
     pub max_payload_bytes: usize,
     pub max_email_bytes: usize,
+}
+
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CronImplementation {
+    Vps,
+    Vercel,
 }
 
 impl JwtSettings {
@@ -136,11 +154,15 @@ impl JwtSettings {
 impl Settings {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.jwt.key()?;
-        if !(1..=86400).contains(&self.scheduler.poll_interval_secs)
-            || !(1..=32).contains(&self.scheduler.concurrency)
+        if !(1..=32).contains(&self.scheduler.concurrency)
             || !(1..=100).contains(&self.scheduler.max_attempts)
             || !(1..=86400).contains(&self.scheduler.retry_backoff_secs)
             || !(1..=86400).contains(&self.scheduler.lease_secs)
+            || !(1..=86400).contains(&self.scheduler.poll_interval_secs)
+            || !(1..=86400).contains(&self.scheduler.retention_interval_secs)
+            || !(6..=240).contains(&self.scheduler.invocation_budget_secs)
+            || self.scheduler.retention_reserve_secs == 0
+            || self.scheduler.retention_reserve_secs >= self.scheduler.invocation_budget_secs
             || self.scheduler.max_payload_bytes == 0
             || self.scheduler.max_email_bytes == 0
         {
@@ -194,12 +216,31 @@ impl Settings {
 
     pub fn new() -> Result<Self, ConfigError> {
         let _ = dotenvy::dotenv();
-        let env_mode = env::var("RUN_ENV").unwrap_or_else(|_| "local".into());
+        let mode = env::var("RUN_ENV").unwrap_or_else(|_| "local".into());
+        Self::load(
+            Config::builder()
+                .add_source(File::with_name("application"))
+                .add_source(File::with_name(&format!("application.{mode}")).required(false)),
+            &mode,
+        )
+    }
 
-        let mut builder = Config::builder()
-            .add_source(File::with_name("application"))
-            .add_source(File::with_name(&format!("application.{env_mode}")).required(false));
-
+    fn load(mut builder: ConfigBuilder<DefaultState>, mode: &str) -> Result<Self, ConfigError> {
+        if !matches!(mode, "local" | "prod") {
+            return Err(ConfigError::Message("RUN_ENV must be local or prod".into()));
+        }
+        if mode == "prod" {
+            builder = builder.set_override("scheduler.implementation", "vercel")?;
+        }
+        if mode == "prod" || env::var("VERCEL_ENV").as_deref() == Ok("development") {
+            let (origin, insecure_local) = deployment_origin()?;
+            builder = builder
+                .set_override("browser.public_origin", origin)?
+                .set_override("browser.insecure_local", insecure_local)?;
+        }
+        if let Ok(secret) = env::var("CRON_SECRET") {
+            builder = builder.set_override("cron_secret", secret)?;
+        }
         if let Ok(db_url) = env::var("DATABASE_URL") {
             builder = builder.set_override("database.url", db_url)?;
         }
@@ -234,8 +275,13 @@ impl Settings {
         if let Ok(client_secret) = env::var("PAYPAL_CLIENT_SECRET") {
             builder = builder.set_override("client.paypal.client_secret", client_secret)?;
         }
-        if let Ok(token) = env::var("BLOB_READ_WRITE_TOKEN") {
-            builder = builder.set_override("client.vercel_blob.token", token)?;
+        for (variable, field) in [
+            ("S3_ACCESS_KEY_ID", "access_key_id"),
+            ("S3_SECRET_ACCESS_KEY", "secret_access_key"),
+        ] {
+            if let Ok(value) = env::var(variable) {
+                builder = builder.set_override(format!("client.s3.{field}"), value)?;
+            }
         }
         if let Ok(key) = env::var("STRIPE_SECRET_KEY") {
             builder = builder.set_override("client.stripe.secret_key", key)?;
@@ -244,6 +290,59 @@ impl Settings {
         settings.validate()?;
         Ok(settings)
     }
+}
+
+fn deployment_origin() -> Result<(String, bool), ConfigError> {
+    let environment = env::var("VERCEL_ENV").map_err(|_| {
+        ConfigError::Message("Vercel deployment environment metadata is required".into())
+    })?;
+    if !matches!(
+        environment.as_str(),
+        "production" | "preview" | "development"
+    ) {
+        return Err(ConfigError::Message(
+            "Invalid Vercel deployment environment metadata".into(),
+        ));
+    }
+    let hostname = if environment == "production" {
+        env::var("VERCEL_PROJECT_PRODUCTION_URL").or_else(|_| env::var("VERCEL_URL"))
+    } else {
+        env::var("VERCEL_URL")
+    }
+    .map_err(|_| ConfigError::Message("Vercel public deployment metadata is required".into()))?;
+    let development = environment == "development";
+    if development {
+        let valid = hostname.rsplit_once(':').is_some_and(|(host, port)| {
+            matches!(host, "localhost" | "127.0.0.1" | "[::1]")
+                && port.parse::<u16>().is_ok_and(|port| port != 0)
+                && port.bytes().all(|byte| byte.is_ascii_digit())
+        });
+        if !valid {
+            return Err(ConfigError::Message(
+                "Invalid Vercel development metadata".into(),
+            ));
+        }
+    } else if !hostname.ends_with(".vercel.app")
+        || hostname.split('.').any(|label| {
+            label.is_empty()
+                || label.starts_with('-')
+                || label.ends_with('-')
+                || !label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+    {
+        return Err(ConfigError::Message(
+            "Invalid Vercel deployment metadata".into(),
+        ));
+    }
+    Ok((
+        format!(
+            "{}://{hostname}",
+            if development { "http" } else { "https" }
+        ),
+        development,
+    ))
 }
 
 impl std::fmt::Debug for DatabaseConfig {
@@ -278,6 +377,14 @@ pub struct ShippingSender {
 impl std::fmt::Debug for ShippingSender {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ShippingSender { [REDACTED] }")
+    }
+}
+
+impl std::fmt::Debug for Settings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Settings")
+            .field("cron_secret", &"[REDACTED]")
+            .finish_non_exhaustive()
     }
 }
 

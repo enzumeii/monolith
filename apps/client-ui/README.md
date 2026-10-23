@@ -1,18 +1,18 @@
-# Customer Facing App
+# Client App
 
 ## Prerequisites
 
-Run `../../init.sh` to install the CLI packages after installing Rust.
+Install Rust and run `../../init.sh` for pinned tools. `just setup` checks Dioxus and the WASM target.
 
-## Useful commands
+## Run and verify
+
+Run `just serve`, then open http://localhost:8085. Local public API settings are in `application.toml`.
 
 | Command | Purpose |
 | --- | --- |
-| `just` | List recipes |
-| `just test` | Run package tests; currently verifies compilation with no test cases |
-| `just check` | Formatting and strict lint |
+| `just setup` | Check CLI and installed WASM target |
+| `just build` | Build the local browser bundle |
+| `just test` | Run configuration and rendered shell tests |
+| `just check` | Check formatting and strict native/WASM lint |
 | `just fix` | Apply formatting and lint fixes |
-
-## Coverage
-
-`just test` runs the normal suite. `just test --coverage` writes `target/coverage/client-ui/lcov.info` relative to the repository root. Install pinned cargo-llvm-cov via the root `init.sh`; the pinned Rust toolchain includes LLVM tools.
+| `just test --coverage` | Write target/coverage/client-ui/lcov.info from repository root |

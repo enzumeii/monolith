@@ -13,7 +13,7 @@ pub(super) async fn cookie_login(username: &str, password: &str) -> axum::respon
         .send(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/login")
+                .uri("/api/v1/auth/login")
                 .header("x-session-mode", "cookie")
                 .header("origin", BROWSER_ORIGIN)
                 .header("content-type", "application/json")
@@ -66,7 +66,7 @@ async fn login_succeeds_and_returns_token_pair() {
         .send(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/login")
+                .uri("/api/v1/auth/login")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({ "username": db.username("login-admin"), "password": "secret" })
@@ -93,7 +93,7 @@ async fn login_rejects_wrong_password() {
         .send(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/login")
+                .uri("/api/v1/auth/login")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({ "username": db.username("wrong-pass"), "password": "nope" }).to_string(),
@@ -123,7 +123,7 @@ async fn refresh_issues_a_new_pair_and_can_only_be_used_once() {
         .send(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/login")
+                .uri("/api/v1/auth/login")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({ "username": db.username("refresh-admin"), "password": "secret" })
@@ -143,7 +143,7 @@ async fn refresh_issues_a_new_pair_and_can_only_be_used_once() {
         .send(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/refresh")
+                .uri("/api/v1/auth/refresh")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({ "refresh_token": refresh_token }).to_string(),
@@ -159,7 +159,7 @@ async fn refresh_issues_a_new_pair_and_can_only_be_used_once() {
         .send(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/refresh")
+                .uri("/api/v1/auth/refresh")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({ "refresh_token": refresh_token }).to_string(),
@@ -180,7 +180,7 @@ async fn refresh_rejects_unknown_token() {
         .send(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/refresh")
+                .uri("/api/v1/auth/refresh")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({ "refresh_token": "stale" }).to_string(),
@@ -201,7 +201,7 @@ async fn protected_routes_reject_malformed_bearer_token() {
         .await
         .send(
             Request::builder()
-                .uri("/v1/admins")
+                .uri("/api/v1/admins")
                 .header("authorization", "Bearer not-a-jwt")
                 .body(Body::empty())
                 .unwrap(),
@@ -340,7 +340,7 @@ async fn logout_revokes_refresh_but_access_remains_valid_until_expiry() {
         .send(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/logout")
+                .uri("/api/v1/auth/logout")
                 .header("content-type", "application/json")
                 .header("authorization", format!("Bearer {}", tokens.access_token))
                 .body(Body::from(
@@ -354,7 +354,7 @@ async fn logout_revokes_refresh_but_access_remains_valid_until_expiry() {
     let protected = app
         .send(
             Request::builder()
-                .uri("/v1/admins")
+                .uri("/api/v1/admins")
                 .header("authorization", format!("Bearer {}", tokens.access_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -387,7 +387,7 @@ async fn password_update_preserves_access_until_expiry() {
         .clone()
         .send(common::authed_json(
             "PATCH",
-            &format!("/v1/admins/{id}"),
+            &format!("/api/v1/admins/{id}"),
             id,
             AdminRole::Admin,
             &serde_json::json!({"password":"replacement-password"}),
@@ -398,7 +398,7 @@ async fn password_update_preserves_access_until_expiry() {
     let protected = app
         .send(
             Request::builder()
-                .uri("/v1/admins")
+                .uri("/api/v1/admins")
                 .header("authorization", format!("Bearer {}", tokens.access_token))
                 .body(Body::empty())
                 .unwrap(),
@@ -440,7 +440,7 @@ async fn logout_only_revokes_current_browser_family() {
         .await
         .send(common::authed_json(
             "POST",
-            "/v1/auth/logout",
+            "/api/v1/auth/logout",
             id,
             AdminRole::Admin,
             &serde_json::json!({"refresh_token":first.refresh_token.clone()}),
@@ -465,10 +465,18 @@ async fn logout_only_revokes_current_browser_family() {
 }
 
 pub(super) async fn login(request: LoginRequest) -> Result<TokenResponse, StatusCode> {
-    token_request("/v1/auth/login", &serde_json::to_value(request).unwrap()).await
+    token_request(
+        "/api/v1/auth/login",
+        &serde_json::to_value(request).unwrap(),
+    )
+    .await
 }
 pub(super) async fn refresh(request: RefreshRequest) -> Result<TokenResponse, StatusCode> {
-    token_request("/v1/auth/refresh", &serde_json::to_value(request).unwrap()).await
+    token_request(
+        "/api/v1/auth/refresh",
+        &serde_json::to_value(request).unwrap(),
+    )
+    .await
 }
 async fn token_request(path: &str, body: &serde_json::Value) -> Result<TokenResponse, StatusCode> {
     let request = Request::builder()
@@ -505,7 +513,7 @@ async fn protected_routes_reject_missing_wrong_signature_and_expired_access() {
     )
     .unwrap();
     for token in [None, Some(wrong), Some(expired)] {
-        let mut request = Request::builder().uri("/v1/admins");
+        let mut request = Request::builder().uri("/api/v1/admins");
         if let Some(token) = token {
             request = request.header("authorization", format!("Bearer {token}"));
         }
@@ -526,7 +534,7 @@ async fn login_rejects_malformed_json() {
         .send(
             Request::builder()
                 .method("POST")
-                .uri("/v1/auth/login")
+                .uri("/api/v1/auth/login")
                 .header("content-type", "application/json")
                 .body(Body::from("{"))
                 .unwrap(),
@@ -634,15 +642,15 @@ async fn cookie_login_hides_tokens_and_sets_cookie() {
 async fn cookie_refresh_rotates_once() {
     let db = common::fixture().await;
     let old = cookie_pair(&cookie_login(&db.username("root"), "fixture-root-password").await);
-    let rotated = cookie_request("POST", "/v1/auth/refresh", &old).await;
+    let rotated = cookie_request("POST", "/api/v1/auth/refresh", &old).await;
     assert_eq!(rotated.status(), StatusCode::OK);
     let winning = cookie_pair(&rotated);
     assert_ne!(old, winning);
-    let replay = cookie_request("POST", "/v1/auth/refresh", &old).await;
+    let replay = cookie_request("POST", "/api/v1/auth/refresh", &old).await;
     assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
     assert!(!replay.headers().contains_key("set-cookie"));
     assert_eq!(
-        cookie_request("POST", "/v1/auth/refresh", &winning)
+        cookie_request("POST", "/api/v1/auth/refresh", &winning)
             .await
             .status(),
         StatusCode::OK
@@ -654,7 +662,7 @@ async fn cookie_logout_revokes_only_its_family() {
     let db = common::fixture().await;
     let a = cookie_pair(&cookie_login(&db.username("root"), "fixture-root-password").await);
     let b = cookie_pair(&cookie_login(&db.username("root"), "fixture-root-password").await);
-    let logout = cookie_request("POST", "/v1/auth/logout", &a).await;
+    let logout = cookie_request("POST", "/api/v1/auth/logout", &a).await;
     assert_eq!(logout.status(), StatusCode::NO_CONTENT);
     assert!(
         logout.headers()["set-cookie"]
@@ -663,13 +671,13 @@ async fn cookie_logout_revokes_only_its_family() {
             .contains("Max-Age=0")
     );
     assert_eq!(
-        cookie_request("POST", "/v1/auth/refresh", &a)
+        cookie_request("POST", "/api/v1/auth/refresh", &a)
             .await
             .status(),
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
-        cookie_request("POST", "/v1/auth/refresh", &b)
+        cookie_request("POST", "/api/v1/auth/refresh", &b)
             .await
             .status(),
         StatusCode::OK
@@ -681,7 +689,11 @@ async fn cookie_mutations_require_origin() {
     let db = common::fixture().await;
     let valid = cookie_pair(&cookie_login(&db.username("root"), "fixture-root-password").await);
     for origin in [None, Some("null"), Some("https://foreign.example.test")] {
-        for uri in ["/v1/auth/login", "/v1/auth/refresh", "/v1/auth/logout"] {
+        for uri in [
+            "/api/v1/auth/login",
+            "/api/v1/auth/refresh",
+            "/api/v1/auth/logout",
+        ] {
             let mut builder = Request::builder()
                 .method("POST")
                 .uri(uri)
@@ -710,7 +722,7 @@ async fn cookie_mutations_require_origin() {
         }
     }
     assert_eq!(
-        cookie_request("POST", "/v1/auth/refresh", &valid)
+        cookie_request("POST", "/api/v1/auth/refresh", &valid)
             .await
             .status(),
         StatusCode::OK
@@ -729,7 +741,7 @@ async fn cookie_mutations_require_origin() {
 async fn explicit_invalid_bearer_never_falls_back() {
     let db = common::fixture().await;
     let cookie = cookie_pair(&cookie_login(&db.username("root"), "fixture-root-password").await);
-    let uri = format!("/v1/admins/{}", db.root_id());
+    let uri = format!("/api/v1/admins/{}", db.root_id());
     assert_eq!(
         cookie_request("GET", &uri, &cookie).await.status(),
         StatusCode::OK
@@ -773,7 +785,7 @@ async fn cors_preflight_matches_configured_origin() {
             .send(
                 Request::builder()
                     .method("OPTIONS")
-                    .uri("/v1/auth/login")
+                    .uri("/api/v1/auth/login")
                     .header("origin", origin)
                     .header("access-control-request-method", "POST")
                     .header(

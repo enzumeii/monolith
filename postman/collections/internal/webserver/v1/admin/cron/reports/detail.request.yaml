@@ -1,10 +1,10 @@
 $kind: http-request
-description: Get independent audit metadata, one overall status, safe error and resolved parameters, and saved-file download URLs. Failed or pending reports can have no files.
+description: Get independent audit metadata, one overall status, safe error and resolved parameters, and saved-file filename/content-type metadata. Request download-url for a fresh private link. Failed or pending reports can have no files.
 url: "{{server}}/v1/admin/cron/reports/:id"
 method: GET
 pathVariables:
   - key: id
-    value: bad043c7-4d3c-4fb9-8864-b381ef2af303
+    value: 4c7256f4-a370-49e3-a3c0-424d5abdf80f
     description: UUID returned by report history.
 scripts:
   - type: afterResponse

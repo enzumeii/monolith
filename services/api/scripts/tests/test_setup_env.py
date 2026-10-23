@@ -72,7 +72,8 @@ class SetupEnvTests(unittest.TestCase):
     def test_imports_same_name_fields_and_keeps_private_file(self):
         text = self.assert_success(self.run_setup(BW_SESSION='inherited', EXPECTED_SESSION='inherited'))
         self.assertIn('SHOPIFY_ACCESS_TOKEN="synthetic-vault-token"', text)
-        self.assertIn('BLOB_READ_WRITE_TOKEN="vercel_blob_rw_local_synthetic"', text)
+        self.assertIn('S3_ACCESS_KEY_ID="synthetic-local-access"', text)
+        self.assertIn('S3_SECRET_ACCESS_KEY="synthetic-local-secret"', text)
         self.assertRegex(text, r'JWT_SECRET="[0-9a-f]{64}"')
         self.assertEqual((self.cwd / '.env').stat().st_mode & 0o777, 0o600)
 
@@ -98,9 +99,34 @@ class SetupEnvTests(unittest.TestCase):
         self.assertIn('RUN_ENV="local"', text)
         self.assertIn('DATABASE_URL="postgres://user:pass@127.0.0.1:5432/core"', text)
         self.assertIn('SHOPIFY_ACCESS_TOKEN=""', text)
-        self.assertIn('BLOB_READ_WRITE_TOKEN="vercel_blob_rw_local_synthetic"', text)
+        self.assertIn('S3_ACCESS_KEY_ID="synthetic-local-access"', text)
+        self.assertIn('S3_SECRET_ACCESS_KEY="synthetic-local-secret"', text)
         self.assertIn('SHIPPING_SENDER_NAME="Synthetic Sender ', text)
         self.assertRegex(text, r'JWT_SECRET="[0-9a-f]{64}"')
+        self.assertRegex(text, r'CRON_SECRET="[0-9a-f]{64}"')
+
+    def test_cron_secret_is_generated_when_missing_or_empty_and_preserved(self):
+        for initial in ('', 'CRON_SECRET=\n', 'CRON_SECRET="kept-cron-secret"\n'):
+            with self.subTest(initial=initial):
+                (self.cwd / '.env').write_text(initial)
+                text = self.assert_success(self.run_setup())
+                if initial.endswith('"kept-cron-secret"\n'):
+                    self.assertIn('CRON_SECRET="kept-cron-secret"', text)
+                else:
+                    self.assertRegex(text, r'CRON_SECRET="[0-9a-f]{64}"')
+                self.assertEqual((self.cwd / '.env').stat().st_mode & 0o777, 0o600)
+                self.assertEqual(self.assert_success(self.run_setup()), text)
+
+    def test_cron_secret_imports_vault_value_and_preserves_existing(self):
+        self.fields([{'name': 'CRON_SECRET', 'value': 'synthetic-vault-cron', 'type': 1}])
+        for initial, expected in (('', 'synthetic-vault-cron'),
+                                  ('CRON_SECRET=\n', 'synthetic-vault-cron'),
+                                  ('CRON_SECRET="existing-cron"\n', 'existing-cron')):
+            with self.subTest(initial=initial):
+                (self.cwd / '.env').write_text(initial)
+                text = self.assert_success(self.run_setup())
+                self.assertIn(f'CRON_SECRET="{expected}"', text)
+                self.assertNotIn('synthetic-vault-cron', self.run_setup().stdout)
 
     def test_mode_arguments_are_not_supported(self):
         for argument in ('local', 'bitwarden', 'bad'):
@@ -109,7 +135,7 @@ class SetupEnvTests(unittest.TestCase):
             self.assertFalse((self.cwd / '.env').exists())
 
     def test_excluded_vault_fields_leave_local_defaults_and_existing_values(self):
-        excluded = ['RUN_ENV', 'DATABASE_URL', 'BLOB_READ_WRITE_TOKEN', *(f'SHIPPING_SENDER_{field}' for field in (
+        excluded = ['RUN_ENV', 'DATABASE_URL', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', *(f'SHIPPING_SENDER_{field}' for field in (
             'NAME', 'PHONE', 'EMAIL', 'ADDRESS', 'SUB_DISTRICT', 'DISTRICT',
             'PROVINCE', 'POSTCODE', 'COUNTRY_CODE',
         ))]
@@ -123,7 +149,8 @@ class SetupEnvTests(unittest.TestCase):
         self.assertNotIn('excluded-vault-value', text)
         self.assertIn('RUN_ENV="local"', text)
         self.assertIn('DATABASE_URL="postgres://user:pass@127.0.0.1:5432/core"', text)
-        self.assertIn('BLOB_READ_WRITE_TOKEN="vercel_blob_rw_local_synthetic"', text)
+        self.assertIn('S3_ACCESS_KEY_ID="synthetic-local-access"', text)
+        self.assertIn('S3_SECRET_ACCESS_KEY="synthetic-local-secret"', text)
         self.assertIn('SHIPPING_SENDER_NAME="Synthetic Sender ', text)
         existing = ''.join(f'{name}="existing-value"\n' for name in excluded)
         (self.cwd / '.env').write_text(existing)
