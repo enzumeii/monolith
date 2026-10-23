@@ -15,7 +15,10 @@ use crate::{
     repositories::conventions,
 };
 use chrono::{Duration, Utc};
-use domain::dto::checkout::{CheckoutMoney, CheckoutProvider, CreateCheckoutRequest};
+use domain::dto::{
+    CatalogueInventoryPolicy,
+    checkout::{CheckoutMoney, CheckoutProvider, CreateCheckoutRequest},
+};
 use sqlx::PgPool;
 use sqlx::types::Json;
 use std::collections::{BTreeMap, BTreeSet};
@@ -398,6 +401,7 @@ async fn validate_stock(
                         if product.id != item.shopify_product_id
                             || !variant.eligible
                             || !variant.tracked
+                            || variant.inventory_policy != CatalogueInventoryPolicy::Deny
                             || variant
                                 .available_quantity
                                 .is_none_or(|available| available < i64::from(item.quantity))
