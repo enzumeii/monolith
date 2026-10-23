@@ -36,3 +36,7 @@ pub async fn connect_pool(settings: &Settings) -> Result<PgPool, crate::error::A
         .await
         .map_err(|error| crate::error::AppError::from(error).context("connect database"))
 }
+
+pub(crate) mod checkout_completions;
+
+pub(crate) mod checkout_verifications;

@@ -1,0 +1,14 @@
+$kind: http-example
+name: Operator action
+response:
+  statusCode: 409
+  statusText: Conflict
+  headers:
+    - key: Cache-Control
+      value: no-store
+  body:
+    type: json
+    content: |-
+      {
+        "error": "Checkout requires operator review"
+      }

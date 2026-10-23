@@ -242,7 +242,7 @@ async fn prepare_report(
                 }
             }
         };
-        let data = report_service::generate(audit, providers).await?;
+        let data = report_service::generate(&state.pool, audit, providers).await?;
         let prepared = report::prepare(
             audit.id,
             kind,

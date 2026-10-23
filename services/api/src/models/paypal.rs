@@ -160,6 +160,13 @@ impl From<TransactionEvent> for String {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum EndpointEnvironment {
+    Sandbox,
+    Live,
+}
+
 #[cfg(test)]
 #[path = "../tests/models/paypal.rs"]
 mod tests;

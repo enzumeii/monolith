@@ -17,16 +17,20 @@ description: |
   Inherits bearer access_token. Do not sum monetary values across currencies.
   400: invalid date bounds. 503: Stripe client unavailable, PayPal client unavailable or Shopify client unavailable.
   502/504: actual upstream failure, unusable provider data or timeout; no partial report.
+  Already-collected sales may resolve a stored checkout Charge/capture alias to its saved real Shopify order outside the discovery date window.
+  Local aliases never create transaction rows or match refunds. Native and local targets must agree; ambiguous account/environment/order associations fail safely.
+  Each matched sale/refund returns shopify_order_tags from the actual Shopify order; unmatched rows return []. Tags containing commas/quotes are preserved.
+  Portal full-payment items preserve existing shopMoney item prices/currency after exact presentment snapshot verification, with zero shipping.
+  Fees, FX, provider payout/date rules and native split/refund allocation remain provider-owned and unchanged.
+  Missing/unreadable saved orders or mismatched local metadata return an error without a partial report; unexpected mapping database failure returns 500.
   Error bodies retain the existing safe {"error":"..."} contract.
-url: "{{server}}/v1/admin/transactions?date_from=2026-10-01T00:00:00+07:00&date_to=2026-10-02T23:59:59+07:00"
+url: '{{server}}/v1/admin/transactions?date_from=2026-10-01T00:00:00%2B07:00&date_to=2026-10-02T23:59:59%2B07:00'
 method: GET
 queryParams:
   - key: date_from
-    value: 2026-10-01T00:00:00+07:00
-    disabled: false
-    description: ""
+    value: 2026-10-01T00:00:00%2B07:00
+    description: ''
   - key: date_to
-    value: 2026-10-02T23:59:59+07:00
-    disabled: false
-    description: ""
+    value: 2026-10-02T23:59:59%2B07:00
+    description: ''
 order: 1000

@@ -1,0 +1,14 @@
+$kind: http-example
+name: Invalid upstream
+response:
+  statusCode: 502
+  statusText: Bad Gateway
+  headers:
+    - key: Cache-Control
+      value: no-store
+  body:
+    type: json
+    content: |-
+      {
+        "error": "Upstream request failed"
+      }

@@ -498,3 +498,25 @@ This checkpoint supersedes the earlier copied-dependency verification blockers. 
 Earlier browser timezone, native Save As and controlled fault coverage limits still apply; no claim of complete browser acceptance. Reconciliation does not change those UI implementations. Logs: `/tmp/enz-30-rebased-{api-check,api-test,api-build,ui-check,ui-test,ui-build}.log`. Snapshots and independent review evidence: `.superpowers/sdd/2026-10-22-enz-30-scheduled-reports/reconcile-enz29-20261022/`.
 
 The preview at `http://localhost:8084/scheduled-reports` now uses the rebased synthetic API/Blob runtime. Its private helper, process identities, credentials, fixture metadata and browser download hashes are under `runtime-rebased-20261022/`. The previous API/storage processes and old Compose project were stopped after ownership checks. Current preview remains running intentionally; provider integrations and scheduler remain disabled.
+
+
+## Draft completion and payment correlation (2026-10-23)
+
+| Area | Verified result |
+| --- | --- |
+| Source boundary | `feat/ENZ-45` based on `884fdc0e`; fixture-provisioned checkout/attempt/guest credential contract, real read-only Stripe/PayPal adapters. Final published source and hosted CI are recorded in the PR. |
+| API recipes | `just fix`, `just check` and complete `just test` passed. Strict native/E2E Clippy, Rust/GraphQL/JSON formatting, SQLx preparation and 21 setup-helper tests passed. |
+| Complete API suite | 381 native tests and 171 real TCP E2E tests passed, zero failures/ignored. E2E completed in 759.91 seconds. Actual app, SQLx/PostgreSQL and provider HTTP clients exercised against controlled services. |
+| Runtime isolation | Dedicated Compose project on 18453/18454; unique owned fixtures and scoped SQL faults. Recipe removed owned containers, network and volumes after the run. Other projects were preserved. |
+| Completion | Exact snapshot/amount/account/environment/attempt checks; same-draft paid completion, immutable real order, truthful alias metadata/CAS and final paid/unfulfilled validation. |
+| Recovery | Concurrent/replayed handoffs, stale ownership, lost mutation/local-save responses, SQL rollback/replay, metadata recovery, second-payment evidence and missing-field/malformed-amount failures. Transient failures retain recoverable paid progress; unknown external completion remains uncertain. |
+| Guest verification | Both mounts; credential/expiry/revocation and request rejection matrix; persisted five-second throttle, no-overlap ownership, provider proof/identity/currency/state matrix, provider/Shopify/SQL faults, cached completion and saved-paid recovery. Allowed-origin preflight and readable Retry-After verified over TCP. |
+| Accounting | Stripe/PayPal local sale linkage outside discovery dates, native/local agreement and collisions, pending/unmatched compatibility, direct-order/provider failure matrix, invalid saved mapping 500 and malformed external money 502. Historical refunds and COMPLETE deleted-variant handling preserve original-sale enrichment. |
+| Shared consumers | Domain check/test: 10 unit plus 8 contracts. Report-generator check/test: 7 tests. Backoffice check/test: 131 tests. Strict native/WASM checks passed. |
+| Export bytes | Shared transaction CSV, backoffice CSV-in-ZIP and scheduled output assert actual JSON-array tag text, escaping/Unicode/formula-like tags and unchanged original finance columns/numeric semantics. |
+| Serialization compatibility | Existing exact tagged-order JSON roundtrip passes; absent optional presentment money remains omitted. |
+| Postman | 58 affected requests lint with zero errors/warnings; six Shopify request/query-variable pairs exactly match formatted source. New guest request executed against the real controlled fixture API: 202 and four assertions passed, event/result dispatch disabled. |
+| Independent review | Core and integration findings corrected and independently rechecked; staged spec and quality verdicts pass. |
+| Integration limits | Actual ENZ-42 provisioning, ENZ-43/44 signed webhook/receipt lifecycle and ENZ-46 rendered polling await later dependency integration. No live provider credentials, delivered Shopify email, merchant-specific inventory/tax/automatic fulfillment or load benchmark verified. |
+
+Shopify native confirmation follows draft completion; no independent sender, invoice or deliberate resend is added. Controlled tests do not establish full live ENZ-45 acceptance. No cron or autonomous polling capability is introduced.

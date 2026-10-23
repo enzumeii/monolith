@@ -1,0 +1,37 @@
+$kind: http-request
+url: '{{server}}/v1/checkouts/:checkout_id/verify-payment'
+method: POST
+order: 1000
+auth:
+  type: noauth
+headers:
+  - key: Authorization
+    value: 'Bearer {{vault:checkout_guest_token}}'
+pathVariables:
+  - key: checkout_id
+    value: '{{checkout_id}}'
+description: |
+  Read-only provider verification and same-draft Shopify completion. The request body must be empty. Set checkout_id from a provisioned checkout and set checkout_guest_token in the local Postman Vault; never publish the credential. An admin access token does not substitute for checkout ownership. The /api/v1 mount exposes the same endpoint. No provider reference, account, paid flag, amount or currency is accepted from callers.
+  ENZ-42 provisioning is not integrated on this base; local E2E fixtures seed the immutable snapshot, guest token hash and server-owned provider attempt. This request cannot create or fund a checkout.
+  Responses always use Cache-Control: no-store. 200 means complete or provider-confirmed terminal unpaid/expired; 202 means payment/completion pending and includes Retry-After: 5. Wait about five seconds, honor Retry-After, prevent overlapping calls, and stop on complete/terminal state or page close. Transient failures retry with backoff; 409 requires operator action. A persisted five-second throttle also applies across processes; no server timer or cron is created.
+  Errors: 400 malformed checkout ID or nonempty body; 401 malformed/missing Bearer with WWW-Authenticate: Bearer; uniform 404 unknown checkout or wrong/expired/revoked guest credential; 409 association/money/operator conflict; 502 rejected/malformed upstream or attempted connection failure; 503 missing/unconfigured required client or untrusted PayPal environment; 504 exhausted dependency timeout; 500 unexpected database failure. Error JSON contains only error; no credentials or upstream payloads.
+  Stripe association contract: session.client_reference_id and session/PaymentIntent metadata.checkout_id identify checkout_id; metadata.attempt_id identifies the persisted attempt. Account, livemode and actual captured nonrefunded latest Charge must match. Supported verification amounts use the existing currency whitelist with JPY zero-decimal and known two-decimal charge amounts (including HUF/TWD); unknown or unsupported precision fails closed.
+  PayPal association contract: the one CAPTURE purchase unit custom_id identifies checkout_id and reference_id identifies attempt_id; authoritative purchase-unit payee merchant_id matches persisted account. Require one actual completed final capture and exact money. Official HTTPS endpoint roots infer environment; trusted custom endpoints require client.paypal.verification_environment = SANDBOX or LIVE in application TOML. A conflicting official override is rejected. No initiate/capture/refund operation occurs.
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Checkout state is never cached", function () {
+        pm.expect(pm.response.headers.get("Cache-Control")).to.eql("no-store");
+      });
+      if (pm.response.code === 202) {
+        pm.test("Pending verification advertises five-second retry", function () {
+          pm.expect(pm.response.headers.get("Retry-After")).to.eql("5");
+        });
+      }
+      if (pm.response.code === 200 || pm.response.code === 202) {
+        pm.test("Only provider-independent checkout state is exposed", function () {
+          pm.expect(Object.keys(pm.response.json()).sort()).to.eql(["completion_state", "order_id", "payment_state"]);
+        });
+      }
+examples: ./.resources/verify-payment.resources/examples

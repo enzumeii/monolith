@@ -1,0 +1,13 @@
+mutation SetCheckoutPaymentMetadata($metafields: [MetafieldsSetInput!]!) {
+  metafieldsSet(metafields: $metafields) {
+    metafields {
+      namespace
+      key
+      value
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}

@@ -97,3 +97,84 @@ fn checkout_response_requires_verification_fields_and_exact_integer_money() {
         assert!(serde_json::from_value::<CheckoutSession>(invalid).is_err());
     }
 }
+
+#[test]
+fn verification_status_enums_preserve_known_and_distinct_unknown_values() {
+    use crate::models::stripe::{
+        CheckoutMode, CheckoutPaymentStatus, CheckoutStatus, PaymentIntentStatus,
+    };
+    fn roundtrip<
+        T: serde::de::DeserializeOwned + serde::Serialize + std::fmt::Debug + PartialEq,
+    >(
+        values: &[&str],
+    ) {
+        for value in values {
+            let parsed: T = serde_json::from_value(json!(value)).unwrap();
+            assert_eq!(serde_json::to_value(parsed).unwrap(), json!(value));
+        }
+        let a: T = serde_json::from_value(json!("future_a")).unwrap();
+        let b: T = serde_json::from_value(json!("future_b")).unwrap();
+        assert_ne!(a, b);
+    }
+    roundtrip::<CheckoutMode>(&["payment", "setup", "subscription", "future"]);
+    roundtrip::<CheckoutStatus>(&["open", "complete", "expired", "future"]);
+    roundtrip::<CheckoutPaymentStatus>(&["paid", "unpaid", "no_payment_required", "future"]);
+    roundtrip::<PaymentIntentStatus>(&[
+        "requires_payment_method",
+        "requires_confirmation",
+        "requires_action",
+        "processing",
+        "requires_capture",
+        "canceled",
+        "succeeded",
+        "future",
+    ]);
+    assert_eq!(
+        serde_json::from_value::<PaymentIntentStatus>(json!("succeeded")).unwrap(),
+        PaymentIntentStatus::Succeeded
+    );
+}
+
+#[test]
+fn checkout_reads_allow_pending_nulls_but_require_authoritative_status_and_environment() {
+    use crate::models::stripe::{CheckoutSession, PaymentIntent};
+    let value = json!({"id":"cs_test_pending","object":"checkout.session","mode":"payment","status":"open","payment_status":"unpaid","livemode":false,"amount_total":null,"currency":null,"client_reference_id":null,"metadata":{},"payment_intent":null});
+    let session: CheckoutSession = serde_json::from_value(value.clone()).unwrap();
+    assert!(session.payment_intent.is_none());
+    assert!(session.amount_total.is_none());
+    for field in [
+        "id",
+        "mode",
+        "status",
+        "payment_status",
+        "livemode",
+        "metadata",
+    ] {
+        let mut missing = value.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(
+            serde_json::from_value::<CheckoutSession>(missing).is_err(),
+            "{field}"
+        );
+    }
+    let intent = json!({"id":"pi_one","object":"payment_intent","status":"succeeded","amount":1,"amount_received":1,"currency":"thb","livemode":false,"latest_charge":"ch_one","metadata":{}});
+    for field in [
+        "id",
+        "status",
+        "amount",
+        "amount_received",
+        "currency",
+        "livemode",
+        "metadata",
+    ] {
+        let mut missing = intent.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(
+            serde_json::from_value::<PaymentIntent>(missing).is_err(),
+            "{field}"
+        );
+    }
+    let mut expanded = value;
+    expanded["payment_intent"] = json!({"id":"pi_one"});
+    assert!(serde_json::from_value::<CheckoutSession>(expanded).is_err());
+}

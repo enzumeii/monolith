@@ -180,6 +180,7 @@ async fn verifier_fixture() -> VerifierFixture {
     ])
     .await;
     let config = PaypalConfig {
+        verification_environment: None,
         base_url: fixture.url.join("/").unwrap().to_string(),
         timeout_secs: 1,
         client_id: Some("fixture".into()),
@@ -245,6 +246,7 @@ async fn verifier_fixture() -> VerifierFixture {
 async fn gateway_binds_sandbox_fixture_permission_and_rejects_unsafe_destinations() {
     let fixture = Fixture::new(vec![]).await;
     let mut config = PaypalConfig {
+        verification_environment: None,
         base_url: fixture.url.join("/").unwrap().to_string(),
         timeout_secs: 1,
         client_id: Some("fixture".into()),

@@ -1,0 +1,18 @@
+$kind: http-example
+name: Paid reconciliation
+response:
+  statusCode: 202
+  statusText: Accepted
+  headers:
+    - key: Cache-Control
+      value: no-store
+    - key: Retry-After
+      value: '5'
+  body:
+    type: json
+    content: |-
+      {
+        "payment_state": "PAID",
+        "completion_state": "UNCERTAIN",
+        "order_id": null
+      }

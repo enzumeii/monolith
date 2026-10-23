@@ -38,6 +38,7 @@ pub struct ClientConfig {
 #[derive(Deserialize, Clone)]
 pub struct PaypalConfig {
     pub payment: Option<PaypalPaymentConfig>,
+    pub verification_environment: Option<crate::models::paypal::EndpointEnvironment>,
     pub base_url: String,
     pub timeout_secs: u64,
     pub client_id: Option<String>,

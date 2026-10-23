@@ -4,6 +4,7 @@ use crate::{
     error::{AppError, upstream},
     models::{
         Sku, SkuCategory,
+        checkout_completion::CompletionState,
         shopify::{AccountingLineItem, Money, Order, OrderTransaction, PageRequest},
     },
     services::pagination::for_each_page,
@@ -16,7 +17,10 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
 pub(super) async fn enrich(
+    pool: &sqlx::PgPool,
     client: &ShopifyClient,
+    stripe: &crate::client::stripe::StripeClient,
+    paypal: &crate::client::paypal::PaypalClient,
     payments: Vec<Payment>,
     range: &AccountingDateRange,
 ) -> Result<AccountingReportResponse, AppError> {
@@ -27,9 +31,104 @@ pub(super) async fn enrich(
     if payments.is_empty() {
         return Ok(response);
     }
+    let mappings = super::checkout::mappings(pool, stripe, paypal, &payments).await?;
+    let mut orders = discover(client, &payments, range).await?;
+    let mut seen = orders
+        .iter()
+        .map(|order| order.id.clone())
+        .collect::<HashSet<_>>();
+    for mapping in mappings.values() {
+        if let Some(id) = &mapping.order_id
+            && !seen.contains(id)
+        {
+            let order = client
+                .accounting_order(id)
+                .await
+                .map_err(upstream)?
+                .ok_or_else(|| protocol("mapped Shopify accounting order missing"))?;
+            if order.id != *id {
+                return Err(protocol("mapped Shopify accounting order ID mismatch"));
+            }
+            complete(&order)?;
+            seen.insert(id.clone());
+            orders.push(order);
+        }
+    }
+    let mut index = HashMap::new();
+    for (position, order) in orders.iter().enumerate() {
+        for tx in order.transactions.iter().chain(
+            order
+                .refunds
+                .iter()
+                .flat_map(|refund| &refund.transactions.nodes),
+        ) {
+            if !tx.status.eq_ignore_ascii_case("success") {
+                continue;
+            }
+            if let Some((gateway, reference)) = reference(tx)? {
+                let key = (gateway, tx.kind.eq_ignore_ascii_case("refund"), reference);
+                if let Some(previous) = index.insert(key, position)
+                    && previous != position
+                {
+                    return Err(protocol("ambiguous Shopify accounting reference"));
+                }
+            }
+        }
+    }
+    let mut allocated_checkouts = HashSet::new();
+    for mut payment in payments {
+        let tx = &payment.transaction;
+        let key = (
+            gateway_key(tx.gateway),
+            tx.kind == AccountingKind::Refund,
+            tx.payment_reference.clone(),
+        );
+        let native = index.get(&key).map(|position| &orders[*position]);
+        let mapping = if tx.kind == AccountingKind::Sale {
+            mappings.get(&(key.0, key.2.clone()))
+        } else {
+            None
+        };
+        let local = mapping
+            .and_then(|mapping| mapping.order_id.as_ref())
+            .and_then(|id| orders.iter().find(|order| order.id == *id));
+        if let (Some(native), Some(local)) = (native, local)
+            && native.id != local.id
+        {
+            return Err(protocol("native and checkout accounting orders disagree"));
+        }
+        if let Some(order) = native.or(local) {
+            if let (Some(mapping), Some(_)) = (mapping, local) {
+                validate_checkout_order(order, &mapping.snapshot, mapping.completion_state)?;
+            }
+            apply(&mut payment, order, &mut response.items)?;
+            if native.is_none()
+                && let Some(mapping) = mapping
+            {
+                apply_checkout_sale(
+                    &mut payment,
+                    order,
+                    &mut response.items,
+                    allocated_checkouts.insert(mapping.checkout_id),
+                )?;
+            }
+        }
+        match payment.transaction.gateway {
+            AccountingGateway::Stripe => response.transactions.stripe.push(payment.transaction),
+            AccountingGateway::Paypal => response.transactions.paypal.push(payment.transaction),
+        }
+    }
+    Ok(response)
+}
+
+async fn discover(
+    client: &ShopifyClient,
+    payments: &[Payment],
+    range: &AccountingDateRange,
+) -> Result<Vec<Order>, AppError> {
     let mut start = range.start;
     let mut end = range.end;
-    for payment in &payments {
+    for payment in payments {
         let instant = date(&payment.transaction.transaction_date)?;
         start = start.min(instant);
         end = end.max(instant);
@@ -67,43 +166,124 @@ pub(super) async fn enrich(
         |error| upstream(error),
     )
     .await?;
-    let mut index = HashMap::new();
-    for (position, order) in orders.iter().enumerate() {
-        for tx in order.transactions.iter().chain(
-            order
-                .refunds
-                .iter()
-                .flat_map(|refund| &refund.transactions.nodes),
-        ) {
-            if !tx.status.eq_ignore_ascii_case("success") {
-                continue;
-            }
-            if let Some((gateway, reference)) = reference(tx)? {
-                let key = (gateway, tx.kind.eq_ignore_ascii_case("refund"), reference);
-                if let Some(previous) = index.insert(key, position)
-                    && previous != position
-                {
-                    return Err(protocol("ambiguous Shopify accounting reference"));
-                }
-            }
+    Ok(orders)
+}
+
+fn validate_checkout_order(
+    order: &Order,
+    snapshot: &crate::models::checkout_completion::Snapshot,
+    state: CompletionState,
+) -> Result<(), AppError> {
+    let accepted = &snapshot.accepted;
+    let exact = |money: Option<&Money>, expected: i64| -> Result<bool, AppError> {
+        let money =
+            money.ok_or_else(|| protocol("mapped Shopify accounting presentment missing"))?;
+        Ok(money.currency_code == accepted.currency
+            && accepted
+                .parse_amount(&money.amount)
+                .map_err(|_| protocol("invalid mapped Shopify accounting amount"))?
+                == expected)
+    };
+    if !exact(
+        order
+            .total_price_set
+            .as_ref()
+            .and_then(|m| m.presentment_money.as_ref()),
+        accepted.minor,
+    )? || !exact(
+        order
+            .total_shipping_price_set
+            .as_ref()
+            .and_then(|m| m.presentment_money.as_ref()),
+        0,
+    )? || order.line_items.nodes.len() != snapshot.lines.len()
+    {
+        return Err(protocol("mapped Shopify accounting total mismatch"));
+    }
+    let mut remaining = snapshot.lines.iter().collect::<Vec<_>>();
+    for line in order
+        .line_items
+        .nodes
+        .iter()
+        .filter(|line| line.variant.is_some())
+    {
+        let variant = line
+            .variant
+            .as_ref()
+            .ok_or_else(|| protocol("mapped Shopify accounting variant missing"))?;
+        let position = remaining
+            .iter()
+            .position(|reserved| reserved.variant_id == variant.id)
+            .ok_or_else(|| protocol("mapped Shopify accounting variant mismatch"))?;
+        let reserved = remaining.remove(position);
+        if line.quantity != reserved.quantity
+            || !exact(
+                line.original_unit_price_set.presentment_money.as_ref(),
+                reserved.unit_price.minor,
+            )?
+        {
+            return Err(protocol("mapped Shopify accounting line mismatch"));
         }
     }
-    for mut payment in payments {
-        let tx = &payment.transaction;
-        let key = (
-            gateway_key(tx.gateway),
-            tx.kind == AccountingKind::Refund,
-            tx.payment_reference.clone(),
-        );
-        if let Some(position) = index.get(&key) {
-            apply(&mut payment, &orders[*position], &mut response.items)?;
+    for line in order
+        .line_items
+        .nodes
+        .iter()
+        .filter(|line| line.variant.is_none())
+    {
+        if state != CompletionState::Complete {
+            return Err(protocol("mapped Shopify accounting variant missing"));
         }
-        match payment.transaction.gateway {
-            AccountingGateway::Stripe => response.transactions.stripe.push(payment.transaction),
-            AccountingGateway::Paypal => response.transactions.paypal.push(payment.transaction),
+        let price = line
+            .original_unit_price_set
+            .presentment_money
+            .as_ref()
+            .ok_or_else(|| protocol("mapped Shopify accounting presentment missing"))?;
+        let minor = accepted
+            .parse_amount(&price.amount)
+            .map_err(|_| protocol("invalid mapped Shopify accounting historical amount"))?;
+        let position = remaining
+            .iter()
+            .position(|reserved| {
+                reserved.quantity == line.quantity
+                    && reserved.unit_price.minor == minor
+                    && reserved.unit_price.currency == price.currency_code
+            })
+            .ok_or_else(|| protocol("mapped Shopify accounting historical line mismatch"))?;
+        remaining.remove(position);
+    }
+    Ok(())
+}
+
+fn apply_checkout_sale(
+    payment: &mut Payment,
+    order: &Order,
+    items: &mut Vec<AccountingItem>,
+    allocate_items: bool,
+) -> Result<(), AppError> {
+    if payment
+        .transaction
+        .shipping_fee
+        .is_some_and(|amount| amount != 0.0)
+    {
+        return Err(protocol("mapped checkout provider shipping mismatch"));
+    }
+    let id = order.id.number("Order").map_err(upstream)?;
+    if allocate_items {
+        for line in &order.line_items.nodes {
+            items.push(item(
+                line,
+                line.quantity,
+                money(&line.original_unit_price_set.shop_money.amount)?,
+                AccountingKind::Sale,
+                &payment.transaction.transaction_date,
+                id,
+                &payment.transaction.payment_reference,
+            ));
         }
     }
-    Ok(response)
+    payment.transaction.shipping_fee = Some(0.0);
+    Ok(())
 }
 
 fn complete(order: &Order) -> Result<(), AppError> {
@@ -262,6 +442,7 @@ fn apply(
     let tx = &mut payment.transaction;
     tx.shopify_order_id = id;
     tx.shopify_order_number = order.number;
+    tx.shopify_order_tags.clone_from(&order.tags);
     tx.customer_name = order
         .shipping_address
         .as_ref()

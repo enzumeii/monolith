@@ -1,0 +1,22 @@
+$kind: http-example
+name: Completed capture
+response:
+  statusCode: 200
+  statusText: OK
+  body:
+    type: json
+    content: |
+      {
+        "id": "CAPTUREFIXTURE",
+        "status": "COMPLETED",
+        "amount": {
+          "currency_code": "THB",
+          "value": "12.34"
+        },
+        "final_capture": true,
+        "supplementary_data": {
+          "related_ids": {
+            "order_id": "ORDERFIXTURE"
+          }
+        }
+      }

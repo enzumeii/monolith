@@ -74,7 +74,7 @@ Run recipes from the package directory.
 | `cargo test --locked -p api --lib` | Library tests and loopback transport fixtures; configured Docker PostgreSQL must be ready; no Shopify credentials |
 | `just test` | Compose PostgreSQL/private S3/init, native Cargo tests once, `cargo api-e2e` for TCP endpoint tests only, and Compose down with volumes removed even on failure |
 | `just check` | Formatting and strict Clippy on all API targets |
-| API E2E | `e2e-test/healthz.rs`, `e2e-test/v1/{auth,admins}.rs`, `e2e-test/v1/admin/{inventories,orders,transactions}.rs` and `e2e-test/v1/admin/cron/{configs,report}.rs`; real TCP endpoints |
+| API E2E | `e2e-test/healthz.rs`, `e2e-test/v1/{auth,admins,checkouts}.rs`, `e2e-test/v1/admin/{inventories,orders,transactions}.rs` and `e2e-test/v1/admin/cron/{configs,report}.rs`; real TCP endpoints |
 | Process lifecycle | `e2e-test/process.rs` exercises owned-child teardown |
 | Shared harness | `e2e-test/common.rs` owns temporary TOML, local API child, readiness, and teardown |
 | Fixtures | Unique owned records; shared Compose database during a run; cleanup only test-owned data |
@@ -90,7 +90,8 @@ Handlers resolve the shared state.shopify client initialized once by app_state a
 | Operation | Caller responsibility |
 | --- | --- |
 | Product listing | products_with_variants(request, page): location/statuses; one product page with fixed250 variants and completeness metadata |
-| Accounting enrichment | accounting_orders(search, page): one order page for the accounting service; retains the OrdersByPayment document and nested completeness metadata |
+| Accounting enrichment | accounting_orders(search, page) / accounting_order(id): one order page / one saved order by exact ID; named OrdersByPayment and AccountingOrder operations share the same document and nested completeness metadata |
+| Checkout completion | checkout_draft(id) / checkout_order(id) inspect known identities; complete_checkout_draft and set_checkout_payment_metadata use one-attempt mutations. Reconcile saved draft/order and compareDigest after an uncertain response |
 | Tag lookup | orders_by_tag(request, page): literal tags combined with AND; one order page including fixed250 report lines |
 | Inventory discovery | find_inventory_to_activate(request, page): one raw level page; caller decides eligibility from tracked/isActive/on_hand |
 | Inventory activation | activate_existing_inventory(request): item/location IDs and stable UUID only; no quantity arguments; inspect userErrors/optional level |
@@ -104,10 +105,10 @@ Inventory returns one caller-selected product page with active inventory levels;
 | Outbound request behavior | Policy |
 | --- | --- |
 | Timeout / redirects | client.shopify.timeout_secs in application.toml, checked-in value3 seconds per attempt; redirects disabled |
-| Retryable rejection | HTTP 4xx or data-less GraphQL-only `THROTTLED`, sharing one HttpClient retry budget |
+| Retryable rejection | Default execution: HTTP 4xx or data-less GraphQL-only `THROTTLED`, sharing one HttpClient retry budget |
 | Backoff | At most three retries after the initial attempt; 1/2/4 seconds plus jitter and applicable Retry-After |
 | Budget | Shared HTTP/GraphQL attempt count; 30-second total sleep budget |
-| Fail without retry | HTTP 5xx and other errors, ambiguous network failures, decoding/partial-data errors, mutation user errors |
+| Fail without retry | HTTP 5xx and other errors, ambiguous network failures, decoding/partial-data errors, mutation user errors. Completion/metafield execute_once calls make one attempt even on otherwise retryable rejection |
 | Stored inventory | Enablement sends no initial quantity arguments; live provider quantity behavior remains unverified |
 
 ## Stripe-hosted Checkout
@@ -139,6 +140,8 @@ Provider references: [Session creation](https://docs.stripe.com/api/checkout/ses
 | API rejection | Invalid request400; unauthenticated401; forbidden403; missing Shopify location404; duplicate username409. Missing admin targets return401 with {"error":"Not authorized"} and WWW-Authenticate: Bearer |
 | Accounting dependencies | `GET /v1/admin/transactions` requires initialized Stripe, PayPal and Shopify clients. Resolve all three before upstream work; missing/init-failed clients return provider-specific503 in that order. Startup and unrelated endpoints keep optional-provider behavior |
 | Accounting collection | Query both payment providers even if one is empty; both empty returns empty transactions/items without Shopify enrichment. Actual upstream failures abort without partial results:502 or timeout504 with safe `Upstream request failed` |
+| Accounting correlation | Saved local sale mappings require real provider account/environment and original full-payment proof, then exact saved Shopify order/snapshot validation; historical refunds retain sale identity. Missing mappings remain unmatched; ambiguous/conflicting mappings or unreadable saved orders fail safely. No second transaction source or new scheduled behavior |
+| Accounting exports | Actual order tags are a JSON-array text column appended by the shared report-generator to interactive ZIP and scheduled transaction CSV. Existing finance columns/numeric indices and item schema remain stable |
 | Internal failure | Generic public 500; underlying source retained internally |
 | Normal logs | One boundary event with operation, HTTP status and automatic source location in the prefix; optional client_origin retains the client's original file:line:column. No error messages or causes |
 | Error location | First AppError creation/conversion location survives propagation; external-library failures identify our mapping site, not an internal dependency frame |
@@ -306,3 +309,15 @@ Never copy `.env` or local credentials into images or static output. Local valid
 | Production runtime | Configure Vercel's production `DATABASE_URL` separately for the same Supabase database; the migration secret is not copied to Vercel |
 
 Connection modes and network support follow [Supabase's PostgreSQL connection guide](https://supabase.com/docs/guides/database/connecting-to-postgres). These local checks do not establish live Supabase connectivity or permissions.
+
+## Guest checkout verification operations
+
+| Concern | Required behavior |
+| --- | --- |
+| Caller | `POST /v1/checkouts/{checkout_id}/verify-payment` (or `/api/v1` alias), `Authorization: Bearer <opaque checkout token>`, empty body. Obtain the token securely through checkout provisioning; this endpoint never creates checkouts/attempts/tokens. This base uses owned SQL fixtures for the not-yet-integrated upstream contract. |
+| Browser fallback | Wait about five seconds between calls, honor Retry-After5, and prevent overlapping requests. Stop on COMPLETE or authoritative terminal unpaid/expired and when the page closes; transient502/503/504 retry with backoff.409 surfaces operator action. ENZ-46 owns the rendered browser timer; no runtime scheduler was added here. |
+| Credentials | Token hash, token/Authorization and raw provider data must never enter shared variables, logs or responses. Wrong/expired/revoked token and unknown checkout return the same404. Postman uses local Vault `checkout_guest_token`, a non-secret checkout_id variable, and a body-free request. |
+| PayPal environment | Optional non-secret `client.paypal.verification_environment = "SANDBOX"` or `"LIVE"` in application TOML identifies a trusted custom/test endpoint. Official HTTPS roots infer environment without the setting. Unknown custom endpoints without it fail503. A conflicting known official hostname, including terminal DNS dots or extra URL components, is rejected rather than relabeled. Existing configured clients/credentials and generic config reader are reused. |
+| Stripe amount support | Verification interprets the current currency whitelist as JPY0 / known charge2, including fractional HUF/TWD charges. Unsupported codes and precision fail409 safely; never assume all currencies use two decimals or reuse payout rounding to prove payment. |
+| Recovery | The next allowed check and invocation lease persist across processes. Paid proof is durable before Shopify completion; retry/reconciliation uses the known draft/order and saved proof even with the payment client absent. A lost completion response remains uncertain until authoritative readback. No automatic refund, hold-release promise or independent recovery timer. |
+| Local validation | Existing registered `cargo api-e2e` route module uses Compose PostgreSQL, real application TCP and controlled provider/Shopify HTTP. It does not establish live-provider credentials, real webhook sequencing, delivered Shopify email or rendered polling. |

@@ -1,0 +1,14 @@
+$kind: http-example
+name: Checkout unavailable
+response:
+  statusCode: 404
+  statusText: Not Found
+  headers:
+    - key: Cache-Control
+      value: no-store
+  body:
+    type: json
+    content: |-
+      {
+        "error": "Checkout not found"
+      }

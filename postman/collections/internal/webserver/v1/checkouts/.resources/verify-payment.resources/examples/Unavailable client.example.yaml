@@ -1,0 +1,14 @@
+$kind: http-example
+name: Unavailable client
+response:
+  statusCode: 503
+  statusText: Service Unavailable
+  headers:
+    - key: Cache-Control
+      value: no-store
+  body:
+    type: json
+    content: |-
+      {
+        "error": "Payment provider unavailable"
+      }

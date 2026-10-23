@@ -2,8 +2,8 @@ use super::{ClientError, ClientErrorKind, HttpClient};
 use crate::{
     config::PaypalConfig,
     models::paypal::{
-        Capture, CreateOrderRequest, Order, TransactionPage, VerifyWebhookSignatureRequest,
-        VerifyWebhookSignatureResponse,
+        Capture, CreateOrderRequest, EndpointEnvironment, Order, TransactionPage,
+        VerifyWebhookSignatureRequest, VerifyWebhookSignatureResponse,
     },
 };
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -18,6 +18,7 @@ use tokio::{sync::Mutex, time::Instant};
 pub struct PaypalClient {
     http: HttpClient,
     base_url: Url,
+    verification_environment: Option<EndpointEnvironment>,
     client_id: String,
     client_secret: String,
     token: Mutex<Option<Arc<AccessToken>>>,
@@ -41,13 +42,24 @@ impl PaypalClient {
             .map_err(|_| ClientError::new(ClientErrorKind::InvalidInput("invalid PayPal URL")))?;
         let client_id = credential(config.client_id.as_deref())?;
         let client_secret = credential(config.client_secret.as_deref())?;
-        Ok(Self {
+        let client = Self {
             http: HttpClient::new(Duration::from_secs(config.timeout_secs))?,
             base_url,
+            verification_environment: config.verification_environment,
             client_id,
             client_secret,
             token: Mutex::new(None),
-        })
+        };
+        if let (Some(official), Some(configured)) = (
+            client.official_host_environment(),
+            config.verification_environment,
+        ) && official != configured
+        {
+            return Err(ClientError::new(ClientErrorKind::InvalidInput(
+                "PayPal verification environment conflicts with endpoint",
+            )));
+        }
+        Ok(client)
     }
 
     pub async fn get_transactions(
@@ -128,6 +140,36 @@ impl PaypalClient {
         let url = self.operation_url(&["v1", "notifications", "verify-webhook-signature"])?;
         self.bearer_request(|| self.http.inner.post(url.clone()).json(payload))
             .await
+    }
+
+    #[must_use]
+    pub fn endpoint_environment(&self) -> Option<EndpointEnvironment> {
+        self.official_environment()
+            .or(self.verification_environment)
+    }
+
+    fn official_environment(&self) -> Option<EndpointEnvironment> {
+        if self.base_url.scheme() != "https"
+            || !self.base_url.username().is_empty()
+            || self.base_url.password().is_some()
+            || self.base_url.port_or_known_default() != Some(443)
+            || self.base_url.path() != "/"
+            || self.base_url.query().is_some()
+            || self.base_url.fragment().is_some()
+        {
+            return None;
+        }
+        self.official_host_environment()
+    }
+
+    fn official_host_environment(&self) -> Option<EndpointEnvironment> {
+        match self.base_url.host_str()?.trim_end_matches('.') {
+            "api.paypal.com" | "api-m.paypal.com" => Some(EndpointEnvironment::Live),
+            "api.sandbox.paypal.com" | "api-m.sandbox.paypal.com" => {
+                Some(EndpointEnvironment::Sandbox)
+            }
+            _ => None,
+        }
     }
 
     fn operation_url(&self, segments: &[&str]) -> Result<Url, ClientError> {

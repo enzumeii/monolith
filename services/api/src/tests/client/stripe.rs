@@ -516,3 +516,128 @@ async fn creation_rejects_provider_money_mode_and_correlation_mismatches() {
         assert_eq!(fixture.requests().len(), 1);
     }
 }
+
+#[tokio::test]
+async fn retrieves_checkout_and_payment_intent_and_authenticated_account() {
+    use crate::models::stripe::{
+        CheckoutMode, CheckoutPaymentStatus, CheckoutStatus, PaymentIntentStatus,
+    };
+    let f = Fixture::new(vec![
+        Reply::json(json!({"id":"cs_test_one","object":"checkout.session","mode":"payment","status":"complete","payment_status":"paid","livemode":false,"amount_total":1234,"currency":"thb","client_reference_id":"checkout-one","metadata":{"attempt_id":"attempt-one"},"payment_intent":"pi_one"})),
+        Reply::json(json!({"id":"pi_one","object":"payment_intent","status":"succeeded","amount":1234,"amount_received":1234,"currency":"thb","livemode":false,"latest_charge":"ch_one","metadata":{"checkout_id":"checkout-one"}})),
+        Reply::json(json!({"id":"acct_one","object":"account"})),
+    ]).await;
+    let c = client(&f);
+    let session = c.get_checkout_session("cs_test_one").await.unwrap();
+    assert_eq!(session.mode, CheckoutMode::Payment);
+    assert_eq!(session.status, CheckoutStatus::Complete);
+    assert_eq!(session.payment_status, CheckoutPaymentStatus::Paid);
+    assert!(!session.livemode);
+    assert_eq!(session.amount_total, Some(1234));
+    assert_eq!(session.currency.as_deref(), Some("thb"));
+    assert_eq!(session.client_reference_id.as_deref(), Some("checkout-one"));
+    assert_eq!(session.metadata["attempt_id"], "attempt-one");
+    assert_eq!(
+        session
+            .payment_intent
+            .as_ref()
+            .map(crate::models::stripe::StripeReference::id),
+        Some("pi_one")
+    );
+    let intent = c.get_payment_intent("pi_one").await.unwrap();
+    assert_eq!(intent.status, PaymentIntentStatus::Succeeded);
+    assert_eq!(intent.amount_received, 1234);
+    assert_eq!(
+        intent
+            .latest_charge
+            .as_ref()
+            .map(crate::models::stripe::StripeReference::id),
+        Some("ch_one")
+    );
+    assert_eq!(intent.metadata["checkout_id"], "checkout-one");
+    assert_eq!(c.get_account().await.unwrap().id, "acct_one");
+    let paths: Vec<_> = f.requests().into_iter().map(|r| r.0).collect();
+    assert_eq!(
+        paths,
+        [
+            "/v1/checkout/sessions/cs_test_one",
+            "/v1/payment_intents/pi_one",
+            "/v1/account"
+        ]
+    );
+    assert!(f.methods().iter().all(|m| m == reqwest::Method::GET));
+    for request in f.requests() {
+        assert_eq!(request.1["authorization"], "Bearer sk_test_private");
+    }
+}
+
+#[tokio::test]
+async fn new_stripe_reads_reject_path_injection_without_requests() {
+    let f = Fixture::new(vec![]).await;
+    let c = client(&f);
+    for id in ["", "../secret", "one/two", "one?expand[]=x"] {
+        assert!(c.get_checkout_session(id).await.is_err());
+        assert!(c.get_payment_intent(id).await.is_err());
+    }
+    assert_eq!(f.requests(), []);
+}
+
+#[tokio::test]
+async fn verification_reads_preserve_safe_decode_and_http_errors() {
+    use crate::client::ClientErrorKind;
+    for operation in ["session", "intent", "account"] {
+        for reply in [Reply::json(json!({})), Reply::status(500)] {
+            let decode = reply.status == 200;
+            let f = Fixture::new(vec![reply]).await;
+            let c = client(&f);
+            let error = match operation {
+                "session" => c.get_checkout_session("cs_test_one").await.map(|_| ()),
+                "intent" => c.get_payment_intent("pi_one").await.map(|_| ()),
+                _ => c.get_account().await.map(|_| ()),
+            }
+            .unwrap_err();
+            if decode {
+                assert!(matches!(error.kind(), ClientErrorKind::Decode { .. }));
+                assert!(std::error::Error::source(&error).is_some());
+            } else {
+                assert!(matches!(
+                    error.kind(),
+                    ClientErrorKind::Http { status: 500, .. }
+                ));
+            }
+            assert!(!format!("{error} {error:?}").contains("sk_test_private"));
+            assert_eq!(f.requests().len(), 1);
+        }
+    }
+}
+
+#[tokio::test]
+async fn nested_checkout_path_preserves_base_without_trailing_slash() {
+    for base_path in ["/v1", "/v1/"] {
+        let f = Fixture::new(vec![
+            Reply::status(500),
+            Reply::json(json!({"id":"acct_one","object":"account"})),
+        ])
+        .await;
+        let c = StripeClient::new(&StripeConfig {
+            base_url: f.url.join(base_path).unwrap().to_string(),
+            timeout_secs: 1,
+            secret_key: Some("fixture".into()),
+        })
+        .unwrap();
+        assert!(c.get_checkout_session("cs_test_one").await.is_err());
+        c.get_account().await.unwrap();
+        assert_eq!(f.requests()[0].0, "/v1/checkout/sessions/cs_test_one");
+        assert_eq!(f.requests()[1].0, "/v1/account");
+    }
+}
+
+#[tokio::test]
+async fn charge_retrieval_retains_environment_and_unrecognized_association_metadata() {
+    let f = Fixture::new(vec![Reply::json(json!({"id":"ch_one","amount_captured":1234,"amount_refunded":0,"captured":true,"created":3,"currency":"thb","disputed":false,"metadata":{"checkout_id":"checkout-one","attempt_id":"attempt-one","order_id":"draft-one"},"paid":true,"payment_intent":"pi_one","refunded":false,"livemode":false,"balance_transaction":null}))]).await;
+    let charge = client(&f).get_charge("ch_one").await.unwrap();
+    assert_eq!(charge.livemode, Some(false));
+    assert_eq!(charge.metadata.extra["checkout_id"], "checkout-one");
+    assert_eq!(charge.metadata.extra["attempt_id"], "attempt-one");
+    assert_eq!(charge.metadata.order_id.as_deref(), Some("draft-one"));
+}

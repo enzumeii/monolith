@@ -1,0 +1,14 @@
+$kind: http-example
+name: Database failure
+response:
+  statusCode: 500
+  statusText: Internal Server Error
+  headers:
+    - key: Cache-Control
+      value: no-store
+  body:
+    type: json
+    content: |-
+      {
+        "error": "Internal server error"
+      }

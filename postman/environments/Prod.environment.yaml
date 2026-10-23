@@ -18,3 +18,5 @@ values:
     value: ''
   - key: s3_secret_access_key
     value: ''
+  - key: checkout_id
+    value: '00000000-0000-4000-8000-000000000045'

@@ -47,3 +47,6 @@ mod cron_tests;
 #[cfg(test)]
 #[path = "tests/dto/report_results.rs"]
 mod report_results_tests;
+
+pub mod checkouts;
+pub use checkouts::{CheckoutCompletionState, CheckoutPaymentState, VerifyPaymentResponse};

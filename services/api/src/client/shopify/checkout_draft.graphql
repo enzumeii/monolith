@@ -1,0 +1,52 @@
+query CheckoutDraft($id: ID!) {
+  draftOrder(id: $id) {
+    id
+    ready
+    status
+    order {
+      id
+    }
+    reserveInventoryUntil
+    email
+    phone
+    customAttributes {
+      key
+      value
+    }
+    tags
+    taxesIncluded
+    totalPriceSet {
+      presentmentMoney {
+        amount
+        currencyCode
+      }
+    }
+    totalShippingPriceSet {
+      presentmentMoney {
+        amount
+        currencyCode
+      }
+    }
+    paymentTerms {
+      id
+    }
+    lineItems(first: 250) {
+      nodes {
+        variant {
+          id
+        }
+        quantity
+        originalUnitPriceSet {
+          presentmentMoney {
+            amount
+            currencyCode
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+}

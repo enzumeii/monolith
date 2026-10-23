@@ -11,13 +11,6 @@ pub struct CreateOrderRequest {
     pub application_context: Option<ExperienceContext>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "UPPERCASE")]
-pub enum OrderIntent {
-    Capture,
-    Authorize,
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PurchaseUnitRequest {
     pub reference_id: String,
@@ -56,6 +49,7 @@ pub struct ExperienceContext {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Order {
     pub id: String,
+    pub intent: Option<OrderIntent>,
     pub status: OrderStatus,
     #[serde(default)]
     pub purchase_units: Vec<PurchaseUnit>,
@@ -66,6 +60,7 @@ pub struct Order {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PurchaseUnit {
     pub reference_id: Option<String>,
+    pub invoice_id: Option<String>,
     pub custom_id: Option<String>,
     pub amount: PaymentMoney,
     pub payee: Option<Payee>,
@@ -87,6 +82,7 @@ pub struct Capture {
     pub final_capture: Option<bool>,
     pub payee: Option<Payee>,
     pub custom_id: Option<String>,
+    pub invoice_id: Option<String>,
     pub supplementary_data: Option<SupplementaryData>,
 }
 
@@ -161,6 +157,11 @@ macro_rules! wire_enum {
         }
     };
 }
+
+wire_enum!(OrderIntent {
+    Capture => "CAPTURE",
+    Authorize => "AUTHORIZE",
+});
 
 wire_enum!(OrderStatus {
     Created => "CREATED",

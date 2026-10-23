@@ -52,6 +52,10 @@ impl AppError {
         self
     }
 
+    pub(crate) fn http_status(&self) -> StatusCode {
+        self.status
+    }
+
     pub(crate) fn location(&self) -> &'static Location<'static> {
         self.location
     }

@@ -517,6 +517,7 @@ pub struct ProviderConfig<'a> {
     pub paypal_url: Option<&'a str>,
     pub paypal_payment: Option<bool>,
     pub paypal_timeout_secs: Option<u64>,
+    pub paypal_verification_environment: Option<&'a str>,
     pub stripe_url: Option<&'a str>,
     pub resend_url: Option<&'a str>,
     pub resend_key: Option<&'a str>,
@@ -620,9 +621,13 @@ fn write_api_configuration(
     } else {
         ""
     };
+    let paypal_environment = config
+        .paypal_verification_environment
+        .map(|environment| format!("verification_environment = {environment:?}\n"))
+        .unwrap_or_default();
     let paypal = config
         .paypal_url
-        .map(|url| format!("\n[client.paypal]\nbase_url = {url:?}\ntimeout_secs = {paypal_timeout_secs}\n{payment_policy}"))
+        .map(|url| format!("\n[client.paypal]\nbase_url = {url:?}\ntimeout_secs = {paypal_timeout_secs}\n{paypal_environment}{payment_policy}"))
         .unwrap_or_default();
     let resend = config
         .email_timeout_secs

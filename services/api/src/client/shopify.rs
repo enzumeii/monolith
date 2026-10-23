@@ -1,6 +1,6 @@
 use crate::models::shopify::{
-    CreateData, CreateDraftOrderData, CreateDraftOrderInput, DraftOrderCreatePayload, OrderData,
-    OrderSummary, OrdersPage, ShippingOrder, TagData,
+    AccountingOrderData, CreateData, CreateDraftOrderData, CreateDraftOrderInput,
+    DraftOrderCreatePayload, OrderData, OrderSummary, OrdersPage, ShippingOrder, TagData,
 };
 use crate::{
     client::{ClientError, ClientErrorKind, GraphqlClient, GraphqlRequest, HttpClient},
@@ -76,6 +76,21 @@ impl ShopifyClient {
         page.validate()?;
         self.orders_query(json!({"search": search, "first":page.first, "after":page.after}))
             .await
+    }
+
+    pub(crate) async fn accounting_order(
+        &self,
+        id: &ShopifyId,
+    ) -> Result<Option<Order>, ClientError> {
+        id.require_kind("Order")?;
+        let data: AccountingOrderData = self
+            .execute(
+                "AccountingOrder",
+                include_str!("shopify/orders_by_payment.graphql"),
+                json!({"id": id.as_ref()}),
+            )
+            .await?;
+        Ok(data.order)
     }
 
     pub async fn orders_by_tag(
@@ -237,6 +252,139 @@ impl ShopifyClient {
         data.fulfillment_create.into_id()
     }
 
+    pub(crate) async fn checkout_draft(
+        &self,
+        id: &ShopifyId,
+    ) -> Result<Option<crate::models::shopify::CompletionDraft>, ClientError> {
+        use crate::models::shopify::CompletionDraftData;
+        id.require_kind("DraftOrder")?;
+        let data: CompletionDraftData = self
+            .execute(
+                "CheckoutDraft",
+                include_str!("shopify/checkout_draft.graphql"),
+                json!({"id":id}),
+            )
+            .await?;
+        if let Some(draft) = &data.draft_order {
+            draft.id.require_kind("DraftOrder")?;
+            if &draft.id != id {
+                return Err(ClientError::new(ClientErrorKind::Protocol(
+                    "draft identity mismatch",
+                )));
+            }
+            if draft.line_items.page_info.has_next_page {
+                return Err(ClientError::new(ClientErrorKind::Protocol(
+                    "checkout draft line pagination is incomplete",
+                )));
+            }
+        }
+        Ok(data.draft_order)
+    }
+    pub(crate) async fn complete_checkout_draft(
+        &self,
+        id: &ShopifyId,
+    ) -> Result<ShopifyId, ClientError> {
+        use crate::models::shopify::CompleteDraftData;
+        id.require_kind("DraftOrder")?;
+        let data: CompleteDraftData = self
+            .execute_once(
+                "CompleteCheckoutDraft",
+                include_str!("shopify/complete_checkout_draft.graphql"),
+                json!({"id":id,"paymentPending":false}),
+            )
+            .await?;
+        let payload = data.draft_order_complete;
+        if !payload.user_errors.is_empty() {
+            return Err(ClientError::new(ClientErrorKind::Mutation {
+                errors: payload.user_errors,
+            }));
+        }
+        let draft = payload.draft_order.ok_or_else(|| {
+            ClientError::new(ClientErrorKind::Protocol("completed draft missing"))
+        })?;
+        if &draft.id != id {
+            return Err(ClientError::new(ClientErrorKind::Protocol(
+                "completed draft identity mismatch",
+            )));
+        }
+        let order = draft.order.ok_or_else(|| {
+            ClientError::new(ClientErrorKind::Protocol("completed order missing"))
+        })?;
+        order.id.require_kind("Order")?;
+        Ok(order.id)
+    }
+    pub(crate) async fn checkout_order(
+        &self,
+        id: &ShopifyId,
+    ) -> Result<Option<crate::models::shopify::CompletionOrder>, ClientError> {
+        use crate::models::shopify::CompletionOrderData;
+        id.require_kind("Order")?;
+        let data: CompletionOrderData = self
+            .execute(
+                "CheckoutOrder",
+                include_str!("shopify/checkout_order.graphql"),
+                json!({"id":id}),
+            )
+            .await?;
+        if let Some(order) = &data.order {
+            order.id.require_kind("Order")?;
+            if &order.id != id {
+                return Err(ClientError::new(ClientErrorKind::Protocol(
+                    "order identity mismatch",
+                )));
+            }
+            if order.line_items.page_info.has_next_page {
+                return Err(ClientError::new(ClientErrorKind::Protocol(
+                    "checkout order line pagination is incomplete",
+                )));
+            }
+        }
+        Ok(data.order)
+    }
+    pub(crate) async fn set_checkout_payment_metadata(
+        &self,
+        id: &ShopifyId,
+        value: &Value,
+        compare_digest: Option<&str>,
+    ) -> Result<(), ClientError> {
+        use crate::models::shopify::CompletionMetadataData;
+        id.require_kind("Order")?;
+        let data:CompletionMetadataData=self.execute_once("SetCheckoutPaymentMetadata",include_str!("shopify/set_checkout_payment_metadata.graphql"),json!({"metafields":[{"ownerId":id,"namespace":"convention_checkout","key":"payment_references","type":"json","value":value.to_string(),"compareDigest":compare_digest}]})).await?;
+        let payload = data.metafields_set;
+        if !payload.user_errors.is_empty() {
+            return Err(ClientError::new(ClientErrorKind::Mutation {
+                errors: payload.user_errors,
+            }));
+        }
+        if payload
+            .metafields
+            .as_ref()
+            .is_none_or(|fields| fields.len() != 1)
+        {
+            return Err(ClientError::new(ClientErrorKind::Protocol(
+                "payment metadata result missing",
+            )));
+        }
+        Ok(())
+    }
+
+    async fn execute_once<D: DeserializeOwned>(
+        &self,
+        operation_name: &str,
+        query: &str,
+        variables: Value,
+    ) -> Result<D, ClientError> {
+        self.graphql
+            .execute_once(
+                self.headers.clone(),
+                &GraphqlRequest {
+                    query,
+                    operation_name,
+                    variables,
+                },
+            )
+            .await
+    }
     async fn orders_query(&self, variables: Value) -> Result<Connection<Order>, ClientError> {
         let data: OrdersData = self
             .execute(

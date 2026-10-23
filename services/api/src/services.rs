@@ -14,3 +14,7 @@ pub(super) mod common;
 
 pub(crate) mod cron;
 pub(crate) mod paypal_payments;
+
+pub(crate) mod checkout_completion;
+
+pub(crate) mod checkout_verification;

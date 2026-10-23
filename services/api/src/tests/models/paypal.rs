@@ -68,3 +68,77 @@ fn paypal_known_event_codes_round_trip() {
         assert_eq!(serde_json::to_value(event).unwrap(), json!(code));
     }
 }
+
+#[test]
+fn checkout_protocol_enums_preserve_unknown_identities_and_exact_wire_case() {
+    use crate::models::paypal::{CaptureStatus, OrderIntent, OrderStatus};
+    for wire in [
+        "CREATED",
+        "SAVED",
+        "APPROVED",
+        "VOIDED",
+        "COMPLETED",
+        "PAYER_ACTION_REQUIRED",
+        "FUTURE",
+    ] {
+        let parsed: OrderStatus = serde_json::from_value(json!(wire)).unwrap();
+        assert_eq!(serde_json::to_value(parsed).unwrap(), json!(wire));
+    }
+    for wire in [
+        "COMPLETED",
+        "DECLINED",
+        "PARTIALLY_REFUNDED",
+        "PENDING",
+        "REFUNDED",
+        "FAILED",
+        "FUTURE",
+    ] {
+        let parsed: CaptureStatus = serde_json::from_value(json!(wire)).unwrap();
+        assert_eq!(serde_json::to_value(parsed).unwrap(), json!(wire));
+    }
+    for wire in ["CAPTURE", "AUTHORIZE", "FUTURE"] {
+        let parsed: OrderIntent = serde_json::from_value(json!(wire)).unwrap();
+        assert_eq!(serde_json::to_value(parsed).unwrap(), json!(wire));
+    }
+    assert_ne!(
+        OrderStatus::from("FUTURE1".to_owned()),
+        OrderStatus::from("FUTURE2".to_owned())
+    );
+    assert_ne!(
+        CaptureStatus::from("FUTURE1".to_owned()),
+        CaptureStatus::from("FUTURE2".to_owned())
+    );
+    assert_eq!(
+        OrderStatus::from("APPROVED".to_owned()),
+        OrderStatus::Approved
+    );
+    assert_eq!(
+        CaptureStatus::from("COMPLETED".to_owned()),
+        CaptureStatus::Completed
+    );
+}
+
+#[test]
+fn order_reads_keep_partial_responses_and_preserve_wire_currency_text() {
+    use crate::models::paypal::{Capture, Order};
+    let value = json!({"id":"ORDER1","intent":"CAPTURE","status":"APPROVED","purchase_units":[{"amount":{"currency_code":"THB","value":"12.340000"}}]});
+    let order: Order = serde_json::from_value(value.clone()).unwrap();
+    assert!(order.purchase_units[0].payments.is_none());
+    assert!(order.purchase_units[0].payee.is_none());
+    assert_eq!(order.purchase_units[0].amount.value, "12.340000");
+    for field in ["id", "status"] {
+        let mut missing = value.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(serde_json::from_value::<Order>(missing).is_err(), "{field}");
+    }
+    let partial: Order = serde_json::from_value(json!({"id":"ORDER1","status":"CREATED"})).unwrap();
+    assert!(partial.intent.is_none());
+    assert!(partial.purchase_units.is_empty());
+    let partial_capture: Capture = serde_json::from_value(json!({"id":"CAPTURE1","status":"PENDING","amount":{"currency_code":"USD","value":"12.34"}})).unwrap();
+    assert!(partial_capture.final_capture.is_none());
+    for currency in ["UNKNOWN", "thb"] {
+        let capture = json!({"id":"CAPTURE1","status":"COMPLETED","amount":{"currency_code":currency,"value":"12.34"},"final_capture":true});
+        let capture: Capture = serde_json::from_value(capture).unwrap();
+        assert_eq!(capture.amount.currency_code.as_str(), currency);
+    }
+}

@@ -112,10 +112,11 @@ pub(crate) async fn download_url(
 }
 
 pub(crate) async fn generate(
+    pool: &PgPool,
     audit: &ReportResult,
     providers: Providers<'_>,
 ) -> Result<ReportData, AppError> {
-    generate_report(audit, providers).await
+    generate_report(pool, audit, providers).await
 }
 
 pub(crate) fn storage_prefix(
@@ -135,6 +136,7 @@ pub(crate) fn storage_prefix(
 }
 
 async fn generate_report(
+    pool: &PgPool,
     audit: &ReportResult,
     providers: Providers<'_>,
 ) -> Result<ReportData, AppError> {
@@ -153,7 +155,7 @@ async fn generate_report(
             )?
             .ok_or_else(crate::models::cron::saved_invalid)?;
             Ok(ReportData::Transaction(
-                services::accounting::report(shopify, stripe, paypal, range).await?,
+                services::accounting::report(pool, shopify, stripe, paypal, range).await?,
             ))
         }
         (ScheduleReportType::Inventory, Providers::Inventory(shopify)) => {
