@@ -45,3 +45,11 @@
 
 .conventions-page input[type="file"]::file-selector-button { cursor: pointer; min-height: 2.75rem; margin-right: .75rem; padding: .5rem .9rem; border: 1px solid var(--primary); border-radius: 0; color: var(--primary-text); background: var(--primary); font: inherit; font-weight: 700; }
 .conventions-page input[type="file"]:disabled::file-selector-button { cursor: not-allowed; opacity: .5; }
+
+.convention-description-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: stretch; margin: 1rem 0; }
+.convention-description-editor { display: flex; flex-direction: column; gap: .5rem; min-width: 0; }
+.convention-description-editor label { margin: 0; }
+.convention-description-editor textarea { flex: 1; min-height: 18rem; resize: vertical; }
+.convention-description-layout .convention-preview { min-width: 0; margin: 0; }
+.convention-description-layout .convention-preview h3 { margin-top: 0; }
+@media (max-width: 767px) { .convention-description-layout { grid-template-columns: minmax(0, 1fr); } }

@@ -148,9 +148,13 @@ pub fn MetadataFields(
         }
         if unsupported_country { p { class: "error", "The saved country is unsupported. Choose an available country before saving metadata." } }
         if unsupported_currency { p { class: "error", "The saved currency is unsupported. You can edit metadata or disable preorders. Choose a supported currency before enabling or changing payment methods." } }
-        label { class: "convention-label", r#for: "convention-markdown", "Description (Markdown)" }
-        textarea { id: "convention-markdown", required: true, rows: 8, value: current.markdown.clone(), oninput: move |event| draft.write().markdown = event.value() }
-        section { class: "convention-preview", aria_label: "Description preview", h3 { "Description preview" } ui::MarkdownPreview { markdown: current.markdown.clone() } }
+        div { class: "convention-description-layout",
+            div { class: "convention-description-editor",
+                label { class: "convention-label", r#for: "convention-markdown", "Description (Markdown)" }
+                textarea { id: "convention-markdown", required: true, rows: 12, value: current.markdown.clone(), oninput: move |event| draft.write().markdown = event.value() }
+            }
+            section { class: "convention-preview", aria_label: "Description preview", h3 { "Description preview" } ui::MarkdownPreview { markdown: current.markdown.clone() } }
+        }
         if editing { label { class: "convention-checkbox", input { r#type: "checkbox", checked: current.enabled, onchange: move |event| draft.write().enabled = event.checked() } "Enable preorders" span { class: if current.enabled { "convention-status is-enabled" } else { "convention-status is-disabled" }, if current.enabled { "Enabled" } else { "Disabled" } } } }
     }
 }
