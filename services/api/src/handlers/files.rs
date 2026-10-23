@@ -1,4 +1,4 @@
-use crate::{error::AppError, state::AppState, storage::convention_logo, validations::files};
+use crate::{error::AppError, services::conventions::logo, state::AppState, validations::files};
 use axum::{
     Json,
     body::Bytes,
@@ -24,8 +24,8 @@ pub async fn upload(
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| AppError::new(StatusCode::BAD_REQUEST, "Logo Content-Type is required"))?;
-    let logo = convention_logo::validate(body.to_vec(), mime).await?;
-    let result = convention_logo::upload(
+    let logo = logo::validate(body.to_vec(), mime).await?;
+    let result = logo::upload(
         super::dependencies::s3_client(&state)?,
         &query.location,
         logo,

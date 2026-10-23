@@ -1,4 +1,4 @@
-use crate::{error::AppError, storage::convention_logo};
+use crate::{error::AppError, services::conventions::logo};
 use axum::extract::{Query, rejection::QueryRejection};
 use domain::dto::UploadFileQuery;
 
@@ -12,6 +12,6 @@ pub(crate) fn upload(
         )
         .with_source(source)
     })?;
-    convention_logo::folder(&query.location)?;
+    logo::folder(&query.location)?;
     Ok(query)
 }

@@ -783,3 +783,8 @@ Source-bound logs and approval/amendment evidence remain ignored under `.superpo
 ### Logo field naming follow-up — 2026-10-24
 
 The stored value is now named `logo_url` in SQL, Rust models, request/response DTOs and UI consumers. Responses expose signed previews as `logo_preview_url` with `logo_preview_url_expires_at`; Postman requests and fixtures use the same names. This follow-up preserves the existing migration, upload validation and missing/null behavior. Tests and builds were not run for this naming change at the user's request; earlier pass results apply to their recorded source.
+
+
+### PR #58 logo ownership review follow-up — 2026-10-24
+
+The convention logo service now owns the existing image/path validation, upload, attachment and preview orchestration. The one-feature `storage` namespace is removed, and existing unit tests move to the matching service test path. Attachment requires a concrete S3 client; optional preview signing and operations without a new logo preserve their prior behavior. Generic S3 operations remain in the existing client. This refactor receives formatting, import/call-site review and independent static review only; tests, builds, lint, browser execution and hosted-CI waiting are explicitly waived for implementation review.

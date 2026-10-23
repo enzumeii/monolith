@@ -75,6 +75,9 @@ pub(crate) async fn create(
     input: &ConventionInput,
 ) -> Result<ConventionDTO, AppError> {
     if let Some(location) = &input.logo_url {
+        let s3 = s3.ok_or_else(|| {
+            AppError::new(StatusCode::SERVICE_UNAVAILABLE, "S3 client unavailable")
+        })?;
         logo::attach(s3, location, &input.slug).await?;
     }
     logo::project(repo::insert(pool, input).await?, s3).await
@@ -120,6 +123,9 @@ pub(crate) async fn prepare_patch(
     let observed = get(pool, id).await?;
     let input = validate::merge(patch.clone(), &observed)?;
     if let PatchField::Set(location) = &patch.logo_url {
+        let s3 = s3.ok_or_else(|| {
+            AppError::new(StatusCode::SERVICE_UNAVAILABLE, "S3 client unavailable")
+        })?;
         logo::attach(s3, location, &observed.slug).await?;
     }
     let selection = inputs(repo::variants(pool, id).await?);

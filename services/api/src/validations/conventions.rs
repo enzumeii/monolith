@@ -245,7 +245,7 @@ fn date(v: &str) -> Result<NaiveDate, AppError> {
     Ok(parsed)
 }
 fn logo(v: &str) -> Result<(), AppError> {
-    crate::storage::convention_logo::location(v, None).map(|_| ())
+    crate::services::conventions::logo::location(v, None).map(|_| ())
 }
 fn field<T>(patch: PatchField<T>, current: T) -> Result<T, AppError> {
     match patch {
