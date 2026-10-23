@@ -66,6 +66,7 @@ AppState constructs optional outbound clients once and shares their HTTP pools. 
 | `src/pagination.rs` | Shared cursor collection/history for Reports and Orders |
 | `src/session/` | Viewer state, response ownership, browser synchronization |
 | `src/route.rs`, `src/pages/`, `src/components/` | Route mapping, owning features, confirmations and shared session-scoped draft navigation |
+| `src/components/heading.rs`, `src/components/report_table.rs` | Stateless title/back/action layout and accessible rich-row tables; callers own routes, data, requests and feature styling |
 | `src/pages/conventions/` | Convention metadata, catalogue selection, exact price drafts and independent logo uploads |
 | `crates/ui` | Presentation and safe Markdown shared by backoffice and client UI |
 | `src/tests/` | Configuration, HTTP boundary, and session tests |

@@ -72,6 +72,7 @@ pub(super) fn LogoPicker(
         })
     });
     rsx! {
+        div { class: "convention-logo-file-box",
         label { class: "convention-label", r#for: "convention-logo-file", "Choose logo file" }
         for generation in [(selection.generation)()] {
             input { key: "{generation}", id: "convention-logo-file", r#type: "file", accept: "image/png,image/jpeg", disabled: request.read().pending(),
@@ -97,6 +98,8 @@ pub(super) fn LogoPicker(
                 }
                 p { "Selected: {selected.name} (not yet saved)" }
             }
+        }
+        button { id: "convention-logo-discard", r#type: "button", class: "ghost convention-file-discard", disabled: request.read().pending() || (selection.file)().is_none(), onclick: move |_| { selection.reset(); error.set(None); }, "Discard selected file" }
         }
     }
 }

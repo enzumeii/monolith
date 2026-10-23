@@ -6,7 +6,7 @@ use super::{
 use crate::{
     api,
     components::{
-        Confirm, DraftDepartureGuard, ErrorMessage,
+        Confirm, DraftDepartureGuard, ErrorMessage, Heading,
         request_state::{RequestState, use_owner},
     },
     route::Route,
@@ -30,12 +30,12 @@ pub fn Detail(id: String) -> Element {
     });
     rsx! {
         if record.read().is_none() || record.pending() {
-            h2 { class: "convention-editor-heading", Link { to: Route::Conventions { query: String::new() }, class: "button-link ghost convention-back", aria_label: "Back to conventions", "<" } "Convention details" }
+            Heading { title: "Convention details", back: rsx! { Link { to: Route::Conventions { query: String::new() }, class: "button-link ghost", aria_label: "Back to conventions", "<" } } }
             p { role: "status", "Loading convention…" }
         }
         else if let Some(result) = record.read().as_ref() {
             match result {
-                Err(error) => rsx! { h2 { class: "convention-editor-heading", Link { to: Route::Conventions { query: String::new() }, class: "button-link ghost convention-back", aria_label: "Back to conventions", "<" } "Convention details" } ErrorMessage { message: Some(error.to_string()) } button { class: "ghost", onclick: move |_| reload += 1, "Retry loading" } },
+                Err(error) => rsx! { Heading { title: "Convention details", back: rsx! { Link { to: Route::Conventions { query: String::new() }, class: "button-link ghost", aria_label: "Back to conventions", "<" } } } ErrorMessage { message: Some(error.to_string()) } button { class: "ghost", onclick: move |_| reload += 1, "Retry loading" } },
                 Ok((record, options)) => rsx! { Editor { key: "{id}:{reload}", record: record.clone(), options: options.clone() } },
             }
         }
@@ -89,11 +89,7 @@ fn Editor(record: ConventionDTO, options: ConventionOptionsResponse) -> Element 
         if deleted() {
             super::navigation::ReturnToList { message: "Convention deleted. Returning to conventions…" }
         } else {
-        header { class: "convention-list-heading",
-            h2 { class: "convention-editor-heading",
-                Link { to: Route::Conventions { query: String::new() }, class: "button-link ghost convention-back", aria_label: "Back to conventions", title: "Back to conventions", "<" }
-                span { "{saved.read().name}" }
-            }
+        Heading { title: saved.read().name.clone(), back: rsx! { Link { to: Route::Conventions { query: String::new() }, class: "button-link ghost", aria_label: "Back to conventions", title: "Back to conventions", "<" } },
             super::delete::DeleteConvention { id: record.id.clone(), name: saved.read().name.clone(), request: delete_request, disabled: metadata_request.read().pending() || logo_request.read().pending(), on_deleted: move |()| deleted.set(true) }
         }
         fieldset { disabled: delete_request.read().pending(),
@@ -121,10 +117,7 @@ fn Editor(record: ConventionDTO, options: ConventionOptionsResponse) -> Element 
             h3 { "Convention logo" }
             p { "Upload saves the logo independently. PNG or JPEG only, at most 2 MiB and 4096 × 4096 pixels." }
             LogoPreview { preview: logo, id: record.id.clone(), replace_disabled: logo_request.read().pending() || delete_request.read().pending() }
-            div { class: "convention-logo-file-box",
-                LogoPicker { selection, request: logo_request, error: logo_error, notice: logo_notice }
-                button { id: "convention-logo-discard", r#type: "button", class: "ghost convention-file-discard", disabled: logo_request.read().pending() || (selection.file)().is_none(), onclick: move |_| { selection.reset(); logo_error.set(None); }, "Discard selected file" }
-            }
+            LogoPicker { selection, request: logo_request, error: logo_error, notice: logo_notice }
             ErrorMessage { message: logo_error() }
             if let Some(message) = logo_notice() { p { role: "status", "{message}" } }
             div { class: "convention-actions",

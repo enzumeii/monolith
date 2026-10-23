@@ -807,3 +807,16 @@ Verification is limited to formatting, scoped diff/import/contract review and in
 ### PR #58 required clients and preview response follow-up — 2026-10-24
 
 Convention services and projection now receive concrete S3 client references resolved at the HTTP boundary. Convention responses omit the stored `logo_url` and retain only signed preview URL/expiry; create/PATCH inputs and database persistence keep `logo_url`. The UI uses signed preview state without relying on the storage location and can clear a logo whose preview is unavailable. Current-head CI exposed a private CountryCode import; the fix uses the existing public re-export. Verification is limited to formatting and static source/diff review: tests, builds, lint, browser/provider execution and waiting for hosted CI remain waived by the user. Earlier execution results apply only to their recorded source.
+
+
+### PR #58 deep review and shared presentation — 2026-10-24
+
+| Scope | Evidence and limits |
+| --- | --- |
+| Review | Three focused reviews covered API/contracts, convention state/lifecycle and shared presentation; integrated static review found no remaining actionable issue |
+| Fixes | Backoffice test targets now declare their JSON dev dependency; empty-logo pages stop polling. Shared heading wrapping handles long names. Stale cache-header assertions follow the intentional typed-JSON handler contract; Postman uploads use a committed PNG fixture and explicit Content-Type |
+| Reuse | Create/detail share the complete LogoPicker. Page/section headings share one layout, and all three convention tables use existing DataTable with preserved reporting defaults |
+| Compilation | Native all-target checks passed for backoffice, API, shared ui and client-ui; test targets compiled without executing tests |
+| Bundle | Full backoffice just build passed, including WASM compilation, wasm-bindgen and asset bundling |
+| Static checks | Internal Postman lint passed41files with zero errors/warnings; changed JavaScript parsed in its async eval context, and scoped diff checks passed |
+| Unverified | No test suites, browser flows, real providers, database execution or current-head hosted CI completion were exercised |

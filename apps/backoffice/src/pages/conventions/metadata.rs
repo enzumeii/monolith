@@ -84,10 +84,7 @@ pub fn CreateEditor() -> Element {
                 MetadataFields { draft, options: options.clone(), editing: false }
                 h3 { "Optional convention logo" }
                 p { "PNG or JPEG only, at most 2 MiB and 4096 × 4096 pixels. If creation fails, your logo and form stay ready to retry." }
-                div { class: "convention-logo-file-box",
-                    LogoPicker { selection, request: logo_request, error, notice }
-                    button { r#type: "button", class: "ghost convention-file-discard", disabled: (selection.file)().is_none(), onclick: move |_| { selection.reset(); error.set(None); }, "Discard selected file" }
-                }
+                LogoPicker { selection, request: logo_request, error, notice }
                 ErrorMessage { message: error() }
                 button { r#type: "submit", class: "primary", if saving() { "Creating…" } else { "Create convention" } }
             }

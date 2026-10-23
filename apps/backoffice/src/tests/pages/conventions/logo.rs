@@ -43,7 +43,7 @@ impl dioxus::html::NativeFileData for LogoFixture {
 }
 
 use super::*;
-use crate::test_events::{FormEventConverter, form_event, listeners, render_changes};
+use crate::test_events::{FormEventConverter, listeners, render_changes};
 use std::rc::Rc;
 #[test]
 fn automatic_refresh_for_previous_revision_never_replaces_a_new_logo() {

@@ -18,6 +18,7 @@ try {
         if (schedule === null) break;
         clear();
         const [expiry, failed] = schedule;
+        if (!expiry && !failed) { dueAt = undefined; continue; }
         const parsed = expiry ? Date.parse(expiry) : NaN;
         dueAt = failed ? Date.now() : Number.isFinite(parsed) ? parsed - 30000 : Date.now() + 60000;
         timer = setTimeout(refresh, Math.max(0, dueAt - Date.now()));

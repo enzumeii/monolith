@@ -7,7 +7,6 @@
 .convention-checkbox input { width: auto; margin: 0; }
 .convention-preview { padding: 1rem; border: 1px solid var(--panel-border); border-radius: .5rem; margin: 1rem 0; overflow-wrap: anywhere; }
 .convention-logo { display: block; width: 180px; max-height: 180px; object-fit: contain; margin: 1rem 0; }
-.convention-table-scroll { overflow-x: auto; max-width: 100%; }
 .convention-table { border-collapse: collapse; width: 100%; min-width: 640px; }
 .convention-table caption { text-align: left; font-weight: 600; margin: .75rem 0; }
 .convention-table th, .convention-table td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--panel-border); padding: .75rem; overflow-wrap: anywhere; }
@@ -53,8 +52,6 @@
 .convention-name-field { grid-column: 1 / -1; }
 @media (max-width: 600px) { .convention-form-grid { grid-template-columns: minmax(0, 1fr); } }
 
-.convention-editor-heading { display: flex; align-items: center; gap: .75rem; }
-.convention-back { min-width: 2.75rem; font-size: 1.25rem; }
 .convention-logo-file-box { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: center; padding: 1rem; border: 1px solid var(--panel-border); background: var(--bg); }
 .convention-logo-file-box > label, .convention-logo-file-box > p, .convention-logo-file-box > .convention-logo-candidate { grid-column: 1 / -1; margin: 0; }
 .convention-logo-file-box input[type="file"] { min-width: 0; border: 0; padding: 0; }
@@ -64,8 +61,6 @@
     .convention-logo-file-box .convention-file-discard { grid-column: 1; grid-row: auto; justify-self: start; }
 }
 
-.convention-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
-.convention-list-heading h2, .convention-list-heading .button-link { margin: 0; }
 .convention-row-actions { display: flex; justify-content: flex-end; gap: .5rem; flex-wrap: wrap; }
 .convention-list-table th:last-child { text-align: right; }
 
@@ -76,8 +71,6 @@
 .convention-logo-candidate p { margin: .5rem 0 0; overflow-wrap: anywhere; }
 .convention-delete-action .error { max-width: 24rem; margin-top: .5rem; }
 
-.convention-pane-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
-.convention-pane-heading h3, .convention-pane-heading .primary { margin: 0; }
 dialog.popup.convention-catalogue-popup { width: 80vw; max-width: 80vw; height: 80dvh; max-height: 80dvh; }
 .convention-catalogue-popup .convention-section { margin: 0; padding: 0; }
 .convention-catalogue-popup .convention-result-images img { width: clamp(96px, 10vw, 160px); height: clamp(96px, 10vw, 160px); }

@@ -27,6 +27,7 @@ default = ["web"]
 web = ["dioxus/web"]
 
 [dev-dependencies]
+serde_json.workspace = true
 dioxus-ssr = "0.7.10"
 futures.workspace = true
 zip = { version = "9.0", default-features = false, features = ["deflate"] }

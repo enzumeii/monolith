@@ -2,7 +2,7 @@ use super::logo;
 use crate::{
     api,
     components::{
-        ErrorMessage,
+        DataTable, ErrorMessage, Heading, TableData,
         request_state::{RequestState, use_owner},
     },
     route::Route,
@@ -43,8 +43,7 @@ pub fn Conventions(query: String) -> Element {
     rsx! {
         document::Stylesheet { href: asset!("/assets/conventions.css") }
         main { class: "page conventions-page",
-            header { class: "convention-list-heading",
-                h2 { "Conventions" }
+            Heading { title: "Conventions",
                 Link { to: Route::ConventionCreate {}, class: "button-link primary", "Create convention" }
             }
             if response.read().is_none() || response.pending() { p { role: "status", "Loading conventions…" } }
@@ -53,10 +52,7 @@ pub fn Conventions(query: String) -> Element {
                     Err(error) => rsx! { ErrorMessage { message: Some(error.to_string()) } button { class: "ghost", onclick: move |_| retry += 1, "Retry loading" } },
                     Ok(value) => rsx! {
                         if value.items.is_empty() { p { "No conventions match this filter." } }
-                        div { class: "convention-table-scroll",
-                            table { class: "convention-table convention-list-table",
-                                caption { class: "visually-hidden", "Saved conventions" }
-                                thead { tr { th { "Logo" } th { "Name" } th { "Event dates" } th { "Currency" } th { "Preorders" } th { "Actions" } } }
+                        DataTable { table: TableData { headers: &["Logo", "Name", "Event dates", "Currency", "Preorders", "Actions"], rows: vec![] }, table_class: "convention-table", class: "convention-list-table", caption: "Saved conventions", caption_hidden: true, label: "Saved conventions",
                                 tbody { for item in &value.items { tr { key: "{item.id}",
                                     td { logo::LogoThumbnail { key: "{item.id}:{item.logo_preview_url:?}", name: item.name.clone(), preview_url: item.logo_preview_url.clone(), expires_at: item.logo_preview_url_expires_at.clone() } }
                                     td { class: "convention-value", "{item.name}" }
@@ -69,7 +65,6 @@ pub fn Conventions(query: String) -> Element {
                                         }
                                     } }
                                 } } }
-                            }
                         }
                         nav { class: "convention-actions", aria_label: "Convention pages",
                             if page > 1 { Link { to: Route::Conventions { query: page_query(page - 1, enabled) }, class: "button-link ghost", "Previous page" } }

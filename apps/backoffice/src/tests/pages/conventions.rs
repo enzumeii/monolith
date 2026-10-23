@@ -72,7 +72,7 @@ async fn mounted_convention_list_renders_async_success_and_failure_without_other
     let html = mounted_response("/conventions", &[(200, &list)], "Loaded event").await;
     assert!(html.contains("No logo preview"), "{html}");
     assert!(!html.contains("convention-name-action"));
-    assert!(html.contains("convention-list-heading"));
+    assert!(html.contains("content-heading"));
     assert!(html.contains(">Edit</a>"));
     assert!(html.contains("Delete Loaded event"));
     assert!(html.contains("Actions"));
@@ -113,7 +113,7 @@ async fn mounted_convention_detail_renders_async_success_and_failure_without_oth
     )
     .await;
     assert!(html.contains("Loaded event"));
-    assert!(html.contains("convention-editor-heading"));
+    assert!(html.contains("content-heading-title"));
     assert!(html.contains("convention-logo-file-box"));
     assert!(html.contains("convention-file-discard"));
     assert!(html.contains("Delete Loaded event"));

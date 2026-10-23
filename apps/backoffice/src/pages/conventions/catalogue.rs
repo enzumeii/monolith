@@ -2,7 +2,7 @@ use super::state::{Selection, VariantDetails, merge_saved_details};
 use crate::{
     api,
     components::{
-        ErrorMessage, Popup,
+        DataTable, ErrorMessage, Heading, HeadingLevel, Popup, TableData,
         request_state::{RequestState, use_owner},
     },
     session,
@@ -197,17 +197,13 @@ pub fn SelectionEditor(
         .and_then(|page| page.cursor.clone());
     rsx! {
         section { class: "panel convention-section", aria_label: "Selected variants and prices",
-            header { class: "convention-pane-heading",
-                h3 { "Selected variants and final prices" }
+            Heading { title: "Selected variants and final prices", level: HeadingLevel::Section,
                 button { id: "browse-shopify-catalogue", r#type: "button", class: "primary", onclick: move |_| picker_open.set(true), "Browse Shopify catalogue" }
             }
             if memberships.pending() || !current.loaded { p { role: "status", "All saved membership pages must load before editing or saving." } }
             ErrorMessage { message: load_error.clone() }
             if load_error.is_some() { button { r#type: "button", class: "ghost", onclick: move |_| { selection.write().loaded = false; retry += 1; }, "Retry all saved memberships" } }
-            div { class: "convention-table-scroll",
-                table { class: "convention-table",
-                    caption { class: "visually-hidden", "Selected variants and final prices" }
-                    thead { tr { th { "Variant" } th { "Image" } th { "Final convention price" } th { "Action" } } }
+            DataTable { table: TableData { headers: &["Variant", "Image", "Final convention price", "Action"], rows: vec![] }, table_class: "convention-table", caption: "Selected variants and final prices", caption_hidden: true, label: "Selected variants and final prices",
                     tbody { for (row, detail) in rows { tr { key: "{row.shopify_variant_id}",
                         td {
                             VariantTitle { sku: detail.sku.clone(), product: detail.product_title.clone(), variant: detail.variant_title.clone() }
@@ -227,7 +223,6 @@ pub fn SelectionEditor(
                         }
                         td { button { r#type: "button", class: "ghost", disabled: !current.loaded || saving.read().pending(), onclick: { let variant_id = row.shopify_variant_id.clone(); move |_| { selection.write().items.remove(&variant_id); details.write().remove(&variant_id); save_notice.set(None); } }, "Remove" } }
                     } } }
-                }
             }
             if enabled && current.items.is_empty() { p { class: "error", "Disable preorders and save metadata before clearing all selected variants." } }
             ErrorMessage { message: save_error() }
@@ -269,10 +264,7 @@ pub fn SelectionEditor(
                 if browse.pending() && submitted().is_some() { p { role: "status", "Loading current catalogue page…" } }
                 if let Some(page) = page {
                     if page.items.is_empty() { p { "No variants match this search at this location." } }
-                    div { class: "convention-table-scroll",
-                        table { class: "convention-table",
-                            caption { "Shopify products and variants" }
-                            thead { tr { th { "Images" } th { "Product and variant" } th { "Source price" } th { "Action" } } }
+                    DataTable { table: TableData { headers: &["Images", "Product and variant", "Source price", "Action"], rows: vec![] }, table_class: "convention-table", caption: "Shopify products and variants", label: "Shopify products and variants",
                             tbody { for source in page.items { tr { key: "{source.id}",
                                 td { div { class: "convention-result-images",
                                     CatalogueImage { image: source.product_image.clone(), label: "Product", fallback: "No product image" }
@@ -295,7 +287,6 @@ pub fn SelectionEditor(
                                     if current.items.contains_key(&source.id) { "Already selected" } else { "Select variant" }
                                 } }
                             } } }
-                        }
                     }
                 }
                 if let Some(cursor) = next_cursor {

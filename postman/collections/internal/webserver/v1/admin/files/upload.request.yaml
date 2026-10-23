@@ -1,15 +1,20 @@
 $kind: http-request
-description: Admin/SuperAdmin raw image upload before convention creation. Client supplies bucket and folder as conventions/<slug> (bucket conventions, key prefix <slug>); no configured report bucket is prepended; server generates a unique UUID filename. PNG/JPEG,1..2097152 bytes,up to4096x4096. 201 returns location (persist this), url and RFC3339 expires_at (transient rendering only). No convention mutation. Invalid query/path/type/image400; oversized413; authentication401; cookie Origin403; S3 unavailable503/rejected502/timeout504. Browser cookie mode requires configured Origin. Uploaded but unattached objects are not automatically collected.
+description: Admin/SuperAdmin raw image upload before convention creation. Client supplies bucket and folder as conventions/<slug> (bucket conventions, key prefix <slug>); no configured report bucket is prepended; server generates a unique UUID filename. PNG/JPEG,1..2097152 bytes,up to4096x4096. 201 returns location (persist this), url and RFC3339 expires_at (transient rendering only). No convention mutation. Invalid query/path/type/image400; oversized413; authentication401; cookie Origin403; S3 unavailable503/rejected502/timeout504. Browser cookie mode requires configured Origin. Uploaded but unattached objects are not automatically collected. The binary body uses logo_fixture_path (default postman/fixtures/convention-logo.png relative to the repository root); override it for another Postman working directory.
 url: "{{server}}/v1/admin/files?location=conventions/ax-2026"
 method: POST
+headers:
+  Content-Type: image/png
 order: 1000
 queryParams:
   location: conventions/ax-2026
 body:
   type: file
   content:
-    src: /Users/wphongphanpa/Downloads/IMG_5686_2-773409995.png
+    src: "{{logo_fixture_path}}"
 scripts:
   - type: afterResponse
-    code: ""
+    code: |-
+      pm.test("Image upload returns 201", () => {
+        pm.response.to.have.status(201);
+      });
     language: text/javascript

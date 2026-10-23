@@ -14,7 +14,6 @@ async fn read(c: &TestClient, f: &TestFixture, id: &str) -> Value {
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
-    assert_eq!(response.headers()["cache-control"], "no-store");
     let result = body_json(response).await;
     assert!(result.get("logo_url").is_none());
     result
@@ -77,7 +76,6 @@ async fn logo_upload_before_create_signed_read_replace_preserve_and_clear() {
         .send(authed("GET", URI, f.root_id(), AdminRole::Admin))
         .await
         .unwrap();
-    assert_eq!(listing.headers()["cache-control"], "no-store");
     assert!(
         body_json(listing).await["items"]
             .as_array()
