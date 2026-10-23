@@ -368,7 +368,7 @@ fn invalid_inventory_submission_shows_recoverable_error() {
             .iter()
             .any(|text| text.contains("Enter a positive numeric inventory ID"))
     );
-    assert!(rendered.text.iter().any(|text| text == "Retry"));
+    assert!(!rendered.text.iter().any(|text| text == "Retry"));
     assert!(
         !rendered
             .text
@@ -624,5 +624,34 @@ mod interaction {
         pump(&mut dom);
         absent(&dom, "Enter a positive numeric inventory ID");
         absent(&dom, "Retry");
+    }
+}
+
+#[test]
+fn generate_tracks_active_required_report_parameter() {
+    use crate::test_events::{disabled_state, form_event, listeners};
+    dioxus::html::set_event_converter(Box::new(FormEventConverter));
+    let mut dom = VirtualDom::new(Reports);
+    let initial = dom.rebuild_to_vec();
+    let input = listeners(&initial, "input")[0];
+    let button = disabled_state(&initial)[0].0;
+    assert_eq!(disabled_state(&initial)[0], (button, true));
+    for (value, disabled) in [("123", false), ("0", true), (" 123 ", false), ("", true)] {
+        form_event(&dom, input, "input", value);
+        assert!(disabled_state(&dom.render_immediate_to_vec()).contains(&(button, disabled)));
+    }
+    form_event(&dom, listeners(&initial, "change")[0], "change", "picklist");
+    let switched = dom.render_immediate_to_vec();
+    let input = listeners(&switched, "input")[0];
+    let button = disabled_state(&switched)[0].0;
+    assert_eq!(disabled_state(&switched)[0], (button, true));
+    for (value, disabled) in [
+        ("fair", false),
+        ("fair,", true),
+        ("fair,books", false),
+        ("   ", true),
+    ] {
+        form_event(&dom, input, "input", value);
+        assert!(disabled_state(&dom.render_immediate_to_vec()).contains(&(button, disabled)));
     }
 }

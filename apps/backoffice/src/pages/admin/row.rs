@@ -26,6 +26,9 @@ pub fn AdminRow(admin: AdminDTO, my_id: i64, on_changed: EventHandler<()>) -> El
         let u = username.read().clone();
         let p = password.read().clone();
         confirm_save.set(false);
+        if u.trim().is_empty() {
+            return;
+        }
         spawn(async move {
             let req = UpdateAdminRequest {
                 username: Some(u),
@@ -77,7 +80,8 @@ pub fn AdminRow(admin: AdminDTO, my_id: i64, on_changed: EventHandler<()>) -> El
                     }
                     button {
                         class: "primary",
-                        onclick: move |_| confirm_save.set(true),
+                        disabled: username.read().trim().is_empty(),
+                        onclick: move |_| { if !username.read().trim().is_empty() { confirm_save.set(true); } },
                         "Save"
                     }
                     button {

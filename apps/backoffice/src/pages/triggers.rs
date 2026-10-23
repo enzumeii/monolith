@@ -105,7 +105,7 @@ pub fn Triggers() -> Element {
                         oninput: move |event| order_number.set(event.value()),
                     }
                 }
-                button { id: "run-trigger", class: "primary", r#type: "submit", disabled: pending() || (kind() == TriggerKind::ReshipEmail && !valid_order_number(&order_number())), "Run trigger" }
+                button { id: "run-trigger", class: "primary", r#type: "submit", disabled: pending() || match kind() { TriggerKind::InventoryEnablement => !api::valid_location_id(&location_id()), TriggerKind::ReshipEmail => !valid_order_number(&order_number()) }, "Run trigger" }
             }
             ErrorMessage { message: failure }
             if kind() == TriggerKind::InventoryEnablement {

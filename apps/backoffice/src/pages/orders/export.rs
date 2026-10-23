@@ -1,5 +1,5 @@
 use super::data::{FulfillmentOrder, FulfillmentResult};
-use domain::dto::orders::{BestLabel, FastshipLabel, TeleportLabel, ThaiPostLabel};
+use domain::dto::orders::{BestLabel, FastshipLabel, ShippingLabels, TeleportLabel, ThaiPostLabel};
 
 use crate::components::TableData;
 
@@ -110,6 +110,50 @@ const TELEPORT_HEADERS: &[&str] = &[
     "Reference  (optional)",
     "Destination geo  (optional)",
 ];
+
+pub fn shipping_label_archive(labels: &ShippingLabels) -> Result<Vec<u8>, String> {
+    let mut files = Vec::new();
+    for (name, sheet, table, format) in [
+        (
+            "fastship-labels.csv",
+            "Fastship",
+            fastship_table(&labels.fastship),
+            crate::export::ExportFormat::Csv,
+        ),
+        (
+            "thai-post-labels.xlsx",
+            "ThaiPost",
+            thai_post_table(&labels.thaipost),
+            crate::export::ExportFormat::Xlsx,
+        ),
+        (
+            "best-labels.xlsx",
+            "Best",
+            best_table(&labels.best),
+            crate::export::ExportFormat::Xlsx,
+        ),
+        (
+            "teleport-labels.xlsx",
+            "Teleport",
+            teleport_table(&labels.teleport),
+            crate::export::ExportFormat::Xlsx,
+        ),
+    ] {
+        if table.rows.is_empty() {
+            continue;
+        }
+        let bytes = match format {
+            crate::export::ExportFormat::Csv => {
+                crate::export::encode_table(table.headers, &table.rows).into_bytes()
+            }
+            crate::export::ExportFormat::Xlsx => {
+                crate::export::encode_table_xlsx(table.headers, &table.rows, sheet)?
+            }
+        };
+        files.push((name, bytes));
+    }
+    crate::export::encode_archive(&files)
+}
 
 pub fn fulfillment_table(
     orders: &[FulfillmentOrder],

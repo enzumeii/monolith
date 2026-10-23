@@ -18,7 +18,7 @@ pub fn Login() -> Element {
                 class: "login-card",
                 onsubmit: move |e| {
                     e.prevent_default();
-                    if busy() {
+                    if busy() || username.read().trim().is_empty() || password.read().is_empty() {
                         return;
                     }
                     busy.set(true);
@@ -51,10 +51,14 @@ pub fn Login() -> Element {
                     on_input: move |v: String| password.set(v),
                 }
                 ErrorMessage { message: error() }
-                button { r#type: "submit", class: "primary", disabled: busy(),
+                button { r#type: "submit", class: "primary", disabled: busy() || username.read().trim().is_empty() || password.read().is_empty(),
                     if busy() { "Signing in…" } else { "Sign in" }
                 }
             }
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/pages/login.rs"]
+mod tests;

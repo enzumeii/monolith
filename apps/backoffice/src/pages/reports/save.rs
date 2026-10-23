@@ -107,7 +107,7 @@ pub fn SaveReport(rows: Vec<ProductReportRow>, filename: String) -> Element {
                             ErrorMessage { message: error() }
                             div { class: "modal-actions",
                                 button { r#type: "button", class: "ghost", disabled: busy(), onclick: move |_| close(()), "Cancel" }
-                                button { r#type: "submit", class: "primary", disabled: busy(), if busy() { "Saving…" } else { "Save" } }
+                                button { r#type: "submit", class: "primary", disabled: busy() || format().filename(&name()).is_err(), if busy() { "Saving…" } else { "Save" } }
                             }
                         }
                     }

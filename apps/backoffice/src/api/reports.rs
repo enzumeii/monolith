@@ -7,6 +7,9 @@ pub async fn get_inventory_report(id: &str, query: InventoryQuery) -> ApiResult<
 pub async fn get_picklist_report(tags: &str) -> ApiResult<OrderReportResponse> {
     super::decode(picklist_request(tags)?).await
 }
+pub(crate) fn valid_tags(tags: &str) -> bool {
+    tags.split(',').all(|tag| !tag.trim().is_empty())
+}
 fn inventory_request(id: &str, mut query: InventoryQuery) -> ApiResult<RequestBuilder> {
     if !super::valid_location_id(id) {
         return Err(super::ApiError::new(
@@ -19,7 +22,7 @@ fn inventory_request(id: &str, mut query: InventoryQuery) -> ApiResult<RequestBu
         .map(|request| request.query(&query))
 }
 fn picklist_request(tags: &str) -> ApiResult<RequestBuilder> {
-    if tags.split(',').any(|tag| tag.trim().is_empty()) {
+    if !valid_tags(tags) {
         return Err(super::ApiError::new(
             reqwest::StatusCode::BAD_REQUEST,
             "Enter nonblank comma-separated tags",

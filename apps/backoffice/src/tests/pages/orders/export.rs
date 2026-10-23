@@ -385,3 +385,95 @@ fn teleport_xlsx_preserves_legacy_headers_and_values() {
     assert_eq!(workbook_row(&bytes, 2, 22), values);
     assert!(!xml(&bytes, "xl/worksheets/sheet1.xml").contains("<f>"));
 }
+
+#[test]
+fn shipping_archive_preserves_individual_files_for_every_courier_combination() {
+    use domain::dto::orders::ShippingLabels;
+    use std::io::{Cursor, Read};
+
+    for mask in 0_u8..16 {
+        let labels = ShippingLabels {
+            fastship: if mask & 1 != 0 {
+                vec![fastship_label()]
+            } else {
+                vec![]
+            },
+            thaipost: if mask & 2 != 0 {
+                vec![thai_post_label()]
+            } else {
+                vec![]
+            },
+            best: if mask & 4 != 0 {
+                vec![best_label()]
+            } else {
+                vec![]
+            },
+            teleport: if mask & 8 != 0 {
+                vec![teleport_label()]
+            } else {
+                vec![]
+            },
+        };
+        let bytes = shipping_label_archive(&labels).expect("shipping archive");
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).expect("valid ZIP");
+        assert_eq!(archive.len(), mask.count_ones() as usize);
+        for (bit, name, sheet, table) in [
+            (
+                1,
+                "fastship-labels.csv",
+                "Fastship",
+                fastship_table(&labels.fastship),
+            ),
+            (
+                2,
+                "thai-post-labels.xlsx",
+                "ThaiPost",
+                thai_post_table(&labels.thaipost),
+            ),
+            (4, "best-labels.xlsx", "Best", best_table(&labels.best)),
+            (
+                8,
+                "teleport-labels.xlsx",
+                "Teleport",
+                teleport_table(&labels.teleport),
+            ),
+        ] {
+            if mask & bit == 0 {
+                assert!(archive.by_name(name).is_err(), "empty courier {name}");
+                continue;
+            }
+            let mut actual = Vec::new();
+            archive
+                .by_name(name)
+                .expect("courier file")
+                .read_to_end(&mut actual)
+                .expect("file bytes");
+            if bit == 1 {
+                assert_eq!(
+                    actual,
+                    crate::export::encode_table(table.headers, &table.rows).into_bytes()
+                );
+                assert!(
+                    String::from_utf8(actual)
+                        .expect("CSV")
+                        .contains("Alice,Smith")
+                );
+            } else {
+                let individual =
+                    crate::export::encode_table_xlsx(table.headers, &table.rows, sheet)
+                        .expect("individual XLSX");
+                for path in [
+                    "[Content_Types].xml",
+                    "xl/workbook.xml",
+                    "xl/sharedStrings.xml",
+                    "xl/worksheets/sheet1.xml",
+                ] {
+                    assert_eq!(xml(&actual, path), xml(&individual, path), "{name}: {path}");
+                }
+                assert!(xml(&actual, "xl/workbook.xml").contains(&format!("name=\"{sheet}\"")));
+                assert_eq!(workbook_row(&actual, 1, table.headers.len()), table.headers);
+                assert_eq!(workbook_row(&actual, 2, table.headers.len()), table.rows[0]);
+            }
+        }
+    }
+}

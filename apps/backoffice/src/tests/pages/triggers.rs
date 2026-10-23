@@ -217,9 +217,29 @@ fn triggers_page() -> Element {
     rsx! { Triggers {} }
 }
 
+fn button_state(
+    mutations: &dioxus::dioxus_core::Mutations,
+    button: dioxus::dioxus_core::ElementId,
+) -> Option<bool> {
+    use dioxus::dioxus_core::{AttributeValue, Mutation};
+    mutations
+        .edits
+        .iter()
+        .filter_map(|edit| match edit {
+            Mutation::SetAttribute {
+                name: "disabled",
+                value: AttributeValue::Bool(value),
+                id,
+                ..
+            } if button == *id => Some(*value),
+            _ => None,
+        })
+        .next_back()
+}
+
 #[test]
-fn reship_run_button_tracks_input_validity_and_inventory_stays_enabled() {
-    use dioxus::dioxus_core::{AttributeValue, ElementId, Mutation, Mutations};
+fn run_button_tracks_required_inventory_and_reship_input() {
+    use dioxus::dioxus_core::{ElementId, Mutation, Mutations};
     fn listener(mutations: &Mutations, name: &str) -> ElementId {
         mutations
             .edits
@@ -229,21 +249,6 @@ fn reship_run_button_tracks_input_validity_and_inventory_stays_enabled() {
                 _ => None,
             })
             .expect("rendered event listener")
-    }
-    fn button_state(mutations: &Mutations, button: ElementId) -> Option<bool> {
-        mutations
-            .edits
-            .iter()
-            .filter_map(|edit| match edit {
-                Mutation::SetAttribute {
-                    name: "disabled",
-                    value: AttributeValue::Bool(value),
-                    id,
-                    ..
-                } if button == *id => Some(*value),
-                _ => None,
-            })
-            .next_back()
     }
     fn form_event(dom: &VirtualDom, name: &str, id: ElementId, value: &str) {
         use dioxus::html::PlatformEventData;
@@ -274,15 +279,38 @@ fn reship_run_button_tracks_input_validity_and_inventory_stays_enabled() {
         .expect("Run trigger button");
     assert_eq!(
         button_state(&initial, button),
-        Some(false),
-        "inventory behavior stays enabled"
+        Some(true),
+        "empty inventory input disables Run trigger"
     );
+    form_event(&dom, "input", initial_input, "123");
+    assert_eq!(
+        button_state(&dom.render_immediate_to_vec(), button),
+        Some(false)
+    );
+    form_event(&dom, "input", initial_input, "0");
+    assert_eq!(
+        button_state(&dom.render_immediate_to_vec(), button),
+        Some(true)
+    );
+    form_event(&dom, "input", initial_input, "123");
+    assert_eq!(
+        button_state(&dom.render_immediate_to_vec(), button),
+        Some(false)
+    );
+    form_event(&dom, "input", initial_input, " 123 ");
+    assert_eq!(
+        button_state(&dom.render_immediate_to_vec(), button),
+        Some(true),
+        "trigger readiness matches raw request validation"
+    );
+    form_event(&dom, "input", initial_input, "");
+    dom.render_immediate_to_vec();
     form_event(&dom, "change", select, "reship-email");
     let changed = dom.render_immediate_to_vec();
     assert_eq!(
         button_state(&changed, button),
-        Some(true),
-        "empty reship input disables Run trigger"
+        None,
+        "empty reship input keeps Run trigger disabled"
     );
     let input = listener(&changed, "input");
     form_event(&dom, "input", input, "1234");
@@ -296,7 +324,7 @@ fn reship_run_button_tracks_input_validity_and_inventory_stays_enabled() {
     assert!(changed.edits.iter().any(|edit| matches!(edit, Mutation::CreateTextNode { value, .. } if value.contains("four-digit"))), "invalid direct submit renders validation feedback");
     form_event(&dom, "change", select, "inventory-enablement");
     let changed = dom.render_immediate_to_vec();
-    assert_eq!(button_state(&changed, button), Some(false));
+    assert_eq!(button_state(&changed, button), None);
 }
 
 #[test]

@@ -37,10 +37,11 @@ pub fn Profile() -> Element {
                     class: "panel",
                     onsubmit: move |e| {
                         e.prevent_default();
+                        if busy() { return; }
                         let u = username.read().clone();
                         let p = password.read().clone();
                         let c = confirm.read().clone();
-                        if u.is_empty() {
+                        if u.trim().is_empty() {
                             error.set(Some("username cannot be empty".into()));
                             return;
                         }
@@ -77,7 +78,7 @@ pub fn Profile() -> Element {
                     }
                     ErrorMessage { message: error() }
                     p { class: "hint", "Saving updates your account and signs you out." }
-                    button { r#type: "submit", class: "primary", disabled: busy(),
+                    button { r#type: "submit", class: "primary", disabled: busy() || username.read().trim().is_empty() || (!password.read().is_empty() && password() != confirm()),
                         if busy() { "Saving…" } else { "Save changes" }
                     }
                 }
@@ -93,6 +94,7 @@ pub fn Profile() -> Element {
             danger: false,
             on_confirm: move |()| {
                 confirm_save.set(false);
+                if busy() || username.read().trim().is_empty() || (!password.read().is_empty() && password() != confirm()) { return; }
                 busy.set(true);
                 let id = my_id;
                 let req = UpdateAdminRequest {
@@ -114,3 +116,7 @@ pub fn Profile() -> Element {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/pages/profile.rs"]
+mod tests;
