@@ -44,60 +44,22 @@ impl dioxus::html::NativeFileData for LogoFixture {
 
 use super::*;
 use crate::test_events::{FormEventConverter, form_event, listeners, render_changes};
-use std::{cell::RefCell, rc::Rc};
-type PreviewSignal = Rc<RefCell<Option<Signal<Preview>>>>;
-fn preview_app() -> Element {
-    let preview = use_signal(|| Preview {
-        revision: 0,
-        url: Some("https://s3.test/old.png?signature=old".into()),
-        expires_at: Some("2026-11-01T00:05:00Z".into()),
-        failed: false,
-    });
-    let captured = use_context::<PreviewSignal>();
-    *captured.borrow_mut() = Some(preview);
-    rsx! { LogoPreview { preview, id: "da41d46b-f1ca-4a76-a774-62c269d28731" } }
-}
-
-#[tokio::test]
-async fn refresh_response_for_previous_revision_never_replaces_a_newly_attached_logo() {
-    let body = r##"{"id":"da41d46b-f1ca-4a76-a774-62c269d28731","slug":"event","name":"Event","logo_preview_url":"https://s3.test/old.png?signature=refreshed","logo_preview_url_expires_at":"2026-11-01T00:10:00Z","country_code":"TH","event_starts_on":"2026-11-01","event_ends_on":"2026-11-02","description_markdown":"# Event","preorder_enabled":false,"currency_code":"THB","payment_methods":["stripe"],"created_at":"now","updated_at":"now"}"##;
-    let ((), requests) = crate::api::tests::metadata_responses(&[(200, body)], async {
-        dioxus::html::set_event_converter(Box::new(FormEventConverter));
-        let captured = PreviewSignal::default();
-        let settings = consume_context::<crate::config::Settings>();
-        let mut dom = VirtualDom::new(preview_app)
-            .with_root_context(settings)
-            .with_root_context(captured.clone());
-        dom.in_scope(ScopeId::ROOT, || {
-            *session::SESSION.write() = Some(session::Session {
-                admin_id: 1,
-                username: "fixture".into(),
-                role: domain::AdminRole::Admin,
-                expires_at: u64::MAX,
-            });
-        });
-        let initial = dom.rebuild_to_vec();
-        let refresh = crate::test_events::element_id(
-            &initial,
-            "convention-logo-refresh-da41d46b-f1ca-4a76-a774-62c269d28731",
-        );
-        form_event(&dom, refresh, "click", "");
-        let mut preview = captured.borrow().expect("captured");
-        let mut attached: ConventionDTO = serde_json::from_str(body).expect("convention response");
-        attached.logo_preview_url = Some("https://s3.test/new.png?signature=new".into());
-        attached.logo_preview_url_expires_at = Some("2026-11-01T00:20:00Z".into());
-        preview.write().replace(&attached);
-        for _ in 0..30 {
-            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-            render_changes(&mut dom);
-        }
-        let html = dioxus_ssr::render(&dom);
-        assert!(html.contains("new.png?signature=new"), "{html}");
-        assert!(!html.contains("signature=refreshed"));
-        assert!(html.contains("00:20:00Z"));
-    })
-    .await;
-    assert_eq!(requests.len(), 1);
+use std::rc::Rc;
+#[test]
+fn automatic_refresh_for_previous_revision_never_replaces_a_new_logo() {
+    let record: ConventionDTO = serde_json::from_value(serde_json::json!({
+        "id":"event", "slug":"event", "name":"Event", "country_code":"TH", "currency_code":"THB",
+        "event_starts_on":"2026-11-01", "event_ends_on":"2026-11-02", "description_markdown":"Event",
+        "preorder_enabled":false, "payment_methods":["stripe"], "created_at":"now", "updated_at":"now",
+        "logo_preview_url":"https://s3.test/old.png", "logo_preview_url_expires_at":"2099-01-01T00:00:00Z"
+    })).unwrap();
+    let mut preview = Preview::from_record(&record);
+    let revision = preview.revision;
+    let mut attached = record.clone();
+    attached.logo_preview_url = Some("https://s3.test/new.png".into());
+    preview.replace(&attached);
+    preview.refresh(revision, &record);
+    assert_eq!(preview.url, attached.logo_preview_url);
 }
 
 fn picker_app() -> Element {
@@ -150,7 +112,7 @@ fn thumbnail_renders_only_safe_unexpired_signed_preview_urls() {
 }
 
 #[test]
-fn unavailable_preview_retains_refresh_and_saved_changes_advance_revision() {
+fn unavailable_preview_has_no_manual_refresh_and_saved_changes_advance_revision() {
     fn app() -> Element {
         let preview = use_signal(Preview::default);
         rsx! { LogoPreview { preview, id: "event" } }
@@ -159,7 +121,7 @@ fn unavailable_preview_retains_refresh_and_saved_changes_advance_revision() {
     dom.rebuild_in_place();
     let html = dioxus_ssr::render(&dom);
     assert!(html.contains("No logo preview available"), "{html}");
-    assert!(html.contains("Refresh logo preview"));
+    assert!(!html.contains("Refresh logo preview"));
     assert!(!html.contains("No saved logo"));
     let record: ConventionDTO = serde_json::from_value(serde_json::json!({
         "id": "event", "slug": "event", "name": "Event",

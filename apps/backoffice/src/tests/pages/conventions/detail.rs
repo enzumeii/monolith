@@ -25,7 +25,7 @@ enum TestRoute {
 #[component]
 fn EditorPage() -> Element {
     let record = try_consume_context::<ConventionDTO>().unwrap_or_else(record);
-    rsx! { Editor { record, options: ConventionOptionsResponse { countries: vec!["TH".into()], currencies: vec![domain::dto::ConventionCurrencyOption { code: "THB".into(), payment_methods: vec![domain::dto::ConventionPaymentMethod::Stripe] }] }, on_reload: move |()| -> () { panic!("editor must not reload") } } }
+    rsx! { Editor { record, options: ConventionOptionsResponse { countries: vec!["TH".into()], currencies: vec![domain::dto::ConventionCurrencyOption { code: "THB".into(), payment_methods: vec![domain::dto::ConventionPaymentMethod::Stripe] }] } } }
 }
 
 fn record() -> ConventionDTO {
@@ -228,67 +228,39 @@ async fn failed_upload_keeps_candidate_and_success_resets_only_native_input() {
 }
 
 #[tokio::test]
-async fn refreshing_logo_preview_changes_only_url_and_expiry_and_failures_preserve_drafts() {
-    let mut record: ConventionDTO = record();
+async fn saved_logo_has_replacement_action_without_manual_refresh_and_preserves_drafts() {
+    let mut record = record();
     record.logo_preview_url = Some("https://s3.test/key.png?signature=old".into());
-    record.logo_preview_url_expires_at = Some("2026-11-01T00:05:00Z".into());
-    let response = RECORD.replace("\"logo_preview_url\":null", "\"logo_preview_url\":\"https://s3.test/key.png?signature=new\",\"logo_preview_url_expires_at\":\"2026-11-01T00:10:00Z\"").replace("Loaded event", "Other admin saved name");
-    let ((), requests) = crate::api::tests::metadata_responses(
-        &[
-            (200, MEMBERSHIPS),
-            (502, r#"{"error":"Refresh failed"}"#),
-            (200, &response),
-        ],
-        async {
-            dioxus::html::set_event_converter(Box::new(FormEventConverter));
-            let settings = consume_context::<crate::config::Settings>();
-            let mut dom = VirtualDom::new(editor)
-                .with_root_context(settings)
-                .with_root_context(record);
-            dom.in_scope(ScopeId::ROOT, || {
-                *session::SESSION.write() = Some(session::Session {
-                    admin_id: 1,
-                    username: "fixture".into(),
-                    role: domain::AdminRole::Admin,
-                    expires_at: u64::MAX,
-                });
+    record.logo_preview_url_expires_at = Some("2099-01-01T00:00:00Z".into());
+    let ((), requests) = crate::api::tests::metadata_responses(&[(200, MEMBERSHIPS)], async {
+        dioxus::html::set_event_converter(Box::new(FormEventConverter));
+        let settings = consume_context::<crate::config::Settings>();
+        let mut dom = VirtualDom::new(editor)
+            .with_root_context(settings)
+            .with_root_context(record);
+        dom.in_scope(ScopeId::ROOT, || {
+            *session::SESSION.write() = Some(session::Session {
+                admin_id: 1,
+                username: "fixture".into(),
+                role: domain::AdminRole::Admin,
+                expires_at: u64::MAX,
             });
-            let initial = dom.rebuild_to_vec();
-            settled(&mut dom).await;
-            form_event(
-                &dom,
-                listeners(&initial, "input")[0],
-                "input",
-                "Unsaved event",
-            );
-            settled(&mut dom).await;
-            let refresh = crate::test_events::element_id(
-                &initial,
-                "convention-logo-refresh-da41d46b-f1ca-4a76-a774-62c269d28731",
-            );
-            event(&dom, refresh, "click", Box::new(String::new()));
-            settled(&mut dom).await;
-            let html = dioxus_ssr::render(&dom);
-            assert!(
-                html.contains("Refresh failed"),
-                "{html} initial: {:?}",
-                listeners(&initial, "click")
-            );
-            assert!(html.contains("signature=old"));
-            assert!(html.contains("Unsaved event"));
-            event(&dom, refresh, "click", Box::new(String::new()));
-            settled(&mut dom).await;
-            let html = dioxus_ssr::render(&dom);
-            assert!(html.contains("signature=new"), "{html}");
-            assert!(html.contains("00:10:00Z"));
-            assert!(html.contains("Unsaved event"));
-            assert!(!html.contains("Other admin saved name"));
-            assert!(!html.contains("Metadata saved"));
-        },
-    )
+        });
+        let initial = dom.rebuild_to_vec();
+        settled(&mut dom).await;
+        form_event(
+            &dom,
+            listeners(&initial, "input")[0],
+            "input",
+            "Unsaved event",
+        );
+        settled(&mut dom).await;
+        let html = dioxus_ssr::render(&dom);
+        assert!(html.contains("signature=old"));
+        assert!(html.contains("Unsaved event"));
+        assert!(html.contains("Click image to replace"));
+        assert!(!html.contains("Refresh logo preview"));
+    })
     .await;
-    assert_eq!(requests.len(), 3);
-    for request in &requests[1..] {
-        assert!(request.starts_with("GET /v1/admin/conventions/"));
-    }
+    assert_eq!(requests.len(), 1);
 }

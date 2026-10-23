@@ -123,6 +123,11 @@ impl Preview {
             ..Self::from_record(record)
         };
     }
+    fn refresh(&mut self, revision: u64, record: &ConventionDTO) {
+        if self.revision == revision {
+            self.replace(record);
+        }
+    }
 }
 
 #[component]
@@ -132,8 +137,47 @@ pub(super) fn LogoPreview(
     #[props(default)] replace_disabled: bool,
 ) -> Element {
     let owner = use_owner();
-    let mut request = use_signal(RequestState::default);
+    let mut timer = use_signal(|| None::<document::Eval>);
     let mut error = use_signal(|| None::<String>);
+    use_future(move || {
+        let id = id.clone();
+        async move {
+            let mut bridge = document::eval(include_str!("logo_refresh.js"));
+            timer.set(Some(bridge));
+            while let Ok(true) = bridge.recv::<bool>().await {
+                let revision = preview.peek().revision;
+                let request_owner = owner();
+                let result = session::with_session(|| api::conventions::get(&id)).await;
+                if owner() != request_owner {
+                    break;
+                }
+                if preview.peek().revision != revision {
+                    continue;
+                }
+                match result {
+                    Ok(record) => {
+                        preview.write().refresh(revision, &record);
+                        error.set(None);
+                    }
+                    Err(value) => {
+                        error.set(Some(value.to_string()));
+                        let _ = bridge.send((preview.peek().expires_at.clone(), true));
+                    }
+                }
+            }
+        }
+    });
+    use_effect(move || {
+        let current = preview();
+        if let Some(bridge) = timer() {
+            let _ = bridge.send((current.expires_at, current.failed));
+        }
+    });
+    use_drop(move || {
+        if let Some(bridge) = *timer.peek() {
+            let _ = bridge.send(None::<bool>);
+        }
+    });
     let current = preview();
     let url = current
         .url
@@ -142,21 +186,8 @@ pub(super) fn LogoPreview(
     let unavailable = current.failed || url.is_none() || current.expires_at.is_none();
     rsx! {
         if !unavailable { if let Some(url) = url { LogoImageButton { src: url, alt: "Saved convention logo", disabled: replace_disabled, on_error: move |()| preview.write().failed = true } } }
-        else { p { role: "status", "No logo preview available. Refresh to check for a saved logo." } }
-        if let Some(expiry) = current.expires_at { p { "Preview URL expires at {expiry}" } }
+        else { p { role: "status", "No logo preview available." } }
         ErrorMessage { message: error() }
-        button { id: format!("convention-logo-refresh-{id}"), r#type: "button", class: "ghost", disabled: request.read().pending(), onclick: move |_| {
-            let Some(ticket) = request.write().begin() else { return; };
-            let revision = preview.read().revision; let request_owner = owner(); let id = id.clone(); error.set(None);
-            spawn(async move {
-                let result = session::with_session(|| api::conventions::get(&id)).await;
-                if owner() != request_owner || !request.write().finish(ticket) || preview.read().revision != revision { return; }
-                match result {
-                    Ok(record) => preview.write().replace(&record),
-                    Err(value) => error.set(Some(value.to_string())),
-                }
-            });
-        }, "Refresh logo preview" }
     }
 }
 

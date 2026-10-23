@@ -75,3 +75,13 @@
 .convention-logo-candidate { min-width: 0; }
 .convention-logo-candidate p { margin: .5rem 0 0; overflow-wrap: anywhere; }
 .convention-delete-action .error { max-width: 24rem; margin-top: .5rem; }
+
+.convention-pane-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
+.convention-pane-heading h3, .convention-pane-heading .primary { margin: 0; }
+dialog.popup.convention-catalogue-popup { width: 80vw; max-width: 80vw; height: 80dvh; max-height: 80dvh; }
+.convention-catalogue-popup .convention-section { margin: 0; padding: 0; }
+.convention-catalogue-popup .convention-result-images img { width: clamp(96px, 10vw, 160px); height: clamp(96px, 10vw, 160px); }
+.convention-catalogue-popup .convention-result-images figcaption { max-width: 160px; }
+@media (max-width: 600px) { dialog.popup.convention-catalogue-popup { width: 95vw; max-width: 95vw; height: 90dvh; max-height: 90dvh; } }
+
+.convention-variant-title { margin: 0; color: var(--text); font-size: 1rem; }

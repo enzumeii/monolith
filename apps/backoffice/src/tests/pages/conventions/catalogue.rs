@@ -439,3 +439,17 @@ fn product_and_variant_images_are_distinct_and_independently_safe() {
         "https://cdn.test/product.png"
     );
 }
+
+#[test]
+fn display_title_combines_sku_product_and_variant() {
+    fn app() -> Element {
+        rsx! { VariantTitle { sku: Some("XXXKEYNOS01".into()), product: Some("Dangle game series keychain".into()), variant: Some("Umbrella kirby".into()) } }
+    }
+    let mut dom = VirtualDom::new(app);
+    dom.rebuild_in_place();
+    let html = dioxus_ssr::render(&dom);
+    assert!(html.contains("XXXKEYNOS01"));
+    assert!(html.contains("Dangle game series keychain"));
+    assert!(html.contains("<strong>"));
+    assert!(html.contains("Umbrella kirby"));
+}

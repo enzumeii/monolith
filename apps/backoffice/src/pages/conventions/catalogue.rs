@@ -36,7 +36,6 @@ struct SourceVariant {
     sku: Option<String>,
     image: Option<(String, String)>,
     product_image: Option<(String, String)>,
-    options: String,
     price: String,
     currency: String,
     available: Option<i64>,
@@ -83,12 +82,6 @@ impl BrowsePage {
                     title: variant.title,
                     sku: variant.sku,
                     image,
-                    options: variant
-                        .selected_options
-                        .iter()
-                        .map(|option| format!("{}: {}", option.name, option.value))
-                        .collect::<Vec<_>>()
-                        .join(" · "),
                     price: variant.price.amount,
                     currency: variant.price.currency_code,
                     available: variant.available_quantity,
@@ -206,22 +199,20 @@ pub fn SelectionEditor(
         .and_then(|page| page.cursor.clone());
     rsx! {
         section { class: "panel convention-section", aria_label: "Selected variants and prices",
-            h3 { "Selected variants and final prices" }
-            p { "Memberships and final prices save together. Removing a row removes its membership; there is no per-variant enabled flag. Up to 250 variants." }
+            header { class: "convention-pane-heading",
+                h3 { "Selected variants and final prices" }
+                button { id: "browse-shopify-catalogue", r#type: "button", class: "primary", onclick: move |_| picker_open.set(true), "Browse Shopify catalogue" }
+            }
             if memberships.pending() || !current.loaded { p { role: "status", "All saved membership pages must load before editing or saving." } }
             ErrorMessage { message: load_error.clone() }
             if load_error.is_some() { button { r#type: "button", class: "ghost", onclick: move |_| { selection.write().loaded = false; retry += 1; }, "Retry all saved memberships" } }
-            p { "Selected: {rows.len()} / 250 · Convention currency: {currency}" }
             div { class: "convention-table-scroll",
                 table { class: "convention-table",
-                    caption { "Selected memberships and convention prices" }
+                    caption { class: "visually-hidden", "Selected variants and final prices" }
                     thead { tr { th { "Variant" } th { "Variant image and stock" } th { "Final convention price" } th { "Action" } } }
                     tbody { for (row, detail) in rows { tr { key: "{row.shopify_variant_id}",
                         td {
-                            strong { class: "convention-value", {detail_text(detail.product_title.as_deref(), "Product title unavailable")} }
-                            p { class: "convention-value", {detail_text(detail.variant_title.as_deref(), "Variant title unavailable")} }
-                            p { class: "convention-value", "SKU: " {detail_text(detail.sku.as_deref(), "SKU unavailable")} }
-                            p { class: "convention-label", "Variant {row.shopify_variant_id} · Product {row.shopify_product_id}" }
+                            VariantTitle { sku: detail.sku.clone(), product: detail.product_title.clone(), variant: detail.variant_title.clone() }
                         }
                         td {
                             if let Some((url, alt)) = detail.variant_image.filter(|(url, _)| safe_image_url(url)) {
@@ -255,8 +246,7 @@ pub fn SelectionEditor(
                 }, if saving.read().pending() { "Saving variants…" } else { "Save selected variants and prices" }
             }
         }
-        button { id: "browse-shopify-catalogue", r#type: "button", class: "primary", onclick: move |_| picker_open.set(true), "Browse Shopify catalogue" }
-        Popup { open: picker_open(), title: "Browse Shopify catalogue", on_close: move |()| picker_open.set(false),
+        Popup { open: picker_open(), title: "Browse Shopify catalogue", class: "convention-catalogue-popup", on_close: move |()| picker_open.set(false),
             section { class: "convention-section", aria_label: "Shopify catalogue",
                 p { "Source prices and available stock are informational when loaded. Final convention prices are edited outside this catalogue and revalidated when saving." }
                 form { onsubmit: move |event| {
@@ -293,13 +283,7 @@ pub fn SelectionEditor(
                                     CatalogueImage { image: source.image.clone(), label: "Variant", fallback: "No variant image" }
                                 } }
                                 td {
-                                    span { class: "convention-label", "Product" }
-                                    strong { class: "convention-value", "{source.product_title}" }
-                                    span { class: "convention-label", "Variant" }
-                                    p { class: "convention-value", "{source.title}" }
-                                    span { class: "convention-label", "SKU" }
-                                    p { class: "convention-value", {detail_text(source.sku.as_deref(), "SKU unavailable")} }
-                                    if !source.options.is_empty() { p { class: "convention-value", "{source.options}" } }
+                                    VariantTitle { sku: source.sku.clone(), product: Some(source.product_title.clone()), variant: Some(source.title.clone()) }
                                 }
                                 td {
                                     span { class: "convention-label", "Source price" }
@@ -330,6 +314,15 @@ pub fn SelectionEditor(
     }
 }
 #[component]
+fn VariantTitle(sku: Option<String>, product: Option<String>, variant: Option<String>) -> Element {
+    rsx! {
+        p { class: "convention-variant-title",
+            strong { "[" {detail_text(sku.as_deref(), "SKU unavailable")} "] " {detail_text(product.as_deref(), "Product title unavailable")} " - " }
+            span { {detail_text(variant.as_deref(), "Variant title unavailable")} }
+        }
+    }
+}
+#[component]
 fn CatalogueImage(image: Option<(String, String)>, label: String, fallback: String) -> Element {
     let mut failed = use_signal(|| false);
     let reset_image = image.clone();
@@ -341,7 +334,7 @@ fn CatalogueImage(image: Option<(String, String)>, label: String, fallback: Stri
         figure { class: "convention-result-image",
             figcaption { class: "convention-label", "{label}" }
             if let Some((url, alt)) = image.filter(|(url, _)| safe_image_url(url) && !failed()) {
-                img { class: "convention-thumbnail", src: url, alt, loading: "lazy", width: "56", height: "56", onerror: move |_| failed.set(true) }
+                img { class: "convention-thumbnail", src: url, alt, loading: "lazy", width: "160", height: "160", onerror: move |_| failed.set(true) }
             } else { span { class: "convention-label", "{fallback}" } }
         }
     }
