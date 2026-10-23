@@ -12,6 +12,7 @@ pub mod repositories;
 pub mod routes;
 pub(crate) mod services;
 pub use cron::runtime::{CronRuntime, CronTasks, VercelCron, VpsCron};
+pub use services::stripe_payments;
 pub mod startup;
 pub mod state;
 pub(crate) mod utils;

@@ -96,6 +96,25 @@ Inventory returns one caller-selected product page with active inventory levels;
 | Fail without retry | HTTP 5xx and other errors, ambiguous network failures, decoding/partial-data errors, mutation user errors |
 | Stored inventory | Enablement sends no initial quantity arguments; live provider quantity behavior remains unverified |
 
+## Stripe-hosted Checkout
+
+The existing Stripe client exposes provider operations to trusted Rust callers. Postman requests in `postman/collections/external/stripe/` call Stripe directly; there is no application checkout/status/webhook endpoint or payment persistence. Shopify is not required.
+
+| Input / operation | Operator contract |
+| --- | --- |
+| Credentials / version | Existing `stripe` environment URL includes `/v1`; inherited `vault:stripe_secret_key` supplies a sandbox secret locally. No Connect `Stripe-Account` or `Stripe-Version` override: requests use the direct account and its default API version. Record that effective version for any manual exercise; signed events expose their own `api_version` where supplied. Fixtures describe tested object shapes, not live version compatibility |
+| Create Checkout Session | Set folder variables for positive integer minor-unit amount, lowercase currency, fixed success/cancel URLs, non-personal `correlation_id`, product name and operation idempotency key. One line item with quantity1 and card payment method; account/device support determines wallet presentation. Keep tax, shipping, discounts and adaptive pricing disabled |
+| Retrieve resources | Copy the actual Session ID into `stripe_checkout_session_id`, its PaymentIntent ID into `stripe_payment_intent_id`, and the actual latest Charge ID into the existing Retrieve charge request's `charge_id`. Session `expand[]=payment_intent.latest_charge` and PaymentIntent `expand[]=latest_charge` can return expanded objects; string references remain valid |
+| Expected identity | Trusted caller supplies Session ID, merchant account ID, environment, exact money and correlation independently. Retrieve current account must match that merchant; all payment resources must match the expected test/live mode and money. Session and PaymentIntent metadata must retain the correlation |
+| Paid verification | Use the typed Rust payment-result verifier for an application decision. It retrieves current provider objects and requires matching context, payment Session paid status, succeeded PaymentIntent with exact received amount and its successful captured Charge. A redirect, completed Session, event name, `no_payment_required` or valid signature alone does not prove paid |
+| Expiry / ambiguity | Expire only an open Session with its own stable idempotency key. New create/expire operations are sent once without automatic retries. Re-read state after an expiry race. After ambiguous create/expire transport failure, reconcile the same operation; never blindly issue a new key. Stripe can prune keys after at least24 hours, so replay after retention needs external reconciliation |
+| Errors / refunds | Provider rejections, malformed objects, unknown statuses and mismatched account/mode/money/correlation never produce verified paid. Original successful payment verification does not assert an unrefunded balance; refund policy belongs to a consumer |
+| Signed events | Pass exact raw bytes, signature header, endpoint secret, trusted time and bounded tolerance to the Rust verifier before decoding. Signature authentication does not deduplicate events or establish payment success; use current resource verification and consumer-owned replay/state handling |
+
+For an explicitly authorized sandbox exercise: retrieve current account and compare the expected merchant → create a test Session → open the returned Stripe-hosted URL and complete the payer flow → retrieve Session, PaymentIntent and Charge → compare the trusted expectations and invoke the Rust verifier. These requests mutate the selected account when creating/expiring; do not run the external collection wholesale against a provider. Example IDs and bodies are synthetic and must be replaced with returned values. No real sandbox or live acceptance is implied by local tests.
+
+Provider references: [Session creation](https://docs.stripe.com/api/checkout/sessions/create), [Session retrieval](https://docs.stripe.com/api/checkout/sessions/retrieve), [PaymentIntent retrieval](https://docs.stripe.com/api/payment_intents/retrieve), [direct-account SDK operation](https://github.com/stripe/stripe-dotnet/blob/master/src/Stripe.net/Services/Accounts/AccountService.cs), [idempotency](https://docs.stripe.com/api/idempotent_requests).
+
 ## Runtime, failures, and administration
 
 | Concern | Mechanism |

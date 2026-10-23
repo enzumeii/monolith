@@ -1,0 +1,26 @@
+$kind: http-request
+description: "Create a Stripe-hosted one-time card payment. Mutates the selected account; do not run as part of collection-wide regression checks. Required variables are defined on the Stripe folder; replace synthetic values before an authorized sandbox run. stripe_checkout_amount is a positive integer in minor units; quantity is exactly 1. metadata[correlation_id] and payment_intent_data[metadata][correlation_id] bind both resources to the trusted caller correlation. Keep the same stripe_checkout_idempotency_key and exact body for one operation; choose a new key only for a new operation. 200 partial example: {\"id\":\"cs_test_synthetic\",\"object\":\"checkout.session\",\"mode\":\"payment\",\"status\":\"open\",\"payment_status\":\"unpaid\",\"livemode\":false,\"amount_total\":1000,\"currency\":\"usd\",\"metadata\":{\"correlation_id\":\"synthetic-checkout-001\"},\"payment_intent\":null,\"url\":\"https://checkout.stripe.com/c/pay/cs_test_synthetic\"}. 400 invalid parameters, 402 payment failure or idempotency misuse are failures, never paid. Idempotency conflicts can return 409. Tax, shipping, discounts and adaptive pricing must remain disabled; compare the actual total after retrieval. Uses inherited vault:stripe_secret_key (test secret for manual sandbox use) and stripe base URL including /v1. No Stripe-Account or Stripe-Version header: direct account, account-default API version. Common failures: 401 authentication, 403 permissions, 429 rate limit or 5xx provider failure. Synthetic error: {\"error\":{\"type\":\"invalid_request_error\",\"code\":\"resource_missing\",\"message\":\"No such resource\"}}. Examples are partial synthetic objects, never evidence of a paid payment."
+url: "{{stripe}}/checkout/sessions"
+method: POST
+order: 5000
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Idempotency-Key: "{{stripe_checkout_idempotency_key}}"
+body:
+  type: urlencoded
+  content:
+    mode: payment
+    "payment_method_types[]": card
+    "adaptive_pricing[enabled]": "false"
+    success_url: "{{stripe_checkout_success_url}}"
+    cancel_url: "{{stripe_checkout_cancel_url}}"
+    "line_items[0][price_data][currency]": "{{stripe_checkout_currency}}"
+    "line_items[0][price_data][unit_amount]": "{{stripe_checkout_amount}}"
+    "line_items[0][price_data][product_data][name]": "{{stripe_checkout_product_name}}"
+    "line_items[0][quantity]": "1"
+    "metadata[correlation_id]": "{{stripe_checkout_correlation_id}}"
+    "payment_intent_data[metadata][correlation_id]": "{{stripe_checkout_correlation_id}}"
+auth:
+  type: inherit
+  credentials:
+    id: 44bc4504-b8a5-4b4d-b887-d7458a64aaf2

@@ -4,6 +4,7 @@ pub mod auth;
 
 pub mod inventories;
 pub mod orders;
+pub mod stripe_payments;
 
 mod pagination;
 

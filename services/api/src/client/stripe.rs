@@ -1,7 +1,12 @@
+pub mod webhook;
+
 use crate::{
     client::{ClientError, ClientErrorKind, HttpClient},
     config::StripeConfig,
-    models::stripe::{BalanceTransaction, Charge, Payout, Refund, StripePage},
+    models::stripe::{
+        Account, BalanceTransaction, Charge, CheckoutMode, CheckoutSession, CreateCheckoutSession,
+        PaymentIntent, Payout, Refund, StripePage,
+    },
 };
 use reqwest::{
     Method, Url,
@@ -89,6 +94,124 @@ impl StripeClient {
         self.get(self.resource_url("refunds", id)?).await
     }
 
+    pub async fn create_checkout_session(
+        &self,
+        input: &CreateCheckoutSession,
+    ) -> Result<CheckoutSession, ClientError> {
+        validate_checkout(input)?;
+        let mut form = vec![
+            ("mode".to_owned(), "payment".to_owned()),
+            ("payment_method_types[0]".into(), "card".into()),
+            ("adaptive_pricing[enabled]".into(), "false".into()),
+            ("line_items[0][quantity]".into(), "1".into()),
+            (
+                "line_items[0][price_data][unit_amount]".into(),
+                input.amount.to_string(),
+            ),
+            (
+                "line_items[0][price_data][currency]".into(),
+                input.currency.to_ascii_lowercase(),
+            ),
+            (
+                "line_items[0][price_data][product_data][name]".into(),
+                input.product_name.clone(),
+            ),
+            ("success_url".into(), input.success_url.clone()),
+            ("cancel_url".into(), input.cancel_url.clone()),
+        ];
+        for (key, value) in &input.metadata {
+            form.push((format!("metadata[{key}]"), value.clone()));
+            form.push((
+                format!("payment_intent_data[metadata][{key}]"),
+                value.clone(),
+            ));
+        }
+        let session: CheckoutSession = self
+            .post(
+                self.operation_url(&["checkout", "sessions"])?,
+                &input.idempotency_key,
+                &form,
+            )
+            .await?;
+        if session.object != "checkout.session"
+            || validate_id(&session.id).is_err()
+            || !matches!(session.mode, CheckoutMode::Payment)
+            || session.amount_total != Some(input.amount)
+            || session.currency.as_deref() != Some(input.currency.to_ascii_lowercase().as_str())
+            || session.metadata != input.metadata
+        {
+            return Err(ClientError::new(ClientErrorKind::Protocol(
+                "Checkout Session does not match creation request",
+            )));
+        }
+        let valid_url = session
+            .url
+            .as_deref()
+            .and_then(|raw| Url::parse(raw).ok())
+            .is_some_and(|url| {
+                url.scheme() == "https"
+                    && url.host_str().is_some()
+                    && url.username().is_empty()
+                    && url.password().is_none()
+            });
+        if !valid_url {
+            return Err(ClientError::new(ClientErrorKind::Protocol(
+                "Checkout hosted URL is missing or invalid",
+            )));
+        }
+        Ok(session)
+    }
+
+    pub async fn get_checkout_session(&self, id: &str) -> Result<CheckoutSession, ClientError> {
+        validate_id(id)?;
+        self.get(self.operation_url(&["checkout", "sessions", id])?)
+            .await
+    }
+
+    pub async fn expire_checkout_session(
+        &self,
+        id: &str,
+        idempotency_key: &str,
+    ) -> Result<CheckoutSession, ClientError> {
+        validate_id(id)?;
+        self.post(
+            self.operation_url(&["checkout", "sessions", id, "expire"])?,
+            idempotency_key,
+            &[],
+        )
+        .await
+    }
+
+    pub async fn get_payment_intent(&self, id: &str) -> Result<PaymentIntent, ClientError> {
+        self.get(self.resource_url("payment_intents", id)?).await
+    }
+
+    pub async fn get_account(&self) -> Result<Account, ClientError> {
+        self.get(self.operation_url(&["account"])?).await
+    }
+
+    async fn post<T: DeserializeOwned>(
+        &self,
+        url: Url,
+        key: &str,
+        form: &[(String, String)],
+    ) -> Result<T, ClientError> {
+        let mut headers = self.headers.clone();
+        headers.insert("idempotency-key", idempotency_header(key)?);
+        self.http
+            .request_form(Method::POST, url, headers, form)
+            .await
+    }
+
+    fn operation_url(&self, segments: &[&str]) -> Result<Url, ClientError> {
+        let mut url = self.base_url.clone();
+        url.path_segments_mut()
+            .map_err(|()| ClientError::new(ClientErrorKind::InvalidInput("invalid Stripe URL")))?
+            .pop_if_empty()
+            .extend(segments.iter().copied());
+        Ok(url)
+    }
+
     fn list_url(
         &self,
         resource: &str,
@@ -133,9 +256,69 @@ impl StripeClient {
 }
 
 fn validate_id(id: &str) -> Result<(), ClientError> {
-    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+    if id.is_empty()
+        || id.len() > 255
+        || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
         return Err(ClientError::new(ClientErrorKind::InvalidInput(
             "invalid Stripe object ID",
+        )));
+    }
+    Ok(())
+}
+
+fn idempotency_header(key: &str) -> Result<HeaderValue, ClientError> {
+    if key.is_empty() || key.len() > 255 || !key.bytes().all(|b| b.is_ascii_graphic()) {
+        return Err(ClientError::new(ClientErrorKind::InvalidInput(
+            "invalid Stripe idempotency key",
+        )));
+    }
+    HeaderValue::from_str(key).map_err(|_| {
+        ClientError::new(ClientErrorKind::InvalidInput(
+            "invalid Stripe idempotency key",
+        ))
+    })
+}
+
+fn validate_checkout(input: &CreateCheckoutSession) -> Result<(), ClientError> {
+    if !(1..=99_999_999).contains(&input.amount) {
+        return Err(ClientError::new(ClientErrorKind::InvalidInput(
+            "Stripe amount must be a positive integer of at most eight digits",
+        )));
+    }
+    if input.currency.len() != 3 || !input.currency.bytes().all(|b| b.is_ascii_alphabetic()) {
+        return Err(ClientError::new(ClientErrorKind::InvalidInput(
+            "invalid Stripe currency",
+        )));
+    }
+    if input.product_name.trim().is_empty() || input.product_name.len() > 250 {
+        return Err(ClientError::new(ClientErrorKind::InvalidInput(
+            "invalid Stripe product name",
+        )));
+    }
+    idempotency_header(&input.idempotency_key)?;
+    for raw in [&input.success_url, &input.cancel_url] {
+        let url = Url::parse(raw).map_err(|_| {
+            ClientError::new(ClientErrorKind::InvalidInput("invalid Checkout return URL"))
+        })?;
+        let local = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+        if !(url.scheme() == "https" || (url.scheme() == "http" && local))
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+        {
+            return Err(ClientError::new(ClientErrorKind::InvalidInput(
+                "invalid Checkout return URL",
+            )));
+        }
+    }
+    if input.metadata.len() > 50
+        || input.metadata.iter().any(|(key, value)| {
+            key.is_empty() || key.len() > 40 || key.contains(['[', ']']) || value.len() > 500
+        })
+    {
+        return Err(ClientError::new(ClientErrorKind::InvalidInput(
+            "invalid Stripe metadata",
         )));
     }
     Ok(())
