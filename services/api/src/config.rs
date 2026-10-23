@@ -23,6 +23,8 @@ pub struct JwtSettings {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct BrowserConfig {
+    #[serde(default)]
+    pub additional_origins: Vec<String>,
     pub public_origin: String,
     pub insecure_local: bool,
 }
@@ -189,27 +191,9 @@ impl Settings {
                 "Shipping sender profile is incomplete".into(),
             ));
         }
-        let origin: axum::http::Uri = self
-            .browser
-            .public_origin
-            .parse()
-            .map_err(|_| ConfigError::Message("Invalid browser origin".into()))?;
-        let authority = origin
-            .authority()
-            .ok_or_else(|| ConfigError::Message("Browser origin needs a host".into()))?;
-        let scheme = origin.scheme_str().unwrap_or_default();
-        let loopback = matches!(
-            authority.host(),
-            "127.0.0.1" | "localhost" | "[::1]" | "::1"
-        );
-        if authority.as_str().contains('@')
-            || format!("{scheme}://{authority}") != self.browser.public_origin
-            || (self.browser.insecure_local && (scheme != "http" || !loopback))
-            || (!self.browser.insecure_local && scheme != "https")
-        {
-            return Err(ConfigError::Message(
-                "Browser cookies require HTTPS or explicit loopback HTTP".into(),
-            ));
+        validate_browser_origin(&self.browser.public_origin, self.browser.insecure_local)?;
+        for origin in &self.browser.additional_origins {
+            validate_browser_origin(origin, false)?;
         }
         Ok(())
     }
@@ -237,6 +221,10 @@ impl Settings {
             builder = builder
                 .set_override("browser.public_origin", origin)?
                 .set_override("browser.insecure_local", insecure_local)?;
+            if env::var("VERCEL_ENV").as_deref() != Ok("production") {
+                builder =
+                    builder.set_override("browser.additional_origins", Vec::<String>::new())?;
+            }
         }
         if let Ok(secret) = env::var("CRON_SECRET") {
             builder = builder.set_override("cron_secret", secret)?;
@@ -290,6 +278,38 @@ impl Settings {
         settings.validate()?;
         Ok(settings)
     }
+}
+
+impl BrowserConfig {
+    pub(crate) fn origins(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.public_origin.as_str())
+            .chain(self.additional_origins.iter().map(String::as_str))
+    }
+}
+
+fn validate_browser_origin(value: &str, insecure_local: bool) -> Result<(), ConfigError> {
+    let origin: axum::http::Uri = value
+        .parse()
+        .map_err(|_| ConfigError::Message("Invalid browser origin".into()))?;
+    let authority = origin
+        .authority()
+        .ok_or_else(|| ConfigError::Message("Browser origin needs a host".into()))?;
+    let scheme = origin.scheme_str().unwrap_or_default();
+    let loopback = matches!(
+        authority.host(),
+        "127.0.0.1" | "localhost" | "[::1]" | "::1"
+    );
+    if authority.as_str().contains(['@', '*'])
+        || (authority.as_str() != authority.host() && authority.port_u16().is_none())
+        || format!("{scheme}://{authority}") != value
+        || (insecure_local && (scheme != "http" || !loopback))
+        || (!insecure_local && scheme != "https")
+    {
+        return Err(ConfigError::Message(
+            "Browser cookies require HTTPS or explicit loopback HTTP".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn deployment_origin() -> Result<(String, bool), ConfigError> {

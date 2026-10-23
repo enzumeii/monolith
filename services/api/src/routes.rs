@@ -10,15 +10,17 @@ use axum::Router;
 /// # Panics
 /// Panics if the browser origin was not validated during startup.
 pub fn router(state: AppState) -> Router {
-    let origin = state
-        .settings
-        .browser
-        .public_origin
-        .parse::<axum::http::HeaderValue>()
-        .expect("validated browser origin");
     let browser = state.settings.browser.clone();
+    let origins = browser
+        .origins()
+        .map(|origin| {
+            origin
+                .parse::<axum::http::HeaderValue>()
+                .expect("validated browser origin")
+        })
+        .collect::<Vec<_>>();
     let cors = tower_http::cors::CorsLayer::new()
-        .allow_origin(origin)
+        .allow_origin(origins)
         .allow_credentials(true)
         .allow_methods([
             axum::http::Method::GET,

@@ -98,11 +98,11 @@ pub(crate) async fn browser_guard(
                 *request.method(),
                 Method::GET | Method::HEAD | Method::OPTIONS
             )
-            && request
+            && !request
                 .headers()
                 .get(ORIGIN)
                 .and_then(|value| value.to_str().ok())
-                != Some(browser_config.public_origin.as_str())
+                .is_some_and(|origin| browser_config.origins().any(|allowed| allowed == origin))
         {
             return Err(AppError::new(
                 StatusCode::FORBIDDEN,

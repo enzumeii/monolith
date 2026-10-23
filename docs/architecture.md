@@ -111,7 +111,7 @@ sequenceDiagram
 | Cookie attributes | HttpOnly, SameSite=Lax, Path=/; secure `__Host-backoffice_auth` in HTTPS mode |
 | Local mode | Explicit loopback HTTP permits `backoffice_auth`; UI and API use `localhost` |
 | Bearer clients | Token JSON remains supported; an invalid supplied bearer token does not fall back to cookies |
-| CORS/origin | Exact configured browser origin; reject missing/null/foreign origins on guarded cookie mutations |
+| CORS/origin | Exact configured primary/additional browser origins shared with CORS; reject missing/null/foreign origins on guarded cookie mutations |
 | Caching | Cookie-guarded responses use `Cache-Control: no-store` |
 
 ## Browser state and configuration
