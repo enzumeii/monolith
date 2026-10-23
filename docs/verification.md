@@ -2,6 +2,25 @@
 
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
 
+## ENZ-35 + ENZ-36 convention configuration and catalogue — local verification (2026-10-23)
+
+Final source is `e57bfb4`, following `eb938b1` (conventions) and `4bcd025` (catalogue), on `feat/ENZ-35`. Results are local. The full API regression covers `eb938b1`; the narrow request-validation/layout follow-up has separate focused evidence. Domain/frontend source is unchanged by that follow-up.
+
+| Check / contract | Actual evidence |
+| --- | --- |
+| API strict check | Existing `just check` passes again after the follow-up: 21 setup-helper tests, pinned dprint, Rust formatting and strict native/E2E Clippy |
+| Full API recipe | Existing `just test` exits 0 at `eb938b1`: 342 native + 175 real-TCP tests, zero failed/ignored; TCP phase 794.06s. At `e57bfb4`, all 18 convention TCP cases pass again (30.13s), including the new strict-query/DELETE-body regression; no second full-suite run is claimed |
+| Domain boundary | Existing check/test recipes pass: 12 unit tests + 8 contracts, zero failed/ignored; strict native Clippy and `wasm32-unknown-unknown` compilation. Common PatchField cron compatibility and decimal-string wire types covered |
+| Frontend consumers | Existing backoffice check/test pass: 131 app tests plus 20 shared-domain tests; client UI check/test pass: 8 app tests. Both native/WASM strict lint and domain database-free WASM compilation pass |
+| Workspace/static | `cargo fmt --all -- --check` passes. Documentation fences, whole-tree whitespace and three-file scope checks pass |
+| Postman | Local workspace lint exit 0: 66 entities, zero errors, one pre-existing cron-preview FMT209 warning. Both new GraphQL documents match saved request bytes and executable variable keys. Seven convention examples and catalogue first/continuation examples parse and retain exact `"12.99"`, raw search and cursor variables |
+| Report preservation | 22 existing report/provider request/query files remain byte-identical to base `884fdc0`; catalogue omits supplier cost and uses `available`, while inventory/report `on_hand`, sorting, paging and numeric totals remain unchanged |
+| Controlled endpoint coverage | Eight catalogue and 18 convention E2E scenarios use real API TCP, SQLx/Compose PostgreSQL and controlled Shopify TCP. Assertions cover content/zero-vs-null availability/raw search/paging/overflow; metadata/default false, both roles, cookie origins/PUT preflight, strict query/DELETE body rejection, exact SQL NUMERIC 12.99, policy/eligibility failures, rollback/commit faults and concurrent enable/clear/save/PATCH behavior |
+| Isolation | Owned worktree Cargo target; Compose project `enz35`, PostgreSQL port 15435 / S3 port 15436. Recipe removed owned PostgreSQL/S3 containers, S3 volume and network. No shared production database or provider was used |
+| Detailed evidence | Ignored `.superpowers/sdd/ENZ-35-convention-configuration-variant-pricing/` retains task reports and full check logs; task3 records command exits, source IDs, acceptance matrix and query hashes |
+
+Controlled responses establish exercised transport/contracts, not live Shopify schema compatibility, merchant permissions/capabilities, query cost or a real payment. No production migration/deployment, live provider mutation/charge, manual browser UI acceptance or hosted CI is asserted. Integration with subsequently advanced `origin/main` is not covered by these results. Public APIs (ENZ-38), routing (ENZ-41), quotes, checkout and historical order snapshots/protection remain future work; parent deletion currently cascades current memberships.
+
 ## ENZ-27 static services and cron implementations — 2026-10-22 / 23
 
 The approved scope uses static CSR frontends and a single application configuration path. Only the cron implementation differs between VPS and Vercel. Earlier BFF, frontend-container and application-runtime-profile results are superseded. All results are local; no cloud link, deployment, production migration or publication was performed.

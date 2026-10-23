@@ -13,6 +13,7 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | Report storage | Common/local/prod client.s3 TOML; S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY from private environment | Private reports bucket, region ap-southeast-1; independent of database credentials; local setup supplies synthetic missing/empty values. No signed URL persistence. |
 | Signing key | `JWT_SECRET` from ignored `.env` or environment | Hex-encoded random key of at least 32 bytes |
 | Shopify URL | `client.shopify.admin_api_url` in `services/api/application.toml` | Full `https://<shop>.myshopify.com/admin/api/2026-10/graphql.json`; local overlay does not replace it |
+| Convention capabilities | `[conventions].currencies` in API `application.toml`, typed through `config.rs` | Defaults to `[]`; explicitly list allowed uppercase currency codes and payment methods before creating/enabling conventions. No credentials or merchant-readiness assertion |
 | Shopify token | `SHOPIFY_ACCESS_TOKEN` from ignored API `.env` or environment | ConfigBuilder overrides client.shopify.access_token before one deserialization; standard file values apply when there is no environment override; Debug redacts credentials |
 | Backoffice | Public `application.toml`, `[api] base_url` | Default `http://localhost:3000/v1`; loaded once by typed `Settings`/`ApiConfig` |
 | Local browser | UI `http://localhost:8084`, API `http://localhost:3000` | Same hostname is required for exact origins and SameSite cookies |
@@ -60,7 +61,7 @@ Run recipes from the package directory.
 | `cargo test --locked -p api --lib` | Library tests and loopback transport fixtures; configured Docker PostgreSQL must be ready; no Shopify credentials |
 | `just test` | Compose PostgreSQL/private S3/init, native Cargo tests once, `cargo api-e2e` for TCP endpoint tests only, and Compose down with volumes removed even on failure |
 | `just check` | Formatting and strict Clippy on all API targets |
-| API E2E | `e2e-test/healthz.rs`, `e2e-test/v1/{auth,admins}.rs`, `e2e-test/v1/admin/{inventories,orders,transactions}.rs` and `e2e-test/v1/admin/cron/{configs,report}.rs`; real TCP endpoints |
+| API E2E | `e2e-test/healthz.rs`, `e2e-test/v1/{auth,admins}.rs`, `e2e-test/v1/admin/{catalogue,conventions,inventories,orders,transactions}.rs` and `e2e-test/v1/admin/cron/{configs,report}.rs`; real TCP endpoints |
 | Process lifecycle | `e2e-test/process.rs` exercises owned-child teardown |
 | Shared harness | `e2e-test/common.rs` owns temporary TOML, local API child, readiness, and teardown |
 | Fixtures | Unique owned records; shared Compose database during a run; cleanup only test-owned data |
@@ -71,11 +72,13 @@ Do not substitute loopback client fixtures or in-process handler tests for deplo
 
 ## Using the Shopify client
 
-Handlers resolve the shared state.shopify client initialized once by app_state and pass concrete client references to report services. Services, clients and repositories do not access AppState. Middleware receives only browser/JWT configuration. Request/result models are exported through api::shopify_models; construct IDs with ShopifyId::new. Paginated proxy methods accept a PageRequest with first (1–250) and nullable after, return one page, and never fetch another page automatically.
+Handlers resolve the shared state.shopify client initialized once by app_state and pass concrete client references to the dependent services. Services, clients and repositories do not access AppState. Middleware receives only browser/JWT configuration. Request/result models are exported through api::shopify_models; construct IDs with ShopifyId::new. Paginated proxy methods accept a PageRequest with first (1–250) and nullable after, return one page, and never fetch another page automatically.
 
 | Operation | Caller responsibility |
 | --- | --- |
 | Product listing | products_with_variants(request, page): location/statuses; one product page with fixed250 variants and completeness metadata |
+| Selection catalogue | `catalogue_products(location, search, page)`: one product page; raw search and root cursor unchanged; fixed 250 complete variants, current content/exact contextual price/location available, no supplier cost |
+| Convention selection validation | `convention_variant(id)`: direct ProductVariant lookup for association, ACTIVE/tracked/DENY rules; no catalogue scanning or provider mutation |
 | Accounting enrichment | accounting_orders(search, page): one order page for the accounting service; retains the OrdersByPayment document and nested completeness metadata |
 | Tag lookup | orders_by_tag(request, page): literal tags combined with AND; one order page including fixed250 report lines |
 | Inventory discovery | find_inventory_to_activate(request, page): one raw level page; caller decides eligibility from tracked/isActive/on_hand |
@@ -143,6 +146,29 @@ Inventory returns one caller-selected product page with active inventory levels;
 | Formatting | API just setup installs dprint 0.63.0 with Cargo under services/api/.tools and caches the pinned Rust-based GraphQL/JSON Wasm plugins there. just check checks API GraphQL/JSON, Rust formatting and strict lint; just fix prepares SQLx metadata before formatting. CI uses the same setup recipe. Update Postman query text after formatting GraphQL |
 
 Report queries require product, inventory, location and order access; reading unitCost may also require View product costs permission. Historical order access remains subject to Shopify permissions. Missing product/variant metadata produces null values; quantities use original order lines, not refund-adjusted accounting.
+
+## Convention administration and catalogue requests
+
+| Setting / request | Usage |
+| --- | --- |
+| Currency capabilities | Replace `currencies = []` under `[conventions]` with `currencies = [{ code = "USD", payment_methods = ["stripe", "paypal"] }]`, for example. Default empty configuration permits no convention currency. Codes/method combinations are validated at startup; duplicate currencies/methods are invalid; PromptPay requires THB and PayPal has its supported currency/precision restrictions |
+| Provider readiness | Capabilities are an operator allowlist. Supply provider credentials privately and establish merchant support separately before later payment work; this feature performs no charge, reservation or Shopify mutation |
+| Authenticated base | `/api/v1/admin` (native `/v1/admin` alias); ADMIN and SUPER_ADMIN bearer/cookie authentication, existing origin guard and CORS including PUT |
+| Create / read | `POST /conventions`, `GET /conventions`, `GET /conventions/{id}`. Create requires slug/name/country/event dates/description/currency/methods; optional HTTPS logo. Slug is lowercase hyphen-separated text, 1–63 bytes, excluding reserved paths. Country is assigned ISO alpha-2; dates are valid YYYY-MM-DD with start<=end |
+| List / selections | Convention and variant lists use `page=1&per_page=25` defaults; page positive and `per_page` 1–100, responses include `has_next`. Conventions accept optional `preorder_enabled=true/false` |
+| Patch / delete | `PATCH /conventions/{id}` changes supplied editable fields; absent fields stay unchanged, only `logo_url:null` clears. Empty/unknown/immutable fields are rejected. `DELETE /conventions/{id}` returns 204 and cascades current memberships |
+| Strict request shapes | Only the convention/variant list routes accept their documented query parameters; create/detail/PATCH/DELETE/PUT reject extra query strings. DELETE requires an empty body, including no `{}` or whitespace payload |
+| Selection replacement | `PUT /conventions/{id}/variants` with `{"items":[{"shopify_product_id":"gid://shopify/Product/1","shopify_variant_id":"gid://shopify/ProductVariant/1","final_price":"12.99"}]}`. Replaces the entire set atomically, at most 250 unique variants; `items:[]` clears only while disabled |
+| Exact price | Send positive unsigned plain decimal strings, not JSON numbers/exponents/signs; <=24 input bytes, bounded to signed 64-bit minor units, with currency/method precision. Prices persist in major units without floating-point conversion; USD `"12.99"` round-trips as `"12.99"` |
+| Manual flag | Create always stores false. PATCH `preorder_enabled:true` revalidates nonempty selection/capabilities; dates do not schedule opening/closing. Changing methods revalidates existing prices; disabling does not require Shopify availability |
+| Catalogue request | `GET /catalogue/products?location_id=gid://shopify/Location/1&page_size=25`; `page_size` 1–250, default 25. Optional `search`/`cursor` must be nonblank and <=2048 UTF-8 bytes. Unknown/duplicate/malformed parameters are rejected 400 |
+| Search / continuation | Pass Shopify syntax unchanged, e.g. `collection_id:123 AND title:Sticker`; URL-encode the query value for transport. Follow returned `page_info.end_cursor` when `has_next_page`; cursors remain opaque. Changing search starts a new traversal |
+| Catalogue completeness | One root page and fixed 250 variants per product; nested `hasNextPage` or malformed required provider data returns 502, never a partial catalogue. Active zero available quantity differs from missing/inactive null; catalogue price/content are current Shopify values |
+| Safe failures | Invalid input 400, authentication 401/role 403, missing convention/location 404, duplicate slug or changed validation assumptions 409, optional Shopify unavailable 503, upstream 502/timeout 504. Failed replacements preserve the prior membership |
+| Postman examples | Internal `conventions/{list,create,get,patch,delete,list-variants,replace-variants}` and `catalogue/{products,continue}` use synthetic IDs/prices and workspace variables. External `catalogue_products` / `convention_variant` query text and variables match API documents; inherited credentials remain private |
+| Local checks | Use package `just check` / `just test` recipes and root `cargo fmt --all -- --check`. Local-only `/Users/wphongphanpa/.local/bin/postman workspace lint` validates the checked-in workspace; do not run synthetic mutation examples against production |
+| Isolation | Use an owned `CARGO_TARGET_DIR` per worktree. API full recipe accepts `E2E_COMPOSE_PROJECT`, `E2E_POSTGRES_PORT`, `E2E_S3_PORT` and `E2E_DATABASE_URL`; preserve its Compose cleanup. Controlled provider matrices may serialize behind the fixture advisory lock |
+| Current limit | No public convention page, quote/order endpoint or historical order protection is delivered here. Public APIs (ENZ-38), routing (ENZ-41), quotes and order persistence remain subsequent work |
 
 ## Inventory enablement
 
