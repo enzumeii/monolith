@@ -1,5 +1,22 @@
 # Verification
 
+## ENZ-48 durable guest checkout — local verification (2026-10-24)
+
+Final implementation source `08e98fec8a2bea2aca1ee4e59f798fc2590c2e9a` includes main `7a319c36f5b12b8e5def22b08743394947b1ceaf` and merged ENZ-35. The final checkout-only inventory-policy guard has separate regression evidence below; earlier full-suite results retain their original source boundary.
+
+| Check | Actual result |
+| --- | --- |
+| Full API regression before final dependency integration | Existing API `just test` passes 463 native and 204 real-TCP tests, zero failed/ignored; TCP phase 791.34s. This run precedes the final ENZ-35 catalogue revision and shared oversized-body error follow-up; it is not a claim that all 206 final TCP cases ran locally together |
+| Integrated strict/native checks | API check passes 34 setup-helper tests, dprint, Rust formatting and strict all-target/E2E Clippy. Integrated `5d5e473` passes 466 native API tests with Compose PostgreSQL ready, zero failed/ignored (22.60s). Strict API check is repeated successfully after the final checkout guard |
+| Integrated affected TCP modules | Ten catalogue cases pass (46.12s) and 25 convention cases pass (37.75s), zero failed/ignored. These modules are unchanged by the final checkout-only guard |
+| Final checkout TCP matrix | All 21 cases pass after the guard, zero failed/ignored (103.89s). Uses real API TCP, SQLx/PostgreSQL and controlled Shopify/Stripe/PayPal HTTP services; covers both gateways, request/authentication rules, exact money/reservation, early/duplicate callbacks, capture/completion faults, lost responses, restart/ownership, rate admission and last-unit contention |
+| Inventory integration regression | Initial integrated checkout run fails its existing CONTINUE-policy case because catalogue eligibility broadened. Checkout now explicitly requires DENY, tracking and sufficient available stock. The same unchanged regression passes in the final 21-case run; catalogue continues accepting both policies |
+| Recovery and body limits | Dedicated native regressions verify completion intent is saved immediately before the actual Shopify mutation and late Stripe idempotent recovery retains the original expiry. TCP regressions confirm unknown outcomes never blindly create replacements, paid state survives Shopify failures, and oversized create/verify/webhook requests return shared safe JSON errors |
+| Shared contracts | Domain check passes native strict lint and `wasm32-unknown-unknown` compilation; 18 unit and eight contract tests pass on the integrated DTOs. The final checkout-only guard does not change domain code |
+| Postman / scope | Final workspace lint scans 84 entities with zero errors and one existing cron-preview FMT209 warning. Checkout requests and provider projections are synchronized. No collection-wide provider mutations were executed. Diff against main contains only checkout-related changes; ENZ-35 source worktree and existing migration remain untouched |
+| Isolation / cleanup | Owned Compose project `enz48`, PostgreSQL port 15448 and S3 port 15449; temporary synthetic API configuration and controlled providers. EXIT teardown removes owned services, volume and network. Independent final Docker and API-process audits are empty |
+| Limits | No live charge, genuine merchant webhook delivery, native Shopify email, frontend purchase/recovery acceptance, production routing or deployment is established. Frontend pages/storage are a future consumer contract. Publication and hosted CI results are recorded separately from this local evidence |
+
 ## ENZ-35 PR #57 latest-main integration — local verification (2026-10-23)
 
 The integrated source merges review fixes `fb08fff6e635bbc2b19af78f71485ff966ae64a6` with main `7bd6c2e050f7991e9f6eeeeb5127c2483d79eeba`. Three additive conflicts retain both Shopify client operation groups, convention catalogue documentation and complete verification histories. PayPal crate visibility and fail-closed currency handling remain intact. Independent review identified and cleared one semantic interaction: the expanded currency enum must not silently widen draft-completion payment support.
