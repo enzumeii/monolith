@@ -41,7 +41,7 @@ pub(super) fn exact_money(amount: &str, currency: &str) -> Result<i64, ClientErr
         .ok_or_else(|| invalid_money())
 }
 
-pub(super) fn currency_scale(currency: &str) -> Option<usize> {
+pub(crate) fn currency_scale(currency: &str) -> Option<usize> {
     let code = CurrencyCode::from(currency.to_owned());
     if code.as_str() != currency {
         return None;

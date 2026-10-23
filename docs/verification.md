@@ -2,6 +2,21 @@
 
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
 
+## ENZ-45 stateless completion remediation — 2026-10-23
+
+This contract supersedes PR #56's earlier stateful checkout design. Verification results for the superseded design do not establish acceptance of this refactor. The initial stateless remediation at `66c03bd` and its continuation onto `d1ae724` passed the bounded checks below. The later dependency moves PayPal verification into its client module with typed errors and enum currency handling; no mounted endpoint changes in that continuation.
+
+| Scope | Current implementation / verification boundary |
+| --- | --- |
+| Completion | Trusted server-side caller context, existing authoritative Stripe/PayPal verification, exact draft/order money, real Shopify linked-order readback and additive verified reference tags |
+| Recovery | `CompleteIfOpen` versus `ReconcileOnly`; caller retains uncertainty and serialization. Reconciliation-only calls never issue completion. No local checkout/payment ledger, guest UUID endpoint, cache or exactly-once claim |
+| Reporting | Actual Shopify order tags flow through existing matching, DTOs and CSV; no saved-order fallback, database mapping, extra provider lookup or cron change |
+| API checks | Final continuation formatting, strict all-target/E2E Clippy, 34 setup-helper tests and all 430 native tests pass, including 14 completion and 47 PayPal cases. The earlier full API recipe passes 150 real TCP tests; endpoint code and the accounting regression remain unchanged by the client-only continuation, so that suite is not repeated. Zero failed or ignored; owned Compose containers, volumes and networks removed |
+| Shared code and exports | Domain 18, report-generator 7 and backoffice 131 tests pass, including actual CSV/ZIP tag bytes. Native/WASM checks, root workflow/shell/configuration checks and workspace formatting pass |
+| Contracts and review | Stripe 9, PayPal 7, Shopify 15 and internal 30 Postman files lint with zero diagnostics; all 10 Shopify query/variable pairs match source. Accounting tag regression fails when the tag assignment is removed and passes restored. Independent final review finds no actionable gaps; cron, routes, repositories and migrations match the dependency |
+| Hosted checks | Main-only PR workflow does not run for the stacked `feat/ENZ-44` target; current-head hosted CI is waived by the approved plan. Historical CI and Vercel preview are separate evidence |
+| Limits | No live Shopify/email proof, production migration or provider mutation. Trusted caller authorization/durable ownership, future public/browser/webhook integration and merchant-specific behavior remain outside this slice |
+
 ## ENZ-44 PayPal client boundary and currency enum — 2026-10-23
 
 | Local evidence | Result |

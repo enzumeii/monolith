@@ -3,6 +3,7 @@ query OrdersByPayment($first: Int!, $search: String!, $after: String) {
     nodes {
       id
       number
+      tags
       phone
       shippingAddress {
         name

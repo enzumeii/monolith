@@ -25,6 +25,7 @@ pub const TRANSACTION_HEADERS: &[&str] = &[
     "gross_paid",
     "shipping_fee",
     "order_adjusted",
+    "shopify_order_tags",
 ];
 pub const ITEM_HEADERS: &[&str] = &[
     "quantity",
@@ -81,6 +82,7 @@ pub fn transaction_cells(row: &AccountingTransaction, null: &str) -> Vec<String>
         row.shipping_fee
             .map_or_else(|| null.into(), |value| value.to_string()),
         row.order_adjusted.to_string(),
+        serde_json::Value::from(row.shopify_order_tags.clone()).to_string(),
     ]
 }
 #[must_use]

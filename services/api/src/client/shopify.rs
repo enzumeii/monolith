@@ -237,6 +237,102 @@ impl ShopifyClient {
         data.fulfillment_create.into_id()
     }
 
+    pub(crate) async fn checkout_draft(
+        &self,
+        id: &ShopifyId,
+    ) -> Result<Option<crate::models::shopify::CompletionDraft>, ClientError> {
+        use crate::models::shopify::CompletionDraftData;
+        id.require_kind("DraftOrder")?;
+        let data: CompletionDraftData = self
+            .execute(
+                "CheckoutDraft",
+                include_str!("shopify/checkout_draft.graphql"),
+                json!({"id":id}),
+            )
+            .await?;
+        if let Some(draft) = &data.draft_order {
+            draft.id.require_kind("DraftOrder")?;
+            if &draft.id != id {
+                return Err(ClientError::new(ClientErrorKind::Protocol(
+                    "draft identity mismatch",
+                )));
+            }
+        }
+        Ok(data.draft_order)
+    }
+    pub(crate) async fn complete_checkout_draft(
+        &self,
+        id: &ShopifyId,
+    ) -> Result<ShopifyId, ClientError> {
+        use crate::models::shopify::CompleteDraftData;
+        id.require_kind("DraftOrder")?;
+        let data: CompleteDraftData = self
+            .execute_once(
+                "CompleteCheckoutDraft",
+                include_str!("shopify/complete_checkout_draft.graphql"),
+                json!({"id":id,"paymentPending":false}),
+            )
+            .await?;
+        let payload = data.draft_order_complete;
+        if !payload.user_errors.is_empty() {
+            return Err(ClientError::new(ClientErrorKind::Mutation {
+                errors: payload.user_errors,
+            }));
+        }
+        let draft = payload.draft_order.ok_or_else(|| {
+            ClientError::new(ClientErrorKind::Protocol("completed draft missing"))
+        })?;
+        if &draft.id != id {
+            return Err(ClientError::new(ClientErrorKind::Protocol(
+                "completed draft identity mismatch",
+            )));
+        }
+        let order = draft.order.ok_or_else(|| {
+            ClientError::new(ClientErrorKind::Protocol("completed order missing"))
+        })?;
+        order.id.require_kind("Order")?;
+        Ok(order.id)
+    }
+    pub(crate) async fn checkout_order(
+        &self,
+        id: &ShopifyId,
+    ) -> Result<Option<crate::models::shopify::CompletionOrder>, ClientError> {
+        use crate::models::shopify::CompletionOrderData;
+        id.require_kind("Order")?;
+        let data: CompletionOrderData = self
+            .execute(
+                "CheckoutOrder",
+                include_str!("shopify/checkout_order.graphql"),
+                json!({"id":id}),
+            )
+            .await?;
+        if let Some(order) = &data.order {
+            order.id.require_kind("Order")?;
+            if &order.id != id {
+                return Err(ClientError::new(ClientErrorKind::Protocol(
+                    "order identity mismatch",
+                )));
+            }
+        }
+        Ok(data.order)
+    }
+    async fn execute_once<D: DeserializeOwned>(
+        &self,
+        operation_name: &str,
+        query: &str,
+        variables: Value,
+    ) -> Result<D, ClientError> {
+        self.graphql
+            .execute_once(
+                self.headers.clone(),
+                &GraphqlRequest {
+                    query,
+                    operation_name,
+                    variables,
+                },
+            )
+            .await
+    }
     async fn orders_query(&self, variables: Value) -> Result<Connection<Order>, ClientError> {
         let data: OrdersData = self
             .execute(

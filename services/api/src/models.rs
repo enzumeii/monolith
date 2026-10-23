@@ -18,4 +18,5 @@ pub use currency::CurrencyCode;
 
 mod sku;
 pub use sku::{Sku, SkuCategory};
+pub(crate) mod checkout_completion;
 pub(crate) mod cron;

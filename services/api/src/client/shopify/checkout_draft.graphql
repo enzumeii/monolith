@@ -1,0 +1,20 @@
+query CheckoutDraft($id: ID!) {
+  draftOrder(id: $id) {
+    id
+    ready
+    status
+    tags
+    order {
+      id
+    }
+    totalPriceSet {
+      presentmentMoney {
+        amount
+        currencyCode
+      }
+    }
+    paymentTerms {
+      id
+    }
+  }
+}

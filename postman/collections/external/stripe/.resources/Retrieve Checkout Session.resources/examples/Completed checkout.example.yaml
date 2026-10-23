@@ -1,0 +1,23 @@
+$kind: http-example
+name: Completed checkout
+response:
+  statusCode: 200
+  statusText: OK
+  body:
+    type: json
+    content: |
+      {
+        "id": "cs_test_fixture",
+        "object": "checkout.session",
+        "mode": "payment",
+        "status": "complete",
+        "payment_status": "paid",
+        "livemode": false,
+        "amount_total": 1234,
+        "currency": "thb",
+        "client_reference_id": "checkout-fixture",
+        "metadata": {
+          "attempt_id": "attempt-fixture"
+        },
+        "payment_intent": "pi_fixture"
+      }

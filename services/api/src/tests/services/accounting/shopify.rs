@@ -201,3 +201,20 @@ fn unmatched_sale_allocates_neither_shipping_nor_items() {
     assert!(!row.transaction.order_adjusted);
     assert!(items.is_empty());
 }
+
+#[test]
+fn native_sales_preserve_actual_order_tags() {
+    let mut value = order_value();
+    value["tags"] = json!(["Convention", "comma,quote\"", "ไทย"]);
+    let mut row = payment(AccountingGateway::Stripe, AccountingKind::Sale, "ch_1");
+    apply(
+        &mut row,
+        &serde_json::from_value(value).unwrap(),
+        &mut Vec::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        row.transaction.shopify_order_tags,
+        ["Convention", "comma,quote\"", "ไทย"]
+    );
+}
