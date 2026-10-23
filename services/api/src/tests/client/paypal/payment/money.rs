@@ -69,8 +69,8 @@ fn currency_enum_policy_preserves_every_supported_precision() {
 #[test]
 fn unsupported_unknown_and_noncanonical_currencies_remain_protocol_errors() {
     for currency in [
-        "BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND", "XYZ", "ABC", "usd", "uSd", "jpy", "JpY",
-        " USD", "USD ", "USD\n", "", "€",
+        "AED", "INR", "BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND", "XYZ", "ABC", "usd", "uSd",
+        "jpy", "JpY", " USD", "USD ", "USD\n", "", "€",
     ] {
         assert_eq!(currency_scale(currency), None, "{currency:?}");
         let error = exact_money("1", currency).expect_err("unsupported currency");

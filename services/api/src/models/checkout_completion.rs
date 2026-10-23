@@ -76,8 +76,30 @@ pub(crate) fn currency_precision(currency: &str) -> Option<u8> {
         | CurrencyCode::LYD
         | CurrencyCode::OMR
         | CurrencyCode::TND => Some(3),
-        CurrencyCode::Other(_) => None,
-        _ => Some(2),
+        CurrencyCode::HUF
+        | CurrencyCode::TWD
+        | CurrencyCode::AUD
+        | CurrencyCode::BRL
+        | CurrencyCode::CAD
+        | CurrencyCode::CHF
+        | CurrencyCode::CNY
+        | CurrencyCode::CZK
+        | CurrencyCode::DKK
+        | CurrencyCode::EUR
+        | CurrencyCode::GBP
+        | CurrencyCode::HKD
+        | CurrencyCode::ILS
+        | CurrencyCode::MYR
+        | CurrencyCode::MXN
+        | CurrencyCode::NOK
+        | CurrencyCode::NZD
+        | CurrencyCode::PHP
+        | CurrencyCode::PLN
+        | CurrencyCode::SEK
+        | CurrencyCode::SGD
+        | CurrencyCode::THB
+        | CurrencyCode::USD => Some(2),
+        _ => None,
     }
 }
 pub(crate) fn conflict(message: &'static str) -> AppError {

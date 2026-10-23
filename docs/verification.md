@@ -1,5 +1,33 @@
 # Verification
 
+## ENZ-35 PR #57 latest-main integration — local verification (2026-10-23)
+
+The integrated source merges review fixes `fb08fff6e635bbc2b19af78f71485ff966ae64a6` with main `7bd6c2e050f7991e9f6eeeeb5127c2483d79eeba`. Three additive conflicts retain both Shopify client operation groups, convention catalogue documentation and complete verification histories. PayPal crate visibility and fail-closed currency handling remain intact. Independent review identified and cleared one semantic interaction: the expanded currency enum must not silently widen draft-completion payment support.
+
+| Check | Actual result |
+| --- | --- |
+| Completion currency compatibility | Focused regression fails before repair for newly named KRW/VND/AED/INR, then passes 4/4. Explicit arms preserve main's exact 31 supported currencies and precisions; every other enum variant remains unsupported. Existing completion behavior and tests remain intact |
+| Final native / strict checks | Repaired source exits 0: 443 native tests (22.19s), zero failed/ignored, with PostgreSQL ready; Rust formatting and strict all-target/E2E Clippy pass. The preceding full API check also passes 34 setup-helper tests and GraphQL/JSON formatting |
+| Focused real-TCP integration | Initial resolved integration tree `7d2acce9f37991bc71dc0d913e68b47e59e70924` passes 10 catalogue (45.13s) and 24 convention (37.67s) cases. The later two-file completion-helper repair does not change these endpoint paths; those TCP modules were not repeated |
+| Shared contracts | Domain check and test pass 14 unit + 8 contract cases, strict lint and WASM compilation on the integrated DTOs; the isolated completion-helper repair does not change domain code |
+| Preservation / isolation | All 51 upstream changed paths retain their additions; the completion helper and its focused tests have the documented compatibility correction. All 57 disjoint feature paths remain identical. Final owned Compose down-v exits 0; container, volume, network and API-process audits are empty |
+| Evidence / limits | Ignored final-integration-*.json/log/sh scripts and precision-repair-report.md retain source hashes, reviewed index binding, exact commands, red/green proof and actual exits. The full 184-TCP result above remains bound to the pre-integration review fixes. No repeated full local TCP/coverage run, fresh hosted-CI, live-provider, browser or deployment claim |
+
+## ENZ-35 PR #57 catalogue and inventory-policy snapshots — local verification (2026-10-23)
+
+Results bind to the frozen 26-path working-tree delta atop `b996cbdb6c4eb39bcabf41e3eee156521e055dc0`, which includes main `0c506da45e1d0e0498e508b2dd475eb3767a712d`. Complete diff SHA256: `64f64a712993267f8720dab5c1b827e361412e9bf4f718201dc8e2ea51d30b92`. Later main revisions require separate integration evidence; older checkpoints below retain their original bindings.
+
+| Check | Actual result |
+| --- | --- |
+| Shared contracts | Expected red drops inventory_policy before implementation; domain check and test pass: 14 unit + 8 contract cases, strict lint and WASM compilation |
+| API strict / integration | Exit 0: 34 setup-helper tests, dprint, Rust formatting, strict all-target/E2E Clippy. Removed the duplicate cron declaration and retained PayPal's explicit supported-currency policy with fail-closed rejection for the expanded enum; focused payment-money tests pass 4/4 |
+| Final full API recipe | Exit 0: 423 native tests (22.60s) + 184 real-TCP tests (692.76s), zero failed/ignored. One final native run with PostgreSQL ready, then all TCP modules, followed by owned Compose down-v |
+| Catalogue / snapshots | Active/tracked root search, grouped OR search, absent public product status, generic upstream completeness failure, cursor metadata, DENY admission, nullable policy snapshots, strict stored/provider decoding, URL-only saved images, policy-only timestamps, legacy no-call behavior, atomic refresh/null clearing and concurrent locked-row preservation pass |
+| Fresh schema | 26 columns across convention tables; five nullable display columns plus nullable inventory_policy TEXT constrained to DENY/CONTINUE, no image-alt columns. SQLx applies only the original convention CREATE migration; no production migration or backfill |
+| Postman / static | Root workspace lint: 77 entities, zero errors, one existing cron-preview FMT209 warning. Both external GraphQL queries and variable keys match source exactly; workspace formatting and diff checks pass |
+| Isolation / cleanup | Compose enz35, PostgreSQL15435/S315436, owned target, synthetic credentials and dotenv discovery disabled. Recipe and cleanup exit 0; independent label/process audit finds no owned containers, volumes, networks or API processes. All 26 frozen hashes remain unchanged before this evidence-only update |
+| Evidence / limits | Ignored latest-source-freeze.json, latest-source.diff, latest-api-full.log, latest-schema-proof.log and latest-cleanup-audit.json retain source binding, actual execution and cleanup. No local coverage duplicate, live-provider, browser, deployment or fresh hosted-CI claim |
+
 ## ENZ-35 PR #57 migration fold — local verification (2026-10-23)
 
 The direct user-authorized correction folds seven nullable display TEXT fields into the original unpublished `20261023090000_conventions.sql` and removes the separate display-metadata migration. Results bind to `migration-fold-source-freeze.json` atop `b2bf1d3c06b6076b320cd57314d80154fb55a45a`; API, provider, DTO, routing and test implementation remain unchanged.

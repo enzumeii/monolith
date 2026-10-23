@@ -3,7 +3,6 @@ use crate::{
     error::{AppError, upstream},
     models::shopify::{PageRequest, ProductStatus, ShopifyId, catalogue::SelectionVariant},
 };
-use axum::http::StatusCode;
 use domain::dto::{
     CatalogueInventoryPolicy, CatalogueProduct, CatalogueResponse, CatalogueUnavailableReason,
     CatalogueVariant,
@@ -17,8 +16,8 @@ pub async fn products(
 ) -> Result<CatalogueResponse, AppError> {
     super::inventories::validate_location(client, &location_id).await?;
     let search = search.map_or_else(
-        || "status:active".to_owned(),
-        |search| format!("status:active AND ({search})"),
+        || "status:active AND tracks_inventory:true".to_owned(),
+        |search| format!("status:active AND tracks_inventory:true AND ({search})"),
     );
     let response = client
         .catalogue_products(&location_id, Some(&search), &page)
@@ -35,13 +34,11 @@ pub async fn products(
             .map_err(|error| upstream(error))?;
         let active = matches!(product.status, ProductStatus::Active);
         let mut variants = Vec::new();
-        for variant in product.variants.into_complete_nodes().map_err(|error| {
-            AppError::new(
-                StatusCode::BAD_GATEWAY,
-                "Product variants exceed the supported catalogue browse limit of 250",
-            )
-            .with_source(error)
-        })? {
+        for variant in product
+            .variants
+            .into_complete_nodes()
+            .map_err(|error| upstream(error))?
+        {
             let tracked = variant.inventory_item.tracked;
             let variant = selection_variant(variant)?;
             if active && tracked {
@@ -54,13 +51,6 @@ pub async fn products(
         products.push(CatalogueProduct {
             id: product.id.as_ref().to_owned(),
             title: product.title,
-            status: match product.status {
-                ProductStatus::Active => "ACTIVE",
-                ProductStatus::Draft => "DRAFT",
-                ProductStatus::Archived => "ARCHIVED",
-                ProductStatus::Unlisted => "UNLISTED",
-            }
-            .to_owned(),
             description: product.description,
             featured_image: product.featured_image,
             variants,

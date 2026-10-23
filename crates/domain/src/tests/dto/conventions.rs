@@ -28,10 +28,11 @@ fn convention_dtos_reject_unknown_fields_and_json_number_prices() {
 
 #[test]
 fn selected_variant_serialization_preserves_display_snapshot_and_legacy_nulls() {
-    let mut value = json!({"id":"id","convention_id":"parent","shopify_product_id":"gid://shopify/Product/1","shopify_variant_id":"gid://shopify/ProductVariant/2","final_price":"12.99","created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z","product_title":"Product","variant_title":"Blue","sku":"SKU-2","product_image":{"url":"https://example.test/product.png","alt_text":null},"variant_image":null});
+    let mut value = json!({"id":"id","convention_id":"parent","shopify_product_id":"gid://shopify/Product/1","shopify_variant_id":"gid://shopify/ProductVariant/2","final_price":"12.99","created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z","inventory_policy":"DENY","product_title":"Product","variant_title":"Blue","sku":"SKU-2","product_image":{"url":"https://example.test/product.png","alt_text":null},"variant_image":null});
     let dto: crate::dto::ConventionVariantDTO = serde_json::from_value(value.clone()).unwrap();
     assert_eq!(serde_json::to_value(dto).unwrap(), value);
     for key in [
+        "inventory_policy",
         "product_title",
         "variant_title",
         "sku",
@@ -42,4 +43,20 @@ fn selected_variant_serialization_preserves_display_snapshot_and_legacy_nulls() 
     }
     let dto: crate::dto::ConventionVariantDTO = serde_json::from_value(value.clone()).unwrap();
     assert_eq!(serde_json::to_value(dto).unwrap(), value);
+}
+
+#[test]
+fn inventory_policy_round_trips_both_wire_values_and_rejects_unknown() {
+    use crate::dto::CatalogueInventoryPolicy;
+    for (policy, wire) in [
+        (CatalogueInventoryPolicy::Deny, "DENY"),
+        (CatalogueInventoryPolicy::Continue, "CONTINUE"),
+    ] {
+        assert_eq!(serde_json::to_value(policy).unwrap(), json!(wire));
+        assert_eq!(
+            serde_json::from_value::<CatalogueInventoryPolicy>(json!(wire)).unwrap(),
+            policy
+        );
+    }
+    assert!(serde_json::from_value::<CatalogueInventoryPolicy>(json!("UNKNOWN")).is_err());
 }

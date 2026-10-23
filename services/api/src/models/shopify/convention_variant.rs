@@ -39,13 +39,15 @@ fn image<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<CatalogueI
     #[serde(rename_all = "camelCase")]
     struct Image {
         url: String,
-        #[serde(deserialize_with = "Option::deserialize")]
-        alt_text: Option<String>,
     }
     Ok(
         Option::<Image>::deserialize(deserializer)?.map(|image| CatalogueImage {
             url: image.url,
-            alt_text: image.alt_text,
+            alt_text: None,
         }),
     )
 }
+
+#[cfg(test)]
+#[path = "../../tests/models/shopify/convention_variant.rs"]
+mod tests;

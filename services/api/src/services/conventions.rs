@@ -197,6 +197,7 @@ pub(crate) async fn validate_selection(
         validated.push(SelectedVariant {
             input: item.clone(),
             display: VariantDisplay {
+                inventory_policy: Some(remote.inventory_policy),
                 product_title: Some(remote.product.title),
                 variant_title: Some(remote.title),
                 sku: remote.sku,
@@ -247,14 +248,16 @@ pub(crate) async fn finish_save(
             let display = validated
                 .iter()
                 .find(|item| item.input == input)
-                .map(|item| item.display.clone())
+                .map(|item| Ok(item.display.clone()))
                 .or_else(|| {
                     existing_records
                         .iter()
                         .find(|item| item.input() == input)
                         .map(ConventionVariant::display)
                 })
-                .ok_or_else(|| conflict("Convention selection changed during validation; retry"))?;
+                .ok_or_else(|| {
+                    conflict("Convention selection changed during validation; retry")
+                })??;
             Ok(SelectedVariant { input, display })
         })
         .collect::<Result<Vec<_>, AppError>>()?;

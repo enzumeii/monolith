@@ -31,3 +31,59 @@ fn zero_and_three_decimal_currencies_preserve_exact_minor_units() {
     assert_eq!(dinar.parse_amount("1.2").unwrap(), 1200);
     assert!(dinar.parse_amount("1.2341").is_err());
 }
+
+#[test]
+fn newly_named_payment_currencies_remain_unsupported() {
+    let mut accepted = Vec::new();
+    for currency in ["KRW", "VND", "AED", "INR"] {
+        for precision in [0, 2] {
+            if ExactMoney::new(123, currency, precision).is_ok() {
+                accepted.push((currency, precision));
+            }
+        }
+    }
+    assert!(
+        accepted.is_empty(),
+        "Unsupported payment currencies accepted: {accepted:?}"
+    );
+}
+
+#[test]
+fn supported_payment_currencies_preserve_exact_precision() {
+    for (currency, precision, value) in [
+        ("HUF", 2, "1.23"),
+        ("TWD", 2, "1.23"),
+        ("AUD", 2, "1.23"),
+        ("BRL", 2, "1.23"),
+        ("CAD", 2, "1.23"),
+        ("CHF", 2, "1.23"),
+        ("CNY", 2, "1.23"),
+        ("CZK", 2, "1.23"),
+        ("DKK", 2, "1.23"),
+        ("EUR", 2, "1.23"),
+        ("GBP", 2, "1.23"),
+        ("HKD", 2, "1.23"),
+        ("ILS", 2, "1.23"),
+        ("MYR", 2, "1.23"),
+        ("MXN", 2, "1.23"),
+        ("NOK", 2, "1.23"),
+        ("NZD", 2, "1.23"),
+        ("PHP", 2, "1.23"),
+        ("PLN", 2, "1.23"),
+        ("SEK", 2, "1.23"),
+        ("SGD", 2, "1.23"),
+        ("THB", 2, "1.23"),
+        ("USD", 2, "1.23"),
+        ("JPY", 0, "123"),
+        ("BHD", 3, "0.123"),
+        ("IQD", 3, "0.123"),
+        ("JOD", 3, "0.123"),
+        ("KWD", 3, "0.123"),
+        ("LYD", 3, "0.123"),
+        ("OMR", 3, "0.123"),
+        ("TND", 3, "0.123"),
+    ] {
+        let money = ExactMoney::new(123, currency, precision).unwrap();
+        assert_eq!(money.parse_amount(value).unwrap(), 123, "{currency}");
+    }
+}

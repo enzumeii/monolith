@@ -32,7 +32,7 @@ fn item(number: u64, price: &str) -> Value {
     json!({"shopify_product_id":"gid://shopify/Product/1","shopify_variant_id":format!("gid://shopify/ProductVariant/{number}"),"final_price":price})
 }
 fn remote(number: u64) -> Value {
-    json!({"productVariant":{"id":format!("gid://shopify/ProductVariant/{number}"),"title":"Blue","sku":"SKU-2","image":{"url":"https://example.test/variant.png","altText":"Blue view"},"product":{"id":"gid://shopify/Product/1","title":"Product","featuredImage":{"url":"https://example.test/product.png","altText":null},"status":"ACTIVE"},"inventoryPolicy":"DENY","inventoryItem":{"tracked":true}}})
+    json!({"productVariant":{"id":format!("gid://shopify/ProductVariant/{number}"),"title":"Blue","sku":"SKU-2","image":{"url":"https://example.test/variant.png"},"product":{"id":"gid://shopify/Product/1","title":"Product","featuredImage":{"url":"https://example.test/product.png"},"status":"ACTIVE"},"inventoryPolicy":"DENY","inventoryItem":{"tracked":true}}})
 }
 async fn create(
     c: &crate::common::TestClient,
@@ -97,6 +97,7 @@ async fn conventions_lifecycle_exact_prices_replacement_and_cascade() {
         .iter()
         .find(|v| v["shopify_variant_id"] == "gid://shopify/ProductVariant/2")
         .unwrap();
+    assert_eq!(selected["inventory_policy"], "DENY");
     assert_eq!(selected["final_price"], "12.99");
     assert_eq!(selected["product_title"], "Product");
     assert_eq!(selected["variant_title"], "Blue");
@@ -107,7 +108,7 @@ async fn conventions_lifecycle_exact_prices_replacement_and_cascade() {
     );
     assert_eq!(
         selected["variant_image"],
-        json!({"url":"https://example.test/variant.png","alt_text":"Blue view"})
+        json!({"url":"https://example.test/variant.png","alt_text":null})
     );
     let row = selected["id"].clone();
     let amount: String = sqlx::query_scalar(
@@ -1778,6 +1779,15 @@ async fn conventions_display_snapshots_refresh_clear_and_survive_provider_failur
         200,
     )
     .await;
+    sqlx::query(
+        "UPDATE convention_variants
+         SET inventory_policy = 'CONTINUE'
+         WHERE convention_id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(created["id"].as_str().unwrap()).unwrap())
+    .execute(&f.pool())
+    .await
+    .unwrap();
     let changed = mutate(
         &c,
         &f,
@@ -1787,6 +1797,7 @@ async fn conventions_display_snapshots_refresh_clear_and_survive_provider_failur
         200,
     )
     .await;
+    assert_eq!(changed["items"][0]["inventory_policy"], "DENY");
     assert_eq!(changed["items"][0]["id"], first["items"][0]["id"]);
     assert_eq!(
         changed["items"][0]["created_at"],
@@ -1842,8 +1853,14 @@ async fn conventions_display_snapshots_refresh_clear_and_survive_provider_failur
         changed["items"][0]["updated_at"]
     );
     assert_eq!(updated["items"][0]["id"], first["items"][0]["id"]);
-    let stored: (Option<String>, Option<String>, Option<String>, String) = sqlx::query_as(
-        "SELECT variant_title, sku, variant_image_url, final_price::text
+    let stored: (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+        Option<String>,
+    ) = sqlx::query_as(
+        "SELECT variant_title, sku, variant_image_url, final_price::text, inventory_policy
          FROM convention_variants
          WHERE convention_id = $1",
     )
@@ -1857,7 +1874,8 @@ async fn conventions_display_snapshots_refresh_clear_and_survive_provider_failur
             Some("Latest title".into()),
             Some("SKU-2".into()),
             None,
-            "15.00".into()
+            "15.00".into(),
+            Some("DENY".into())
         )
     );
     let (failing, _failing_upstream) = client_with_upstream_script(vec![remote(2)], "http").await;
@@ -1902,6 +1920,7 @@ async fn conventions_legacy_display_stays_null_until_required_validation() {
     assert_eq!(get.status(), 200);
     let legacy = body_json(get).await;
     for key in [
+        "inventory_policy",
         "product_title",
         "variant_title",
         "sku",
@@ -1922,6 +1941,7 @@ async fn conventions_legacy_display_stays_null_until_required_validation() {
     assert_eq!(unchanged["items"], legacy["items"]);
     assert_eq!(upstream.requests(), [] as [Value; 0]);
     let refreshed = mutate(&c, &f, "PUT", &path, json!({"items":[item(2,"15")]}), 200).await;
+    assert_eq!(refreshed["items"][0]["inventory_policy"], "DENY");
     assert_eq!(refreshed["items"][0]["product_title"], "Product");
     assert_eq!(refreshed["items"][0]["id"], legacy["items"][0]["id"]);
     assert_eq!(upstream.requests().len(), 1);
@@ -1949,9 +1969,7 @@ async fn conventions_malformed_display_metadata_preserves_saved_price_and_snapsh
         ("/product", "title"),
         ("/product", "featuredImage"),
         ("/image", "url"),
-        ("/image", "altText"),
         ("/product/featuredImage", "url"),
-        ("/product/featuredImage", "altText"),
     ] {
         for missing in [true, false] {
             let mut data = remote(2);
@@ -2065,6 +2083,7 @@ async fn conventions_unchecked_selection_retains_latest_locked_snapshot() {
     let latest: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
         "UPDATE convention_variants
          SET variant_title = 'Concurrent snapshot',
+             inventory_policy = 'CONTINUE',
              updated_at = GREATEST(CURRENT_TIMESTAMP, updated_at + INTERVAL '1 microsecond')
          WHERE convention_id = $1
            AND shopify_variant_id = 'gid://shopify/ProductVariant/2'
@@ -2084,6 +2103,7 @@ async fn conventions_unchecked_selection_retains_latest_locked_snapshot() {
         .iter()
         .find(|item| item["shopify_variant_id"] == "gid://shopify/ProductVariant/2")
         .unwrap();
+    assert_eq!(retained["inventory_policy"], "CONTINUE");
     assert_eq!(retained["variant_title"], "Concurrent snapshot");
     let saved_at =
         chrono::DateTime::parse_from_rfc3339(retained["updated_at"].as_str().unwrap()).unwrap();

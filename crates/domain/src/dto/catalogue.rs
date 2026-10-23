@@ -20,7 +20,6 @@ pub struct CatalogueResponse {
 pub struct CatalogueProduct {
     pub id: String,
     pub title: String,
-    pub status: String,
     pub description: String,
     pub featured_image: Option<CatalogueImage>,
     pub variants: Vec<CatalogueVariant>,

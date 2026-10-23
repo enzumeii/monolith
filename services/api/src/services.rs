@@ -9,8 +9,6 @@ pub mod orders;
 
 mod pagination;
 
-pub(crate) mod cron;
-
 pub mod catalogue;
 
 pub mod conventions;
