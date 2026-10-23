@@ -470,6 +470,7 @@ fn validate_size(first: u16) -> Result<(), ClientError> {
     Ok(())
 }
 pub(crate) mod catalogue;
+pub(crate) mod convention_variant;
 
 mod products;
 
@@ -666,5 +667,3 @@ impl ShippingOrder {
 #[cfg(test)]
 #[path = "../tests/models/shopify.rs"]
 mod tests;
-
-pub(crate) mod convention_variant;

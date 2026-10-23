@@ -1,5 +1,5 @@
 $kind: http-request
-description: "Admin/Super Admin bearer authentication inherited. Invalid input 400, missing convention 404, duplicate/state conflict 409, database failure 500. Returns the merged DTO with 200. Only logo_url:null clears. To enable, send preorder_enabled:true after saving a nonempty eligible selection; enabling validates Shopify. Dates are metadata. Unavailable client 503, unusable upstream 502, timeout 504. Safe error examples: 400 {\"error\":\"Invalid convention request body\"}; 404 {\"error\":\"Convention not found\"}; 500 {\"error\":\"Internal server error\"}."
+description: "Admin/Super Admin bearer authentication inherited. Invalid input 400, missing convention 404, duplicate/state conflict 409, database failure 500. Returns the merged DTO with 200. Only logo_url:null clears. To enable, send preorder_enabled:true after saving a nonempty eligible selection; enabling validates Shopify. Dates are metadata. Unavailable client 503, unusable upstream 502, timeout 504. Safe error examples: 400 {\"error\":\"Invalid convention request body\"}; 404 {\"error\":\"Convention not found\"}; 500 {\"error\":\"Internal server error\"}. This route rejects all nonempty query parameters with 400."
 url: "{{server}}/v1/admin/conventions/{{convention_id}}"
 method: PATCH
 body:

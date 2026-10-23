@@ -573,7 +573,15 @@ async fn conventions_authentication_cookie_origins_and_put_preflight() {
                 builder = builder.header("origin", origin);
             }
             let r = c
-                .send(builder.body(Body::from(body.to_string())).unwrap())
+                .send(
+                    builder
+                        .body(if method == "DELETE" {
+                            Body::empty()
+                        } else {
+                            Body::from(body.to_string())
+                        })
+                        .unwrap(),
+                )
                 .await
                 .unwrap();
             assert_eq!(r.status(), 403);
@@ -587,7 +595,11 @@ async fn conventions_authentication_cookie_origins_and_put_preflight() {
                     .header("cookie", &cookie)
                     .header("origin", "http://127.0.0.1:8084")
                     .header("content-type", "application/json")
-                    .body(Body::from(body.to_string()))
+                    .body(if method == "DELETE" {
+                        Body::empty()
+                    } else {
+                        Body::from(body.to_string())
+                    })
                     .unwrap(),
             )
             .await
@@ -1118,16 +1130,12 @@ async fn conventions_accept_boundaries_paginate_and_allow_both_admin_roles() {
         ("GET", format!("{missing}/variants"), json!({})),
         ("PUT", format!("{missing}/variants"), json!({"items":[]})),
     ] {
-        let r = c
-            .send(authed_json(
-                method,
-                &uri,
-                f.root_id(),
-                AdminRole::Admin,
-                &body,
-            ))
-            .await
-            .unwrap();
+        let request = if method == "DELETE" {
+            authed(method, &uri, f.root_id(), AdminRole::Admin)
+        } else {
+            authed_json(method, &uri, f.root_id(), AdminRole::Admin, &body)
+        };
+        let r = c.send(request).await.unwrap();
         assert_eq!(r.status(), 404);
     }
 }
@@ -1476,4 +1484,82 @@ async fn conventions_enable_dependency_availability_and_later_provider_failure_k
         .await
         .unwrap();
     assert_eq!(body_json(r).await["preorder_enabled"], false);
+}
+
+#[tokio::test]
+async fn conventions_reject_extra_query_and_delete_payload_without_effects() {
+    use axum::{body::Body, http::Request};
+    let f = fixture().await;
+    let (c, upstream) = client_with_upstream_script(vec![remote(2)], "http").await;
+    let created = create(&c, &f, input(f.prefix())).await;
+    let id = uuid::Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
+    let path = format!("{URI}/{id}");
+    let variants = format!("{path}/variants");
+    let original = mutate(
+        &c,
+        &f,
+        "PUT",
+        &variants,
+        json!({"items":[item(2,"12.99")]}),
+        200,
+    )
+    .await;
+    for (method, uri, body) in [
+        (
+            "POST",
+            format!("{URI}?unknown=value"),
+            input(&format!("{}-extra", f.prefix())),
+        ),
+        ("GET", format!("{path}?unknown=value"), json!({})),
+        (
+            "PATCH",
+            format!("{path}?unknown=value"),
+            json!({"name":"Must not change","preorder_enabled":true}),
+        ),
+        ("DELETE", format!("{path}?unknown=value"), json!({})),
+        (
+            "PUT",
+            format!("{variants}?unknown=value"),
+            json!({"items":[item(3,"20")]}),
+        ),
+    ] {
+        let request = if method == "GET" || method == "DELETE" {
+            authed(method, &uri, f.root_id(), AdminRole::Admin)
+        } else {
+            authed_json(method, &uri, f.root_id(), AdminRole::Admin, &body)
+        };
+        let response = c.send(request).await.unwrap();
+        assert_eq!(response.status(), 400, "{method} {uri}");
+    }
+    for bytes in [
+        b"{}".to_vec(),
+        b"{\"unknown\":1}".to_vec(),
+        b"null".to_vec(),
+        b" ".to_vec(),
+        vec![255],
+    ] {
+        let response=c.send(Request::builder().method("DELETE").uri(&path).header("authorization",authed("DELETE",&path,f.root_id(),AdminRole::Admin).headers()["authorization"].clone()).body(Body::from(bytes)).unwrap()).await.unwrap();
+        assert_eq!(response.status(), 400);
+    }
+    let (name,enabled,count):(String,bool,i64)=sqlx::query_as("SELECT name,preorder_enabled,(SELECT count(*) FROM convention_variants WHERE convention_id=$1) FROM conventions WHERE id=$1").bind(id).fetch_one(&f.pool()).await.unwrap();
+    assert_eq!(name, "Convention");
+    assert!(!enabled);
+    assert_eq!(count, 1);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM conventions WHERE left(slug,12)=$1")
+        .bind(f.prefix())
+        .fetch_one(&f.pool())
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    let response = c
+        .send(authed("GET", &variants, f.root_id(), AdminRole::Admin))
+        .await
+        .unwrap();
+    assert_eq!(body_json(response).await["items"], original["items"]);
+    assert_eq!(upstream.requests().len(), 1);
+    let response = c
+        .send(authed("DELETE", &path, f.root_id(), AdminRole::Admin))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 204);
 }

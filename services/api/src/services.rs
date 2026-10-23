@@ -7,12 +7,12 @@ pub mod orders;
 
 mod pagination;
 
-#[cfg(test)]
-#[path = "tests/services/common.rs"]
-pub(super) mod common;
-
 pub(crate) mod cron;
 
 pub mod catalogue;
 
 pub mod conventions;
+
+#[cfg(test)]
+#[path = "tests/services/common.rs"]
+pub(super) mod common;

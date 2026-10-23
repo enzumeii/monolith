@@ -27,6 +27,23 @@ pub(crate) fn query<T>(value: Result<Query<T>, QueryRejection>) -> Result<T, App
         .map(|Query(v)| v)
         .map_err(|_| invalid("Invalid convention query"))
 }
+pub(crate) fn no_query(query: Option<&str>) -> Result<(), AppError> {
+    if query.is_some_and(|query| !query.is_empty()) {
+        return Err(invalid(
+            "This convention request does not accept query parameters",
+        ));
+    }
+    Ok(())
+}
+pub(crate) fn delete_body(
+    body: Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
+) -> Result<(), AppError> {
+    let body = body.map_err(|_| invalid("Invalid convention request body"))?;
+    if !body.is_empty() {
+        return Err(invalid("DELETE convention requests must not have a body"));
+    }
+    Ok(())
+}
 pub(crate) fn id(value: Result<Path<String>, PathRejection>) -> Result<uuid::Uuid, AppError> {
     let Path(v) = value.map_err(|_| invalid("Invalid convention identifier"))?;
     v.parse()

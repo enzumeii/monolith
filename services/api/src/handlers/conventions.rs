@@ -10,7 +10,7 @@ use axum::{
         Path, Query, State,
         rejection::{JsonRejection, PathRejection, QueryRejection},
     },
-    http::StatusCode,
+    http::{StatusCode, Uri},
 };
 use domain::dto::{
     ConventionDTO, ConventionListResponse, ConventionVariantListResponse,
@@ -32,8 +32,10 @@ pub async fn list(
 }
 pub async fn create(
     State(state): State<AppState>,
+    uri: Uri,
     body: Result<Json<CreateConvention>, JsonRejection>,
 ) -> Result<(StatusCode, Json<ConventionDTO>), AppError> {
+    validate::no_query(uri.query())?;
     let input = validate::create(validate::body(body)?)?;
     Ok((
         StatusCode::CREATED,
@@ -42,8 +44,10 @@ pub async fn create(
 }
 pub async fn get(
     State(state): State<AppState>,
+    uri: Uri,
     path: Result<Path<String>, PathRejection>,
 ) -> Result<Json<ConventionDTO>, AppError> {
+    validate::no_query(uri.query())?;
     Ok(Json(
         service::get(&state.pool, validate::id(path)?)
             .await?
@@ -52,9 +56,11 @@ pub async fn get(
 }
 pub async fn patch(
     State(state): State<AppState>,
+    uri: Uri,
     path: Result<Path<String>, PathRejection>,
     body: Result<Json<PatchConvention>, JsonRejection>,
 ) -> Result<Json<ConventionDTO>, AppError> {
+    validate::no_query(uri.query())?;
     let id = validate::id(path)?;
     let changes = validate::body(body)?;
     validate::patch_shape(&changes)?;
@@ -73,8 +79,12 @@ pub async fn patch(
 }
 pub async fn delete(
     State(state): State<AppState>,
+    uri: Uri,
     path: Result<Path<String>, PathRejection>,
+    body: Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
 ) -> Result<StatusCode, AppError> {
+    validate::no_query(uri.query())?;
+    validate::delete_body(body)?;
     service::delete(&state.pool, validate::id(path)?).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -92,9 +102,11 @@ pub async fn variants(
 }
 pub async fn replace(
     State(state): State<AppState>,
+    uri: Uri,
     path: Result<Path<String>, PathRejection>,
     body: Result<Json<ReplaceConventionVariants>, JsonRejection>,
 ) -> Result<Json<ConventionVariantsResponse>, AppError> {
+    validate::no_query(uri.query())?;
     let id = validate::id(path)?;
     let items = validate::variants(validate::body(body)?)?;
     let prepared =
