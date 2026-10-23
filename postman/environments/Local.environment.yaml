@@ -1,7 +1,7 @@
 name: Local
 values:
   - key: server
-    value: 'http://localhost:3000/api'
+    value: 'localhost:3000'
   - key: shopify
     value: 'https://enzumeii.myshopify.com/admin/api/2026-10'
   - key: resend
