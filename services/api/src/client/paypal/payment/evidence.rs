@@ -1,11 +1,10 @@
 use super::{ExpectedPayment, money::exact_money};
 use crate::{
-    error::AppError,
+    client::{ClientError, ClientErrorKind},
     models::paypal::{Capture, Order, PaymentMoney},
 };
-use axum::http::StatusCode;
 
-pub(super) fn validate_order(expected: &ExpectedPayment, order: &Order) -> Result<(), AppError> {
+pub(super) fn validate_order(expected: &ExpectedPayment, order: &Order) -> Result<(), ClientError> {
     if order.id != expected.order_id || order.purchase_units.len() != 1 {
         return Err(mismatch());
     }
@@ -27,7 +26,7 @@ pub(super) fn validate_capture_binding(
     expected: &ExpectedPayment,
     embedded: &Capture,
     capture: &Capture,
-) -> Result<(), AppError> {
+) -> Result<(), ClientError> {
     if capture.id != embedded.id || capture.status != embedded.status {
         return Err(mismatch());
     }
@@ -58,11 +57,11 @@ pub(super) fn validate_capture_binding(
     Ok(())
 }
 
-pub(super) fn mismatch() -> AppError {
-    AppError::new(
-        StatusCode::BAD_GATEWAY,
+#[track_caller]
+pub(super) fn mismatch() -> ClientError {
+    ClientError::new(ClientErrorKind::Protocol(
         "PayPal payment evidence does not match",
-    )
+    ))
 }
 
 fn money_matches(expected: &ExpectedPayment, amount: &PaymentMoney) -> bool {

@@ -15,6 +15,7 @@ use serde::{Deserialize, de::DeserializeOwned};
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::Instant};
 
+pub mod payment;
 pub mod webhook;
 
 pub struct PaypalClient {

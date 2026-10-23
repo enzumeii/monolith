@@ -359,7 +359,7 @@ async fn run_paypal_currency(
         client_secret: Some("fixture".into()),
     })
     .unwrap();
-    let expected = paypal_payments::ExpectedPayment {
+    let expected = paypal::payment::ExpectedPayment {
         order_id: "ORDER".into(),
         merchant_id: "MERCHANT".into(),
         api_origin: provider.url.origin().ascii_serialization(),

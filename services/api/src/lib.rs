@@ -13,7 +13,7 @@ pub mod repositories;
 pub mod routes;
 pub(crate) mod services;
 pub use cron::runtime::{CronRuntime, CronTasks, VercelCron, VpsCron};
-pub use services::{checkout_completion, paypal_payments};
+pub use services::checkout_completion;
 pub mod startup;
 pub mod state;
 pub(crate) mod utils;

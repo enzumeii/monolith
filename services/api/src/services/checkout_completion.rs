@@ -1,7 +1,7 @@
 use crate::{
     client::{
         ClientErrorKind,
-        paypal::PaypalClient,
+        paypal::{self, PaypalClient},
         shopify::{ShopifyClient, TagAction},
         stripe::{self, StripeClient},
     },
@@ -13,7 +13,6 @@ use crate::{
             Money, ShopifyId,
         },
     },
-    services::paypal_payments,
 };
 
 /// The caller owns authorization, durable payment-to-draft association and serialization.
@@ -24,7 +23,7 @@ pub enum PaymentContext<'a> {
     },
     Paypal {
         client: &'a PaypalClient,
-        expected: &'a paypal_payments::ExpectedPayment,
+        expected: &'a paypal::payment::ExpectedPayment,
     },
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -80,14 +79,17 @@ pub async fn complete_paid_draft(
             }
         }
         PaymentContext::Paypal { client, expected } => {
-            match paypal_payments::verify_payment(client, expected).await? {
-                paypal_payments::PaymentOutcome::Pending { .. } => {
+            match paypal::payment::verify_payment(client, expected)
+                .await
+                .map_err(|error| upstream(error))?
+            {
+                paypal::payment::PaymentOutcome::Pending { .. } => {
                     return Ok(CompletionOutcome::Pending);
                 }
-                paypal_payments::PaymentOutcome::TerminalUnpaid { .. } => {
+                paypal::payment::PaymentOutcome::TerminalUnpaid { .. } => {
                     return Ok(CompletionOutcome::Unpaid);
                 }
-                paypal_payments::PaymentOutcome::VerifiedPaid(paid) => (
+                paypal::payment::PaymentOutcome::VerifiedPaid(paid) => (
                     paypal_money(paid.amount, &paid.currency)?,
                     vec![
                         reference("paypal:order", &paid.order_id)?,
@@ -173,7 +175,7 @@ fn exact_money(amount: i64, currency: &str) -> Result<ExactMoney, AppError> {
 }
 fn paypal_money(amount: i64, currency: &str) -> Result<ExactMoney, AppError> {
     let mut money = exact_money(amount, currency)?;
-    let provider_scale = paypal_payments::money::currency_scale(currency)
+    let provider_scale = paypal::payment::money::currency_scale(currency)
         .ok_or_else(|| conflict("Unsupported PayPal currency"))?;
     let provider_scale =
         u32::try_from(provider_scale).map_err(|_| conflict("Invalid PayPal currency precision"))?;
