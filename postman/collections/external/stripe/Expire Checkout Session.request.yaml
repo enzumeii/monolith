@@ -7,7 +7,7 @@ pathVariables:
   session_id: "{{stripe_checkout_session_id}}"
 headers:
   Content-Type: application/x-www-form-urlencoded
-  Idempotency-Key: 9acc40a2-f65f-4c04-a2a4-4f15f8501645
+  Idempotency-Key: "{{stripe_checkout_expire_idempotency_key}}"
 auth:
   type: inherit
   credentials:

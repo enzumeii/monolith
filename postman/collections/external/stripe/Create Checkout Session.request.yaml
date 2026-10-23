@@ -4,7 +4,7 @@ url: "{{stripe}}/checkout/sessions"
 method: POST
 order: 5000
 headers:
-  Idempotency-Key: 9acc40a2-f65f-4c04-a2a4-4f15f8501645
+  Idempotency-Key: "{{stripe_checkout_idempotency_key}}"
 body:
   type: urlencoded
   content:
