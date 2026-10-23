@@ -2,7 +2,7 @@
 implementation = "vps"
 
 [browser]
-public_origin = "http://localhost:8084"
+allowed_origins = ["http://localhost:8084"]
 
 [client.s3]
 endpoint = "http://localhost:3001"

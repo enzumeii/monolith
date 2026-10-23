@@ -6,7 +6,7 @@ use axum::http::{Request, StatusCode};
 use domain::dto::AdminRole;
 
 const CUSTOM_ORIGIN: &str = "https://convention.enzumeii.com";
-const VERCEL_ORIGIN: &str = "https://project.vercel.app";
+const VERCEL_ORIGIN: &str = "https://enzumeii.vercel.app";
 
 pub(super) const BROWSER_ORIGIN: &str = "http://127.0.0.1:8084";
 
@@ -880,7 +880,7 @@ async fn cors_preflight_matches_configured_origin() {
 }
 
 #[tokio::test]
-async fn additional_origins_support_cookie_login_rotation_and_logout() {
+async fn allowed_origins_support_cookie_login_rotation_and_logout() {
     let db = common::fixture().await;
     for origin in [CUSTOM_ORIGIN, VERCEL_ORIGIN] {
         let response =

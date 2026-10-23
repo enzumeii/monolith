@@ -10,7 +10,7 @@ pub(crate) async fn state() -> AppState {
     let settings:Settings=serde_json::from_value(json!({
         "server":{"host":"127.0.0.1","port":0},
         "database":{"url":std::env::var("E2E_DATABASE_URL").unwrap_or_else(|_|"postgres://e2e:e2e@127.0.0.1:5433/e2e".into()),"max_connections":1,"min_connections":1},
-        "browser":{"public_origin":"http://127.0.0.1:8084","insecure_local":true},
+        "browser":{"allowed_origins":["http://127.0.0.1:8084"],"insecure_local":true},
         "jwt":{"secret":"abababababababababababababababababababababababababababababababab"},
         "scheduler":{"implementation":"vps","poll_interval_secs":1,"retention_interval_secs":3600,"invocation_budget_secs":240,"retention_reserve_secs":5,"enabled":false,"concurrency":1,"max_attempts":2,"retry_backoff_secs":1,"lease_secs":5,"max_payload_bytes":20_971_520,"max_email_bytes":20_971_520},
     })).unwrap();
