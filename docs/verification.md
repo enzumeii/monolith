@@ -2,6 +2,36 @@
 
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
 
+## ENZ-37 convention administration and logo uploads — local verification (2026-10-23)
+
+The feature is stacked above ENZ-35/36. Full API regression below ran at `a0d031b`; the compatible final backend catalogue-message change and browser-discovered loading correction have focused follow-up evidence below. No live provider, production migration or deployment is asserted.
+
+| Check | Actual evidence |
+| --- | --- |
+| API full recipe | 348 native + 185 real-TCP E2E passed, zero failed/ignored; TCP phase 699.37s. All nine new options/logo scenarios passed. Owned Compose PostgreSQL/S3 containers, network and S3 volume removed after the run |
+| API strict check | Existing check recipe passed: 21 setup-helper tests, dprint, Rust formatting, strict native/all-target/E2E Clippy |
+| Shared contracts | 20 domain unit/contract tests and database-free WASM check passed |
+| Shared UI / client | Shared UI 9 tests, native/WASM strict check; client 8 tests, native/WASM check and web build passed. Both app bundles include the shared stylesheet |
+| Backoffice | Native/WASM strict check, all 154 tests and web build passed after the browser corrections; the final CSS-only rebuild also passed |
+| Coverage | Scoped UI LCOV: 42/43 lines (97.67%); scoped backoffice LCOV: 2,143/3,522 lines (60.85%). Both module validators passed. These reports precede the narrow browser corrections. Native coverage excludes browser/WASM runtime |
+| Root tooling | Full existing just check passed: actionlint, shellcheck, Bash syntax, 111 Node tests and pinned Vercel config resolution. An initial existing two-second signal-fixture startup failure was rerun successfully; no unrelated test policy changed |
+| Endpoint contracts | Real API routing/middleware, SQLx/Compose PostgreSQL and controlled provider TCP cover options/auth/origin/validation, raw upload/full image validation, durable managed URL, current-reference access, bounded HEAD/GET, corrupt/missing data and S3/database failure ordering |
+| Postman | Changed convention and S3 request groups lint clean and use an actual tiny PNG fixture. Full internal collection lint exits 1 with the existing unmodified transactions FMT209 URL/query error (42 scanned; changed groups: 16 scanned, zero diagnostics); no cloud run uploaded |
+| Final backend integration | Combined code `7bd20ac` is based on ENZ-35/36 `2fb0874`, including its upstream Shopify client integration: strict API check, 80 client tests, 23 Shopify model tests, 9 catalogue TCP cases (44.90s) and 28 convention/logo TCP cases (42.64s) pass, zero failed/ignored. Owned Compose cleanup independently confirmed. Rebase leaves apps/shared-contract source byte-identical to the tested browser-fix commit |
+| Independent review | Shared UI, logo/API and whole feature source reviews completed. Session-refresh and metadata PATCH findings were corrected and tested. Fresh focused reviews also accepted the loading/currency/catalogue corrections. Reviews are source evidence, separate from runtime checks |
+
+| Browser check | Actual evidence |
+| --- | --- |
+| Browser creation / metadata | Real cookie sign-in, invalid date-range rejection, create, edit and saved reload passed. Immutable currency shows THB and slug is read-only; Markdown scripts remain escaped and unsafe links are removed |
+| Browser catalogue / prices | Numeric location + empty search, paging, source 19.99 THB, stock 7 versus 0, cross-page selection retention and truthful unloaded-source details passed. SQL persisted exact 12.99; forced Shopify failure retained draft 13.99 while SQL stayed 12.99; retry succeeded. Later saved 14.99 survives route reload. Explicit enable and disable passed |
+| Browser logo | Real file chooser selected the 68-byte PNG. Actual S3 object and unauthenticated API image bytes match SHA256 `431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460`; DB stores an API-relative current-logo URL. Image returns image/png, no-store and renders after reload. Failed S3 PUT retained previous image and selected file; retry, clear cancellation/confirmation and re-upload passed. Replaced URL returns 404 |
+| Drafts / accessibility | In-app and native Back cancellation preserve metadata, exact price and selected-file drafts. Confirmed discard leaves saved data unchanged. Cancel initially receives focus; Escape cancels and restores invoker focus. Showing/refocusing the browser preserved all three drafts; the mounted with_session regression separately verifies same-owner refresh retains pending work and account/role changes reset ownership |
+| Responsive / browser diagnostics | Desktop 1280 and phone 390 viewports inspected. Desktop panels use 1160px; phone document client/scroll width stays 375px with the 640px membership table inside a 317px scroll region. Temporary viewport/visibility overrides restored; no browser error/warning logs. Screenshots inspected in browser tool output; no exported screenshot artifacts claimed |
+| Browser recovery regressions | Actual mounted list/detail tests failed before changing resource subscription ordering, then passed for asynchronous success/failure. Explicit selected currency and catalogue GID/optional-search wire regressions now pass; accepted test sockets use blocking reads to avoid the observed WouldBlock race |
+| Manual isolation | Synthetic admin/conventions, real owned PostgreSQL and controlled Shopify/S3 HTTP only. Temporary test-module declaration removed; helper/server stopped and Compose containers/network/volume removed. No private environment settings or production providers used |
+
+The approved stacked PR targets `feat/ENZ-35`; current CI triggers only main-target PRs, so no hosted CI is claimed for that stacked review.
+
 ## ENZ-35 + ENZ-36 convention configuration and catalogue — local verification (2026-10-23)
 
 Earlier combined source `a9bf7b0` on `feat/ENZ-35` merges `origin/main` `b3cc7a7` (single browser origin allowlist) with feature source `e57bfb4` and documentation `7597077`. Results are local. The complete API regression below covers this merged source, including the strict request-validation follow-up. Domain/frontend and outbound GraphQL query sources are unchanged from their separately verified revisions. The final review follow-up below has separate scoped evidence; the full recipe remains tied to frozen `a9bf7b0`.
