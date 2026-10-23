@@ -3,18 +3,9 @@ description: Browse Shopify products for variant selection. Required location_id
 url: "{{server}}/v1/admin/conventions/catalogue?location_id=65761018027&page_size=25&search=produc_type:STICKER_SHEET AND title:Seme*"
 method: GET
 queryParams:
-  - key: location_id
-    value: 65761018027
-    disabled: false
-    description: ""
-  - key: page_size
-    value: "25"
-    disabled: false
-    description: ""
-  - key: search
-    value: produc_type:STICKER_SHEET AND title:Seme*
-    disabled: false
-    description: ""
+  location_id: "65761018027"
+  page_size: "25"
+  search: produc_type:STICKER_SHEET AND title:Seme*
 scripts:
   - type: afterResponse
     code: |-

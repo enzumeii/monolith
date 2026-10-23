@@ -8,8 +8,6 @@ pathVariables:
 headers:
   Content-Type: application/x-www-form-urlencoded
   Idempotency-Key: 9acc40a2-f65f-4c04-a2a4-4f15f8501645
-body:
-  type: urlencoded
 auth:
   type: inherit
   credentials:
