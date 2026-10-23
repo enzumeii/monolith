@@ -1,4 +1,5 @@
 mod admin;
+pub(crate) mod paypal_payments;
 
 pub use admin::{Admin, DbAdminRole};
 mod auth;

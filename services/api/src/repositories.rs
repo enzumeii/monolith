@@ -2,6 +2,7 @@ pub(crate) mod admin;
 pub(crate) mod auth;
 pub(crate) mod cron_configurations;
 pub(crate) mod cron_jobs;
+pub(crate) mod paypal_payments;
 pub(crate) mod report_result_files;
 pub(crate) mod report_results;
 

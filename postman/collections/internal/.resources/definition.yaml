@@ -3,3 +3,13 @@ variables:
   inventories_cursor: ""
   order_cursor: ""
   server: ""
+  payment_idempotency_key: "00000000-0000-4000-8000-000000000044"
+  payment_id: "00000000-0000-4000-8000-000000000000"
+  payment_reference: "synthetic-reference"
+  payment_amount: "12.34"
+  payment_currency: "USD"
+  paypal_auth_algo: "SHA256withRSA"
+  paypal_cert_url: "https://api.sandbox.paypal.com/v1/notifications/certs/synthetic"
+  paypal_transmission_id: "synthetic-transmission"
+  paypal_transmission_time: "2026-10-23T00:00:00Z"
+  paypal_webhook_event: '{"id":"synthetic-event","event_type":"PAYMENT.CAPTURE.COMPLETED","resource":{"id":"synthetic-capture","supplementary_data":{"related_ids":{"order_id":"synthetic-order"}}}}'

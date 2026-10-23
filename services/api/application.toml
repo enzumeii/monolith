@@ -35,6 +35,15 @@ timeout_secs = 10
 base_url = "https://api-m.paypal.com"
 timeout_secs = 10
 
+# Enable payment routes only after configuring the matching account and webhook.
+# [client.paypal.payment]
+# environment = "live"
+# merchant_id = "SYNTHETIC_MERCHANT_ID"
+# webhook_id = "SYNTHETIC_WEBHOOK_ID"
+# currencies = ["USD", "JPY", "THB"]
+# return_url = "https://merchant.example/paypal/return"
+# cancel_url = "https://merchant.example/paypal/cancel"
+
 [client.stripe]
 base_url = "https://api.stripe.com/v1/"
 timeout_secs = 10

@@ -1,0 +1,9 @@
+$kind: http-request
+description: Capture an owned approved payment with the same Vault payment_capability and payment_id. Send an EMPTY body. 200 verified COMPLETED;202 pending;409 unapproved/review;400 nonempty body. Request accepts no provider order ID or amount; repeated completed capture returns stored evidence.
+url: "{{server}}/v1/payments/paypal/{{payment_id}}/capture"
+method: POST
+auth:
+  type: bearer
+  credentials:
+    token: "{{vault:payment_capability}}"
+order: 3000

@@ -37,10 +37,28 @@ pub struct ClientConfig {
 
 #[derive(Deserialize, Clone)]
 pub struct PaypalConfig {
+    pub payment: Option<PaypalPaymentConfig>,
     pub base_url: String,
     pub timeout_secs: u64,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct PaypalPaymentConfig {
+    pub environment: PaypalEnvironment,
+    pub merchant_id: String,
+    pub webhook_id: String,
+    pub currencies: Vec<String>,
+    pub return_url: String,
+    pub cancel_url: String,
+}
+
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PaypalEnvironment {
+    Sandbox,
+    Live,
 }
 
 impl std::fmt::Debug for PaypalConfig {

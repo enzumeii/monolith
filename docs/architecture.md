@@ -244,3 +244,36 @@ The nested250 bound is the agreed store workload, not a Shopify platform maximum
 | Tag edits | Shared order service reuses ListOrders (id filter, id/tags projection) before tagsAdd/tagsRemove; ASCII-case-insensitive workflow matching, stored spelling for removal, skip existing additions and no-op mutations; unrelated tags preserved |
 | Shopify projections | Fulfillment, shipping and reship DTOs live in models/shopify.rs alongside the existing provider models; fulfillment retains ShopifyId through validation, service and the fulfillment-order client call |
 | Mock declaration | Sum non-Tip item prices once, multiply by5, minimum100, independent of currency; stock items contribute price but not quantity; no price×quantity multiplication |
+
+## Independent PayPal payments
+
+| Boundary | Current behavior |
+| --- | --- |
+| `POST /api/v1/payments/paypal` | Guest caller supplies canonical capability, UUID idempotency key, opaque reference and exact decimal amount/currency. Only capability SHA256 is persisted; retries preserve provider request IDs. |
+| `POST /api/v1/payments/paypal/{id}/capture` | Same capability, empty body; retrieves stored order, captures approved order and verifies authoritative order/capture evidence. |
+| `GET /api/v1/payments/paypal/{id}` | Owned status and reconciliation; never initiates a capture. Approval, return navigation and pending capture do not prove payment. |
+| `POST /api/v1/webhooks/paypal` | Five transmission headers and full event; successful PayPal verification postback precedes durable deduplication and authoritative retrieval. |
+| Evidence | Exact amount/currency, merchant, correlated reference, linked order and single final completed capture. Incompatible evidence and duplicate successful references require review; evidence is retained. |
+| Recovery | Persisted operation leases, stable create/capture request IDs and retrieve-before-retry. Unresolved mutations older than six hours fail closed. |
+| Configuration | Optional `client.paypal.payment` policy in application TOML; credentials from environment. Existing reporting configuration remains independent. Missing gateway policy returns503. |
+| Future integration | An internal verifier accepts trusted expected reference/amount/currency from a future Shopify draft workflow. No conversion, fulfillment, refund or public expected-total endpoint is implemented. |
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant API
+    participant DB as PostgreSQL
+    participant PP as PayPal
+    Caller->>API: Create with capability, key, reference and exact money
+    API->>DB: Persist digest, immutable input and request IDs
+    API->>PP: Create CAPTURE order
+    API-->>Caller: Owned payment and approval URL
+    Caller->>PP: Approve on PayPal
+    Caller->>API: Capture owned payment with empty body
+    API->>PP: Retrieve order, capture if approved, retrieve order and capture
+    API->>DB: Store verified capture transactionally
+    API-->>Caller: Verified completed or unresolved state
+    PP->>API: Webhook with transmission headers
+    API->>PP: Verify signature postback then retrieve evidence
+    API->>DB: Deduplicate verified event and reconcile payment
+```

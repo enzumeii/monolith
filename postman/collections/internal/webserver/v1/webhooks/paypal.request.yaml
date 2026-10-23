@@ -1,0 +1,17 @@
+$kind: http-request
+description: Replay a genuine complete sandbox webhook body and its exact transmission headers using local Vault variables. A fabricated signature fails verification. 200 processed/duplicate/ignored;400 invalid/signature rejected;409 event identity mismatch;502/504 provider failure. Handler performs PayPal verification postback before recording or reconciling an event. Never initiates capture or Shopify conversion.
+url: "{{server}}/v1/webhooks/paypal"
+method: POST
+headers:
+  Content-Type: application/json
+  PAYPAL-AUTH-ALGO: "{{paypal_auth_algo}}"
+  PAYPAL-CERT-URL: "{{paypal_cert_url}}"
+  PAYPAL-TRANSMISSION-ID: "{{paypal_transmission_id}}"
+  PAYPAL-TRANSMISSION-SIG: "{{vault:paypal_transmission_sig}}"
+  PAYPAL-TRANSMISSION-TIME: "{{paypal_transmission_time}}"
+auth:
+  type: noauth
+body:
+  type: json
+  content: "{{paypal_webhook_event}}"
+order: 1000

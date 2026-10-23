@@ -6,3 +6,5 @@ mod dependencies;
 
 pub mod inventories;
 pub mod orders;
+
+pub(crate) mod paypal_payments;

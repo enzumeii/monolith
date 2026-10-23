@@ -1,3 +1,6 @@
+pub mod paypal_payments;
+pub use paypal_payments::{CreatePaypalPaymentRequest, PaypalPaymentResponse, PaypalPaymentStatus};
+
 pub mod accounting;
 pub mod admin;
 pub mod auth;

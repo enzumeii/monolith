@@ -1,0 +1,26 @@
+$kind: http-request
+description: Create independent PayPal payment. Generate a fresh UUID payment_idempotency_key and a cryptographically random canonical 43-character base64url payment_capability in local Vault. Reuse both for retries. Set payment_reference, payment_amount and payment_currency locally. First success201; identical replay200; ambiguous create202; changed inputs409. Completion never converts Shopify orders.
+url: "{{server}}/v1/payments/paypal"
+method: POST
+headers:
+  Content-Type: application/json
+auth:
+  type: bearer
+  credentials:
+    token: "{{vault:payment_capability}}"
+body:
+  type: json
+  content: |-
+    {
+      "idempotency_key": "{{payment_idempotency_key}}",
+      "reference": "{{payment_reference}}",
+      "amount": "{{payment_amount}}",
+      "currency": "{{payment_currency}}"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Payment create accepted", () => pm.expect([200, 201, 202]).to.include(pm.response.code));
+      if ([200, 201, 202].includes(pm.response.code)) pm.collectionVariables.set("payment_id", pm.response.json().id);
+    language: text/javascript
+order: 1000

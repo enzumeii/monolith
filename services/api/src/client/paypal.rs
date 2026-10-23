@@ -1,5 +1,11 @@
 use super::{ClientError, ClientErrorKind, HttpClient};
-use crate::{config::PaypalConfig, models::paypal::TransactionPage};
+use crate::{
+    config::PaypalConfig,
+    models::paypal::{
+        Capture, CreateOrderRequest, Order, TransactionPage, VerifyWebhookSignatureRequest,
+        VerifyWebhookSignatureResponse,
+    },
+};
 use chrono::{DateTime, SecondsFormat, Utc};
 use reqwest::{
     RequestBuilder, Url,
@@ -67,6 +73,72 @@ impl PaypalClient {
         ]);
         self.bearer_request(|| self.http.inner.get(url.clone()))
             .await
+    }
+
+    pub async fn create_order(
+        &self,
+        request_id: &str,
+        payload: &CreateOrderRequest,
+    ) -> Result<Order, ClientError> {
+        let url = self.operation_url(&["v2", "checkout", "orders"])?;
+        self.bearer_request(|| {
+            self.http
+                .inner
+                .post(url.clone())
+                .header("PayPal-Request-Id", request_id)
+                .header("Prefer", "return=representation")
+                .json(payload)
+        })
+        .await
+    }
+
+    pub async fn get_order(&self, order_id: &str) -> Result<Order, ClientError> {
+        let url = self.operation_url(&["v2", "checkout", "orders", order_id])?;
+        self.bearer_request(|| self.http.inner.get(url.clone()))
+            .await
+    }
+
+    pub async fn capture_order(
+        &self,
+        order_id: &str,
+        request_id: &str,
+    ) -> Result<Order, ClientError> {
+        let url = self.operation_url(&["v2", "checkout", "orders", order_id, "capture"])?;
+        self.bearer_request(|| {
+            self.http
+                .inner
+                .post(url.clone())
+                .header("PayPal-Request-Id", request_id)
+                .header("Prefer", "return=representation")
+                .json(&serde_json::json!({}))
+        })
+        .await
+    }
+
+    pub async fn get_capture(&self, capture_id: &str) -> Result<Capture, ClientError> {
+        let url = self.operation_url(&["v2", "payments", "captures", capture_id])?;
+        self.bearer_request(|| self.http.inner.get(url.clone()))
+            .await
+    }
+
+    pub async fn verify_webhook_signature(
+        &self,
+        payload: &VerifyWebhookSignatureRequest,
+    ) -> Result<VerifyWebhookSignatureResponse, ClientError> {
+        let url = self.operation_url(&["v1", "notifications", "verify-webhook-signature"])?;
+        self.bearer_request(|| self.http.inner.post(url.clone()).json(payload))
+            .await
+    }
+
+    fn operation_url(&self, segments: &[&str]) -> Result<Url, ClientError> {
+        let mut url = self.base_url.clone();
+        url.set_query(None);
+        url.set_fragment(None);
+        url.path_segments_mut()
+            .map_err(|()| ClientError::new(ClientErrorKind::InvalidInput("invalid PayPal URL")))?
+            .pop_if_empty()
+            .extend(segments.iter().copied());
+        Ok(url)
     }
 
     async fn basic_auth_request<R: DeserializeOwned>(

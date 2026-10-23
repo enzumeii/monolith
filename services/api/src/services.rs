@@ -13,3 +13,4 @@ mod pagination;
 pub(super) mod common;
 
 pub(crate) mod cron;
+pub(crate) mod paypal_payments;

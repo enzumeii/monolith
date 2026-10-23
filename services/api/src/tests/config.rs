@@ -1283,3 +1283,45 @@ fn ordinary_dotenv_selects_qa_with_inherited_precedence_and_required_overlay() {
     run("missing-overlay", Some("qa"), None, None);
     std::fs::remove_dir_all(fixture).unwrap();
 }
+
+#[test]
+fn paypal_reporting_configuration_remains_valid_without_payment_settings() {
+    let config: PaypalConfig = Config::builder()
+        .add_source(File::from_str(
+            "base_url='https://api-m.paypal.com'\ntimeout_secs=10",
+            FileFormat::Toml,
+        ))
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert!(config.payment.is_none());
+}
+
+#[test]
+fn paypal_payment_policy_deserializes_from_toml_without_credentials() {
+    let source = "base_url='https://api-m.sandbox.paypal.com'\ntimeout_secs=10\n[payment]\nenvironment='sandbox'\nmerchant_id='MERCHANT123'\nwebhook_id='WH123'\ncurrencies=['USD','JPY']\nreturn_url='https://merchant.example/return'\ncancel_url='https://merchant.example/cancel'";
+    let config: PaypalConfig = Config::builder()
+        .add_source(File::from_str(source, FileFormat::Toml))
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert!(config.client_id.is_none());
+    let payment = config.payment.unwrap();
+    assert_eq!(payment.environment, PaypalEnvironment::Sandbox);
+    assert_eq!(payment.merchant_id, "MERCHANT123");
+    assert_eq!(payment.webhook_id, "WH123");
+    assert_eq!(payment.currencies, ["USD", "JPY"]);
+    assert_eq!(payment.return_url, "https://merchant.example/return");
+    assert_eq!(payment.cancel_url, "https://merchant.example/cancel");
+    let invalid = source.replace("environment='sandbox'", "environment='unexpected'");
+    assert!(
+        Config::builder()
+            .add_source(File::from_str(&invalid, FileFormat::Toml))
+            .build()
+            .unwrap()
+            .try_deserialize::<PaypalConfig>()
+            .is_err()
+    );
+}

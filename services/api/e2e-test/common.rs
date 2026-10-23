@@ -152,6 +152,10 @@ impl Drop for TestFixture {
                     .execute(&pool)
                     .await
                     .expect("owned schedule cleanup");
+                sqlx::query("DELETE FROM paypal_payment_events WHERE left(event_id,12)=$1 OR payment_id IN (SELECT id FROM paypal_payments WHERE left(reference,12)=$1)").bind(&prefix).execute(&pool).await.expect("owned PayPal event cleanup");
+                sqlx::query("UPDATE paypal_payments SET status='EXCEPTION', verified_at=NULL, verified_capture_id=NULL WHERE left(reference,12)=$1").bind(&prefix).execute(&pool).await.expect("owned PayPal evidence unlink");
+                sqlx::query("DELETE FROM paypal_payment_captures WHERE payment_id IN (SELECT id FROM paypal_payments WHERE left(reference,12)=$1)").bind(&prefix).execute(&pool).await.expect("owned PayPal capture cleanup");
+                sqlx::query("DELETE FROM paypal_payments WHERE left(reference,12)=$1").bind(&prefix).execute(&pool).await.expect("owned PayPal payment cleanup");
                 pool.close().await;
                 drop(lock);
             });
@@ -511,6 +515,8 @@ pub async fn client_with_shopify(url: &str) -> TestClient {
 pub struct ProviderConfig<'a> {
     pub shopify_url: Option<&'a str>,
     pub paypal_url: Option<&'a str>,
+    pub paypal_payment: Option<bool>,
+    pub paypal_timeout_secs: Option<u64>,
     pub stripe_url: Option<&'a str>,
     pub resend_url: Option<&'a str>,
     pub resend_key: Option<&'a str>,
@@ -608,9 +614,15 @@ fn write_api_configuration(
         .stripe_url
         .map(|url| format!("\n[client.stripe]\nbase_url = {url:?}\ntimeout_secs = 3\nsecret_key = \"e2e-fixture-key\"\n"))
         .unwrap_or_default();
+    let paypal_timeout_secs = config.paypal_timeout_secs.unwrap_or(3);
+    let payment_policy = if config.paypal_payment.unwrap_or(false) {
+        "\n[client.paypal.payment]\nenvironment = \"sandbox\"\nmerchant_id = \"synthetic-merchant\"\nwebhook_id = \"synthetic-webhook\"\ncurrencies = [\"USD\", \"SGD\", \"JPY\"]\nreturn_url = \"https://example.test/paypal/return\"\ncancel_url = \"https://example.test/paypal/cancel\"\n"
+    } else {
+        ""
+    };
     let paypal = config
         .paypal_url
-        .map(|url| format!("\n[client.paypal]\nbase_url = {url:?}\ntimeout_secs = 3\n"))
+        .map(|url| format!("\n[client.paypal]\nbase_url = {url:?}\ntimeout_secs = {paypal_timeout_secs}\n{payment_policy}"))
         .unwrap_or_default();
     let resend = config
         .email_timeout_secs
