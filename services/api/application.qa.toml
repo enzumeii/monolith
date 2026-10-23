@@ -3,3 +3,6 @@ allowed_origins = ["http://localhost:8084"]
 
 [client.s3]
 endpoint = "http://localhost:3001"
+
+[client.paypal]
+base_url = "https://api-m.sandbox.paypal.com"

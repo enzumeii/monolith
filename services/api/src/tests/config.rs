@@ -694,6 +694,7 @@ fn paypal_credentials_are_centralized_and_non_secrets_remain_file_based() {
         .unwrap();
     let settings = temp_env::with_vars(
         [
+            ("RUN_ENV", Some("local")),
             ("DATABASE_URL", Some("postgres://unused")),
             (
                 "JWT_SECRET",
