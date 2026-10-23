@@ -2,6 +2,18 @@
 
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
 
+## ENZ-44 PayPal provider boundary — 2026-10-23
+
+| Local evidence | Result |
+| --- | --- |
+| Resolved parent merge | Integrates main `10d5985` after #55 merged. Latest Stripe client/payment implementation and tests match main; PayPal Sandbox QA override is retained. |
+| Complete API check | 34 setup-helper tests, formatting and strict API/all-target/E2E Clippy pass. |
+| Full API test recipe | 407 native tests and 150 HTTP E2E tests pass; zero failed or ignored. Isolated Compose containers, volumes and network are removed. |
+| Provider/verifier coverage | Controlled HTTP cases verify approved-but-unpaid, final completed capture, exact money/identity, inconsistent evidence, dependency errors and authenticated typed events. Verification makes no payment mutation. |
+| Domain and collections | Domain formatting, strict lint, WASM compilation and 18 tests pass. External Postman lint scans32 files with zero diagnostics. Internal lint retains the unchanged unrelated transaction FMT209 baseline. |
+| Independent review | No actionable findings in the reduced provider slice or resolved merge. No public PayPal gateway, payment/event ledger or Shopify completion remains. |
+| Limits | No new Sandbox charge. Historical receipts below establish approval/capture semantics only. Genuine signed-webhook acceptance is unverified because no webhook is registered. Hosted CI and Vercel results are separate published-head evidence. |
+
 ## Historical ENZ-44 PayPal gateway — 2026-10-23
 
 These receipts describe the superseded database-backed gateway. The current provider slice removes its public routes, payment/event tables, capability policy and ingestion loop; these results do not verify the stateless refactor. Current refactor checks are recorded separately after execution.

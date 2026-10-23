@@ -1,12 +1,13 @@
 use crate::{
-    client::stripe::StripeClient,
-    error::{AppError, upstream},
+    client::{
+        ClientError, ClientErrorKind,
+        stripe::{StripeClient, validate_id},
+    },
     models::stripe::{
         ChargeStatus, CheckoutMode, CheckoutPaymentStatus, CheckoutStatus, PaymentIntentStatus,
         StripeReference,
     },
 };
-use axum::http::StatusCode;
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
@@ -42,19 +43,13 @@ pub struct VerifiedPayment {
 pub async fn verify_payment(
     client: &StripeClient,
     expected: &ExpectedPayment,
-) -> Result<PaymentOutcome, AppError> {
+) -> Result<PaymentOutcome, ClientError> {
     validate_expected(expected)?;
-    let account = client
-        .get_account()
-        .await
-        .map_err(|error| upstream(error))?;
+    let account = client.get_account().await?;
     if account.id != expected.account_id || account.object != "account" {
         return Err(verification_error());
     }
-    let session = client
-        .get_checkout_session(&expected.session_id)
-        .await
-        .map_err(|error| upstream(error))?;
+    let session = client.get_checkout_session(&expected.session_id).await?;
     let currency = expected.currency.to_ascii_lowercase();
     if session.id != expected.session_id
         || session.object != "checkout.session"
@@ -85,11 +80,8 @@ pub async fn verify_payment(
         .as_ref()
         .map(StripeReference::id)
         .filter(|id| valid_id(id, "pi_"))
-        .ok_or_else(verification_error)?;
-    let intent = client
-        .get_payment_intent(intent_id)
-        .await
-        .map_err(|error| upstream(error))?;
+        .ok_or_else(|| verification_error())?;
+    let intent = client.get_payment_intent(intent_id).await?;
     if intent.id != intent_id
         || intent.object != "payment_intent"
         || intent.status != PaymentIntentStatus::Succeeded
@@ -106,11 +98,8 @@ pub async fn verify_payment(
         .as_ref()
         .map(StripeReference::id)
         .filter(|id| valid_id(id, "ch_"))
-        .ok_or_else(verification_error)?;
-    let charge = client
-        .get_charge(charge_id)
-        .await
-        .map_err(|error| upstream(error))?;
+        .ok_or_else(|| verification_error())?;
+    let charge = client.get_charge(charge_id).await?;
     if charge.id != charge_id
         || charge.object.as_deref() != Some("charge")
         || charge.status != Some(ChargeStatus::Succeeded)
@@ -135,7 +124,7 @@ pub async fn verify_payment(
     }))
 }
 
-fn validate_expected(expected: &ExpectedPayment) -> Result<(), AppError> {
+fn validate_expected(expected: &ExpectedPayment) -> Result<(), ClientError> {
     if !valid_id(&expected.session_id, "cs_")
         || !valid_id(&expected.account_id, "acct_")
         || !(1..=99_999_999).contains(&expected.amount)
@@ -154,28 +143,22 @@ fn validate_expected(expected: &ExpectedPayment) -> Result<(), AppError> {
                 || value.len() > 500
         })
     {
-        return Err(AppError::new(
-            StatusCode::BAD_REQUEST,
+        return Err(ClientError::new(ClientErrorKind::InvalidInput(
             "Invalid expected payment context",
-        ));
+        )));
     }
     Ok(())
 }
 
 fn valid_id(id: &str, prefix: &str) -> bool {
-    id.starts_with(prefix)
-        && id.len() > prefix.len()
-        && id.len() <= 255
-        && id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    id.starts_with(prefix) && id.len() > prefix.len() && validate_id(id).is_ok()
 }
 
 #[track_caller]
-fn verification_error() -> AppError {
-    AppError::new(StatusCode::BAD_GATEWAY, "Payment verification failed")
+fn verification_error() -> ClientError {
+    ClientError::new(ClientErrorKind::Protocol("Payment verification failed"))
 }
 
 #[cfg(test)]
-#[path = "../tests/services/stripe_payments.rs"]
+#[path = "../../tests/client/stripe/payment.rs"]
 mod tests;
