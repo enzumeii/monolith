@@ -87,6 +87,10 @@ fn ProductReport(kind: ProductReportKind) -> Element {
         session::with_session(|| generate(request.clone())).await
     });
     let loading = submitted.read().is_some() && report.pending();
+    let ready = match kind {
+        ProductReportKind::Convention => api::valid_location_id(inventory().trim()),
+        ProductReportKind::Picklist => api::reports::valid_tags(&tags()),
+    };
     let value = report.value().and_then(Result::ok);
     let result = value.as_ref().map(|value| value.read());
     let current = result
@@ -117,6 +121,14 @@ fn ProductReport(kind: ProductReportKind) -> Element {
                 class: "panel report-form",
                 onsubmit: move |event| {
                     event.prevent_default();
+                    if loading { return; }
+                    if !ready {
+                        local_error.set(Some(match kind {
+                            ProductReportKind::Convention => "Enter a positive numeric inventory ID",
+                            ProductReportKind::Picklist => "Enter nonblank comma-separated tags",
+                        }.into()));
+                        return;
+                    }
                     history.write().reset();
                     local_error.set(None);
                     submitted.set(Some(ReportRequest { kind, parameter: if kind == ProductReportKind::Convention { inventory().trim().into() } else { tags().trim().into() }, page_size: page_size(), cursor: None }));
@@ -132,7 +144,7 @@ fn ProductReport(kind: ProductReportKind) -> Element {
                         oninput: move |event| { tags.set(event.value()); submitted.set(None); local_error.set(None); },
                     }
                 }
-                button { class: "primary", r#type: "submit", disabled: loading, "Generate" }
+                button { class: "primary", r#type: "submit", disabled: loading || !ready, "Generate" }
             }
             ErrorMessage { message: error.clone() }
             if error.is_some() && submitted.read().is_some() {

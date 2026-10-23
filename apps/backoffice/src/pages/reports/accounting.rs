@@ -65,6 +65,7 @@ pub(super) fn AccountingReport() -> Element {
             form { class: "panel report-form",
                 onsubmit: move |event| {
                     event.prevent_default();
+                    if loading { return; }
                     report.reset();
                     match date_range(&start(), &end()) {
                         Ok(request) => { local_error.set(None); submitted.set(Some(request)); }
@@ -84,7 +85,7 @@ pub(super) fn AccountingReport() -> Element {
                         end.set(value); submitted.set(None); report.reset(); local_error.set(None);
                     },
                 }
-                button { class: "primary", r#type: "submit", disabled: loading,
+                button { class: "primary", r#type: "submit", disabled: loading || date_range(&start(), &end()).is_err(),
                     if loading { "Generating…" } else { "Generate" }
                 }
             }

@@ -583,3 +583,31 @@ fn only_nonempty_best_and_teleport_sections_render_tables_and_downloads() {
         );
     }
 }
+
+#[test]
+fn consolidated_download_is_disabled_only_when_every_courier_is_empty() {
+    for populated in [false, true] {
+        let labels = ShippingLabels {
+            best: if populated {
+                vec![best_label()]
+            } else {
+                vec![]
+            },
+            ..ShippingLabels::default()
+        };
+        let mut dom = VirtualDom::new(label_app).with_root_context(labels);
+        dom.rebuild_in_place();
+        let html = dioxus_ssr::render(&dom);
+        let button = html
+            .split("<button")
+            .find(|tag| {
+                tag.split('>')
+                    .next()
+                    .is_some_and(|attributes| attributes.contains("shipping-labels-save"))
+            })
+            .expect("consolidated button");
+        let (attributes, content) = button.split_once('>').expect("button tag");
+        assert_eq!(attributes.contains("disabled"), !populated);
+        assert!(content.starts_with("Download consolidated ZIP</button>"));
+    }
+}

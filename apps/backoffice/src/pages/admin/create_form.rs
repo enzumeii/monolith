@@ -22,7 +22,7 @@ pub fn AdminCreateForm(on_created: EventHandler<()>) -> Element {
             class: "panel create-form",
             onsubmit: move |e| {
                 e.prevent_default();
-                if username.read().is_empty() || password.read().is_empty() {
+                if username.read().trim().is_empty() || password.read().is_empty() {
                     error.set(Some("username and password are required".into()));
                     return;
                 }
@@ -61,7 +61,7 @@ pub fn AdminCreateForm(on_created: EventHandler<()>) -> Element {
                 option { value: "SUPER_ADMIN", "Super Admin" }
             }
             ErrorMessage { message: error() }
-            button { r#type: "submit", class: "primary", "Create" }
+            button { r#type: "submit", class: "primary", disabled: username.read().trim().is_empty() || password.read().is_empty(), "Create" }
         }
         Confirm {
             open: confirm(),
@@ -71,6 +71,7 @@ pub fn AdminCreateForm(on_created: EventHandler<()>) -> Element {
             danger: false,
             on_confirm: move |()| {
                 confirm.set(false);
+                if username.read().trim().is_empty() || password.read().is_empty() { return; }
                 let req = CreateAdminRequest {
                     username: username.read().clone(),
                     password: password.read().clone(),

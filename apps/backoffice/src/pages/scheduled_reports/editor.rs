@@ -228,8 +228,9 @@ pub fn ScheduleEditor(
                             onclick: move |_| confirm_reload.set(true), "Reload schedule" }
                     }
                     div { class: "schedule-actions",
-                        button { r#type: "button", class: "ghost", disabled: busy || preview_state.read().pending(),
+                        button { r#type: "button", class: "ghost", disabled: busy || preview_state.read().pending() || current.preview().is_err(),
                             onclick: move |_| {
+                                if saving() { return; }
                                 let snapshot = form();
                                 let query = match snapshot.preview() { Ok(query) => query, Err(validation) => { errors.set(validation); return; } };
                                 let Some(ticket) = preview_state.write().begin() else { return; };
@@ -247,7 +248,7 @@ pub fn ScheduleEditor(
                             },
                             if preview_state.read().pending() { "Previewing…" } else { "Preview next five runs" }
                         }
-                        button { r#type: "submit", class: "primary", disabled: busy || recovery.read().reload_required,
+                        button { r#type: "submit", class: "primary", disabled: busy || recovery.read().reload_required || current.create().is_err(),
                             if busy { "Saving…" } else { "Save schedule" }
                         }
                         button { r#type: "button", class: "ghost", disabled: busy,

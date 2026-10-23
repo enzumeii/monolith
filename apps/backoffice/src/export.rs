@@ -1,7 +1,9 @@
+mod archive;
 mod browser;
 mod csv;
 mod xlsx;
 
+pub(crate) use archive::encode_archive;
 pub(crate) use browser::{download, download_url, encoded_bytes};
 pub(crate) use csv::encode_table;
 pub use xlsx::encode_table_xlsx;

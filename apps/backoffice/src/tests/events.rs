@@ -68,3 +68,85 @@ macro_rules! form_event_converter {
     (@data $other:ident, $event:ident) => { panic!("unexpected non-form event: {}", stringify!($other)) };
 }
 dioxus::html::with_html_event_groups!(form_event_converter);
+
+pub(crate) fn listeners(
+    mutations: &dioxus::dioxus_core::Mutations,
+    event: &str,
+) -> Vec<dioxus::dioxus_core::ElementId> {
+    mutations
+        .edits
+        .iter()
+        .filter_map(|edit| match edit {
+            dioxus::dioxus_core::Mutation::NewEventListener { name, id } if *name == event => {
+                Some(*id)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+pub(crate) fn form_event(
+    dom: &dioxus::prelude::VirtualDom,
+    id: dioxus::dioxus_core::ElementId,
+    name: &str,
+    value: &str,
+) {
+    use std::rc::Rc;
+    let data = dioxus::html::PlatformEventData::new(Box::new(value.to_owned()));
+    dom.runtime().handle_event(
+        name,
+        dioxus::prelude::Event::new(Rc::new(data) as Rc<dyn std::any::Any>, true),
+        id,
+    );
+}
+
+pub(crate) fn disabled_state(
+    mutations: &dioxus::dioxus_core::Mutations,
+) -> Vec<(dioxus::dioxus_core::ElementId, bool)> {
+    use dioxus::dioxus_core::{AttributeValue, Mutation};
+    mutations
+        .edits
+        .iter()
+        .filter_map(|edit| match edit {
+            Mutation::SetAttribute {
+                name: "disabled",
+                value: AttributeValue::Bool(value),
+                id,
+                ..
+            } => Some((*id, *value)),
+            _ => None,
+        })
+        .collect()
+}
+
+pub(crate) fn render_changes(
+    dom: &mut dioxus::prelude::VirtualDom,
+) -> dioxus::dioxus_core::Mutations {
+    use futures::FutureExt;
+    let mut changes = dom.render_immediate_to_vec();
+    for _ in 0..5 {
+        let _ = dom.wait_for_work().now_or_never();
+        changes.edits.extend(dom.render_immediate_to_vec().edits);
+    }
+    changes
+}
+
+pub(crate) fn element_id(
+    mutations: &dioxus::dioxus_core::Mutations,
+    value: &str,
+) -> dioxus::dioxus_core::ElementId {
+    use dioxus::dioxus_core::{AttributeValue, Mutation};
+    mutations
+        .edits
+        .iter()
+        .find_map(|edit| match edit {
+            Mutation::SetAttribute {
+                name: "id",
+                value: AttributeValue::Text(actual),
+                id,
+                ..
+            } if actual == value => Some(*id),
+            _ => None,
+        })
+        .expect("rendered element id")
+}

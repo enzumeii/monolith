@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::{
     api::{self, ApiError, ApiResult},
     components::ReportSkeleton,
-    components::{DataTable, DownloadTable, ErrorMessage, LoadingState, TableData},
+    components::{DataTable, DownloadFile, DownloadTable, ErrorMessage, LoadingState, TableData},
     export::ExportFormat,
     session,
 };
@@ -13,7 +13,10 @@ use crate::{
 mod data;
 mod export;
 use data::{FulfillmentOrder, FulfillmentResult, fulfill_selected, load_fulfillment_orders};
-use export::{best_table, fastship_table, fulfillment_table, teleport_table, thai_post_table};
+use export::{
+    best_table, fastship_table, fulfillment_table, shipping_label_archive, teleport_table,
+    thai_post_table,
+};
 
 #[derive(Clone, Copy, PartialEq)]
 enum OrderView {
@@ -311,6 +314,17 @@ fn ShippingLabelTables(labels: ShippingLabels) -> Element {
     rsx! {
         section { class: "panel orders-results", aria_label: "Shipping labels",
             h3 { "Shipping labels" }
+            DownloadFile {
+                filename: "shipping-labels.zip",
+                mime: "application/zip",
+                id: "shipping-labels-save",
+                label: "Download consolidated ZIP",
+                disabled: empty,
+                encode: {
+                    let labels = labels.clone();
+                    move |()| shipping_label_archive(&labels)
+                },
+            }
             if empty { p { "No shipping labels found." } }
             ShippingLabelGroup { name: "Fastship", table: fastship_table(&labels.fastship), filename: "fastship-labels.csv", id: "fastship-label-save", format: ExportFormat::Csv }
             ShippingLabelGroup { name: "ThaiPost", table: thai_post_table(&labels.thaipost), filename: "thai-post-labels.xlsx", id: "thaipost-label-save", format: ExportFormat::Xlsx }
