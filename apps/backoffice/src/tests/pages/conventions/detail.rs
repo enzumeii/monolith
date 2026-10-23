@@ -25,7 +25,7 @@ enum TestRoute {
 #[component]
 fn EditorPage() -> Element {
     let record = try_consume_context::<ConventionDTO>().unwrap_or_else(record);
-    rsx! { Editor { record, options: vec![("THB".into(), vec![domain::dto::ConventionPaymentMethod::Stripe])], on_reload: move |()| -> () { panic!("editor must not reload") } } }
+    rsx! { Editor { record, options: ConventionOptionsResponse { countries: vec!["TH".into()], currencies: vec![domain::dto::ConventionCurrencyOption { code: "THB".into(), payment_methods: vec![domain::dto::ConventionPaymentMethod::Stripe] }] }, on_reload: move |()| -> () { panic!("editor must not reload") } } }
 }
 
 fn record() -> ConventionDTO {

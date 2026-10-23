@@ -2,7 +2,7 @@ use super::state::{Selection, VariantDetails, merge_saved_details};
 use crate::{
     api,
     components::{
-        ErrorMessage,
+        ErrorMessage, Popup,
         request_state::{RequestState, use_owner},
     },
     session,
@@ -31,11 +31,11 @@ impl BrowseQuery {
 struct SourceVariant {
     product_id: String,
     product_title: String,
-    description: String,
     id: String,
     title: String,
     sku: Option<String>,
     image: Option<(String, String)>,
+    product_image: Option<(String, String)>,
     options: String,
     price: String,
     currency: String,
@@ -64,9 +64,21 @@ impl BrowsePage {
                         )
                     });
                 items.push(SourceVariant {
+                    product_image: product
+                        .featured_image
+                        .as_ref()
+                        .filter(|image| safe_image_url(&image.url))
+                        .map(|image| {
+                            (
+                                image.url.clone(),
+                                format!(
+                                    "Product: {}",
+                                    detail_text(Some(&product.title), "Product image")
+                                ),
+                            )
+                        }),
                     product_id: product.id.clone(),
                     product_title: product.title.clone(),
-                    description: product.description.clone(),
                     id: variant.id,
                     title: variant.title,
                     sku: variant.sku,
@@ -127,8 +139,11 @@ pub fn SelectionEditor(
     let mut saving = use_signal(RequestState::default);
     let mut save_error = use_signal(|| None::<String>);
     let mut save_notice = use_signal(|| None::<String>);
-    let mut location = use_signal(String::new);
-    let mut search = use_signal(String::new);
+    let settings = use_context::<crate::config::Settings>();
+    let location = settings.conventions.catalogue_location_id;
+    let mut product_type = use_signal(String::new);
+    let mut title = use_signal(String::new);
+    let mut picker_open = use_signal(|| false);
     let mut browse_error = use_signal(|| None::<String>);
     let mut submitted = use_signal(|| None::<BrowseQuery>);
     let browse = use_resource(move || {
@@ -195,7 +210,7 @@ pub fn SelectionEditor(
             p { "Memberships and final prices save together. Removing a row removes its membership; there is no per-variant enabled flag. Up to 250 variants." }
             if memberships.pending() || !current.loaded { p { role: "status", "All saved membership pages must load before editing or saving." } }
             ErrorMessage { message: load_error.clone() }
-            if load_error.is_some() { button { onclick: move |_| { selection.write().loaded = false; retry += 1; }, "Retry all saved memberships" } }
+            if load_error.is_some() { button { r#type: "button", class: "ghost", onclick: move |_| { selection.write().loaded = false; retry += 1; }, "Retry all saved memberships" } }
             p { "Selected: {rows.len()} / 250 · Convention currency: {currency}" }
             div { class: "convention-table-scroll",
                 table { class: "convention-table",
@@ -203,10 +218,10 @@ pub fn SelectionEditor(
                     thead { tr { th { "Variant" } th { "Variant image and stock" } th { "Final convention price" } th { "Action" } } }
                     tbody { for (row, detail) in rows { tr { key: "{row.shopify_variant_id}",
                         td {
-                            strong { {detail_text(detail.product_title.as_deref(), "Product title unavailable")} }
-                            p { {detail_text(detail.variant_title.as_deref(), "Variant title unavailable")} }
-                            p { "SKU: " {detail_text(detail.sku.as_deref(), "SKU unavailable")} }
-                            p { "Variant {row.shopify_variant_id} · Product {row.shopify_product_id}" }
+                            strong { class: "convention-value", {detail_text(detail.product_title.as_deref(), "Product title unavailable")} }
+                            p { class: "convention-value", {detail_text(detail.variant_title.as_deref(), "Variant title unavailable")} }
+                            p { class: "convention-value", "SKU: " {detail_text(detail.sku.as_deref(), "SKU unavailable")} }
+                            p { class: "convention-label", "Variant {row.shopify_variant_id} · Product {row.shopify_product_id}" }
                         }
                         td {
                             if let Some((url, alt)) = detail.variant_image.filter(|(url, _)| safe_image_url(url)) {
@@ -217,7 +232,7 @@ pub fn SelectionEditor(
                                 p { "Last loaded at location {location}" }
                             }
                         }
-                        td { label { r#for: "variant-price-{row.shopify_variant_id}", "Final price ({currency})" }
+                        td { label { class: "convention-label", r#for: "variant-price-{row.shopify_variant_id}", "Final price ({currency})" }
                             input { id: "variant-price-{row.shopify_variant_id}", r#type: "text", inputmode: "decimal", value: row.final_price.clone(), disabled: !current.loaded || saving.read().pending(),
                                 oninput: { let variant_id = row.shopify_variant_id.clone(); move |event| { if let Some(item) = selection.write().items.get_mut(&variant_id) { item.final_price = event.value(); } save_notice.set(None); } }
                             }
@@ -240,45 +255,123 @@ pub fn SelectionEditor(
                 }, if saving.read().pending() { "Saving variants…" } else { "Save selected variants and prices" }
             }
         }
-        section { class: "panel convention-section", aria_label: "Shopify catalogue",
-            h3 { "Browse Shopify catalogue" }
-            p { "Source prices and location-specific available stock are informational at the time this page loads. They are separate from final convention prices and are revalidated by the backend when saving." }
-            form { onsubmit: move |event| { event.prevent_default(); if !api::valid_location_id(&location()) { browse_error.set(Some("Enter a positive numeric location ID".into())); return; } browse_error.set(None); submitted.set(Some(BrowseQuery { location: location(), search: search(), cursor: None })); },
-                div { class: "convention-form-grid",
-                    div { label { r#for: "catalogue-location", "Shopify location ID" } input { id: "catalogue-location", r#type: "text", inputmode: "numeric", required: true, value: location(), oninput: move |event| location.set(event.value()) } }
-                    div { label { r#for: "catalogue-search", "Shopify search (forwarded unchanged)" } input { id: "catalogue-search", value: search(), oninput: move |event| search.set(event.value()) } }
-                }
-                button { r#type: "submit", class: "primary", disabled: browse.pending(), "Search catalogue" }
-            }
-            ErrorMessage { message: browse_error().or(upstream_error) }
-            if browse.pending() && submitted().is_some() { p { role: "status", "Loading current catalogue page…" } }
-            if let Some(page) = page {
-                if page.items.is_empty() { p { "No variants match this search at this location." } }
-                div { class: "convention-catalogue-grid",
-                    for source in page.items { article { class: "convention-product", key: "{source.id}",
-                        if let Some((url, alt)) = source.image.clone() { img { src: url, alt, loading: "lazy" } } else { p { "No variant image" } }
-                        h4 { "{source.product_title}" }
-                        p { "Variant: {source.title}" }
-                        p { "SKU: " {detail_text(source.sku.as_deref(), "SKU unavailable")} }
-                        p { "{source.description}" } p { "{source.options}" }
-                        p { "Source price: {source.price} {source.currency}" } p { "Available stock: {stock_label(source.available)}" }
-                        p { if source.eligible { "Eligible" } else { "Unavailable" } }
-                        button { r#type: "button", class: "ghost", disabled: !current.loaded || memberships.pending() || saving.read().pending() || !source.eligible || current.items.contains_key(&source.id) || current.items.len() >= 250,
-                            onclick: move |_| { details.write().insert(source.id.clone(), VariantDetails {
-                                product_title: Some(source.product_title.clone()), variant_title: Some(source.title.clone()), sku: source.sku.clone(), variant_image: source.image.clone(), available: source.available,
-                                stock_location: submitted().map(|query| query.location),
-                            }); selection.write().insert(source.product_id.clone(), source.id.clone()); save_notice.set(None); },
-                            if current.items.contains_key(&source.id) { "Already selected" } else { "Select variant" }
+        button { id: "browse-shopify-catalogue", r#type: "button", class: "primary", onclick: move |_| picker_open.set(true), "Browse Shopify catalogue" }
+        Popup { open: picker_open(), title: "Browse Shopify catalogue", on_close: move |()| picker_open.set(false),
+            section { class: "convention-section", aria_label: "Shopify catalogue",
+                p { "Source prices and available stock are informational when loaded. Final convention prices are edited outside this catalogue and revalidated when saving." }
+                form { onsubmit: move |event| {
+                    event.prevent_default();
+                    if browse.pending() { return; }
+                    let search = match catalogue_search(&product_type(), &title()) {
+                        Ok(search) => search,
+                        Err(error) => { browse_error.set(Some(error)); return; }
+                    };
+                    browse_error.set(None);
+                    submitted.set(Some(BrowseQuery { location: location.clone(), search, cursor: None }));
+                },
+                    div { class: "convention-form-grid",
+                        div { label { class: "convention-label", r#for: "catalogue-product-type", "Product type" }
+                            input { id: "catalogue-product-type", value: product_type(), oninput: move |event| product_type.set(event.value()) }
                         }
-                    } }
+                        div { label { class: "convention-label", r#for: "catalogue-title", "Product title" }
+                            input { id: "catalogue-title", value: title(), oninput: move |event| title.set(event.value()) }
+                        }
+                    }
+                    button { r#type: "submit", class: "primary", disabled: browse.pending(), "Search catalogue" }
                 }
-            }
-            if let Some(cursor) = next_cursor {
-                button { r#type: "button", class: "ghost", disabled: browse.pending(), onclick: move |_| { if let Some(mut query) = submitted() { query.cursor = Some(cursor.clone()); submitted.set(Some(query)); } }, "Next catalogue page" }
+                ErrorMessage { message: browse_error().or(upstream_error) }
+                if browse.pending() && submitted().is_some() { p { role: "status", "Loading current catalogue page…" } }
+                if let Some(page) = page {
+                    if page.items.is_empty() { p { "No variants match this search at this location." } }
+                    div { class: "convention-table-scroll",
+                        table { class: "convention-table",
+                            caption { "Shopify products and variants" }
+                            thead { tr { th { "Images" } th { "Product and variant" } th { "Source price and stock" } th { "Action" } } }
+                            tbody { for source in page.items { tr { key: "{source.id}",
+                                td { div { class: "convention-result-images",
+                                    CatalogueImage { image: source.product_image.clone(), label: "Product", fallback: "No product image" }
+                                    CatalogueImage { image: source.image.clone(), label: "Variant", fallback: "No variant image" }
+                                } }
+                                td {
+                                    span { class: "convention-label", "Product" }
+                                    strong { class: "convention-value", "{source.product_title}" }
+                                    span { class: "convention-label", "Variant" }
+                                    p { class: "convention-value", "{source.title}" }
+                                    span { class: "convention-label", "SKU" }
+                                    p { class: "convention-value", {detail_text(source.sku.as_deref(), "SKU unavailable")} }
+                                    if !source.options.is_empty() { p { class: "convention-value", "{source.options}" } }
+                                }
+                                td {
+                                    span { class: "convention-label", "Source price" }
+                                    p { class: "convention-value", "{source.price} {source.currency}" }
+                                    span { class: "convention-label", "Available stock" }
+                                    p { class: "convention-value", "{stock_label(source.available)}" }
+                                    p { class: if source.eligible { "convention-status is-enabled" } else { "convention-status is-disabled" }, if source.eligible { "Eligible" } else { "Unavailable" } }
+                                }
+                                td { button { r#type: "button", class: "primary", disabled: !current.loaded || memberships.pending() || saving.read().pending() || !source.eligible || current.items.contains_key(&source.id) || current.items.len() >= 250,
+                                    onclick: move |_| {
+                                        if !selection.read().loaded || saving.read().pending() || !source.eligible || selection.read().items.contains_key(&source.id) || selection.read().items.len() >= 250 { return; }
+                                        details.write().insert(source.id.clone(), VariantDetails {
+                                            product_title: Some(source.product_title.clone()), variant_title: Some(source.title.clone()), sku: source.sku.clone(), variant_image: source.image.clone(), available: source.available,
+                                            stock_location: submitted().map(|query| query.location),
+                                        }); selection.write().insert(source.product_id.clone(), source.id.clone()); save_notice.set(None);
+                                    },
+                                    if current.items.contains_key(&source.id) { "Already selected" } else { "Select variant" }
+                                } }
+                            } } }
+                        }
+                    }
+                }
+                if let Some(cursor) = next_cursor {
+                    button { r#type: "button", class: "ghost", disabled: browse.pending(), onclick: move |_| { if let Some(mut query) = submitted() { query.cursor = Some(cursor.clone()); submitted.set(Some(query)); } }, "Next catalogue page" }
+                }
             }
         }
     }
 }
+#[component]
+fn CatalogueImage(image: Option<(String, String)>, label: String, fallback: String) -> Element {
+    let mut failed = use_signal(|| false);
+    let reset_image = image.clone();
+    use_effect(use_reactive!(|reset_image| {
+        let _ = reset_image;
+        failed.set(false);
+    }));
+    rsx! {
+        figure { class: "convention-result-image",
+            figcaption { class: "convention-label", "{label}" }
+            if let Some((url, alt)) = image.filter(|(url, _)| safe_image_url(url) && !failed()) {
+                img { class: "convention-thumbnail", src: url, alt, loading: "lazy", width: "56", height: "56", onerror: move |_| failed.set(true) }
+            } else { span { class: "convention-label", "{fallback}" } }
+        }
+    }
+}
+
+fn catalogue_search(product_type: &str, title: &str) -> Result<String, String> {
+    let clauses = [("product_type", product_type), ("title", title)]
+        .into_iter()
+        .filter_map(|(field, value)| {
+            let value = value.trim();
+            if value.is_empty() {
+                return None;
+            }
+            let mut escaped = String::new();
+            for character in value.chars() {
+                if matches!(character, '\\' | '"' | ':' | '(' | ')') {
+                    escaped.push('\\');
+                }
+                escaped.push(character);
+            }
+            Some(format!("{field}:\"{escaped}\""))
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    if clauses.len() > 2048 {
+        return Err("Search is too long; shorten the product type or title (maximum 2048 bytes after escaping).".into());
+    }
+    Ok(clauses)
+}
+
 fn detail_text<'a>(value: Option<&'a str>, unavailable: &'a str) -> &'a str {
     value
         .filter(|value| !value.trim().is_empty())

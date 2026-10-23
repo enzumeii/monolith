@@ -555,6 +555,16 @@ async fn options_intrinsic_policy_authentication_and_unexpected_body() {
         .unwrap();
     assert_eq!(response.status(), 200);
     let result = body_json(response).await;
+    let countries: Vec<_> = result["countries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|country| country.as_str().unwrap())
+        .collect();
+    assert_eq!(countries.len(), 249);
+    assert!(countries.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(countries.contains(&"TH") && countries.contains(&"US"));
+    assert!(!countries.contains(&"ZZ") && !countries.contains(&"XX"));
     let currencies = result["currencies"].as_array().unwrap();
     let find = |code: &str| {
         currencies

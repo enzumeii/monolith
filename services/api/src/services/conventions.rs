@@ -7,6 +7,7 @@ use crate::{
         conventions::{
             Convention, ConventionInput, ConventionVariant, SelectedVariant, VariantDisplay,
         },
+        country::CountryCode,
         shopify::{ProductStatus, ShopifyId},
     },
     repositories::conventions as repo,
@@ -20,6 +21,15 @@ use domain::dto::{
 use sqlx::PgPool;
 use uuid::Uuid;
 pub(crate) fn options() -> domain::dto::ConventionOptionsResponse {
+    let mut countries = Vec::new();
+    for first in b'A'..=b'Z' {
+        for second in b'A'..=b'Z' {
+            let code = String::from_utf8_lossy(&[first, second]).into_owned();
+            if !matches!(CountryCode::from(code.clone()), CountryCode::Other(_)) {
+                countries.push(code);
+            }
+        }
+    }
     let mut currencies = Vec::new();
     for first in b'A'..=b'Z' {
         for second in b'A'..=b'Z' {
@@ -43,7 +53,10 @@ pub(crate) fn options() -> domain::dto::ConventionOptionsResponse {
             }
         }
     }
-    domain::dto::ConventionOptionsResponse { currencies }
+    domain::dto::ConventionOptionsResponse {
+        countries,
+        currencies,
+    }
 }
 pub(crate) async fn list(
     pool: &PgPool,

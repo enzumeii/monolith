@@ -12,8 +12,14 @@ pub struct ApiConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ConventionsConfig {
+    pub catalogue_location_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Settings {
     pub api: ApiConfig,
+    pub conventions: ConventionsConfig,
 }
 
 impl Settings {
@@ -35,8 +41,16 @@ impl Settings {
             .map_err(|_| "Unable to read application.toml".to_string())?;
         let mut settings: Self = toml::from_str(&contents)
             .map_err(|error| format!("Invalid application.toml: {error}"))?;
+        settings.validate()?;
         settings.api.base_url = resolve_api_url(&settings.api.base_url, &page_url)?;
         Ok(settings)
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if !crate::api::valid_location_id(&self.conventions.catalogue_location_id) {
+            return Err("Invalid conventions.catalogue_location_id: expected a positive numeric location ID".into());
+        }
+        Ok(())
     }
 }
 

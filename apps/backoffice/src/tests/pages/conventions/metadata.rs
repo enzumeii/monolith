@@ -5,12 +5,13 @@ fn metadata_fields_keep_identity_readonly_and_date_inputs_are_calendar_dates() {
     fn app() -> Element {
         let value = Metadata {
             slug: "event".into(),
+            country: "TH".into(),
             currency: "THB".into(),
             methods: vec![ConventionPaymentMethod::Stripe],
             ..Default::default()
         };
         let draft = use_signal(|| value);
-        rsx! { MetadataFields { draft, options: vec![("THB".into(), vec![ConventionPaymentMethod::Stripe])], editing: true } }
+        rsx! { MetadataFields { draft, options: ConventionOptionsResponse { countries: vec!["JP".into(), "TH".into()], currencies: vec![domain::dto::ConventionCurrencyOption { code: "THB".into(), payment_methods: vec![ConventionPaymentMethod::Stripe] }] }, editing: true } }
     }
     let mut dom = VirtualDom::new(app);
     dom.rebuild_in_place();
@@ -22,6 +23,13 @@ fn metadata_fields_keep_identity_readonly_and_date_inputs_are_calendar_dates() {
     );
     assert!(html.contains("<option value=\"\">Choose currency</option>"));
     assert!(html.contains("type=\"date\""));
+    assert!(
+        html.contains("<option value=\"TH\" selected=true>TH</option>"),
+        "{html}"
+    );
+    assert!(html.contains("<option value=\"JP\">JP</option>"), "{html}");
+    assert!(html.contains("Choose country"));
+    assert!(!html.contains("maxlength=\"2\""));
     assert!(html.contains("Enable preorders"));
     assert!(html.contains("Description preview"));
     assert!(!html.contains("datetime-local"));
@@ -30,12 +38,13 @@ fn metadata_fields_keep_identity_readonly_and_date_inputs_are_calendar_dates() {
 fn unsupported_saved_capabilities_are_preserved_and_explained() {
     fn app() -> Element {
         let value = Metadata {
+            country: "ZZ".into(),
             currency: "JPY".into(),
             methods: vec![ConventionPaymentMethod::Paypal],
             ..Default::default()
         };
         let draft = use_signal(|| value);
-        rsx! { MetadataFields { draft, options: Vec::new(), editing: true } }
+        rsx! { MetadataFields { draft, options: ConventionOptionsResponse::default(), editing: true } }
     }
     let mut dom = VirtualDom::new(app);
     dom.rebuild_in_place();
@@ -45,6 +54,10 @@ fn unsupported_saved_capabilities_are_preserved_and_explained() {
         "{html}"
     );
     assert!(html.contains("<option value=\"\">Choose currency</option>"));
+    assert!(
+        html.contains("<option value=\"ZZ\" selected=true>ZZ (currently unsupported)</option>"),
+        "{html}"
+    );
     assert!(html.contains("PayPal"));
     assert!(html.contains("stored method is unsupported"));
     assert!(html.contains("You can edit metadata or disable preorders"));
@@ -70,17 +83,26 @@ mod mounted {
     };
     use dioxus::history::{MemoryHistory, provide_history_context};
     use std::rc::Rc;
-    const OPTIONS: &str = r#"{"currencies":[{"code":"THB","payment_methods":["stripe"]}]}"#;
+    const OPTIONS: &str =
+        r#"{"countries":["TH","JP"],"currencies":[{"code":"THB","payment_methods":["stripe"]}]}"#;
     const UPLOADED: &str = r#"{"location":"conventions/event/key.png","url":"https://s3.test/key.png?signature=one","expires_at":"2026-11-01T00:05:00Z"}"#;
     const CREATED: &str = r##"{"id":"da41d46b-f1ca-4a76-a774-62c269d28731","slug":"event","name":"Event","logo_url":"conventions/event/key.png","logo_preview_url":"https://s3.test/key.png?signature=one","logo_preview_url_expires_at":"2026-11-01T00:05:00Z","country_code":"TH","event_starts_on":"2026-11-01","event_ends_on":"2026-11-02","description_markdown":"# Event","preorder_enabled":false,"currency_code":"THB","payment_methods":["stripe"],"created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-01T00:00:00Z"}"##;
     fn app() -> Element {
         use_hook(|| provide_history_context(Rc::new(MemoryHistory::with_initial_path("/create"))));
+        crate::components::draft_navigation::use_draft_history();
         rsx! { Router::<TestRoute> {} }
     }
     #[derive(Clone, PartialEq, Routable)]
     enum TestRoute {
         #[route("/create")]
         CreateEditor {},
+        #[route("/conventions?:..query")]
+        SavedConventions { query: String },
+    }
+    #[component]
+    fn SavedConventions(query: String) -> Element {
+        assert!(query.is_empty());
+        rsx! { p { "Saved convention list" } }
     }
     async fn settle(dom: &mut VirtualDom) -> dioxus::dioxus_core::Mutations {
         let mut changes = render_changes(dom);
@@ -131,18 +153,16 @@ mod mounted {
                 let initial = dom.rebuild_to_vec();
                 settle(&mut dom).await;
                 let inputs = listeners(&initial, "input");
-                for (input, value) in inputs.iter().zip([
-                    "Event",
-                    "event",
-                    "TH",
-                    "2026-11-01",
-                    "2026-11-02",
-                    "# Event",
-                ]) {
+                for (input, value) in
+                    inputs
+                        .iter()
+                        .zip(["Event", "event", "2026-11-01", "2026-11-02", "# Event"])
+                {
                     form_event(&dom, *input, "input", value);
                 }
                 let changes = listeners(&initial, "change");
-                form_event(&dom, changes[1], "change", "THB");
+                form_event(&dom, changes[1], "change", "TH");
+                form_event(&dom, changes[2], "change", "THB");
                 let method_render = settle(&mut dom).await;
                 let stripe = *listeners(&method_render, "change")
                     .first()
@@ -169,7 +189,10 @@ mod mounted {
                 form_event(&dom, submit, "submit", "");
                 settle(&mut dom).await;
                 let html = dioxus_ssr::render(&dom);
-                assert!(html.contains("Convention created."), "{html}");
+                assert!(html.contains("Saved convention list"), "{html}");
+                assert!(!html.contains("Discard unsaved changes?"), "{html}");
+                assert!(!html.contains("Open saved convention"));
+                assert!(!html.contains("Selected: logo.png"));
             },
         )
         .await;

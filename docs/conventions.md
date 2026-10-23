@@ -6,17 +6,18 @@
 | --- | --- |
 | Identity and currency | Slug and one convention currency are immutable after creation; final prices are exact decimal strings backed by PostgreSQL NUMERIC |
 | Preorders | New conventions are disabled; administrators explicitly enable or disable the single preorder flag. Event calendar dates do not schedule sales |
-| Currency/payment choices | Authenticated options endpoint derives supported currencies and payment methods from the existing currency precision and provider rules; no runtime currency allowlist is required |
+| Country/currency choices | Authenticated options endpoint returns sorted assigned country codes plus supported currencies/payment methods from existing validation and precision/provider rules. Forms use selects; saved currency remains immutable |
 | Metadata, selection and logo | Separate save operations and persisted snapshots; failed requests retain drafts. Creation may upload a logo before inserting metadata; retries retain its uploaded location |
 | Membership replacement | Load every saved membership page before editing or saving; catalogue search/pagination never replace the selected map. Backend replaces up to250 memberships atomically |
-| Source information | Catalogue displays product title, variant title, SKU, actual variant image, source currency/price and available quantity at the submitted location. Missing images and SKUs have explicit placeholders; source stock is informational |
+| Catalogue picker | Browse Shopify catalogue opens the shared popup with Product type and Product title text fields. Nonblank escaped clauses intersect with AND; empty filters browse eligible products. Every page uses the numeric location configured as `65761018027` in public backoffice settings. Closing retains results, selected variants and price drafts |
+| Source information | Compact result rows display separate small product/actual variant images, titles, SKU, source currency/price and available quantity. Missing images and SKUs have explicit placeholders; source stock is informational |
 | Selected variant display | Readonly details are separate from editable membership and exact overridden prices. Search/page changes and legacy saves retain observed details in the current editor; explicit null clears stale details. Enriched saved responses populate fresh views; legacy reloads show unavailable fields truthfully |
 | Quantity provenance | Catalogue observations retain their submitted location. Saved-response quantities have no invented location. Missing saved quantities show “Not available”; zero and negative quantities remain numeric. No live refresh or per-row provider requests |
 | Saved display snapshots | Required Shopify validation persists product/variant titles, nullable SKU, product/variant image URLs and inventory policy with the price. GET reads those snapshots without a provider call; older rows remain nullable until required validation. The UI uses the actual variant image and keeps explicit null distinct from omitted legacy fields |
 | Saved quantity limit | Selected responses do not include available quantity. Current-editor catalogue observations retain their location, while fresh saved views show “Not available”; no quantity persistence or extra stock lookup is introduced |
-| Navigation | Shared session-scoped draft guard preserves the active editor, confirms departure, and restores native history before proceeding; unsupported browser history protection is reported |
+| Navigation | Shared session-scoped draft guard preserves the active editor and confirms departure. Successful creation clears completion/dirty state and returns to the list; failures preserve drafts and staged upload for retry |
 | Markdown | Shared CommonMark preview escapes raw HTML and sanitizes a strict element/attribute/link allowlist; no executable embedded HTML, CSS, images or unsafe schemes |
-| Shared presentation | Both applications use the same common stylesheet and form/error/loading primitives; feature requests and drafts remain backoffice-owned |
+| Shared presentation | Shared button styles cover native controls and navigation actions. Convention rows show safe compact logo previews; labels are smaller/muted and values stronger. Enabled badges/actions use green cues; disabled states red with text/native semantics. Feature state and requests remain backoffice-owned |
 
 ## Logo upload and read
 

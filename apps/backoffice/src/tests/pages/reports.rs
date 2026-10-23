@@ -393,6 +393,9 @@ mod interaction {
             .set_nonblocking(true)
             .expect("nonblocking listener");
         let mut dom = VirtualDom::new(Reports).with_root_context(crate::config::Settings {
+            conventions: crate::config::ConventionsConfig {
+                catalogue_location_id: "65761018027".into(),
+            },
             api: crate::config::ApiConfig {
                 base_url: format!("http://{}/v1", listener.local_addr().expect("address")),
             },

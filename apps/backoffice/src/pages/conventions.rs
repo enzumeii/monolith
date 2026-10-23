@@ -40,8 +40,8 @@ pub fn Conventions(query: String) -> Element {
             h2 { "Conventions" }
             p { "Enabled conventions with eligible selections are intended for the customer homepage. Event dates describe the event; they do not schedule preorders." }
             div { class: "convention-actions",
-                Link { to: Route::ConventionCreate {}, class: "primary", "Create convention" }
-                label { r#for: "convention-filter", "Preorders" }
+                Link { to: Route::ConventionCreate {}, class: "button-link primary", "Create convention" }
+                label { class: "convention-label", r#for: "convention-filter", "Preorders" }
                 select { id: "convention-filter", value: enabled.map_or("all", |value| if value { "true" } else { "false" }),
                     onchange: move |event| { navigator.push(Route::Conventions { query: match event.value().as_str() { "true" => "page=1&preorder_enabled=true".into(), "false" => "page=1&preorder_enabled=false".into(), _ => "page=1".into() } }); },
                     option { value: "all", "All conventions" } option { value: "false", "Disabled" } option { value: "true", "Enabled" }
@@ -50,24 +50,25 @@ pub fn Conventions(query: String) -> Element {
             if response.read().is_none() || response.pending() { p { role: "status", "Loading conventions…" } }
             else if let Some(result) = response.read().as_ref() {
                 match result {
-                    Err(error) => rsx! { ErrorMessage { message: Some(error.to_string()) } button { onclick: move |_| retry += 1, "Retry loading" } },
+                    Err(error) => rsx! { ErrorMessage { message: Some(error.to_string()) } button { class: "ghost", onclick: move |_| retry += 1, "Retry loading" } },
                     Ok(value) => rsx! {
                         if value.items.is_empty() { p { "No conventions match this filter." } }
                         div { class: "convention-table-scroll",
                             table { class: "convention-table",
                                 caption { "Saved conventions" }
-                                thead { tr { th { "Name" } th { "Event dates" } th { "Currency" } th { "Preorders" } } }
+                                thead { tr { th { "Logo" } th { "Name" } th { "Event dates" } th { "Currency" } th { "Preorders" } } }
                                 tbody { for item in &value.items { tr { key: "{item.id}",
-                                    td { Link { to: Route::ConventionDetail { id: item.id.clone() }, "{item.name}" } }
-                                    td { "{item.event_starts_on} – {item.event_ends_on}" } td { "{item.currency_code}" }
-                                    td { if item.preorder_enabled { "Enabled" } else { "Disabled" } }
+                                    td { logo::LogoThumbnail { key: "{item.id}:{item.logo_preview_url:?}", name: item.name.clone(), preview_url: item.logo_preview_url.clone(), expires_at: item.logo_preview_url_expires_at.clone() } }
+                                    td { Link { to: Route::ConventionDetail { id: item.id.clone() }, class: "button-link ghost convention-name-action", "{item.name}" } }
+                                    td { class: "convention-value", "{item.event_starts_on} – {item.event_ends_on}" } td { class: "convention-value", "{item.currency_code}" }
+                                    td { span { class: if item.preorder_enabled { "convention-status is-enabled" } else { "convention-status is-disabled" }, if item.preorder_enabled { "Enabled" } else { "Disabled" } } }
                                 } } }
                             }
                         }
                         nav { class: "convention-actions", aria_label: "Convention pages",
-                            if page > 1 { Link { to: Route::Conventions { query: page_query(page - 1, enabled) }, "Previous page" } }
+                            if page > 1 { Link { to: Route::Conventions { query: page_query(page - 1, enabled) }, class: "button-link ghost", "Previous page" } }
                             span { "Page {value.page}" }
-                            if value.has_next { Link { to: Route::Conventions { query: page_query(page + 1, enabled) }, "Next page" } }
+                            if value.has_next { Link { to: Route::Conventions { query: page_query(page + 1, enabled) }, class: "button-link ghost", "Next page" } }
                         }
                     },
                 }

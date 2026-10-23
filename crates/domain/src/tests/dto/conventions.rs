@@ -101,3 +101,20 @@ fn catalogue_variants_omit_unavailable_reason() {
     assert_eq!(wire["available_quantity"], 0);
     assert_eq!(wire["eligible"], true);
 }
+
+#[test]
+fn convention_options_round_trip_country_and_currency_select_values() {
+    let value = json!({
+        "countries": ["JP", "TH", "US"],
+        "currencies": [
+            {"code": "THB", "payment_methods": ["stripe", "paypal", "promptpay"]},
+            {"code": "USD", "payment_methods": ["stripe", "paypal"]}
+        ]
+    });
+    let options: crate::dto::ConventionOptionsResponse =
+        serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(options.countries, ["JP", "TH", "US"]);
+    assert_eq!(serde_json::to_value(options).unwrap(), value);
+    let empty = crate::dto::ConventionOptionsResponse::default();
+    assert!(empty.countries.is_empty() && empty.currencies.is_empty());
+}

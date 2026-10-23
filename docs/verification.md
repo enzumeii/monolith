@@ -795,3 +795,10 @@ The convention logo service now owns the existing image/path validation, upload,
 The upload location includes its bucket: `conventions/ax-2026` produces bucket `conventions` and object prefix `ax-2026`, with the same full bucket/key location persisted and used for attachment and preview. Report operations explicitly retain their configured bucket. Previously misplaced objects in `reports/conventions/...` are not copied or read through a fallback. Local S3 setup initializes both buckets.
 
 Catalogue requests now use numeric `location_id`; the backend constructs the Shopify Location GID. Existing example searches use `product_type` instead of collections. Raw search forwarding and provider GID inputs remain unchanged. Tests and builds are not run for these changes at the user's request; formatting and independent static review are the verification boundary.
+
+
+### Convention administration UI enhancements — 2026-10-24
+
+This change adds shared link/button affordances, compact list logos, options-backed country/currency selects, automatic list navigation after successful creation, and an existing-dialog catalogue picker with a fixed configured numeric location, escaped product-type/title AND filters and compact product/variant thumbnails. Label/value hierarchy and green/red state cues are applied to convention controls.
+
+Verification is limited to formatting, scoped diff/import/contract review and independent static reviews under the approved no-test implementation-review plan. Regression sources and response/config fixtures are updated but tests, builds, lint, browser/Docker/provider execution and hosted-CI waiting are not run. No visual/runtime pass is claimed. Earlier verification results remain bound to their recorded historical source.

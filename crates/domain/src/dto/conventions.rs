@@ -118,8 +118,9 @@ pub struct ConventionVariantsResponse {
     pub items: Vec<ConventionVariantDTO>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct ConventionOptionsResponse {
+    pub countries: Vec<String>,
     pub currencies: Vec<ConventionCurrencyOption>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]

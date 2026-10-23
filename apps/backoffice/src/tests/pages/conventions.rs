@@ -48,6 +48,13 @@ async fn mounted_response(path: &str, responses: &[(u16, &str)], expected: &str)
     })
     .await;
     assert!(!requests.is_empty(), "actual component must call the API");
+    if path == "/conventions" {
+        assert_eq!(
+            requests.len(),
+            1,
+            "list logo rendering must not fan out requests"
+        );
+    }
     assert!(
         html.contains(expected),
         "resource completion must render {expected}: {html}"
@@ -62,7 +69,19 @@ async fn mounted_response(path: &str, responses: &[(u16, &str)], expected: &str)
 #[tokio::test]
 async fn mounted_convention_list_renders_async_success_and_failure_without_other_state_changes() {
     let list = format!(r#"{{"items":[{RECORD}],"page":1,"per_page":25,"has_next":false}}"#);
-    mounted_response("/conventions", &[(200, &list)], "Loaded event").await;
+    let html = mounted_response("/conventions", &[(200, &list)], "Loaded event").await;
+    assert!(html.contains("No logo preview"), "{html}");
+    assert!(html.contains("button-link ghost convention-name-action"));
+    assert!(html.contains("convention-status is-disabled"));
+    let logo_list = list.replace("\"logo_preview_url\":null", "\"logo_preview_url\":\"https://s3.test/logo.png?signature=one\",\"logo_preview_url_expires_at\":\"2099-01-01T00:00:00Z\"");
+    let html = mounted_response(
+        "/conventions",
+        &[(200, &logo_list)],
+        "Logo for Loaded event",
+    )
+    .await;
+    assert!(html.contains("class=\"convention-thumbnail\""));
+    assert!(html.contains("loading=\"lazy\""));
     mounted_response(
         "/conventions",
         &[(502, r#"{"error":"List unavailable"}"#)],
@@ -79,7 +98,7 @@ async fn mounted_convention_detail_renders_async_success_and_failure_without_oth
             (200, RECORD),
             (
                 200,
-                r#"{"currencies":[{"code":"THB","payment_methods":["stripe"]}]}"#,
+                r#"{"countries":["TH"],"currencies":[{"code":"THB","payment_methods":["stripe"]}]}"#,
             ),
             (
                 200,

@@ -1,6 +1,6 @@
 use super::{
     logo::{LogoPicker, LogoPreview, Preview, use_logo_selection},
-    metadata::{Capabilities, MetadataFields},
+    metadata::MetadataFields,
     state::Metadata,
 };
 use crate::{
@@ -13,7 +13,7 @@ use crate::{
     session,
 };
 use dioxus::prelude::*;
-use domain::dto::{ConventionDTO, PatchConvention, PatchField};
+use domain::dto::{ConventionDTO, ConventionOptionsResponse, PatchConvention, PatchField};
 
 #[component]
 pub fn Detail(id: String) -> Element {
@@ -25,29 +25,26 @@ pub fn Detail(id: String) -> Element {
         async move {
             let record = session::with_session(|| api::conventions::get(&id)).await?;
             let options = session::with_session(api::conventions::options).await?;
-            Ok::<_, api::ApiError>((
-                record,
-                options
-                    .currencies
-                    .into_iter()
-                    .map(|item| (item.code, item.payment_methods))
-                    .collect::<Capabilities>(),
-            ))
+            Ok::<_, api::ApiError>((record, options))
         }
     });
     rsx! {
-        Link { to: Route::Conventions { query: String::new() }, "Back to conventions" }
+        Link { to: Route::Conventions { query: String::new() }, class: "button-link ghost", "Back to conventions" }
         if record.read().is_none() || record.pending() { p { role: "status", "Loading convention…" } }
         else if let Some(result) = record.read().as_ref() {
             match result {
-                Err(error) => rsx! { ErrorMessage { message: Some(error.to_string()) } button { onclick: move |_| reload += 1, "Retry loading" } },
+                Err(error) => rsx! { ErrorMessage { message: Some(error.to_string()) } button { class: "ghost", onclick: move |_| reload += 1, "Retry loading" } },
                 Ok((record, options)) => rsx! { Editor { key: "{id}:{reload}", record: record.clone(), options: options.clone(), on_reload: move |()| reload += 1 } },
             }
         }
     }
 }
 #[component]
-fn Editor(record: ConventionDTO, options: Capabilities, on_reload: EventHandler<()>) -> Element {
+fn Editor(
+    record: ConventionDTO,
+    options: ConventionOptionsResponse,
+    on_reload: EventHandler<()>,
+) -> Element {
     let owner = use_owner();
     let mut draft = use_signal(|| Metadata::from_record(&record));
     let mut saved = use_signal(|| Metadata::from_record(&record));
@@ -78,18 +75,24 @@ fn Editor(record: ConventionDTO, options: Capabilities, on_reload: EventHandler<
     let clear_id = record.id.clone();
     let allowed = !draft().requires_capabilities(&saved())
         || options
+            .currencies
             .iter()
-            .find(|(code, _)| code == &draft.read().currency)
-            .is_some_and(|(_, methods)| {
+            .find(|item| item.code == draft.read().currency)
+            .is_some_and(|item| {
                 draft
                     .read()
                     .methods
                     .iter()
-                    .all(|method| methods.contains(method))
+                    .all(|method| item.payment_methods.contains(method))
             });
 
     rsx! {
-        p { role: "status", "Saved preorders: " if saved.read().enabled { strong { "Enabled" } } else { strong { "Disabled" } } " · {record.slug} · {record.currency_code}" }
+        div { class: "convention-saved-summary", role: "status",
+            span { class: "convention-label", "Saved preorders" }
+            span { class: if saved.read().enabled { "convention-status is-enabled" } else { "convention-status is-disabled" }, if saved.read().enabled { "Enabled" } else { "Disabled" } }
+            span { class: "convention-label", "Slug" } span { class: "convention-value", "{record.slug}" }
+            span { class: "convention-label", "Currency" } span { class: "convention-value", "{record.currency_code}" }
+        }
         p { "Enabled conventions with eligible selections are intended for the customer homepage. Event dates do not schedule availability. Saving or enabling validates the current selection on the server." }
         section { class: "panel convention-section", aria_label: "Convention metadata",
             h3 { "Convention metadata" }

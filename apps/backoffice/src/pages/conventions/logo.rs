@@ -62,7 +62,7 @@ pub(super) fn LogoPicker(
 ) -> Element {
     let owner = use_owner();
     rsx! {
-        label { r#for: "convention-logo-file", "Choose logo file" }
+        label { class: "convention-label", r#for: "convention-logo-file", "Choose logo file" }
         for generation in [(selection.generation)()] {
             input { key: "{generation}", id: "convention-logo-file", r#type: "file", accept: "image/png,image/jpeg", disabled: request.read().pending(),
                 onchange: move |event| {
@@ -134,6 +134,29 @@ pub(super) fn LogoPreview(mut preview: Signal<Preview>, id: String) -> Element {
                 });
             }, "Refresh logo preview" }
         }
+    }
+}
+
+#[component]
+pub(super) fn LogoThumbnail(
+    name: String,
+    preview_url: Option<String>,
+    expires_at: Option<String>,
+) -> Element {
+    let mut failed = use_signal(|| false);
+    let url = preview_url
+        .as_deref()
+        .and_then(api::conventions::logo_preview_url);
+    let fresh = expires_at
+        .as_deref()
+        .and_then(|expiry| chrono::DateTime::parse_from_rfc3339(expiry).ok())
+        .is_some_and(|expiry| expiry.timestamp_millis() > chrono::Utc::now().timestamp_millis());
+    rsx! {
+        if !failed() && fresh {
+            if let Some(url) = url {
+                img { class: "convention-thumbnail", src: url, alt: "Logo for {name}", width: "56", height: "56", loading: "lazy", onerror: move |_| failed.set(true) }
+            } else { span { class: "convention-thumbnail-placeholder convention-label", "No logo preview" } }
+        } else { span { class: "convention-thumbnail-placeholder convention-label", "No logo preview" } }
     }
 }
 

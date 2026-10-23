@@ -65,3 +65,20 @@ fn relative_api_uses_the_current_generated_origin() {
         assert!(super::resolve_api_url(invalid, "https://example.test/").is_err());
     }
 }
+
+#[test]
+fn convention_location_is_required_and_uses_numeric_location_validation() {
+    for contents in [
+        include_str!("../../application.toml"),
+        include_str!("../../application.prod.toml"),
+    ] {
+        let mut settings: super::Settings = toml::from_str(contents).expect("settings");
+        assert_eq!(settings.conventions.catalogue_location_id, "65761018027");
+        assert!(settings.validate().is_ok());
+        for invalid in ["", "0", "000", "gid://shopify/Location/1", "1 2", "-1"] {
+            settings.conventions.catalogue_location_id = invalid.into();
+            assert!(settings.validate().is_err());
+        }
+    }
+    assert!(toml::from_str::<super::Settings>("[api]\nbase_url = \"/api/v1\"").is_err());
+}

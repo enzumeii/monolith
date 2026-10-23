@@ -123,3 +123,26 @@ fn invalid_image_type_does_not_create_an_upload_candidate() {
     assert!(html.contains("Choose a PNG or JPEG between 1 byte and 2 MiB"));
     assert!(!html.contains("Selected: logo.png"));
 }
+
+#[test]
+fn thumbnail_renders_only_safe_unexpired_signed_preview_urls() {
+    #[component]
+    fn app() -> Element {
+        rsx! {
+            LogoThumbnail { name: "Safe", preview_url: Some("https://s3.test/logo.png?signature=one".into()), expires_at: Some("2099-01-01T00:00:00Z".into()) }
+            LogoThumbnail { name: "Expired", preview_url: Some("https://s3.test/expired.png".into()), expires_at: Some("2000-01-01T00:00:00Z".into()) }
+            LogoThumbnail { name: "Unsafe", preview_url: Some("javascript:alert(1)".into()), expires_at: Some("2099-01-01T00:00:00Z".into()) }
+            LogoThumbnail { name: "Missing", preview_url: None, expires_at: None }
+        }
+    }
+    let mut dom = VirtualDom::new(app);
+    dom.rebuild_in_place();
+    let html = dioxus_ssr::render(&dom);
+    assert!(html.contains("Logo for Safe"), "{html}");
+    assert!(html.contains("width=\"56\""));
+    assert!(html.contains("height=\"56\""));
+    assert!(html.contains("loading=\"lazy\""));
+    assert!(!html.contains("expired.png"));
+    assert!(!html.contains("javascript:"));
+    assert_eq!(html.matches("No logo preview").count(), 3);
+}

@@ -64,7 +64,7 @@ async fn a_failed_or_invalid_later_page_never_exposes_a_partial_selection() {
 async fn crud_options_logo_and_exact_price_requests_use_the_existing_cookie_transport() {
     let (result, request) = metadata_response(
         200,
-        r#"{"currencies":[{"code":"THB","payment_methods":["stripe"]}]}"#,
+        r#"{"countries":["TH"],"currencies":[{"code":"THB","payment_methods":["stripe"]}]}"#,
         options(),
     )
     .await;

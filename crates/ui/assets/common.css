@@ -35,6 +35,12 @@
     --modal-overlay-bg: rgba(96, 26, 22, 0.55);
     --table-heading-bg: rgba(255, 217, 101, 0.35);
     --table-row-hover-bg: rgba(255, 152, 78, 0.08);
+    --status-enabled-bg: #e4f3e8;
+    --status-enabled-text: #14552b;
+    --status-enabled-border: #438358;
+    --status-disabled-bg: #fbe8e8;
+    --status-disabled-text: #8a2424;
+    --status-disabled-border: #b85b5b;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -59,6 +65,12 @@
         --modal-overlay-bg: rgba(4, 8, 12, 0.72);
         --table-heading-bg: rgba(255, 157, 77, 0.18);
         --table-row-hover-bg: rgba(255, 157, 77, 0.1);
+        --status-enabled-bg: #173c2a;
+        --status-enabled-text: #b1ebc4;
+        --status-enabled-border: #6db58a;
+        --status-disabled-bg: #482729;
+        --status-disabled-text: #ffc2c2;
+        --status-disabled-border: #d38989;
     }
 }
 
@@ -137,7 +149,8 @@ textarea:focus {
 }
 
 /* ---- Buttons ---- */
-button {
+button,
+.button-link {
     cursor: pointer;
     border-radius: 0;
     border: 1px solid transparent;
@@ -151,12 +164,22 @@ button {
     color: var(--text);
 }
 
+.button-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    text-align: center;
+    text-decoration: none;
+}
+
 button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }
 
-button.primary {
+button.primary,
+.button-link.primary {
     background: var(--primary);
     color: var(--primary-text);
     border-color: var(--primary);
@@ -164,26 +187,31 @@ button.primary {
     margin-top: 0.75rem;
 }
 
-button.primary:hover:not(:disabled) {
+button.primary:hover:not(:disabled),
+.button-link.primary:hover {
     background: var(--primary-hover);
     border-color: var(--primary-hover);
 }
 
-button.danger {
+button.danger,
+.button-link.danger {
     background: var(--danger);
     color: #fff;
 }
 
-button.danger:hover:not(:disabled) {
+button.danger:hover:not(:disabled),
+.button-link.danger:hover {
     background: var(--danger-hover);
 }
 
-button.ghost {
+button.ghost,
+.button-link.ghost {
     border-color: var(--ghost-border);
     color: var(--text);
 }
 
-button.ghost:hover:not(:disabled) {
+button.ghost:hover:not(:disabled),
+.button-link.ghost:hover {
     background: var(--hover-bg);
 }
 
@@ -205,7 +233,8 @@ a:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    button {
+    button,
+    .button-link {
         transition: none;
     }
 }

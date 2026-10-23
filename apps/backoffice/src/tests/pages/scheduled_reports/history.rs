@@ -88,6 +88,9 @@ mod mounted {
         let mut dom = VirtualDom::new(app)
             .with_root_context(harness.clone())
             .with_root_context(crate::config::Settings {
+                conventions: crate::config::ConventionsConfig {
+                    catalogue_location_id: "65761018027".into(),
+                },
                 api: crate::config::ApiConfig {
                     base_url: format!(
                         "http://{}/v1",
@@ -296,6 +299,9 @@ mod mounted {
         let mut dom = VirtualDom::new(refresh_app)
             .with_root_context(harness.clone())
             .with_root_context(crate::config::Settings {
+                conventions: crate::config::ConventionsConfig {
+                    catalogue_location_id: "65761018027".into(),
+                },
                 api: crate::config::ApiConfig {
                     base_url: format!(
                         "http://{}/v1",

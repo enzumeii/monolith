@@ -216,21 +216,28 @@ mod mounted {
                 settle(&mut dom).await;
                 assert!(save_disabled(&dom));
                 let inputs = listeners(&initial, "input");
-                form_event(&dom, inputs[0], "input", "123");
-                form_event(&dom, inputs[1], "input", "title:Fox");
+                form_event(
+                    &dom,
+                    crate::test_events::element_id(&initial, "browse-shopify-catalogue"),
+                    "click",
+                    "",
+                );
+                form_event(&dom, inputs[0], "input", "Shirts");
+                form_event(&dom, inputs[1], "input", "Fox");
                 form_event(&dom, listeners(&initial, "submit")[0], "submit", "");
                 let browse = settle(&mut dom).await;
                 let html = dioxus_ssr::render(&dom);
                 for expected in [
                     "Fox shirt",
-                    "Variant: Blue / M",
+                    "Blue / M",
                     "FOX-B-M",
                     "https://cdn.test/blue.png",
-                    "Available stock: 0",
+                    "Available stock",
                 ] {
                     assert!(html.contains(expected), "missing {expected}: {html}");
                 }
-                assert!(!html.contains("https://cdn.test/product.png"));
+                assert!(html.contains("https://cdn.test/product.png"));
+                assert!(html.contains("convention-thumbnail"));
                 let clicks = listeners(&browse, "click");
                 form_event(&dom, clicks[0], "click", "");
                 let selected = settle(&mut dom).await;
@@ -241,6 +248,28 @@ mod mounted {
                     "12.990",
                 );
                 settle(&mut dom).await;
+                form_event(&dom, inputs[0], "input", "Changed draft type");
+                form_event(&dom, inputs[1], "input", "Changed draft title");
+                // Close and reopen the same mounted picker; selection, query and results survive.
+                let initial_clicks = listeners(&initial, "click");
+                form_event(
+                    &dom,
+                    *initial_clicks.last().expect("popup close"),
+                    "click",
+                    "",
+                );
+                settle(&mut dom).await;
+                form_event(
+                    &dom,
+                    crate::test_events::element_id(&initial, "browse-shopify-catalogue"),
+                    "click",
+                    "",
+                );
+                settle(&mut dom).await;
+                let reopened = dioxus_ssr::render(&dom);
+                assert!(reopened.contains("Already selected"));
+                assert!(reopened.contains("Changed draft title"));
+                assert!(reopened.contains("12.990"));
                 form_event(&dom, clicks[1], "click", "");
                 settle(&mut dom).await;
                 let html = dioxus_ssr::render(&dom);
@@ -252,7 +281,7 @@ mod mounted {
                     "https://cdn.test/blue.png",
                     "12.990",
                     "Available stock: 0",
-                    "Last loaded at location 123",
+                    "Last loaded at location 65761018027",
                 ] {
                     assert!(
                         html.contains(expected),
@@ -276,7 +305,7 @@ mod mounted {
                     "https://cdn.test/blue.png",
                     "12.990",
                     "Available stock: 0",
-                    "Last loaded at location 123",
+                    "Last loaded at location 65761018027",
                 ] {
                     assert!(
                         html.contains(expected),
@@ -288,8 +317,19 @@ mod mounted {
         )
         .await;
         assert_eq!(requests.len(), 5, "no per-row requests");
-        assert!(requests[1].contains("location_id=123"));
+        assert!(requests[1].contains("location_id=65761018027"));
         assert!(requests[2].contains("cursor=next"));
+        for request in &requests[1..3] {
+            let target = request.split_whitespace().nth(1).expect("request target");
+            let url = reqwest::Url::parse(&format!("http://test{target}")).expect("URL");
+            let search = url
+                .query_pairs()
+                .find(|(key, _)| key == "search")
+                .expect("search")
+                .1
+                .into_owned();
+            assert_eq!(search, r#"product_type:"Shirts" AND title:"Fox""#);
+        }
         for request in &requests[3..] {
             assert!(request.ends_with(r#"{"items":[{"shopify_product_id":"1","shopify_variant_id":"2","final_price":"12.990"}]}"#));
         }
@@ -357,4 +397,45 @@ mod mounted {
         })
         .await;
     }
+}
+
+#[test]
+fn generated_search_intersects_quoted_trimmed_fields_and_omits_blanks() {
+    assert_eq!(
+        catalogue_search("  Shirts  ", " Fox ").unwrap(),
+        r#"product_type:"Shirts" AND title:"Fox""#
+    );
+    assert_eq!(catalogue_search("  ", " Fox ").unwrap(), r#"title:"Fox""#);
+    assert_eq!(
+        catalogue_search("Shirts", "").unwrap(),
+        r#"product_type:"Shirts""#
+    );
+    assert_eq!(catalogue_search(" ", "\n").unwrap(), "");
+    assert_eq!(
+        catalogue_search(r#"x:" OR title:(bad) \"#, "").unwrap(),
+        r#"product_type:"x\:\" OR title\:\(bad\) \\""#
+    );
+}
+
+#[test]
+fn generated_search_limit_counts_escaped_utf8_bytes() {
+    assert!(catalogue_search("", &"a".repeat(2040)).is_ok());
+    assert!(catalogue_search("", &"a".repeat(2041)).is_err());
+    assert!(catalogue_search("", &":".repeat(1021)).is_err());
+    assert!(catalogue_search("", &"ก".repeat(681)).is_err());
+}
+
+#[test]
+fn product_and_variant_images_are_distinct_and_independently_safe() {
+    let mut response = catalogue_fixture(Some("https://cdn.test/blue.png"));
+    response.products[0].featured_image.as_mut().unwrap().url = "javascript:alert(1)".into();
+    let page = BrowsePage::from_response(response);
+    assert!(page.items[0].product_image.is_none());
+    assert!(page.items[0].image.is_some());
+    let page = BrowsePage::from_response(catalogue_fixture(None));
+    assert!(page.items[0].image.is_none());
+    assert_eq!(
+        page.items[0].product_image.as_ref().unwrap().0,
+        "https://cdn.test/product.png"
+    );
 }

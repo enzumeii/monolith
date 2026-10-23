@@ -249,6 +249,29 @@ async fn logo_projection_is_local_and_degrades_without_losing_stored_location() 
 }
 
 #[test]
+fn options_include_every_assigned_country_in_sorted_order() {
+    let result = options();
+    assert_eq!(result.countries.len(), 249);
+    assert!(result.countries.windows(2).all(|pair| pair[0] < pair[1]));
+    for first in b'A'..=b'Z' {
+        for second in b'A'..=b'Z' {
+            let code = String::from_utf8(vec![first, second]).unwrap();
+            assert_eq!(
+                result.countries.binary_search(&code).is_ok(),
+                !matches!(CountryCode::from(code.clone()), CountryCode::Other(_)),
+                "{code}"
+            );
+        }
+    }
+    for code in ["TH", "US", "GB", "JP"] {
+        assert!(result.countries.iter().any(|country| country == code));
+    }
+    for code in ["ZZ", "XX", "THA"] {
+        assert!(!result.countries.iter().any(|country| country == code));
+    }
+}
+
+#[test]
 fn options_follow_intrinsic_currency_and_provider_policy_without_runtime_configuration() {
     let result = options();
     assert!(
