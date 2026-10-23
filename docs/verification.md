@@ -1,8 +1,21 @@
 # Verification
 
+## ENZ-35 PR #57 migration fold — local verification (2026-10-23)
+
+The direct user-authorized correction folds seven nullable display TEXT fields into the original unpublished `20261023090000_conventions.sql` and removes the separate display-metadata migration. Results bind to `migration-fold-source-freeze.json` atop `b2bf1d3c06b6076b320cd57314d80154fb55a45a`; API, provider, DTO, routing and test implementation remain unchanged.
+
+| Check | Actual result |
+| --- | --- |
+| Effective schema | PostgreSQL catalog comparison of former CREATE-plus-ALTER against folded CREATE is identical: all 27 columns across both tables, including physical order, types, nullable/default semantics, constraints, indexes, function and trigger. Display fields remain nullable TEXT with no defaults; timestamp definitions are unchanged |
+| Fresh migrations | Real SQLx applies the committed migration sequence to fresh owned Compose PostgreSQL. Ledger records `20261023090000` once and no removed additive migration; no backfill or production migration |
+| Native / convention TCP | Exit 0: 389 native tests (22.40s) and 24 real-TCP convention tests (38.59s), zero failed/ignored. Missing-data rows, snapshot refresh/null clearing/provider failure, locked snapshot retention, UTC, constraints, rollback and routes remain covered |
+| Strict / static | Exit 0: API check including 34 setup-helper tests, dprint, Rust formatting and strict all-target/E2E Clippy; workspace formatting and diff whitespace checks pass |
+| Isolation / cleanup | Owned `enz35` Compose on PostgreSQL15435/S315436, existing target, synthetic credentials and dotenv discovery disabled. Down-v exits 0; Docker label and owned API-process audits are empty. Frozen product/documentation hashes are preserved |
+| Evidence / limits | Ignored `migration-fold-*.log`, `migration-fold-results.json`, schema equality and cleanup JSON retain commands and actual exits. Initial proof stopped on a harness count typo (30 instead of 27) before Cargo tests, cleaned up, then the corrected fresh run passed. Earlier full 184-TCP evidence remains bound to v4 below; fresh full hosted CI/coverage remains delivery-owned. No live-provider, browser, deployment or production-database action |
+
 ## ENZ-35 PR #57 display metadata and route nesting — local verification (2026-10-23)
 
-Results apply to the approved v4 delta atop `34e1e9645830cc6e908e839f77d3251161034ea8`, bound to ignored `delta-source-freeze-v2.json` under `.superpowers/review-comments/PR-57/2026-10-23/`.
+Historical results below apply to approved v4 commit `b2bf1d3c06b6076b320cd57314d80154fb55a45a`, whose delta atop `34e1e9645830cc6e908e839f77d3251161034ea8` is bound to ignored `delta-source-freeze-v2.json` under `.superpowers/review-comments/PR-57/2026-10-23/`. The later migration fold has separate fresh evidence above.
 
 | Check | Actual result |
 | --- | --- |
@@ -11,7 +24,7 @@ Results apply to the approved v4 delta atop `34e1e9645830cc6e908e839f77d32511610
 | Final full API recipe | Exit 0: 389 native + 184 real-TCP tests, zero failed/ignored; TCP phase 692.05s. Native suite runs once with Compose PostgreSQL ready; recipe removes owned PostgreSQL/S3 containers, volume and network |
 | Convention regressions | All 24 cases pass, including five new TCP cases for snapshot refresh/null clearing/offline retention, nullable legacy data, missing/malformed requested provider fields, slashless nested routes and aliases, and latest locked snapshot retention. Existing lifecycle, last-completed-save, later-provider failure, write/commit rollback, pagination, auth/cookie/CORS, currency and UTC regressions remain green |
 | Postman / static | Lint from the actual workspace root: 72 entities, zero errors, one existing cron-preview FMT209 warning. Three touched YAML requests parse; ConventionVariant query bytes and variable keys match the formatted GraphQL source. Workspace format and diff checks pass |
-| Persistence / cleanup | Original `20261023090000_conventions.sql` is byte-identical to HEAD; metadata uses additive nullable columns without backfill. Independent post-run audit finds no enz35 containers, volumes, networks or API processes |
+| Cleanup | Independent v4 post-run audit finds no enz35 containers, volumes, networks or API processes |
 | Limits | Controlled Shopify TCP and real PostgreSQL/S3 dependencies only. No live merchant/browser/deployment run or extra local coverage run; fresh hosted CI remains delivery work |
 
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
