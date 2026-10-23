@@ -1,5 +1,6 @@
 use crate::models::shopify::{
-    CreateData, OrderData, OrderSummary, OrdersPage, ShippingOrder, TagData,
+    CreateData, CreateDraftOrderData, CreateDraftOrderInput, DraftOrderCreatePayload, OrderData,
+    OrderSummary, OrdersPage, ShippingOrder, TagData,
 };
 use crate::{
     client::{ClientError, ClientErrorKind, GraphqlClient, GraphqlRequest, HttpClient},
@@ -147,6 +148,28 @@ impl ShopifyClient {
             input.variables()?,
         )
         .await
+    }
+
+    /// Creates a draft without application retries; a lost response may be ambiguous.
+    pub async fn create_draft_order(
+        &self,
+        input: &CreateDraftOrderInput,
+    ) -> Result<DraftOrderCreatePayload, ClientError> {
+        for line in &input.line_items {
+            line.variant_id.require_kind("ProductVariant")?;
+        }
+        let data: CreateDraftOrderData = self
+            .graphql
+            .execute_once(
+                self.headers.clone(),
+                &GraphqlRequest {
+                    query: include_str!("shopify/create_draft_order.graphql"),
+                    operation_name: "CreateDraftOrder",
+                    variables: json!({"input": input}),
+                },
+            )
+            .await?;
+        Ok(data.draft_order_create)
     }
 
     pub(crate) async fn get_order_by_order_number(
