@@ -325,7 +325,7 @@ class SetupEnvTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse((self.cwd / '.env').exists())
 
-    def test_single_just_setup_works_with_present_or_absent_cli(self):
+    def prepare_just_setup(self):
         just = shutil.which('just')
         if not just:
             self.skipTest('just is required for recipe integration')
@@ -337,8 +337,54 @@ class SetupEnvTests(unittest.TestCase):
         shutil.copy(SCRIPT.parents[1] / 'justfile', api / 'justfile')
         (self.bin / 'bash').symlink_to('/bin/bash')
         cargo = self.bin / 'cargo'
-        cargo.write_text("#!/bin/sh\n/bin/mkdir -p .tools/bin\n/bin/echo installed > cargo-ran\n/bin/echo '#!/bin/sh' > .tools/bin/dprint\n/bin/chmod +x .tools/bin/dprint\n")
+        cargo.write_text(r"""#!/usr/bin/env python3
+import json, sys
+from pathlib import Path
+args = sys.argv[1:]
+binary = Path('.tools/bin/dprint')
+if binary.exists() and '--force' not in args:
+    print('error: binary `dprint` already exists in destination', file=sys.stderr)
+    sys.exit(101)
+Path('cargo-ran').write_text(json.dumps(args))
+binary.parent.mkdir(parents=True, exist_ok=True)
+binary.write_text("#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'dprint 0.63.0'; else : > formatter-configured; fi\n")
+binary.chmod(0o755)
+""")
         cargo.chmod(0o755)
+        return just, api
+
+    def test_setup_reuses_pinned_formatter_and_repairs_other_states(self):
+        just, api = self.prepare_just_setup()
+        binary = api / '.tools/bin/dprint'
+        binary.parent.mkdir(parents=True)
+        cases = (('missing', None, True), ('pinned', "echo 'dprint 0.63.0'", False),
+                 ('outdated', "echo 'dprint 0.62.0'", True), ('unusable', 'exit 1', True),
+                 ('failed-version', "echo 'dprint 0.63.0'; exit 1", True),
+                 ('not-executable', "echo 'dprint 0.63.0'", True))
+        for state, version_command, install in cases:
+            with self.subTest(state=state):
+                binary.unlink(missing_ok=True)
+                (api / 'cargo-ran').unlink(missing_ok=True)
+                (api / 'formatter-configured').unlink(missing_ok=True)
+                (api / '.env').unlink(missing_ok=True)
+                if version_command:
+                    binary.write_text('#!/bin/sh\nif [ "$1" = --version ]; then ' + version_command +
+                                      '; else : > formatter-configured; fi\n')
+                    binary.chmod(0o644 if state == 'not-executable' else 0o755)
+                result = subprocess.run([just, '--justfile', str(api / 'justfile'), 'setup', '--qa'],
+                                        cwd=api, env=self.env | {'EXPECTED_ITEM': '0a291e2c-4ae4-436d-8730-ddf301a544d7'},
+                                        stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('RUN_ENV="qa"', (api / '.env').read_text())
+                self.assertIn('SHOPIFY_ACCESS_TOKEN="synthetic-vault-token"', (api / '.env').read_text())
+                self.assertTrue((api / 'formatter-configured').exists())
+                self.assertEqual((api / 'cargo-ran').exists(), install)
+                if install:
+                    self.assertEqual(json.loads((api / 'cargo-ran').read_text()),
+                                     ['install', '--force', '--locked', 'dprint', '--version', '0.63.0', '--root', '.tools'])
+
+    def test_single_just_setup_works_with_present_or_absent_cli(self):
+        just, api = self.prepare_just_setup()
         for args, present in (((), True), (('--local',), True), (('--qa',), True), ((), False)):
             with self.subTest(args=args, cli_present=present):
                 if not present:

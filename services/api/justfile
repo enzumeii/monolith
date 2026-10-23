@@ -13,7 +13,9 @@ setup mode="--local":
     #!/usr/bin/env bash
     set -euo pipefail
     case {{quote(mode)}} in --local|--qa) ;; *) echo 'Usage: just setup [--local|--qa]' >&2; exit 1 ;; esac
-    cargo install --locked dprint --version {{dprint_version}} --root .tools
+    if ! installed_version="$(.tools/bin/dprint --version 2>/dev/null)" || [[ "$installed_version" != "dprint {{dprint_version}}" ]]; then
+      cargo install --force --locked dprint --version {{dprint_version}} --root .tools
+    fi
     .tools/bin/dprint config install
     python3 scripts/setup-env.py {{quote(mode)}}
 
