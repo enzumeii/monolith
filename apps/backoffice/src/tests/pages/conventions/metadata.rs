@@ -102,7 +102,7 @@ mod mounted {
     }
     #[component]
     fn SavedConventions(query: String) -> Element {
-        assert!(query.is_empty());
+        assert_eq!(query, "");
         rsx! { p { "Saved convention list" } }
     }
     async fn settle(dom: &mut VirtualDom) -> dioxus::dioxus_core::Mutations {

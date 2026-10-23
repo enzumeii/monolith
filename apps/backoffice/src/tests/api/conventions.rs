@@ -196,7 +196,6 @@ async fn selected_variants_decode_enrichment_and_presence_on_get_and_put_without
     let rows = rows.expect("valid fixture value");
     assert_eq!(rows[0].variant_title, PatchField::Set("Blue / M".into()));
     assert_eq!(rows[0].sku, PatchField::Clear);
-    assert!(rows[0]._available_quantity.is_missing());
     assert_eq!(rows[0].membership.id, "row2");
     assert_eq!(rows[0].membership.convention_id, ID);
     assert_eq!(rows[0].membership.shopify_product_id, "1");
@@ -213,8 +212,10 @@ async fn selected_variants_decode_enrichment_and_presence_on_get_and_put_without
     assert!(rows[0].membership.variant_image.is_none());
     let SelectedVariant {
         _product_image: product_image,
+        _available_quantity: available_quantity,
         ..
     } = &rows[0];
+    assert!(available_quantity.is_missing());
     assert!(
         matches!(product_image, PatchField::Set(image) if image.url == "https://cdn.test/product.png")
     );
@@ -234,7 +235,7 @@ async fn selected_variants_decode_enrichment_and_presence_on_get_and_put_without
     assert_eq!(saved.variant_title, PatchField::Set("Blue / M".into()));
     assert_eq!(saved.sku, PatchField::Clear);
     assert!(
-        matches!(saved.variant_image, PatchField::Set(image) if image.url == "https://cdn.test/blue.png")
+        matches!(&saved.variant_image, PatchField::Set(image) if image.url == "https://cdn.test/blue.png")
     );
     assert_eq!(saved.membership.shopify_product_id, "1");
     assert_eq!(saved.membership.shopify_variant_id, "2");
@@ -243,7 +244,11 @@ async fn selected_variants_decode_enrichment_and_presence_on_get_and_put_without
         saved.membership.inventory_policy,
         Some(domain::dto::CatalogueInventoryPolicy::Deny)
     );
-    assert!(saved._available_quantity.is_missing());
+    let SelectedVariant {
+        _available_quantity: available_quantity,
+        ..
+    } = &saved;
+    assert!(available_quantity.is_missing());
     assert!(request.ends_with(
         r#"{"items":[{"shopify_product_id":"1","shopify_variant_id":"2","final_price":"12.990"}]}"#
     ));
@@ -257,13 +262,14 @@ async fn selected_variants_decode_enrichment_and_presence_on_get_and_put_without
     assert!(row.variant_title.is_missing());
     let SelectedVariant {
         _product_image: product_image,
+        _available_quantity: available_quantity,
         ..
     } = &row;
     assert!(product_image.is_missing());
     assert!(row.membership.inventory_policy.is_none());
     assert!(row.sku.is_missing());
     assert!(row.variant_image.is_missing());
-    assert!(row._available_quantity.is_missing());
+    assert!(available_quantity.is_missing());
 }
 
 #[tokio::test]

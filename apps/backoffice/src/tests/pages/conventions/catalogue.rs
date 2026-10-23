@@ -188,6 +188,36 @@ mod mounted {
             .expect("valid fixture value")
             .contains("disabled")
     }
+    fn assert_selected_details(html: &str, context: &str) {
+        for expected in [
+            "Fox shirt",
+            "Blue / M",
+            "FOX-B-M",
+            "https://cdn.test/blue.png",
+            "12.990",
+        ] {
+            assert!(html.contains(expected), "{context}: {html}");
+        }
+    }
+    fn assert_catalogue_requests(requests: &[String]) {
+        assert_eq!(requests.len(), 5, "no per-row requests");
+        assert!(requests[1].contains("location_id=65761018027"));
+        assert!(requests[2].contains("cursor=next"));
+        for request in &requests[1..3] {
+            let target = request.split_whitespace().nth(1).expect("request target");
+            let url = reqwest::Url::parse(&format!("http://test{target}")).expect("URL");
+            let search = url
+                .query_pairs()
+                .find(|(key, _)| key == "search")
+                .expect("search")
+                .1
+                .into_owned();
+            assert_eq!(search, r#"product_type:"Shirts" AND title:"Fox""#);
+        }
+        for request in &requests[3..] {
+            assert!(request.ends_with(r#"{"items":[{"shopify_product_id":"1","shopify_variant_id":"2","final_price":"12.990"}]}"#));
+        }
+    }
     #[tokio::test]
     async fn catalogue_select_override_save_and_paging_preserve_details_with_legacy_response_and_failure()
      {
@@ -208,7 +238,7 @@ mod mounted {
                 let inputs = listeners(&initial, "input");
                 form_event(
                     &dom,
-                    crate::test_events::element_id(&initial, "browse-shopify-catalogue"),
+                    crate::test_events::element_id(&dom, "browse-shopify-catalogue"),
                     "click",
                     "",
                 );
@@ -229,10 +259,10 @@ mod mounted {
                 assert!(html.contains("convention-thumbnail"));
                 let clicks = listeners(&browse, "click");
                 form_event(&dom, clicks[0], "click", "");
-                let selected = settle(&mut dom).await;
+                settle(&mut dom).await;
                 form_event(
                     &dom,
-                    crate::test_events::element_id(&selected, "variant-price-2"),
+                    crate::test_events::element_id(&dom, "variant-price-2"),
                     "input",
                     "12.990",
                 );
@@ -250,7 +280,7 @@ mod mounted {
                 settle(&mut dom).await;
                 form_event(
                     &dom,
-                    crate::test_events::element_id(&initial, "browse-shopify-catalogue"),
+                    crate::test_events::element_id(&dom, "browse-shopify-catalogue"),
                     "click",
                     "",
                 );
@@ -263,22 +293,11 @@ mod mounted {
                 settle(&mut dom).await;
                 let html = dioxus_ssr::render(&dom);
                 assert!(html.contains("No variants match"));
-                for expected in [
-                    "Fox shirt",
-                    "Blue / M",
-                    "FOX-B-M",
-                    "https://cdn.test/blue.png",
-                    "12.990",
-                ] {
-                    assert!(
-                        html.contains(expected),
-                        "selected details lost on paging: {html}"
-                    );
-                }
+                assert_selected_details(&html, "selected details lost on paging");
                 assert!(!save_disabled(&dom));
                 assert!(html.contains("Source price: 18.50 THB"));
                 assert!(!html.contains("Available stock"));
-                let save = crate::test_events::element_id(&initial, "save-convention-variants");
+                let save = crate::test_events::element_id(&dom, "save-convention-variants");
                 form_event(&dom, save, "click", "");
                 settle(&mut dom).await;
                 assert!(dioxus_ssr::render(&dom).contains("Provider unavailable"));
@@ -287,39 +306,12 @@ mod mounted {
                 settle(&mut dom).await;
                 let html = dioxus_ssr::render(&dom);
                 assert!(html.contains("Selected variants and prices saved"));
-                for expected in [
-                    "Fox shirt",
-                    "Blue / M",
-                    "FOX-B-M",
-                    "https://cdn.test/blue.png",
-                    "12.990",
-                ] {
-                    assert!(
-                        html.contains(expected),
-                        "legacy PUT lost selected metadata: {html}"
-                    );
-                }
+                assert_selected_details(&html, "legacy PUT lost selected metadata");
                 assert!(save_disabled(&dom));
             },
         )
         .await;
-        assert_eq!(requests.len(), 5, "no per-row requests");
-        assert!(requests[1].contains("location_id=65761018027"));
-        assert!(requests[2].contains("cursor=next"));
-        for request in &requests[1..3] {
-            let target = request.split_whitespace().nth(1).expect("request target");
-            let url = reqwest::Url::parse(&format!("http://test{target}")).expect("URL");
-            let search = url
-                .query_pairs()
-                .find(|(key, _)| key == "search")
-                .expect("search")
-                .1
-                .into_owned();
-            assert_eq!(search, r#"product_type:"Shirts" AND title:"Fox""#);
-        }
-        for request in &requests[3..] {
-            assert!(request.ends_with(r#"{"items":[{"shopify_product_id":"1","shopify_variant_id":"2","final_price":"12.990"}]}"#));
-        }
+        assert_catalogue_requests(&requests);
     }
     #[tokio::test]
     async fn enriched_put_explicit_null_removes_stale_details_without_dirtying_price() {
@@ -333,19 +325,19 @@ mod mounted {
         let ((), requests) =
             crate::api::tests::metadata_responses(&[(200, &initial), (200, &response)], async {
                 let mut dom = mount();
-                let initial = dom.rebuild_to_vec();
-                let loaded = settle(&mut dom).await;
+                dom.rebuild_in_place();
+                settle(&mut dom).await;
                 assert!(save_disabled(&dom));
                 form_event(
                     &dom,
-                    crate::test_events::element_id(&loaded, "variant-price-2"),
+                    crate::test_events::element_id(&dom, "variant-price-2"),
                     "input",
                     "19.990",
                 );
                 settle(&mut dom).await;
                 form_event(
                     &dom,
-                    crate::test_events::element_id(&initial, "save-convention-variants"),
+                    crate::test_events::element_id(&dom, "save-convention-variants"),
                     "click",
                     "",
                 );
@@ -387,17 +379,23 @@ mod mounted {
 #[test]
 fn generated_search_intersects_quoted_trimmed_fields_and_omits_blanks() {
     assert_eq!(
-        catalogue_search("  Shirts  ", " Fox ").unwrap(),
+        catalogue_search("  Shirts  ", " Fox ").expect("valid catalogue search"),
         r#"product_type:"Shirts" AND title:"Fox""#
     );
-    assert_eq!(catalogue_search("  ", " Fox ").unwrap(), r#"title:"Fox""#);
     assert_eq!(
-        catalogue_search("Shirts", "").unwrap(),
+        catalogue_search("  ", " Fox ").expect("valid catalogue search"),
+        r#"title:"Fox""#
+    );
+    assert_eq!(
+        catalogue_search("Shirts", "").expect("valid catalogue search"),
         r#"product_type:"Shirts""#
     );
-    assert_eq!(catalogue_search(" ", "\n").unwrap(), "");
     assert_eq!(
-        catalogue_search(r#"x:" OR title:(bad) \"#, "").unwrap(),
+        catalogue_search(" ", "\n").expect("valid catalogue search"),
+        ""
+    );
+    assert_eq!(
+        catalogue_search(r#"x:" OR title:(bad) \"#, "").expect("valid catalogue search"),
         r#"product_type:"x\:\" OR title\:\(bad\) \\""#
     );
 }
@@ -413,14 +411,22 @@ fn generated_search_limit_counts_escaped_utf8_bytes() {
 #[test]
 fn product_and_variant_images_are_distinct_and_independently_safe() {
     let mut response = catalogue_fixture(Some("https://cdn.test/blue.png"));
-    response.products[0].featured_image.as_mut().unwrap().url = "javascript:alert(1)".into();
+    response.products[0]
+        .featured_image
+        .as_mut()
+        .expect("fixture product image")
+        .url = "javascript:alert(1)".into();
     let page = BrowsePage::from_response(response);
     assert!(page.items[0].product_image.is_none());
     assert!(page.items[0].image.is_some());
     let page = BrowsePage::from_response(catalogue_fixture(None));
     assert!(page.items[0].image.is_none());
     assert_eq!(
-        page.items[0].product_image.as_ref().unwrap().0,
+        page.items[0]
+            .product_image
+            .as_ref()
+            .expect("safe product image")
+            .0,
         "https://cdn.test/product.png"
     );
 }

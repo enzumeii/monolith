@@ -52,7 +52,7 @@ fn automatic_refresh_for_previous_revision_never_replaces_a_new_logo() {
         "event_starts_on":"2026-11-01", "event_ends_on":"2026-11-02", "description_markdown":"Event",
         "preorder_enabled":false, "payment_methods":["stripe"], "created_at":"now", "updated_at":"now",
         "logo_preview_url":"https://s3.test/old.png", "logo_preview_url_expires_at":"2099-01-01T00:00:00Z"
-    })).unwrap();
+    })).expect("convention fixture with signed logo preview");
     let mut preview = Preview::from_record(&record);
     let revision = preview.revision;
     let mut attached = record.clone();

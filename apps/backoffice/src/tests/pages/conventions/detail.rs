@@ -94,7 +94,9 @@ fn replaced_input(changes: &Mutations, previous: ElementId) -> ElementId {
 fn assert_ready(dom: &VirtualDom) {
     let html = dioxus_ssr::render(dom);
     assert!(
-        html.contains("Selected: logo.png (4 bytes), not yet saved"),
+        html.contains("Selected: logo.png (not yet saved)")
+            && html.contains("alt=\"Selected logo preview\"")
+            && html.contains("data:image/png;base64,bG9nbw=="),
         "candidate must be restored: {html}"
     );
     let upload_prefix = html
@@ -129,12 +131,12 @@ async fn discarding_logo_replaces_native_input_and_same_file_is_ready_again() {
                 expires_at: u64::MAX,
             });
         });
-        let initial = dom.rebuild_to_vec();
-        let input = *listeners(&initial, "change").last().expect("file input");
-        let discard = crate::test_events::element_id(&initial, "convention-logo-discard");
+        dom.rebuild_in_place();
+        let input = crate::test_events::element_id(&dom, "convention-logo-file");
+        let discard = crate::test_events::element_id(&dom, "convention-logo-discard");
         form_event(
             &dom,
-            listeners(&initial, "input")[0],
+            crate::test_events::element_id(&dom, "convention-name"),
             "input",
             "Unsaved event",
         );
@@ -179,12 +181,12 @@ async fn failed_upload_keeps_candidate_and_success_resets_only_native_input() {
                     expires_at: u64::MAX,
                 });
             });
-            let initial = dom.rebuild_to_vec();
-            let input = *listeners(&initial, "change").last().expect("file input");
-            let upload = crate::test_events::element_id(&initial, "convention-logo-upload");
+            dom.rebuild_in_place();
+            let input = crate::test_events::element_id(&dom, "convention-logo-file");
+            let upload = crate::test_events::element_id(&dom, "convention-logo-upload");
             form_event(
                 &dom,
-                listeners(&initial, "input")[0],
+                crate::test_events::element_id(&dom, "convention-name"),
                 "input",
                 "Unsaved event",
             );
@@ -246,11 +248,11 @@ async fn saved_logo_has_replacement_action_without_manual_refresh_and_preserves_
                 expires_at: u64::MAX,
             });
         });
-        let initial = dom.rebuild_to_vec();
+        dom.rebuild_in_place();
         settled(&mut dom).await;
         form_event(
             &dom,
-            listeners(&initial, "input")[0],
+            crate::test_events::element_id(&dom, "convention-name"),
             "input",
             "Unsaved event",
         );

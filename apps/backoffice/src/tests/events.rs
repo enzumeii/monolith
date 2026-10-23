@@ -138,21 +138,114 @@ pub(crate) fn render_changes(
 }
 
 pub(crate) fn element_id(
-    mutations: &dioxus::dioxus_core::Mutations,
+    dom: &dioxus::prelude::VirtualDom,
     value: &str,
 ) -> dioxus::dioxus_core::ElementId {
-    use dioxus::dioxus_core::{AttributeValue, Mutation};
-    mutations
-        .edits
+    find_element(dom, dom.base_scope().root_node(), "id", value, false)
+        .expect("rendered element id")
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn dialog_button(
+    dom: &dioxus::prelude::VirtualDom,
+    class: &str,
+) -> dioxus::dioxus_core::ElementId {
+    find_element(dom, dom.base_scope().root_node(), "class", class, true)
+        .expect("rendered dialog button")
+}
+
+fn find_element(
+    dom: &dioxus::prelude::VirtualDom,
+    vnode: &dioxus::dioxus_core::VNode,
+    name: &str,
+    value: &str,
+    dialog_only: bool,
+) -> Option<dioxus::dioxus_core::ElementId> {
+    use dioxus::dioxus_core::DynamicNode;
+    for (index, root) in vnode.template.roots.iter().enumerate() {
+        if let Some(id) = find_template_element(
+            dom,
+            vnode,
+            root,
+            &[u8::try_from(index).expect("template root index")],
+            (name, value),
+            dialog_only,
+            false,
+        ) {
+            return Some(id);
+        }
+    }
+    vnode
+        .dynamic_nodes
         .iter()
-        .find_map(|edit| match edit {
-            Mutation::SetAttribute {
-                name: "id",
-                value: AttributeValue::Text(actual),
-                id,
-                ..
-            } if actual == value => Some(*id),
+        .enumerate()
+        .find_map(|(index, node)| match node {
+            DynamicNode::Component(component) => component
+                .mounted_scope(index, vnode, dom)
+                .and_then(|scope| find_element(dom, scope.root_node(), name, value, dialog_only)),
+            DynamicNode::Fragment(nodes) => nodes
+                .iter()
+                .find_map(|node| find_element(dom, node, name, value, dialog_only)),
             _ => None,
         })
-        .expect("rendered element id")
+}
+
+fn find_template_element(
+    dom: &dioxus::prelude::VirtualDom,
+    vnode: &dioxus::dioxus_core::VNode,
+    node: &dioxus::dioxus_core::TemplateNode,
+    path: &[u8],
+    attribute: (&str, &str),
+    dialog_only: bool,
+    in_dialog: bool,
+) -> Option<dioxus::dioxus_core::ElementId> {
+    use dioxus::dioxus_core::{AttributeValue, TemplateAttribute, TemplateNode};
+    let TemplateNode::Element {
+        tag,
+        attrs,
+        children,
+        ..
+    } = node
+    else {
+        return None;
+    };
+    let (name, value) = attribute;
+    let in_dialog = in_dialog || *tag == "dialog";
+    let matches = attrs.iter().any(|attr| match attr {
+        TemplateAttribute::Static {
+            name: actual_name,
+            value: actual_value,
+            ..
+        } => *actual_name == name && *actual_value == value,
+        TemplateAttribute::Dynamic { id } => vnode.dynamic_attrs[*id].iter().any(|attr| {
+            attr.name == name
+                && matches!(&attr.value, AttributeValue::Text(actual) if actual == value)
+        }),
+    });
+    if matches && (!dialog_only || (in_dialog && *tag == "button")) {
+        if let Some(index) = vnode
+            .template
+            .attr_paths
+            .iter()
+            .position(|actual| *actual == path)
+        {
+            return vnode.mounted_dynamic_attribute(index, dom);
+        }
+        if path.len() == 1 {
+            return vnode.mounted_root(usize::from(path[0]), dom);
+        }
+    }
+    children.iter().enumerate().find_map(|(index, child)| {
+        let mut child_path = path.to_vec();
+        child_path.push(u8::try_from(index).expect("template child index"));
+        find_template_element(
+            dom,
+            vnode,
+            child,
+            &child_path,
+            (name, value),
+            dialog_only,
+            in_dialog,
+        )
+    })
 }

@@ -129,7 +129,7 @@ async fn mounted_convention_detail_renders_async_success_and_failure_without_oth
 #[tokio::test]
 async fn list_deletion_requires_confirmation_preserves_errors_and_refreshes_after_success() {
     use crate::test_events::{
-        FormEventConverter, element_id, form_event, listeners, render_changes,
+        FormEventConverter, dialog_button, element_id, form_event, render_changes,
     };
     let list = format!(r#"{{"items":[{RECORD}],"page":1,"per_page":25,"has_next":false}}"#);
     let ((), requests) = metadata_responses(
@@ -156,15 +156,14 @@ async fn list_deletion_requires_confirmation_preserves_errors_and_refreshes_afte
                     expires_at: u64::MAX,
                 });
             });
-            let mut edits = dom.rebuild_to_vec();
+            dom.rebuild_in_place();
             for _ in 0..40 {
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-                edits.edits.extend(render_changes(&mut dom).edits);
+                render_changes(&mut dom);
             }
-            let delete = element_id(&edits, &format!("delete-convention-{ID}"));
-            let clicks = listeners(&edits, "click");
-            let confirm = *clicks.last().expect("confirm delete");
-            let cancel = clicks[clicks.len() - 2];
+            let delete = element_id(&dom, &format!("delete-convention-{ID}"));
+            let confirm = dialog_button(&dom, "danger");
+            let cancel = dialog_button(&dom, "ghost");
             form_event(&dom, delete, "click", "");
             render_changes(&mut dom);
             form_event(&dom, cancel, "click", "");
