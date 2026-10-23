@@ -5,14 +5,12 @@ query ConventionVariant($id: ID!) {
     sku
     image {
       url
-      altText
     }
     product {
       id
       title
       featuredImage {
         url
-        altText
       }
       status
     }

@@ -1,5 +1,20 @@
 # Verification
 
+## ENZ-35 PR #57 catalogue and inventory-policy snapshots — local verification (2026-10-23)
+
+Results bind to the frozen 26-path working-tree delta atop `b996cbdb6c4eb39bcabf41e3eee156521e055dc0`, which includes main `0c506da45e1d0e0498e508b2dd475eb3767a712d`. Complete diff SHA256: `64f64a712993267f8720dab5c1b827e361412e9bf4f718201dc8e2ea51d30b92`. Later main revisions require separate integration evidence; older checkpoints below retain their original bindings.
+
+| Check | Actual result |
+| --- | --- |
+| Shared contracts | Expected red drops inventory_policy before implementation; domain check and test pass: 14 unit + 8 contract cases, strict lint and WASM compilation |
+| API strict / integration | Exit 0: 34 setup-helper tests, dprint, Rust formatting, strict all-target/E2E Clippy. Removed the duplicate cron declaration and retained PayPal's explicit supported-currency policy with fail-closed rejection for the expanded enum; focused payment-money tests pass 4/4 |
+| Final full API recipe | Exit 0: 423 native tests (22.60s) + 184 real-TCP tests (692.76s), zero failed/ignored. One final native run with PostgreSQL ready, then all TCP modules, followed by owned Compose down-v |
+| Catalogue / snapshots | Active/tracked root search, grouped OR search, absent public product status, generic upstream completeness failure, cursor metadata, DENY admission, nullable policy snapshots, strict stored/provider decoding, URL-only saved images, policy-only timestamps, legacy no-call behavior, atomic refresh/null clearing and concurrent locked-row preservation pass |
+| Fresh schema | 26 columns across convention tables; five nullable display columns plus nullable inventory_policy TEXT constrained to DENY/CONTINUE, no image-alt columns. SQLx applies only the original convention CREATE migration; no production migration or backfill |
+| Postman / static | Root workspace lint: 77 entities, zero errors, one existing cron-preview FMT209 warning. Both external GraphQL queries and variable keys match source exactly; workspace formatting and diff checks pass |
+| Isolation / cleanup | Compose enz35, PostgreSQL15435/S315436, owned target, synthetic credentials and dotenv discovery disabled. Recipe and cleanup exit 0; independent label/process audit finds no owned containers, volumes, networks or API processes. All 26 frozen hashes remain unchanged before this evidence-only update |
+| Evidence / limits | Ignored latest-source-freeze.json, latest-source.diff, latest-api-full.log, latest-schema-proof.log and latest-cleanup-audit.json retain source binding, actual execution and cleanup. No local coverage duplicate, live-provider, browser, deployment or fresh hosted-CI claim |
+
 ## ENZ-35 PR #57 migration fold — local verification (2026-10-23)
 
 The direct user-authorized correction folds seven nullable display TEXT fields into the original unpublished `20261023090000_conventions.sql` and removes the separate display-metadata migration. Results bind to `migration-fold-source-freeze.json` atop `b2bf1d3c06b6076b320cd57314d80154fb55a45a`; API, provider, DTO, routing and test implementation remain unchanged.

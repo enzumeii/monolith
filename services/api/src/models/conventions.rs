@@ -25,9 +25,8 @@ pub(crate) struct ConventionVariant {
     pub variant_title: Option<String>,
     pub sku: Option<String>,
     pub product_image_url: Option<String>,
-    pub product_image_alt_text: Option<String>,
     pub variant_image_url: Option<String>,
-    pub variant_image_alt_text: Option<String>,
+    pub inventory_policy: Option<String>,
     pub id: uuid::Uuid,
     pub convention_id: uuid::Uuid,
     pub shopify_product_id: String,
@@ -80,6 +79,7 @@ impl Convention {
 }
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct VariantDisplay {
+    pub inventory_policy: Option<domain::dto::CatalogueInventoryPolicy>,
     pub product_title: Option<String>,
     pub variant_title: Option<String>,
     pub sku: Option<String>,
@@ -92,8 +92,17 @@ pub(crate) struct SelectedVariant {
     pub display: VariantDisplay,
 }
 impl ConventionVariant {
-    pub(crate) fn display(&self) -> VariantDisplay {
-        VariantDisplay {
+    pub(crate) fn display(&self) -> Result<VariantDisplay, AppError> {
+        let inventory_policy = self
+            .inventory_policy
+            .as_ref()
+            .map(|value| {
+                serde_json::from_value(serde_json::Value::String(value.clone()))
+                    .map_err(|error| AppError::from(anyhow::Error::new(error)))
+            })
+            .transpose()?;
+        Ok(VariantDisplay {
+            inventory_policy,
             product_title: self.product_title.clone(),
             variant_title: self.variant_title.clone(),
             sku: self.sku.clone(),
@@ -102,16 +111,16 @@ impl ConventionVariant {
                 .clone()
                 .map(|url| domain::dto::CatalogueImage {
                     url,
-                    alt_text: self.product_image_alt_text.clone(),
+                    alt_text: None,
                 }),
             variant_image: self
                 .variant_image_url
                 .clone()
                 .map(|url| domain::dto::CatalogueImage {
                     url,
-                    alt_text: self.variant_image_alt_text.clone(),
+                    alt_text: None,
                 }),
-        }
+        })
     }
     pub(crate) fn input(&self) -> ConventionVariantInput {
         ConventionVariantInput {
@@ -121,8 +130,9 @@ impl ConventionVariant {
         }
     }
     pub(crate) fn into_dto(self, currency: &str) -> Result<ConventionVariantDTO, AppError> {
-        let display = self.display();
+        let display = self.display()?;
         Ok(ConventionVariantDTO {
+            inventory_policy: display.inventory_policy,
             product_title: display.product_title,
             variant_title: display.variant_title,
             sku: display.sku,
@@ -152,3 +162,7 @@ pub(crate) fn method_values(methods: &[ConventionPaymentMethod]) -> Vec<String> 
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "../tests/models/conventions.rs"]
+mod tests;

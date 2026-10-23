@@ -27,9 +27,8 @@ CREATE TABLE convention_variants (
     variant_title TEXT,
     sku TEXT,
     product_image_url TEXT,
-    product_image_alt_text TEXT,
     variant_image_url TEXT,
-    variant_image_alt_text TEXT,
+    inventory_policy TEXT CHECK (inventory_policy IN ('DENY', 'CONTINUE')),
     UNIQUE (convention_id, shopify_variant_id)
 );
 

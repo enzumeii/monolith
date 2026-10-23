@@ -83,6 +83,7 @@ pub struct ConventionDTO {
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct ConventionVariantDTO {
+    pub inventory_policy: Option<super::CatalogueInventoryPolicy>,
     pub product_title: Option<String>,
     pub variant_title: Option<String>,
     pub sku: Option<String>,
