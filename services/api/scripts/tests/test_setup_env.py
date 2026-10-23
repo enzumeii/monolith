@@ -72,7 +72,8 @@ class SetupEnvTests(unittest.TestCase):
     def test_imports_same_name_fields_and_keeps_private_file(self):
         text = self.assert_success(self.run_setup(BW_SESSION='inherited', EXPECTED_SESSION='inherited'))
         self.assertIn('SHOPIFY_ACCESS_TOKEN="synthetic-vault-token"', text)
-        self.assertIn('BLOB_READ_WRITE_TOKEN="vercel_blob_rw_local_synthetic"', text)
+        self.assertIn('S3_ACCESS_KEY_ID="synthetic-local-access"', text)
+        self.assertIn('S3_SECRET_ACCESS_KEY="synthetic-local-secret"', text)
         self.assertRegex(text, r'JWT_SECRET="[0-9a-f]{64}"')
         self.assertEqual((self.cwd / '.env').stat().st_mode & 0o777, 0o600)
 
@@ -98,7 +99,8 @@ class SetupEnvTests(unittest.TestCase):
         self.assertIn('RUN_ENV="local"', text)
         self.assertIn('DATABASE_URL="postgres://user:pass@127.0.0.1:5432/core"', text)
         self.assertIn('SHOPIFY_ACCESS_TOKEN=""', text)
-        self.assertIn('BLOB_READ_WRITE_TOKEN="vercel_blob_rw_local_synthetic"', text)
+        self.assertIn('S3_ACCESS_KEY_ID="synthetic-local-access"', text)
+        self.assertIn('S3_SECRET_ACCESS_KEY="synthetic-local-secret"', text)
         self.assertIn('SHIPPING_SENDER_NAME="Synthetic Sender ', text)
         self.assertRegex(text, r'JWT_SECRET="[0-9a-f]{64}"')
         self.assertRegex(text, r'CRON_SECRET="[0-9a-f]{64}"')
@@ -133,7 +135,7 @@ class SetupEnvTests(unittest.TestCase):
             self.assertFalse((self.cwd / '.env').exists())
 
     def test_excluded_vault_fields_leave_local_defaults_and_existing_values(self):
-        excluded = ['RUN_ENV', 'DATABASE_URL', 'BLOB_READ_WRITE_TOKEN', *(f'SHIPPING_SENDER_{field}' for field in (
+        excluded = ['RUN_ENV', 'DATABASE_URL', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', *(f'SHIPPING_SENDER_{field}' for field in (
             'NAME', 'PHONE', 'EMAIL', 'ADDRESS', 'SUB_DISTRICT', 'DISTRICT',
             'PROVINCE', 'POSTCODE', 'COUNTRY_CODE',
         ))]
@@ -147,7 +149,8 @@ class SetupEnvTests(unittest.TestCase):
         self.assertNotIn('excluded-vault-value', text)
         self.assertIn('RUN_ENV="local"', text)
         self.assertIn('DATABASE_URL="postgres://user:pass@127.0.0.1:5432/core"', text)
-        self.assertIn('BLOB_READ_WRITE_TOKEN="vercel_blob_rw_local_synthetic"', text)
+        self.assertIn('S3_ACCESS_KEY_ID="synthetic-local-access"', text)
+        self.assertIn('S3_SECRET_ACCESS_KEY="synthetic-local-secret"', text)
         self.assertIn('SHIPPING_SENDER_NAME="Synthetic Sender ', text)
         existing = ''.join(f'{name}="existing-value"\n' for name in excluded)
         (self.cwd / '.env').write_text(existing)

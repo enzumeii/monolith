@@ -16,28 +16,34 @@ setup:
     .tools/bin/dprint config install
     python3 scripts/setup-env.py
 
-# Start Postgres and the local Docker Blob emulator, migrate, and run the API.
+# Start Postgres and the local Docker S3 service, migrate, and run the API.
 run:
     #!/usr/bin/env bash
     set -euo pipefail
-    blob_owned=true
+    s3_owned=true
     api_pid=
-    if [[ -n "$(docker compose -f docker-compose.yml ps --status running -q local-blob)" ]]; then blob_owned=false; fi
+    if [[ -n "$(docker compose -f docker-compose.yml ps --status running -q local-s3)" ]]; then s3_owned=false; fi
     cleanup() {
       if [[ -n "$api_pid" ]]; then kill "$api_pid" 2>/dev/null || true; wait "$api_pid" 2>/dev/null || true; fi
-      if [[ "$blob_owned" == true ]]; then docker compose -f docker-compose.yml stop local-blob; fi
+      if [[ "$s3_owned" == true ]]; then docker compose -f docker-compose.yml stop local-s3; fi
     }
     trap cleanup EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    docker compose -f docker-compose.yml up -d --wait postgres local-blob
+    docker compose -f docker-compose.yml up -d --wait postgres
+    if [[ "$s3_owned" == true ]]; then
+      docker compose -f docker-compose.yml up -d --wait local-s3
+    else
+      docker compose -f docker-compose.yml up -d --wait --no-recreate local-s3
+    fi
+    docker compose -f docker-compose.yml run --rm --no-deps local-s3-init
     cargo sqlx migrate run
     cargo build --locked -p api --bin api
     ../../target/debug/api &
     api_pid=$!
     while kill -0 "$api_pid" 2>/dev/null; do
-      if [[ -z "$(docker compose -f docker-compose.yml ps --status running -q local-blob)" ]]; then
-        echo 'Local Blob emulator stopped' >&2
+      if [[ -z "$(docker compose -f docker-compose.yml ps --status running -q local-s3)" ]]; then
+        echo 'Local S3 service stopped' >&2
         exit 1
       fi
       sleep 1
@@ -58,7 +64,8 @@ _test:
     #!/usr/bin/env bash
     set -euo pipefail
     trap 'docker compose -p "${E2E_COMPOSE_PROJECT:-e2e}" -f docker-compose-e2e.yml down -v' EXIT
-    docker compose -p "${E2E_COMPOSE_PROJECT:-e2e}" -f docker-compose-e2e.yml up -d --wait postgres local-blob
+    docker compose -p "${E2E_COMPOSE_PROJECT:-e2e}" -f docker-compose-e2e.yml up -d --wait postgres local-s3
+    docker compose -p "${E2E_COMPOSE_PROJECT:-e2e}" -f docker-compose-e2e.yml run --rm local-s3-init
     cargo test --locked
     cargo api-e2e
 
@@ -68,10 +75,12 @@ check:
     .tools/bin/dprint check
     cargo fmt --check -p api
     cargo clippy --locked -p api --all-targets -- -D warnings
+    cargo clippy --locked -p api --test e2e -- -D warnings
 
 # Apply lint fixes, prepare SQLx metadata, then format Rust/GraphQL/JSON.
 fix:
     cargo clippy --locked -p api --fix --allow-dirty --allow-staged -- -D warnings
+    cargo clippy --locked -p api --test e2e --fix --allow-dirty --allow-staged -- -D warnings
     cargo sqlx prepare
     .tools/bin/dprint fmt
     cargo fmt -p api

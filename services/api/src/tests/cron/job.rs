@@ -2,11 +2,10 @@
 use super::*;
 use crate::client::tests::Reply;
 use crate::{
-    blob_fixture,
-    client::vercel_blob::VercelBlobClient,
-    config::VercelBlobConfig,
+    client::s3::S3Client,
     models::cron::checkpoint::FileCheckpoint,
     repositories::cron_configurations::tests::{input, state},
+    s3_fixture,
 };
 use chrono::SubsecRound;
 use serde_json::json;
@@ -17,18 +16,13 @@ async fn fixture(
 ) -> (
     AppState,
     ClaimedJob,
-    blob_fixture::Fixture,
+    s3_fixture::Fixture,
     ExecutionCheckpoint,
 ) {
     let mut state = state().await;
-    let blob = blob_fixture::Fixture::new().await;
-    state.vercel_blob = Ok(Some(Arc::new(
-        VercelBlobClient::new(&VercelBlobConfig {
-            api_url: blob.base.clone(),
-            timeout_secs: 1,
-            token: Some("synthetic-blob-token".into()),
-        })
-        .unwrap(),
+    let blob = s3_fixture::Fixture::new().await;
+    state.s3 = Ok(Some(Arc::new(
+        S3Client::new(&s3_fixture::Fixture::config(&blob.base)).unwrap(),
     )));
     let mut configuration = input();
     if transaction {
@@ -67,7 +61,7 @@ async fn fixture(
             .into_iter()
             .map(|filename| FileCheckpoint {
                 filename: filename.into(),
-                key: format!("{prefix}/{filename}"),
+                key: format!("{prefix}/{}/{filename}", publication::digest(b"original")),
                 content_type: CSV_CONTENT_TYPE.into(),
                 size_bytes: 8,
                 sha256: publication::digest(b"original"),
@@ -85,7 +79,7 @@ async fn audit(state: &AppState, id: Uuid) -> crate::models::cron::report::Repor
         .unwrap()
         .unwrap()
 }
-fn populate(blob: &blob_fixture::Fixture, checkpoint: &ExecutionCheckpoint) {
+fn populate(blob: &s3_fixture::Fixture, checkpoint: &ExecutionCheckpoint) {
     for file in &checkpoint.files {
         blob.data
             .lock()
@@ -105,7 +99,7 @@ async fn mail(
     fixture
 }
 #[tokio::test]
-async fn partial_two_file_recovery_keeps_available_url_and_never_generates_or_emails() {
+async fn partial_two_file_recovery_keeps_available_receipt_and_never_generates_or_emails() {
     let (state, claim, blob, checkpoint) = fixture(true).await;
     blob.data
         .lock()
@@ -123,7 +117,7 @@ async fn partial_two_file_recovery_keeps_available_url_and_never_generates_or_em
     fail(&state, &claim, failure.message).await.unwrap();
     let audit = audit(&state, claim.job.id).await;
     assert_eq!(audit.status, "FAILED");
-    assert_eq!(audit.files.0.len(), 1);
+    assert_eq!(audit.files.len(), 1);
     assert_eq!(audit.generated_at, Some(checkpoint.generated_at));
     assert_eq!(blob.data.lock().unwrap().puts.len(), 0);
     let public = serde_json::to_value(audit.into_dto().unwrap()).unwrap();
@@ -139,7 +133,7 @@ async fn partial_two_file_recovery_keeps_available_url_and_never_generates_or_em
     state.pool.close().await;
 }
 #[tokio::test]
-async fn all_files_recovery_publishes_before_mail_and_email_failure_preserves_urls_and_frozen_intent()
+async fn all_files_recovery_publishes_before_mail_and_email_failure_preserves_receipts_and_frozen_intent()
  {
     let (mut state, claim, blob, checkpoint) = fixture(true).await;
     assert!(state.settings.shipping_sender.is_none());
@@ -152,14 +146,14 @@ async fn all_files_recovery_publishes_before_mail_and_email_failure_preserves_ur
     let failure = execute(&state, &claim).await.err().unwrap();
     fail(&state, &claim, failure.message).await.unwrap();
     let failed = audit(&state, claim.job.id).await;
-    assert_eq!(failed.files.0.len(), 2);
+    assert_eq!(failed.files.len(), 2);
     assert_eq!(failed.status, "FAILED");
     sqlx::raw_sql("UPDATE cron_configurations SET receiver_email='changed@example.test', parameter='FIRST_HALF'; UPDATE cron_jobs SET lease_until=(clock_timestamp() AT TIME ZONE 'UTC')-INTERVAL '1 second'").execute(&state.pool).await.unwrap();
     let retry = super::claim(&state).await.unwrap().unwrap();
     assert!(execute(&state, &retry).await.is_ok());
     let completed = audit(&state, claim.job.id).await;
     assert_eq!(completed.status, "SUCCESS");
-    assert_eq!(completed.files.0, failed.files.0);
+    assert_eq!(completed.files, failed.files);
     let requests = upstream.requests();
     assert_eq!(requests.len(), 2);
     assert_eq!(requests[0].2, requests[1].2);
@@ -209,7 +203,9 @@ async fn accepted_checkpoint_skips_sending_and_legacy_intent_stays_immutable() {
         filename: entry.filename.clone(),
         content_type: entry.content_type.clone(),
         storage_key: entry.key.clone(),
-        download_url: format!("{}/{}?download=1", blob.base, entry.key),
+        bucket: "reports".into(),
+        size_bytes: entry.size_bytes,
+        sha256: entry.sha256.clone(),
     });
     persist(&state, &claim, Some(&checkpoint), &next)
         .await
@@ -330,9 +326,11 @@ async fn audit_failure_rolls_back_checkpoint_receipt_and_expired_mail_intent_nev
         filename: entry.filename.clone(),
         content_type: entry.content_type.clone(),
         storage_key: entry.key.clone(),
-        download_url: format!("{}/{}?download=1", blob.base, entry.key),
+        bucket: "reports".into(),
+        size_bytes: entry.size_bytes,
+        sha256: entry.sha256.clone(),
     });
-    sqlx::raw_sql("CREATE FUNCTION pg_temp.reject_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'owned failure'; END $$; CREATE TRIGGER reject_receipt BEFORE UPDATE ON report_results FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_receipt();").execute(&state.pool).await.unwrap();
+    sqlx::raw_sql("CREATE FUNCTION pg_temp.reject_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'owned failure'; END $$; CREATE TRIGGER reject_receipt BEFORE INSERT ON report_result_files FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_receipt();").execute(&state.pool).await.unwrap();
     assert!(
         persist(&state, &claim, Some(&checkpoint), &next)
             .await
@@ -345,7 +343,11 @@ async fn audit_failure_rolls_back_checkpoint_receipt_and_expired_mail_intent_nev
             .unwrap(),
         checkpoint
     );
-    sqlx::query("DROP TRIGGER reject_receipt ON report_results")
+    assert_eq!(
+        audit(&state, claim.job.id).await.files,
+        [] as [crate::models::cron::report::SavedFile; 0]
+    );
+    sqlx::query("DROP TRIGGER reject_receipt ON report_result_files")
         .execute(&state.pool)
         .await
         .unwrap();
@@ -428,5 +430,147 @@ async fn generated_checkpoint_matches_database_timestamp_precision() {
     let saved = audit(&state, claim.job.id).await;
     assert_eq!(saved.generated_at, Some(prepared.checkpoint.generated_at));
     assert!(prepare_report(&state, &claim, &saved).await.is_ok());
+    state.pool.close().await;
+}
+
+#[tokio::test]
+async fn later_file_receipt_survives_an_earlier_missing_file() {
+    let (state, claim, s3, checkpoint) = fixture(true).await;
+    s3.data
+        .lock()
+        .unwrap()
+        .objects
+        .insert(checkpoint.files[1].key.clone(), b"original".to_vec());
+    let failure = execute(&state, &claim).await.err().unwrap();
+    assert!(failure.message.contains("publication"));
+    let saved = audit(&state, claim.job.id).await;
+    assert_eq!(saved.files.len(), 1);
+    assert_eq!(saved.files[0].filename, "items.csv");
+    let position: i32 =
+        sqlx::query_scalar("SELECT position FROM report_result_files WHERE report_result_id=$1")
+            .bind(claim.job.id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert_eq!(position, 1);
+    assert_eq!(saved.generated_at, Some(checkpoint.generated_at));
+    assert_eq!(s3.data.lock().unwrap().puts, [] as [std::string::String; 0]);
+    state.pool.close().await;
+}
+
+#[tokio::test]
+async fn corrupt_saved_object_blocks_mail_without_repairing_or_replacing_the_receipt() {
+    let (mut state, claim, s3, mut checkpoint) = fixture(false).await;
+    populate(&s3, &checkpoint);
+    publish_report(&state, &claim, &mut checkpoint, &[])
+        .await
+        .unwrap();
+    let before = audit(&state, claim.job.id).await.files;
+    s3.data
+        .lock()
+        .unwrap()
+        .objects
+        .insert(checkpoint.files[0].key.clone(), b"changed!".to_vec());
+    let upstream = mail(&mut state, vec![]).await;
+    let failure = execute(&state, &claim).await.err().unwrap();
+    assert!(failure.message.contains("publication"));
+    assert_eq!(audit(&state, claim.job.id).await.files, before);
+    assert_eq!(
+        upstream.requests(),
+        [] as [(
+            std::string::String,
+            reqwest::header::HeaderMap,
+            serde_json::Value
+        ); 0]
+    );
+    assert_eq!(s3.data.lock().unwrap().puts, [] as [std::string::String; 0]);
+    state.pool.close().await;
+}
+
+#[tokio::test]
+async fn accepted_upload_after_lease_loss_is_recovered_only_by_the_new_worker() {
+    let (state, claim, s3, mut old_checkpoint) = fixture(false).await;
+    let gate = std::sync::Arc::new(crate::s3_fixture::PutGate::default());
+    s3.data.lock().unwrap().put_gate = Some(gate.clone());
+    let originals = vec![publication::GeneratedFile {
+        filename: "inventory.csv".into(),
+        content_type: CSV_CONTENT_TYPE.into(),
+        bytes: b"original".to_vec(),
+    }];
+    let old = publish_report(&state, &claim, &mut old_checkpoint, &originals);
+    let new = async {
+        gate.started.acquire().await.unwrap().forget();
+        sqlx::query("UPDATE cron_jobs SET lease_until=(clock_timestamp() AT TIME ZONE 'UTC')-INTERVAL '1 second'").execute(&state.pool).await.unwrap();
+        let retry = super::claim(&state).await.unwrap().unwrap();
+        assert_ne!(retry.token, claim.token);
+        let mut checkpoint =
+            repositories::cron_jobs::checkpoint(&state.pool, retry.job.id, retry.token)
+                .await
+                .unwrap()
+                .unwrap();
+        gate.release.add_permits(1);
+        gate.accepted.acquire().await.unwrap().forget();
+        let files = publish_report(&state, &retry, &mut checkpoint, &[])
+            .await
+            .unwrap();
+        assert_eq!(files, [("inventory.csv".into(), b"original".to_vec())]);
+        let saved = audit(&state, retry.job.id).await;
+        assert_eq!(saved.files, checkpoint.receipts());
+        assert_eq!(saved.files.len(), 1);
+    };
+    let (old, ()) = tokio::time::timeout(std::time::Duration::from_secs(4), async {
+        tokio::join!(old, new)
+    })
+    .await
+    .unwrap();
+    assert!(old.unwrap_err().to_string().contains("lease"));
+    assert_eq!(s3.data.lock().unwrap().puts.len(), 1);
+    state.pool.close().await;
+}
+
+#[tokio::test]
+async fn conflicting_canonical_receipt_rolls_back_checkpoint_and_generation_date() {
+    let (state, claim, _, checkpoint) = fixture(false).await;
+    let mut next = checkpoint.clone();
+    let file = &next.files[0];
+    let receipt = crate::models::cron::report::SavedFile {
+        filename: file.filename.clone(),
+        content_type: file.content_type.clone(),
+        bucket: "reports".into(),
+        storage_key: file.key.clone(),
+        size_bytes: file.size_bytes,
+        sha256: file.sha256.clone(),
+    };
+    let mut conflicting = receipt.clone();
+    conflicting.size_bytes += 1;
+    repositories::report_result_files::insert(
+        &mut state.pool.acquire().await.unwrap(),
+        claim.job.id,
+        0,
+        &conflicting,
+    )
+    .await
+    .unwrap();
+    sqlx::query("UPDATE report_results SET generated_at=NULL WHERE id=$1")
+        .bind(claim.job.id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    next.files[0].receipt = Some(receipt);
+    assert!(
+        persist(&state, &claim, Some(&checkpoint), &next)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        repositories::cron_jobs::checkpoint(&state.pool, claim.job.id, claim.token)
+            .await
+            .unwrap()
+            .unwrap(),
+        checkpoint
+    );
+    let saved = audit(&state, claim.job.id).await;
+    assert_eq!(saved.generated_at, None);
+    assert_eq!(saved.files, [conflicting]);
     state.pool.close().await;
 }

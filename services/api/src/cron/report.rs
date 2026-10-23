@@ -26,7 +26,11 @@ pub(crate) async fn prepare(
             .iter()
             .map(|file| FileCheckpoint {
                 filename: file.filename.clone(),
-                key: format!("{storage_prefix}/{}", file.filename),
+                key: format!(
+                    "{storage_prefix}/{}/{}",
+                    super::publication::digest(&file.bytes),
+                    file.filename
+                ),
                 content_type: file.content_type.clone(),
                 size_bytes: file.bytes.len(),
                 sha256: super::publication::digest(&file.bytes),

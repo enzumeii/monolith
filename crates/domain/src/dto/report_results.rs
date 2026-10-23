@@ -14,7 +14,11 @@ pub struct ListReportResultsQuery {
 pub struct ReportFileDTO {
     pub filename: String,
     pub content_type: String,
-    pub download_url: String,
+}
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ReportDownloadUrlDTO {
+    pub url: String,
+    pub expires_at: String,
 }
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "UPPERCASE")]

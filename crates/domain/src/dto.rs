@@ -20,7 +20,9 @@ pub use cron::{
     SchedulePeriodMode, ScheduleReportType,
 };
 pub use error::ErrorResponse;
-pub use report_results::{ListReportResultsQuery, ReportFileDTO, ReportResultDTO, ReportStatus};
+pub use report_results::{
+    ListReportResultsQuery, ReportDownloadUrlDTO, ReportFileDTO, ReportResultDTO, ReportStatus,
+};
 
 pub mod products;
 pub use products::ProductReportRow;

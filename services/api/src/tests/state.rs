@@ -209,3 +209,45 @@ async fn stripe_state_shares_client_and_preserves_optional_errors() {
         }
     }
 }
+
+#[tokio::test]
+async fn s3_state_is_optional_shared_and_preserves_initialization_errors() {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://fixture:fixture@localhost/fixture")
+        .unwrap();
+    assert!(
+        app_state(pool.clone(), settings(&json!(null)))
+            .unwrap()
+            .s3
+            .unwrap()
+            .is_none()
+    );
+    for key in [None, Some(""), Some("synthetic-access")] {
+        let mut settings = settings(&json!(null));
+        settings.client.as_mut().unwrap().s3 = Some(crate::config::S3Config {
+            endpoint: "https://example.test/storage/v1/s3".into(),
+            region: "ap-southeast-1".into(),
+            bucket: "reports".into(),
+            force_path_style: true,
+            timeout_secs: 3,
+            signed_url_ttl_secs: 300,
+            access_key_id: key.map(str::to_owned),
+            secret_access_key: Some("synthetic-secret".into()),
+        });
+        let state = app_state(pool.clone(), settings).unwrap();
+        if key == Some("synthetic-access") {
+            assert!(Arc::ptr_eq(
+                state.s3.as_ref().unwrap().as_ref().unwrap(),
+                state.clone().s3.as_ref().unwrap().as_ref().unwrap()
+            ));
+        } else {
+            let error = required_client(&state.s3, "Report storage unavailable")
+                .err()
+                .unwrap();
+            assert_eq!(
+                axum::response::IntoResponse::into_response(error).status(),
+                503
+            );
+        }
+    }
+}

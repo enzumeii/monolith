@@ -155,6 +155,14 @@ async fn configuration_validation_rejects_each_invalid_input_before_writing() {
             .unwrap();
         assert_eq!(response.status(), 400, "{patch}");
     }
+    reject_configuration_routes(&fixture, &client, &valid).await;
+}
+
+async fn reject_configuration_routes(
+    fixture: &crate::common::TestFixture,
+    client: &crate::common::TestClient,
+    valid: &serde_json::Value,
+) {
     for path in [
         "/api/v1/admin/cron/configs/not-a-uuid",
         "/api/v1/admin/cron/configs/preview?report_type=INVENTORY&cron_expression=bad&parameter=123",
@@ -181,7 +189,7 @@ async fn configuration_validation_rejects_each_invalid_input_before_writing() {
                 "/api/v1/admin/cron/configs/preview",
                 fixture.root_id(),
                 AdminRole::SuperAdmin,
-                &valid
+                valid
             ))
             .await
             .unwrap()

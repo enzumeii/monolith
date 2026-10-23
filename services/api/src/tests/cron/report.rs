@@ -84,3 +84,45 @@ async fn transaction_files_share_one_total_payload_budget() {
         StatusCode::PAYLOAD_TOO_LARGE
     );
 }
+
+#[tokio::test]
+async fn frozen_digest_is_part_of_every_storage_key() {
+    let id = Uuid::new_v4();
+    let prepared = prepare(
+        id,
+        ScheduleReportType::Inventory,
+        ReportData::Inventory(vec![]),
+        1024,
+    )
+    .await
+    .unwrap();
+    let checkpoint = &prepared.checkpoint;
+    let file = &checkpoint.files[0];
+    assert_eq!(
+        file.key,
+        format!(
+            "{}/{}/{}",
+            checkpoint.storage_prefix, file.sha256, file.filename
+        )
+    );
+    assert_eq!(
+        file.sha256,
+        super::super::publication::digest(&prepared.files[0].bytes)
+    );
+    assert_eq!(file.size_bytes, prepared.files[0].bytes.len());
+    assert!(checkpoint.storage_prefix.ends_with(&id.to_string()));
+}
+
+#[tokio::test]
+async fn checkpoint_rejects_a_digest_that_does_not_match_its_frozen_key() {
+    let mut prepared = prepare(
+        Uuid::new_v4(),
+        ScheduleReportType::Inventory,
+        ReportData::Inventory(vec![]),
+        1024,
+    )
+    .await
+    .unwrap();
+    prepared.checkpoint.files[0].sha256 = "a".repeat(64);
+    assert!(prepared.checkpoint.validate().is_err());
+}

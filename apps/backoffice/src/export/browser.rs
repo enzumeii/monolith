@@ -29,6 +29,27 @@ pub(crate) async fn download(
     Ok(())
 }
 
+pub(crate) async fn download_url(url: &str) -> Result<(), String> {
+    let mut navigation = document::eval(
+        r"
+        const value = await dioxus.recv();
+        const url = new URL(value);
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+            dioxus.send(false); return;
+        }
+        window.location.assign(url.href);
+        dioxus.send(true);
+        ",
+    );
+    navigation
+        .send(url)
+        .map_err(|_| "Unable to start download".to_string())?;
+    match navigation.recv::<bool>().await {
+        Ok(true) => Ok(()),
+        _ => Err("Unable to start download".into()),
+    }
+}
+
 pub(crate) fn encoded_bytes(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }

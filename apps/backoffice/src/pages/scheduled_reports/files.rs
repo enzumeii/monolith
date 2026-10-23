@@ -1,67 +1,73 @@
+use crate::{api, export, session};
 use dioxus::prelude::*;
 use domain::dto::ReportFileDTO;
-use std::time::Duration;
 
 #[component]
-pub fn ReportFiles(files: Vec<ReportFileDTO>, #[props(default)] compact: bool) -> Element {
+pub fn ReportFiles(
+    report_id: String,
+    files: Vec<ReportFileDTO>,
+    #[props(default)] compact: bool,
+) -> Element {
     rsx! {
         if files.is_empty() { p { "Files unavailable" } }
         else {
             ul { class: if compact { "report-files report-files-compact" } else { "report-files" },
-                for (index,file) in files.iter().enumerate() {
-                    SavedFile { key: "{index}:{file.download_url}", file: file.clone(), compact }
+                for file in &files {
+                    SavedFile { key: "{report_id}:{file.filename}", report_id: report_id.clone(), file: file.clone(), compact }
                 }
             }
         }
     }
 }
 
-pub fn eligible_url(value: &str) -> bool {
-    reqwest::Url::parse(value)
-        .is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
-}
-
-#[derive(Default)]
-pub struct Activation {
-    last: Option<Duration>,
-}
-impl Activation {
-    pub fn begin(&mut self, now: Duration) -> bool {
-        if self
-            .last
-            .is_some_and(|last| now.saturating_sub(last) < Duration::from_millis(500))
-        {
-            return false;
-        }
-        self.last = Some(now);
-        true
-    }
-}
-
 #[component]
-fn SavedFile(file: ReportFileDTO, compact: bool) -> Element {
-    let started = use_hook(web_time::Instant::now);
-    let mut activation = use_signal(Activation::default);
+fn SavedFile(report_id: String, file: ReportFileDTO, compact: bool) -> Element {
+    let mut busy = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let label = if busy() {
+        "Preparing download"
+    } else if error().is_some() {
+        "Retry download"
+    } else {
+        "Download"
+    };
     rsx! {
         li {
-            if eligible_url(&file.download_url) {
-                a { href: file.download_url.clone(), target: "_blank", rel: "noopener noreferrer",
-                    class: if compact { "report-file-download" } else { "" },
-                    aria_label: "Download {file.filename} ({file.content_type})",
-                    title: "{file.filename} · {file.content_type}",
-                    onclick: move |event| {
-                        if !activation.write().begin(started.elapsed()) { event.prevent_default(); }
-                    },
-                    if compact {
-                        svg { width: "20", height: "20", view_box: "0 0 24 24", fill: "none",
-                            stroke: "currentColor", stroke_width: "1.75", stroke_linecap: "round", stroke_linejoin: "round",
-                            "aria-hidden": "true", "focusable": "false",
-                            path { d: "M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4" }
-                        }
-                    } else { "{file.filename}" }
-                }
-            } else { span { "{file.filename} · File link unavailable" } }
+            button { r#type: "button", disabled: busy(), aria_busy: busy(),
+                class: if compact { "report-file-download" } else { "ghost" },
+                aria_label: "{label} {file.filename} ({file.content_type})",
+                title: "{file.filename} · {file.content_type}",
+                onclick: move |_| {
+                    if busy() { return; }
+                    busy.set(true);
+                    error.set(None);
+                    let report_id = report_id.clone();
+                    let filename = file.filename.clone();
+                    spawn(async move {
+                        let result = async {
+                            let signed = session::with_session(|| api::report_results::get_download_url(&report_id, &filename))
+                                .await.map_err(|error| error.to_string())?;
+                            export::download_url(&signed.url).await
+                        }.await;
+                        busy.set(false);
+                        if let Err(message) = result { error.set(Some(message)); }
+                    });
+                },
+                if compact {
+                    svg { width: "20", height: "20", view_box: "0 0 24 24", fill: "none",
+                        stroke: "currentColor", stroke_width: "1.75", stroke_linecap: "round", stroke_linejoin: "round",
+                        "aria-hidden": "true", "focusable": "false",
+                        path { d: "M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4" }
+                    }
+                } else if busy() { "Preparing download…" }
+                else if error().is_some() { "Retry download {file.filename}" }
+                else { "{file.filename}" }
+            }
             if !compact { span { " · {file.content_type}" } }
+            if busy() { span { role: "status", "Preparing {file.filename}…" } }
+            if let Some(message) = error() {
+                p { role: "alert", "Unable to download {file.filename}: {message}. Retry the download." }
+            }
         }
     }
 }

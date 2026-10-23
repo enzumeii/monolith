@@ -4,10 +4,10 @@
 
 use api::{client, config};
 
-#[path = "../src/tests/blob_fixture.rs"]
-mod blob_fixture;
 mod common;
 mod cron;
 mod healthz;
 mod process;
+#[path = "../src/tests/s3_fixture.rs"]
+mod s3_fixture;
 mod v1;

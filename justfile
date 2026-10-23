@@ -22,5 +22,5 @@ vercel-build:
     bash scripts/build-vercel-containers.sh
 
 # Run all services on port 18027 using API .env and local TOML cron selection.
-vercel-dev:
-    npm run dev:vercel
+vercel-dev *args:
+    npm run dev:vercel -- {{args}}

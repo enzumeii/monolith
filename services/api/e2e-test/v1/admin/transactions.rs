@@ -33,27 +33,23 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
         (true, true, true, false),
         (true, false, false, true),
     ] {
-        let mut steps = flow(stripe, paypal, paginated, false);
-        if card_gateway {
-            if let Reply::Json(ref mut body) = steps.last_mut().unwrap().reply {
-                let order = &mut body["data"]["orders"]["nodes"][0];
-                let sale = &mut order["transactions"][0];
-                sale["gateway"] = json!("Stripe Card Payments");
-                sale["paymentId"] = json!("session_12345");
-                sale["receiptJson"] = Value::Null;
-                let refund = &mut order["refunds"][0]["transactions"]["nodes"][0];
-                refund["gateway"] = json!("Stripe Card Payments");
-                refund["paymentId"] = json!("session_12345");
-                refund["receiptJson"] = Value::Null;
-            }
+        let mut steps = flow(stripe, paypal, paginated, Rows::Populated);
+        if card_gateway && let Reply::Json(ref mut body) = steps.last_mut().unwrap().reply {
+            let order = &mut body["data"]["orders"]["nodes"][0];
+            let sale = &mut order["transactions"][0];
+            sale["gateway"] = json!("Stripe Card Payments");
+            sale["paymentId"] = json!("session_12345");
+            sale["receiptJson"] = Value::Null;
+            let refund = &mut order["refunds"][0]["transactions"]["nodes"][0];
+            refund["gateway"] = json!("Stripe Card Payments");
+            refund["paymentId"] = json!("session_12345");
+            refund["receiptJson"] = Value::Null;
         }
-        if card_gateway {
-            if let Reply::Json(ref mut body) = steps[1].reply {
-                body["data"][0]["description"] =
-                    json!("Paid (gid://shopify/PaymentSession/session_12345)");
-                body["data"][1]["description"] =
-                    json!("REFUND FOR CHARGE (gid://shopify/PaymentSession/session_12345)");
-            }
+        if card_gateway && let Reply::Json(ref mut body) = steps[1].reply {
+            body["data"][0]["description"] =
+                json!("Paid (gid://shopify/PaymentSession/session_12345)");
+            body["data"][1]["description"] =
+                json!("REFUND FOR CHARGE (gid://shopify/PaymentSession/session_12345)");
         }
         let expected_calls = steps.len();
         let server = Server::start(steps).await;
@@ -212,7 +208,7 @@ async fn transactions_empty_results_and_both_admin_roles_over_tcp() {
         (true, false, AdminRole::Admin),
         (false, true, AdminRole::SuperAdmin),
     ] {
-        let steps = flow(stripe, paypal, false, true);
+        let steps = flow(stripe, paypal, false, Rows::Empty);
         let count = steps.len();
         let server = Server::start(steps).await;
         let client = server.client().await;
@@ -278,7 +274,7 @@ async fn transactions_rejects_each_query_rule_and_auth_before_provider_calls() {
         assert_eq!(response.headers()["www-authenticate"], "Bearer");
         assert_report_error(response, 401, "Invalid or expired token").await;
     }
-    assert!(server.finish().await.is_empty());
+    assert_eq!(server.finish().await, [] as [std::string::String; 0]);
 }
 
 #[tokio::test]
@@ -393,7 +389,7 @@ async fn transactions_unavailable_configuration_is_safe() {
 #[tokio::test]
 async fn transactions_maps_each_dependency_failure_and_stops_at_the_failed_call() {
     let fixture = fixture().await;
-    let original = flow(true, true, true, false);
+    let original = flow(true, true, true, Rows::Populated);
     for stage in 0..original.len() {
         for fault in [
             "http",
@@ -432,7 +428,7 @@ async fn transactions_maps_each_dependency_failure_and_stops_at_the_failed_call(
 #[tokio::test]
 async fn transactions_exhausts_throttling_without_advancing_and_rejects_graphql_partial_data() {
     let fixture = fixture().await;
-    let original = flow(true, true, true, false);
+    let original = flow(true, true, true, Rows::Populated);
     for stage in 0..original.len() {
         let mut steps = original[..stage].to_vec();
         let mut failed = original[stage].clone();
@@ -481,7 +477,7 @@ async fn transactions_exhausts_throttling_without_advancing_and_rejects_graphql_
 #[tokio::test]
 async fn transactions_rejects_bad_currency_continuations_and_incomplete_connections() {
     let fixture = fixture().await;
-    let original = flow(true, false, false, false);
+    let original = flow(true, false, false, Rows::Populated);
     let mut bad = Vec::new();
     let mut currency = original[..2].to_vec();
     if let Reply::Json(ref mut body) = currency[1].reply {
@@ -533,7 +529,7 @@ async fn transactions_rejects_bad_currency_continuations_and_incomplete_connecti
                 }
                 "receipt" => {
                     body["data"]["orders"]["nodes"][0]["transactions"][0]["receiptJson"] =
-                        json!("{")
+                        json!("{");
                 }
                 "missing_connection" => {
                     body["data"]["orders"]["nodes"][0]
@@ -543,14 +539,14 @@ async fn transactions_rejects_bad_currency_continuations_and_incomplete_connecti
                 }
                 "shipping_currency" => {
                     body["data"]["orders"]["nodes"][0]["shippingLines"]["nodes"][0]["priceSet"]["shopMoney"]
-                        ["currencyCode"] = json!("EUR")
+                        ["currencyCode"] = json!("EUR");
                 }
                 _ => unreachable!(),
             }
         }
         bad.push(steps);
     }
-    let mut page = flow(false, true, false, false);
+    let mut page = flow(false, true, false, Rows::Populated);
     page.truncate(3);
     if let Reply::Json(ref mut body) = page.last_mut().unwrap().reply {
         body["page"] = json!(2);
@@ -576,7 +572,7 @@ async fn transactions_rejects_bad_currency_continuations_and_incomplete_connecti
 #[tokio::test]
 async fn transactions_keeps_unmatched_provider_rows_without_unrelated_order_items() {
     let fixture = fixture().await;
-    let mut steps = flow(true, false, false, false);
+    let mut steps = flow(true, false, false, Rows::Populated);
     if let Reply::Json(ref mut body) = steps.last_mut().unwrap().reply {
         let order = &mut body["data"]["orders"]["nodes"][0];
         order["transactions"][0]["receiptJson"] = Value::Null;
@@ -611,7 +607,7 @@ async fn transactions_raw_and_encoded_plus_return_identical_reports() {
     let fixture = fixture().await;
     let mut reports = Vec::new();
     for uri in [URI.to_owned(), URI.replace("%2B", "+")] {
-        let steps = flow(true, true, true, false);
+        let steps = flow(true, true, true, Rows::Populated);
         let count = steps.len();
         let server = Server::start(steps).await;
         let client = server.client().await;
@@ -704,7 +700,7 @@ async fn transactions_paypal_rejects_incompatible_amount_currencies_before_shopi
         "transaction_amount",
         "overflow",
     ] {
-        let mut steps = flow(false, true, false, false);
+        let mut steps = flow(false, true, false, Rows::Populated);
         steps.truncate(3);
         if let Reply::Json(ref mut body) = steps.last_mut().unwrap().reply {
             let info = &mut body["transaction_details"][2]["transaction_info"];
@@ -736,7 +732,7 @@ async fn transactions_paypal_rejects_incompatible_amount_currencies_before_shopi
 #[tokio::test]
 async fn transactions_paypal_preserves_zero_and_signed_shipping_over_shopify() {
     let fixture = fixture().await;
-    let mut steps = flow(false, true, false, false);
+    let mut steps = flow(false, true, false, Rows::Populated);
     if let Reply::Json(ref mut body) = steps
         .iter_mut()
         .find(|step| step.path == "/v1/reporting/transactions")
@@ -815,7 +811,7 @@ pub(crate) struct Server {
 }
 impl Server {
     pub(crate) async fn accounting(failure: Option<(&str, &'static str)>) -> (Self, usize) {
-        let mut steps = flow(true, true, false, false);
+        let mut steps = flow(true, true, false, Rows::Populated);
         for step in &mut steps {
             if step.path == "/v1/reporting/transactions" {
                 step.query
@@ -996,7 +992,13 @@ impl Drop for Server {
     }
 }
 
-fn flow(stripe: bool, paypal: bool, paginated: bool, empty: bool) -> Vec<Step> {
+enum Rows {
+    Empty,
+    Populated,
+}
+
+fn flow(stripe: bool, paypal: bool, paginated: bool, rows: Rows) -> Vec<Step> {
+    let empty = matches!(rows, Rows::Empty);
     let mut steps = Vec::new();
     {
         let stripe_empty = empty || !stripe;

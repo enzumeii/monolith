@@ -50,7 +50,7 @@ async fn inventories_auth_validation_and_unconfigured_shopify() {
         )
         .await;
     }
-    assert!(upstream.requests().is_empty());
+    assert_eq!(upstream.requests(), [] as [serde_json::Value; 0]);
 }
 
 #[tokio::test]
@@ -219,7 +219,7 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
                 _ => {
                     let first = v["after"].is_null();
                     if !first {
-                        assert_eq!(v["after"], "products-2")
+                        assert_eq!(v["after"], "products-2");
                     }
                     let mut inactive = report_variant(Some(99));
                     inactive["inventoryItem"]["inventoryLevel"]["isActive"] = json!(false);
@@ -605,7 +605,7 @@ async fn enable_inventory_rejects_invalid_requests_without_shopify_calls() {
         "Expected a positive location id and no query parameters",
     )
     .await;
-    assert!(upstream.requests().is_empty());
+    assert_eq!(upstream.requests(), [] as [serde_json::Value; 0]);
     for client in [
         client().await,
         crate::common::client_with_shopify("invalid-url").await,
@@ -667,7 +667,7 @@ async fn enable_inventory_cookie_auth_obeys_origin_guard() {
                 "Your account is forbidden to make this action",
             )
             .await;
-            assert!(upstream.requests().is_empty());
+            assert_eq!(upstream.requests(), [] as [serde_json::Value; 0]);
         }
     }
     assert_eq!(upstream.requests().len(), 2);
@@ -773,17 +773,17 @@ async fn enable_inventory_invalid_discovery_data_fails_before_any_activation() {
             "missing_on_hand" => bad["quantities"] = json!([{"name":"available","quantity":4}]),
             "zero_item" => bad["item"]["id"] = json!("gid://shopify/InventoryItem/0"),
             "zero_variant" => {
-                bad["item"]["variant"]["id"] = json!("gid://shopify/ProductVariant/0")
+                bad["item"]["variant"]["id"] = json!("gid://shopify/ProductVariant/0");
             }
             "duplicate_quantity" => {
-                bad["quantities"] = json!([{"name":"on_hand","quantity":5},{"name":"on_hand","quantity":6},{"name":"available","quantity":4}])
+                bad["quantities"] = json!([{"name":"on_hand","quantity":5},{"name":"on_hand","quantity":6},{"name":"available","quantity":4}]);
             }
             "bad_product" => {
-                bad["item"]["variant"]["product"]["id"] = json!("gid://shopify/Location/42")
+                bad["item"]["variant"]["product"]["id"] = json!("gid://shopify/Location/42");
             }
             "overflow_product" => {
                 bad["item"]["variant"]["product"]["id"] =
-                    json!("gid://shopify/Product/18446744073709551616")
+                    json!("gid://shopify/Product/18446744073709551616");
             }
             "bad_item" => bad["item"]["id"] = json!("gid://shopify/Product/1"),
             _ => unreachable!(),
@@ -887,7 +887,7 @@ async fn enable_inventory_mutation_dependency_failures_are_counted_and_do_not_st
                             == format!("gid://shopify/InventoryItem/{item}")
                     })
                     .collect::<Vec<_>>();
-                assert!(!attempts.is_empty());
+                assert_ne!(attempts, [] as [&serde_json::Value; 0]);
                 assert!(
                     attempts
                         .iter()

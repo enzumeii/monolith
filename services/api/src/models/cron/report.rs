@@ -4,17 +4,18 @@ use chrono::NaiveDateTime;
 use domain::dto::report_results::ReportStatus;
 use domain::dto::{ReportFileDTO, ReportResultDTO, ScheduleReportType};
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, types::Json};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SavedFile {
     pub filename: String,
     pub content_type: String,
-    pub download_url: String,
+    pub bucket: String,
+    pub size_bytes: usize,
+    pub sha256: String,
     pub storage_key: String,
 }
-#[derive(FromRow)]
 pub(crate) struct ReportResult {
     pub id: Uuid,
     pub report_type: String,
@@ -23,7 +24,7 @@ pub(crate) struct ReportResult {
     pub status: String,
     pub error: Option<String>,
     pub parameters: String,
-    pub files: Json<Vec<SavedFile>>,
+    pub files: Vec<SavedFile>,
 }
 impl ReportResult {
     pub fn into_dto(self) -> Result<ReportResultDTO, AppError> {
@@ -36,12 +37,16 @@ impl ReportResult {
         let kind = report_type(&self.report_type)?;
         crate::validations::cron::report::validate_saved_parameters(kind, &self.parameters)?;
         let mut files = Vec::new();
-        for file in self.files.0 {
-            crate::validations::cron::report::validate_saved_file(&file)?;
+        for file in self.files {
+            crate::validations::cron::report::validate_saved_file_for_report(
+                &file,
+                kind,
+                self.id,
+                self.generated_at,
+            )?;
             files.push(ReportFileDTO {
                 filename: file.filename,
                 content_type: file.content_type,
-                download_url: file.download_url,
             });
         }
         Ok(ReportResultDTO {

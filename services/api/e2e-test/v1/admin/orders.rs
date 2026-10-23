@@ -46,7 +46,7 @@ async fn orders_auth_validation_and_unconfigured_shopify() {
         )
         .await;
     }
-    assert!(upstream.requests().is_empty());
+    assert_eq!(upstream.requests(), [] as [serde_json::Value; 0]);
 }
 
 #[tokio::test]
@@ -174,7 +174,7 @@ async fn shopify(Json(request): Json<Value>) -> axum::response::Response {
             } else {
                 let first = v["after"].is_null();
                 if !first {
-                    assert_eq!(v["after"], "orders-2")
+                    assert_eq!(v["after"], "orders-2");
                 }
                 let lines = if first {
                     page(
@@ -569,7 +569,7 @@ async fn fulfillment_workflow_validation_rejects_before_business_calls() {
         .await
         .unwrap();
     assert_report_error(response, 400, message).await;
-    assert!(upstream.requests().is_empty());
+    assert_eq!(upstream.requests(), [] as [serde_json::Value; 0]);
 }
 
 #[tokio::test]
@@ -1018,7 +1018,7 @@ async fn fulfillment_unsupported_actions_and_closed_orders_never_create_fulfillm
             "action" => node["supportedActions"] = json!([]),
             "closed" => node["status"] = json!("CLOSED"),
             _ => unreachable!(),
-        };
+        }
         let (client, upstream) = client_with_upstream_script(vec![order], "http").await;
         let response = client
             .send(fulfill_request(
@@ -1115,7 +1115,7 @@ async fn review_regression_rejects_bad_carrier_contact_and_dot_tracking_before_w
             .unwrap();
         assert_eq!(response.status(), 400);
     }
-    assert!(upstream.requests().is_empty());
+    assert_eq!(upstream.requests(), [] as [serde_json::Value; 0]);
 }
 
 #[tokio::test]
@@ -1154,7 +1154,7 @@ async fn review_regression_dot_tracking_never_reaches_shopify() {
             .unwrap();
         assert_eq!(response.status(), 400);
     }
-    assert!(upstream.requests().is_empty());
+    assert_eq!(upstream.requests(), [] as [serde_json::Value; 0]);
 }
 
 #[tokio::test]
@@ -1425,8 +1425,8 @@ async fn reship_rejects_each_invalid_input_without_provider_calls() {
         )
         .await;
     }
-    assert!(upstream.requests().is_empty());
-    assert!(mail.requests().is_empty());
+    assert_eq!(upstream.requests(), [] as [serde_json::Value; 0]);
+    assert_eq!(mail.requests(), [] as [serde_json::Value; 0]);
 }
 
 #[tokio::test]
@@ -1473,8 +1473,8 @@ async fn reship_auth_and_cookie_origin_rejections_precede_providers() {
             .unwrap();
         assert_eq!(response.status(), 403);
     }
-    assert!(upstream.requests().is_empty());
-    assert!(mail.requests().is_empty());
+    assert_eq!(upstream.requests(), [] as [serde_json::Value; 0]);
+    assert_eq!(mail.requests(), [] as [serde_json::Value; 0]);
 }
 
 #[tokio::test]
@@ -1489,7 +1489,8 @@ async fn reship_domain_and_unusable_contacts_never_tag_or_send() {
         data["orders"]["nodes"][0]["email"] = email;
         cases.push((data, 409, "Order email missing"));
     }
-    for (field, value) in [("number", json!("1085"))] {
+    {
+        let (field, value) = ("number", json!("1085"));
         let mut data = reship_order();
         data["orders"]["nodes"][0][field] = value;
         cases.push((data, 502, "Upstream request failed"));
@@ -1514,7 +1515,7 @@ async fn reship_domain_and_unusable_contacts_never_tag_or_send() {
         .await;
         assert_eq!(upstream.requests().len(), 1);
     }
-    assert!(mail.requests().is_empty());
+    assert_eq!(mail.requests(), [] as [serde_json::Value; 0]);
 }
 
 #[tokio::test]
@@ -1579,8 +1580,8 @@ async fn reship_optional_clients_and_settings_fail_before_lookup() {
             200
         );
     }
-    assert!(upstream.requests().is_empty());
-    assert!(mail.requests().is_empty());
+    assert_eq!(upstream.requests(), [] as [serde_json::Value; 0]);
+    assert_eq!(mail.requests(), [] as [serde_json::Value; 0]);
 }
 
 #[tokio::test]

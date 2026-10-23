@@ -18,7 +18,9 @@ pub(crate) async fn state() -> AppState {
     sqlx::raw_sql("CREATE TEMP TABLE cron_configurations (LIKE public.cron_configurations INCLUDING ALL);
         CREATE TEMP TABLE cron_jobs (LIKE public.cron_jobs INCLUDING ALL);
         ALTER TABLE cron_jobs ADD FOREIGN KEY (cron_configuration_id) REFERENCES cron_configurations(id) ON DELETE CASCADE;
-        CREATE TEMP TABLE report_results (LIKE public.report_results INCLUDING ALL);").execute(&pool).await.unwrap();
+        CREATE TEMP TABLE report_results (LIKE public.report_results INCLUDING ALL);
+        CREATE TEMP TABLE report_result_files (LIKE public.report_result_files INCLUDING ALL);
+        ALTER TABLE report_result_files ADD FOREIGN KEY (report_result_id) REFERENCES report_results(id) ON DELETE CASCADE;").execute(&pool).await.unwrap();
     app_state(pool, settings).unwrap()
 }
 pub(crate) fn input() -> ConfigurationInput {

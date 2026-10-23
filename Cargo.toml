@@ -22,6 +22,7 @@ unwrap_used = "warn"
 edition = "2024"
 
 [workspace.dependencies]
+aws-sdk-s3 = { version = "=1.154.0", default-features = false, features = ["rt-tokio", "rustls", "default-https-client"] }
 dioxus = "0.7.10"
 dioxus-cli = "0.7.10"
 serde = { version = "1.0.229", features = ["derive"] }

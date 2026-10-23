@@ -1,5 +1,5 @@
 use super::ApiResult;
-use domain::dto::{ListReportResultsQuery, ReportResultDTO};
+use domain::dto::{ListReportResultsQuery, ReportDownloadUrlDTO, ReportResultDTO};
 use reqwest::Method;
 use serde::Deserialize;
 
@@ -17,6 +17,24 @@ pub async fn list_reports(query: ListReportResultsQuery) -> ApiResult<ReportResu
 
 pub async fn get_report(id: &str) -> ApiResult<ReportResultDTO> {
     super::decode(super::uuid_request(Method::GET, "/admin/cron/reports", id)?).await
+}
+
+pub async fn get_download_url(id: &str, filename: &str) -> ApiResult<ReportDownloadUrlDTO> {
+    let mut request = super::uuid_request(Method::GET, "/admin/cron/reports", id)?
+        .build()
+        .map_err(|_| {
+            super::ApiError::new(reqwest::StatusCode::BAD_REQUEST, "Invalid download request")
+        })?;
+    request
+        .url_mut()
+        .path_segments_mut()
+        .map_err(|()| super::ApiError::new(reqwest::StatusCode::BAD_REQUEST, "Invalid API URL"))?
+        .extend(["files", filename, "download-url"]);
+    super::decode(reqwest::RequestBuilder::from_parts(
+        reqwest::Client::new(),
+        request,
+    ))
+    .await
 }
 
 #[cfg(test)]

@@ -210,13 +210,13 @@ async fn prepare_report(
                     checkpoint.generated_at,
                     audit.id,
                 )
-            || audit.files.0 != checkpoint.receipts()
+            || audit.files != checkpoint.receipts()
         {
             return Err(crate::models::cron::saved_invalid());
         }
         checkpoint
     } else {
-        if audit.generated_at.is_some() || !audit.files.0.is_empty() {
+        if audit.generated_at.is_some() || !audit.files.is_empty() {
             return Err(AppError::new(
                 StatusCode::CONFLICT,
                 "Generated checkpoint is missing; regeneration is disabled",
@@ -274,7 +274,7 @@ async fn publish_report(
     checkpoint: &mut ExecutionCheckpoint,
     original_files: &[publication::GeneratedFile],
 ) -> Result<Vec<(String, Vec<u8>)>, AppError> {
-    let blob = crate::state::required_client(&state.vercel_blob, "Vercel Blob client unavailable")?;
+    let s3 = crate::state::required_client(&state.s3, "S3 client unavailable")?;
     let mut attachments = Vec::new();
     let mut publication_error = None;
     for index in 0..checkpoint.files.len() {
@@ -284,7 +284,7 @@ async fn publish_report(
             .find(|file| file.filename == entry.filename)
             .map(|file| file.bytes.as_slice());
         // Recovery checks every object so even an earlier missing file cannot hide a later durable receipt.
-        let (remote, bytes) = match publication::obtain(blob, entry, original).await {
+        let (remote, bytes) = match Box::pin(publication::obtain(s3, entry, original)).await {
             Ok(value) => value,
             Err(error) => {
                 if publication_error.is_none() {
@@ -296,12 +296,7 @@ async fn publish_report(
         attachments.push((entry.filename.clone(), bytes));
         if entry.receipt.is_none() {
             let mut next = checkpoint.clone();
-            next.files[index].receipt = Some(crate::models::cron::report::SavedFile {
-                filename: entry.filename.clone(),
-                content_type: entry.content_type.clone(),
-                storage_key: entry.key.clone(),
-                download_url: remote.download_url,
-            });
+            next.files[index].receipt = Some(remote);
             persist(state, claim, Some(checkpoint), &next).await?;
             *checkpoint = next;
         }

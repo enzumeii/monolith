@@ -8,6 +8,7 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
+aws-sdk-s3.workspace = true
 report-generator = { path = "../../crates/report-generator" }
 reqwest.workspace = true
 resend-rs = "0.35.0"

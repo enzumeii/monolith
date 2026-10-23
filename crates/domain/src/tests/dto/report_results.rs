@@ -16,7 +16,7 @@ fn report_metadata_decodes_every_status_nullable_fields_and_saved_files() {
         assert_eq!(result.files, []);
         assert_eq!(serde_json::to_value(result).expect("result JSON"), body);
     }
-    let body = json!({"id":"da41d46b-f1ca-4a76-a774-62c269d28731","report_type":"TRANSACTION","attempted_at":"2026-10-22T00:00:00Z","generated_at":"2026-10-22T00:00:05Z","status":"FAILED","error":"Email unavailable","parameters":"2026-09","files":[{"filename":"transactions.csv","content_type":"text/csv","download_url":"https://files.example.test/transactions.csv"}]});
+    let body = json!({"id":"da41d46b-f1ca-4a76-a774-62c269d28731","report_type":"TRANSACTION","attempted_at":"2026-10-22T00:00:00Z","generated_at":"2026-10-22T00:00:05Z","status":"FAILED","error":"Email unavailable","parameters":"2026-09","files":[{"filename":"transactions.csv","content_type":"text/csv"}]});
     let result: ReportResultDTO = serde_json::from_value(body.clone()).expect("saved report");
     assert_eq!(result.files.len(), 1);
     assert_eq!(result.error.as_deref(), Some("Email unavailable"));
@@ -29,4 +29,12 @@ fn report_metadata_decodes_every_status_nullable_fields_and_saved_files() {
         per_page: Some(25),
     };
     assert_eq!(serde_json::to_value(query).expect("query")["page"], 1);
+}
+
+#[test]
+fn request_time_download_contract_round_trips_without_storage_metadata() {
+    let body = json!({"url":"https://storage.example.test/reports/synthetic.csv?X-Amz-Signature=synthetic", "expires_at":"2026-10-23T00:05:00Z"});
+    let result: crate::dto::ReportDownloadUrlDTO =
+        serde_json::from_value(body.clone()).expect("download DTO");
+    assert_eq!(serde_json::to_value(result).expect("download JSON"), body);
 }

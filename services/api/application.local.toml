@@ -4,6 +4,5 @@ implementation = "vps"
 [browser]
 public_origin = "http://localhost:8084"
 
-[client.vercel_blob]
-api_url = "http://localhost:3001/"
-timeout_secs = 3
+[client.s3]
+endpoint = "http://localhost:3001"

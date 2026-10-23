@@ -133,14 +133,14 @@ fn production_overlay_and_metadata_use_central_secret_overrides() {
     assert!(!format!("{settings:?}").contains("synthetic-cron-secret"));
     assert!(!settings.browser.insecure_local);
     assert_eq!(settings.database.max_connections, 2);
-    assert_eq!(settings.database.min_connections, 0);
+    assert_eq!(settings.database.min_connections, 1);
     assert_eq!(
         settings.database.url,
         "postgres://synthetic:secret@localhost/runtime"
     );
     assert_eq!(
-        settings.client.unwrap().vercel_blob.unwrap().api_url,
-        "https://vercel.com/api/blob"
+        settings.client.unwrap().s3.unwrap().endpoint,
+        "https://jbcvsgdvhvzitweteqfo.storage.supabase.co/storage/v1/s3"
     );
 }
 
@@ -256,7 +256,7 @@ fn new_reads_non_secret_fields_from_file_when_only_secrets_come_from_env() {
     .unwrap();
 
     assert_eq!(settings.server.port, 3000);
-    assert_eq!(settings.database.max_connections, 1);
+    assert_eq!(settings.database.max_connections, 2);
     assert_eq!(settings.database.url, "postgres://env:env@localhost/env");
     assert_eq!(
         settings.jwt.secret,
@@ -286,7 +286,7 @@ fn new_reads_non_secret_configuration_only_from_toml() {
     assert_eq!(settings.server.port, 3000);
     assert_eq!(settings.browser.public_origin, "http://localhost:8084");
     assert!(settings.browser.insecure_local);
-    assert_eq!(settings.client.unwrap().shopify.unwrap().timeout_secs, 3);
+    assert_eq!(settings.client.unwrap().shopify.unwrap().timeout_secs, 10);
 }
 
 mod invalid_config_tests {
@@ -641,19 +641,19 @@ fn stripe_key_comes_from_central_configuration() {
     let stripe = settings.client.unwrap().stripe.unwrap();
     assert_eq!(stripe.secret_key.as_deref(), Some("sk_test_private"));
     assert_eq!(stripe.base_url, "https://api.stripe.com/v1/");
-    assert_eq!(stripe.timeout_secs, 3);
+    assert_eq!(stripe.timeout_secs, 10);
     assert!(!format!("{stripe:?}").contains("sk_test_private"));
 }
 
 #[test]
-fn checked_in_resend_timeout_is_three_seconds() {
+fn checked_in_resend_timeout_is_ten_seconds() {
     let timeout: u64 = Config::builder()
         .add_source(File::with_name("application"))
         .build()
         .unwrap()
         .get("client.resend.timeout_secs")
         .unwrap();
-    assert_eq!(timeout, 3);
+    assert_eq!(timeout, 10);
 }
 
 #[test]
@@ -681,27 +681,6 @@ fn scheduler_limits_are_validated_at_startup() {
     invalid.scheduler.max_attempts = 1;
     invalid.scheduler.lease_secs = u64::MAX;
     assert!(invalid.validate().is_err());
-}
-
-#[test]
-fn blob_secret_override_keeps_file_endpoint_and_redacts_token() {
-    let settings = temp_env::with_vars(
-        [
-            ("DATABASE_URL", Some("postgres://fixture")),
-            (
-                "JWT_SECRET",
-                Some("abababababababababababababababababababababababababababababababab"),
-            ),
-            ("BLOB_READ_WRITE_TOKEN", Some("synthetic-env-blob-token")),
-        ],
-        Settings::new,
-    )
-    .unwrap();
-    let blob = settings.client.unwrap().vercel_blob.unwrap();
-    assert_eq!(blob.api_url, "http://localhost:3001/");
-    assert_eq!(blob.timeout_secs, 3);
-    assert_eq!(blob.token.as_deref(), Some("synthetic-env-blob-token"));
-    assert!(!format!("{blob:?}").contains("synthetic-env-blob-token"));
 }
 
 fn settings_builder() -> ConfigBuilder<DefaultState> {
@@ -804,4 +783,100 @@ fn unsupported_environment_mode_is_rejected_by_central_reader() {
     temp_env::with_var("RUN_ENV", Some("unknown"), || {
         assert!(Settings::new().is_err());
     });
+}
+
+#[test]
+fn s3_checked_in_settings_use_private_production_endpoint_and_local_override() {
+    let base = Config::builder()
+        .add_source(File::with_name("application"))
+        .build()
+        .unwrap();
+    assert_eq!(
+        base.get_string("client.s3.endpoint").unwrap(),
+        "https://jbcvsgdvhvzitweteqfo.storage.supabase.co/storage/v1/s3"
+    );
+    assert_eq!(
+        base.get_string("client.s3.region").unwrap(),
+        "ap-southeast-1"
+    );
+    assert_eq!(base.get_string("client.s3.bucket").unwrap(), "reports");
+    assert_eq!(base.get_int("client.s3.signed_url_ttl_secs").unwrap(), 300);
+    assert!(base.get_bool("client.s3.force_path_style").unwrap());
+    let local = Config::builder()
+        .add_source(File::with_name("application"))
+        .add_source(File::with_name("application.local"))
+        .build()
+        .unwrap();
+    assert_eq!(
+        local.get_string("client.s3.endpoint").unwrap(),
+        "http://localhost:3001"
+    );
+}
+
+#[test]
+fn s3_credentials_are_centralized_redacted_and_non_secret_env_does_not_override_toml() {
+    temp_env::with_vars(
+        [
+            ("S3_ACCESS_KEY_ID", Some("synthetic-env-access")),
+            ("S3_SECRET_ACCESS_KEY", Some("synthetic-env-secret")),
+            ("S3_ENDPOINT", Some("https://wrong.example.test")),
+            ("AWS_ACCESS_KEY_ID", Some("unused-ambient-aws-id")),
+            ("AWS_SECRET_ACCESS_KEY", Some("unused-ambient-aws-secret")),
+        ],
+        || {
+            let settings = Settings::load(
+                settings_builder()
+                    .set_override("client.s3.access_key_id", "file-access")
+                    .unwrap()
+                    .set_override("client.s3.secret_access_key", "file-secret")
+                    .unwrap(),
+                "local",
+            )
+            .unwrap();
+            let s3 = settings.client.unwrap().s3.unwrap();
+            assert_eq!(s3.endpoint, "http://localhost:3001");
+            assert_eq!(s3.access_key_id.as_deref(), Some("synthetic-env-access"));
+            assert_eq!(
+                s3.secret_access_key.as_deref(),
+                Some("synthetic-env-secret")
+            );
+            assert!(!format!("{s3:?}").contains("synthetic-env"));
+        },
+    );
+}
+
+#[test]
+fn s3_absent_credentials_remain_optional_and_inherited_values_are_preserved() {
+    temp_env::with_vars(
+        [
+            ("S3_ACCESS_KEY_ID", None::<&str>),
+            ("S3_SECRET_ACCESS_KEY", None),
+        ],
+        || {
+            let config = Settings::load(settings_builder(), "local")
+                .unwrap()
+                .client
+                .unwrap()
+                .s3
+                .unwrap();
+            assert!(config.access_key_id.is_none());
+            assert!(config.secret_access_key.is_none());
+            let settings = Settings::load(
+                settings_builder()
+                    .set_override("client.s3.access_key_id", "inherited-access")
+                    .unwrap()
+                    .set_override("client.s3.secret_access_key", "inherited-secret")
+                    .unwrap(),
+                "local",
+            )
+            .unwrap();
+            let config = settings.client.unwrap().s3.unwrap();
+            assert_eq!(config.access_key_id.as_deref(), Some("inherited-access"));
+            assert_eq!(
+                config.secret_access_key.as_deref(),
+                Some("inherited-secret")
+            );
+            assert!(!format!("{config:?}").contains("inherited"));
+        },
+    );
 }

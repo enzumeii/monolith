@@ -283,6 +283,7 @@ pub async fn body_json(response: axum::response::Response) -> serde_json::Value 
 }
 
 pub fn shopify_page(nodes: Vec<serde_json::Value>, next: Option<&str>) -> serde_json::Value {
+    let nodes = serde_json::Value::Array(nodes);
     serde_json::json!({"nodes":nodes,"pageInfo":{"hasNextPage":next.is_some(),"endCursor":next}})
 }
 
@@ -457,6 +458,28 @@ pub fn database_url() -> String {
         .unwrap_or_else(|_| "postgres://e2e:e2e@127.0.0.1:5433/e2e".into())
 }
 
+pub fn s3_credentials() -> (String, String) {
+    (
+        std::env::var("E2E_S3_ACCESS_KEY_ID").unwrap_or_else(|_| "synthetic-access-id".into()),
+        std::env::var("E2E_S3_SECRET_ACCESS_KEY").unwrap_or_else(|_| "synthetic-secret-key".into()),
+    )
+}
+
+pub fn s3_client(endpoint: &str) -> api::client::s3::S3Client {
+    let (access_key_id, secret_access_key) = s3_credentials();
+    api::client::s3::S3Client::new(&api::config::S3Config {
+        endpoint: endpoint.into(),
+        region: "ap-southeast-1".into(),
+        bucket: "reports".into(),
+        force_path_style: true,
+        timeout_secs: 3,
+        signed_url_ttl_secs: 300,
+        access_key_id: Some(access_key_id),
+        secret_access_key: Some(secret_access_key),
+    })
+    .unwrap()
+}
+
 async fn test_api() -> Arc<TestApi> {
     let mut shared = API.lock().await;
     if let Some(api) = shared.upgrade() {
@@ -499,7 +522,10 @@ pub struct ProviderConfig<'a> {
     pub scheduler_enabled: Option<bool>,
     pub poll_interval_secs: Option<u64>,
     pub retention_interval_secs: Option<u64>,
-    pub blob_url: Option<&'a str>,
+    pub s3_url: Option<&'a str>,
+    pub s3_disabled: bool,
+    pub s3_ttl_secs: Option<u32>,
+    pub s3_invalid_credentials: bool,
 }
 
 pub async fn client_with_providers(config: ProviderConfig<'_>) -> TestClient {
@@ -523,10 +549,22 @@ pub async fn client_with_scheduler(
 }
 
 async fn start_api(config: ProviderConfig<'_>, scheduler_backoff: Option<u64>) -> Arc<TestApi> {
+    let (mut api, port) = prepare_api(&config, scheduler_backoff);
+    assert!(
+        reqwest::get(format!("{}health", api.storage_base))
+            .await
+            .expect("Docker S3 health connection")
+            .status()
+            .is_success()
+    );
+
+    api.process = Some(spawn_api(&api, &config, scheduler_backoff, &port));
+    wait_for_api(&mut api).await;
+    Arc::new(api)
+}
+
+fn prepare_api(config: &ProviderConfig<'_>, scheduler_backoff: Option<u64>) -> (TestApi, String) {
     let shopify_url = config.shopify_url;
-    let invocation_budget_secs = config.invocation_budget_secs.unwrap_or(30);
-    let scheduler_enabled = config.scheduler_enabled.unwrap_or(true);
-    let retry_backoff_secs = scheduler_backoff.unwrap_or(1);
     let port = if shopify_url.is_some()
         || config.resend_url.is_some()
         || std::env::var("E2E_API_PORT").is_err()
@@ -540,6 +578,29 @@ async fn start_api(config: ProviderConfig<'_>, scheduler_backoff: Option<u64>) -
     } else {
         std::env::var("E2E_API_PORT").unwrap_or_else(|_| "3100".into())
     };
+    let storage_port = std::env::var("E2E_S3_PORT").unwrap_or_else(|_| "5434".into());
+    let directory = std::env::temp_dir().join(format!("monolith-api-e2e-{}", Uuid::new_v4()));
+    std::fs::create_dir(&directory).expect("create owned E2E configuration directory");
+    let api = TestApi {
+        process: None,
+        storage_base: format!("http://127.0.0.1:{storage_port}/"),
+        directory,
+        base: format!("http://127.0.0.1:{port}"),
+    };
+    write_api_configuration(&api, config, scheduler_backoff, &port);
+    (api, port)
+}
+
+fn write_api_configuration(
+    api: &TestApi,
+    config: &ProviderConfig<'_>,
+    scheduler_backoff: Option<u64>,
+    port: &str,
+) {
+    let shopify_url = config.shopify_url;
+    let invocation_budget_secs = config.invocation_budget_secs.unwrap_or(30);
+    let scheduler_enabled = config.scheduler_enabled.unwrap_or(true);
+    let retry_backoff_secs = scheduler_backoff.unwrap_or(1);
     let shopify = shopify_url
         .map(|url| format!("\n[client.shopify]\nadmin_api_url = {url:?}\ntimeout_secs = 3\n"))
         .unwrap_or_default();
@@ -555,19 +616,27 @@ async fn start_api(config: ProviderConfig<'_>, scheduler_backoff: Option<u64>) -
         .email_timeout_secs
         .map(|secs| format!("\n[client.resend]\ntimeout_secs = {secs}\n"))
         .unwrap_or_default();
-    let blob_timeout_secs = if config.blob_url.is_some() { 1 } else { 3 };
-    let storage_port = std::env::var("E2E_BLOB_PORT").unwrap_or_else(|_| "5434".into());
-    let blob_url = config.blob_url.map_or_else(
+    let s3_timeout_secs = if config.s3_url.is_some() { 1 } else { 3 };
+    let storage_port = std::env::var("E2E_S3_PORT").unwrap_or_else(|_| "5434".into());
+    let s3_url = config.s3_url.map_or_else(
         || format!("http://127.0.0.1:{storage_port}/"),
         str::to_owned,
     );
-    let directory = std::env::temp_dir().join(format!("monolith-api-e2e-{}", Uuid::new_v4()));
-    std::fs::create_dir(&directory).expect("create owned E2E configuration directory");
-    let mut api = TestApi {
-        process: None,
-        storage_base: format!("http://127.0.0.1:{storage_port}/"),
-        directory,
-        base: format!("http://127.0.0.1:{port}"),
+    let s3_ttl_secs = config.s3_ttl_secs.unwrap_or(300);
+    let s3 = if config.s3_disabled {
+        String::new()
+    } else {
+        format!(
+            r#"
+[client.s3]
+endpoint = "{s3_url}"
+region = "ap-southeast-1"
+bucket = "reports"
+force_path_style = true
+timeout_secs = {s3_timeout_secs}
+signed_url_ttl_secs = {s3_ttl_secs}
+"#
+        )
     };
     std::fs::write(
         api.directory.join("application.toml"),
@@ -587,9 +656,7 @@ retry_backoff_secs = {retry_backoff_secs}
 lease_secs = 5
 max_payload_bytes = 20971520
 max_email_bytes = 20971520
-[client.vercel_blob]
-api_url = "{blob_url}"
-timeout_secs = {blob_timeout_secs}
+{s3}
 [browser]
 public_origin = "http://127.0.0.1:8084"
 insecure_local = true
@@ -601,14 +668,6 @@ insecure_local = true
         ),
     )
     .expect("write non-secret E2E configuration");
-    assert!(
-        reqwest::get(format!("{}health", api.storage_base))
-            .await
-            .expect("Docker Blob health connection")
-            .status()
-            .is_success()
-    );
-
     let implementation = if config.vps_cron { "vps" } else { "vercel" };
     std::fs::write(
         api.directory.join("application.local.toml"),
@@ -618,84 +677,115 @@ insecure_local = true
             config.retention_interval_secs.unwrap_or(1)
         ),
     ).unwrap();
+}
 
-    api.process = Some(
-        Command::new(env!("CARGO_BIN_EXE_api"))
-            .arg("server")
-            .current_dir(&api.directory)
-            .env(
-                "DATABASE_URL",
-                config.database_url.map_or_else(database_url, str::to_owned),
-            )
-            .env("JWT_SECRET", JWT_SECRET)
-            .env(
-                "CRON_SECRET",
-                config.cron_secret.unwrap_or("e2e-cron-secret"),
-            )
-            .env(
-                "BLOB_READ_WRITE_TOKEN",
-                if config.blob_url.is_some() {
-                    "synthetic-blob-token"
-                } else {
-                    "vercel_blob_rw_local_synthetic"
-                },
-            )
-            .env("RUST_LOG", "info")
-            .env_remove("SHIPPING_SENDER_NAME")
-            .env_remove("SHIPPING_SENDER_PHONE")
-            .env_remove("SHIPPING_SENDER_EMAIL")
-            .env_remove("SHIPPING_SENDER_ADDRESS")
-            .env_remove("SHIPPING_SENDER_SUB_DISTRICT")
-            .env_remove("SHIPPING_SENDER_DISTRICT")
-            .env_remove("SHIPPING_SENDER_PROVINCE")
-            .env_remove("SHIPPING_SENDER_POSTCODE")
-            .env_remove("SHIPPING_SENDER_COUNTRY_CODE")
-            .envs(
-                (scheduler_backoff.is_none())
-                    .then_some([
-                        ("SHIPPING_SENDER_NAME", "Synthetic Sender"),
-                        ("SHIPPING_SENDER_PHONE", "0000000000"),
-                        ("SHIPPING_SENDER_EMAIL", "sender@example.test"),
-                        ("SHIPPING_SENDER_ADDRESS", "123 Synthetic Street"),
-                        ("SHIPPING_SENDER_SUB_DISTRICT", "Synthetic Subdistrict"),
-                        ("SHIPPING_SENDER_DISTRICT", "Synthetic District"),
-                        ("SHIPPING_SENDER_PROVINCE", "Synthetic Province"),
-                        ("SHIPPING_SENDER_POSTCODE", "10100"),
-                        ("SHIPPING_SENDER_COUNTRY_CODE", "TH"),
-                    ])
-                    .into_iter()
-                    .flatten(),
-            )
-            .env_remove("SHOPIFY_ACCESS_TOKEN")
-            .env_remove("RESEND_API_KEY")
-            .env_remove("RESEND_BASE_URL")
-            .env_remove("RESEND_RATE_LIMIT")
-            .env("RUN_ENV", "local")
-            .env("PORT", port.as_str())
-            .envs(config.resend_key.map(|key| ("RESEND_API_KEY", key)))
-            .envs(config.resend_url.map(|url| ("RESEND_BASE_URL", url)))
-            .envs(config.resend_url.map(|_| ("RESEND_RATE_LIMIT", "1000")))
-            .env_remove("PAYPAL_CLIENT_ID")
-            .env_remove("PAYPAL_CLIENT_SECRET")
-            .env_remove("STRIPE_SECRET_KEY")
-            .envs(shopify_url.map(|_| ("SHOPIFY_ACCESS_TOKEN", "e2e-fixture-token")))
-            .envs(
-                config
-                    .paypal_url
-                    .map(|_| ("PAYPAL_CLIENT_ID", "e2e-fixture-id")),
-            )
-            .envs(
-                config
-                    .paypal_url
-                    .map(|_| ("PAYPAL_CLIENT_SECRET", "e2e-fixture-secret")),
-            )
-            .stdin(Stdio::null())
-            .stdout(Stdio::from(
-                std::fs::File::create(api.directory.join("api.log")).expect("create owned API log"),
-            ))
-            .spawn()
-            .expect("start local E2E API"),
-    );
+fn spawn_api(
+    api: &TestApi,
+    config: &ProviderConfig<'_>,
+    scheduler_backoff: Option<u64>,
+    port: &str,
+) -> Child {
+    let shopify_url = config.shopify_url;
+    let (access_key_id, secret_access_key) = s3_credentials();
+    Command::new(env!("CARGO_BIN_EXE_api"))
+        .arg("server")
+        .current_dir(&api.directory)
+        .env(
+            "DATABASE_URL",
+            config.database_url.map_or_else(database_url, str::to_owned),
+        )
+        .env("JWT_SECRET", JWT_SECRET)
+        .env(
+            "CRON_SECRET",
+            config.cron_secret.unwrap_or("e2e-cron-secret"),
+        )
+        .env_remove("S3_ACCESS_KEY_ID")
+        .env_remove("S3_SECRET_ACCESS_KEY")
+        .envs(
+            (!config.s3_disabled)
+                .then_some([
+                    (
+                        "S3_ACCESS_KEY_ID",
+                        if config.s3_invalid_credentials {
+                            ""
+                        } else if config.s3_url.is_some() {
+                            "synthetic-access-id"
+                        } else {
+                            access_key_id.as_str()
+                        },
+                    ),
+                    (
+                        "S3_SECRET_ACCESS_KEY",
+                        if config.s3_invalid_credentials {
+                            ""
+                        } else if config.s3_url.is_some() {
+                            "synthetic-secret-key"
+                        } else {
+                            secret_access_key.as_str()
+                        },
+                    ),
+                ])
+                .into_iter()
+                .flatten(),
+        )
+        .env("RUST_LOG", "info")
+        .env_remove("SHIPPING_SENDER_NAME")
+        .env_remove("SHIPPING_SENDER_PHONE")
+        .env_remove("SHIPPING_SENDER_EMAIL")
+        .env_remove("SHIPPING_SENDER_ADDRESS")
+        .env_remove("SHIPPING_SENDER_SUB_DISTRICT")
+        .env_remove("SHIPPING_SENDER_DISTRICT")
+        .env_remove("SHIPPING_SENDER_PROVINCE")
+        .env_remove("SHIPPING_SENDER_POSTCODE")
+        .env_remove("SHIPPING_SENDER_COUNTRY_CODE")
+        .envs(
+            (scheduler_backoff.is_none())
+                .then_some([
+                    ("SHIPPING_SENDER_NAME", "Synthetic Sender"),
+                    ("SHIPPING_SENDER_PHONE", "0000000000"),
+                    ("SHIPPING_SENDER_EMAIL", "sender@example.test"),
+                    ("SHIPPING_SENDER_ADDRESS", "123 Synthetic Street"),
+                    ("SHIPPING_SENDER_SUB_DISTRICT", "Synthetic Subdistrict"),
+                    ("SHIPPING_SENDER_DISTRICT", "Synthetic District"),
+                    ("SHIPPING_SENDER_PROVINCE", "Synthetic Province"),
+                    ("SHIPPING_SENDER_POSTCODE", "10100"),
+                    ("SHIPPING_SENDER_COUNTRY_CODE", "TH"),
+                ])
+                .into_iter()
+                .flatten(),
+        )
+        .env_remove("SHOPIFY_ACCESS_TOKEN")
+        .env_remove("RESEND_API_KEY")
+        .env_remove("RESEND_BASE_URL")
+        .env_remove("RESEND_RATE_LIMIT")
+        .env("RUN_ENV", "local")
+        .env("PORT", port)
+        .envs(config.resend_key.map(|key| ("RESEND_API_KEY", key)))
+        .envs(config.resend_url.map(|url| ("RESEND_BASE_URL", url)))
+        .envs(config.resend_url.map(|_| ("RESEND_RATE_LIMIT", "1000")))
+        .env_remove("PAYPAL_CLIENT_ID")
+        .env_remove("PAYPAL_CLIENT_SECRET")
+        .env_remove("STRIPE_SECRET_KEY")
+        .envs(shopify_url.map(|_| ("SHOPIFY_ACCESS_TOKEN", "e2e-fixture-token")))
+        .envs(
+            config
+                .paypal_url
+                .map(|_| ("PAYPAL_CLIENT_ID", "e2e-fixture-id")),
+        )
+        .envs(
+            config
+                .paypal_url
+                .map(|_| ("PAYPAL_CLIENT_SECRET", "e2e-fixture-secret")),
+        )
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(
+            std::fs::File::create(api.directory.join("api.log")).expect("create owned API log"),
+        ))
+        .spawn()
+        .expect("start local E2E API")
+}
+
+async fn wait_for_api(api: &mut TestApi) {
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(1))
         .build()
@@ -712,8 +802,7 @@ insecure_local = true
             .await
             .is_ok_and(|response| response.status().is_success())
         {
-            let api = Arc::new(api);
-            return api;
+            return;
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }

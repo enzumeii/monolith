@@ -1,7 +1,10 @@
 use crate::{
-    client::vercel_blob::{Blob, VercelBlobClient},
+    client::s3::S3Client,
     error::AppError,
-    models::cron::checkpoint::{ExecutionCheckpoint, FileCheckpoint},
+    models::cron::{
+        checkpoint::{ExecutionCheckpoint, FileCheckpoint},
+        report::SavedFile,
+    },
 };
 use axum::http::StatusCode;
 use sha2::{Digest, Sha256};
@@ -16,63 +19,71 @@ pub(crate) struct PreparedReport {
     pub files: Vec<GeneratedFile>,
 }
 pub(crate) async fn obtain(
-    client: &VercelBlobClient,
+    client: &S3Client,
     entry: &FileCheckpoint,
     original: Option<&[u8]>,
-) -> Result<(Blob, Vec<u8>), AppError> {
-    let blob = if let Some(blob) = client
+) -> Result<(SavedFile, Vec<u8>), AppError> {
+    entry.validate()?;
+    if entry
+        .receipt
+        .as_ref()
+        .is_some_and(|receipt| receipt.bucket != client.bucket())
+        || original
+            .is_some_and(|bytes| bytes.len() != entry.size_bytes || digest(bytes) != entry.sha256)
+    {
+        return Err(unavailable());
+    }
+    let object = if let Some(object) = client
         .metadata(&entry.key)
         .await
         .map_err(|e| crate::error::upstream(e))?
     {
-        blob
+        object
     } else {
-        let bytes = original.ok_or_else(|| {
-            AppError::new(
-                StatusCode::CONFLICT,
-                "Generated report file is missing from Blob; regeneration is disabled",
-            )
-        })?;
-        if bytes.len() != entry.size_bytes || digest(bytes) != entry.sha256 {
-            return Err(unavailable());
-        }
-        match client
+        let bytes = original
+            .filter(|_| entry.receipt.is_none())
+            .ok_or_else(|| {
+                AppError::new(
+                    StatusCode::CONFLICT,
+                    "Generated report file is missing from S3; regeneration is disabled",
+                )
+            })?;
+        let outcome = client
             .put(&entry.key, &entry.content_type, bytes.to_vec())
+            .await;
+        // An accepted PUT can lose its response. Reconcile by key without replaying the upload.
+        let object = client
+            .metadata(&entry.key)
             .await
-        {
-            Ok(blob) => blob,
-            Err(error) => {
-                // A lost response can hide an accepted PUT. Reconcile by immutable key, never replay PUT.
-                client
-                    .metadata(&entry.key)
-                    .await
-                    .map_err(|e| crate::error::upstream(e))?
-                    .ok_or_else(|| crate::error::upstream(error))?
-            }
+            .map_err(|e| crate::error::upstream(e))?;
+        match (object, outcome) {
+            (Some(object), _) => object,
+            (None, Err(error)) => return Err(crate::error::upstream(error)),
+            (None, Ok(())) => return Err(unavailable()),
         }
     };
-    client
-        .validate(&blob, &entry.key, &entry.content_type)
-        .map_err(|e| crate::error::upstream(e))?;
-    if let Some(receipt) = &entry.receipt {
-        let mut saved = blob.clone();
-        saved.download_url.clone_from(&receipt.download_url);
-        client
-            .validate(&saved, &entry.key, &entry.content_type)
-            .map_err(|e| crate::error::upstream(e))?;
+    if object.storage_key != entry.key
+        || object.content_type != entry.content_type
+        || object.size != entry.size_bytes as u64
+    {
+        return Err(unavailable());
     }
-    let url = entry
-        .receipt
-        .as_ref()
-        .map_or(blob.download_url.as_str(), |r| r.download_url.as_str());
     let bytes = client
-        .download(url, entry.size_bytes)
+        .download(&entry.key, entry.size_bytes)
         .await
         .map_err(|e| crate::error::upstream(e))?;
     if bytes.len() != entry.size_bytes || digest(&bytes) != entry.sha256 {
         return Err(unavailable());
     }
-    Ok((blob, bytes))
+    let receipt = SavedFile {
+        filename: entry.filename.clone(),
+        content_type: entry.content_type.clone(),
+        bucket: client.bucket().into(),
+        storage_key: entry.key.clone(),
+        size_bytes: entry.size_bytes,
+        sha256: entry.sha256.clone(),
+    };
+    Ok((receipt, bytes))
 }
 pub(crate) fn digest(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
@@ -80,7 +91,7 @@ pub(crate) fn digest(bytes: &[u8]) -> String {
 fn unavailable() -> AppError {
     AppError::new(
         StatusCode::CONFLICT,
-        "Saved report Blob bytes or checkpoint are invalid",
+        "Saved report S3 bytes or checkpoint are invalid",
     )
 }
 

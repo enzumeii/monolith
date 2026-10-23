@@ -5,4 +5,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(report::list))
         .route("/{id}", get(report::detail))
+        .route(
+            "/{id}/files/{filename}/download-url",
+            get(report::download_url),
+        )
 }

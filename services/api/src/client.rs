@@ -7,9 +7,9 @@ use std::{collections::BTreeMap, fmt, panic::Location, time::Duration};
 
 pub mod paypal;
 pub mod resend;
+pub mod s3;
 pub mod shopify;
 pub mod stripe;
-pub mod vercel_blob;
 
 pub struct ClientError {
     kind: ClientErrorKind,

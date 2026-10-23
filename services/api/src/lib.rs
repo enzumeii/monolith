@@ -19,5 +19,5 @@ pub(crate) mod validations;
 pub use repositories::auth::cleanup_refresh_tokens;
 
 #[cfg(test)]
-#[path = "tests/blob_fixture.rs"]
-mod blob_fixture;
+#[path = "tests/s3_fixture.rs"]
+mod s3_fixture;

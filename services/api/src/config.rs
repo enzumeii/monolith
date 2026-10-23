@@ -32,7 +32,7 @@ pub struct ClientConfig {
     pub shopify: Option<ShopifyConfig>,
     pub resend: Option<ResendConfig>,
     pub stripe: Option<StripeConfig>,
-    pub vercel_blob: Option<VercelBlobConfig>,
+    pub s3: Option<S3Config>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -74,14 +74,20 @@ impl std::fmt::Debug for ResendConfig {
 }
 
 #[derive(Deserialize, Clone)]
-pub struct VercelBlobConfig {
-    pub api_url: String,
+pub struct S3Config {
+    pub endpoint: String,
+    pub region: String,
+    pub bucket: String,
+    pub force_path_style: bool,
     pub timeout_secs: u64,
-    pub token: Option<String>,
+    pub signed_url_ttl_secs: u32,
+    pub access_key_id: Option<String>,
+    pub secret_access_key: Option<String>,
 }
-impl std::fmt::Debug for VercelBlobConfig {
+
+impl std::fmt::Debug for S3Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("VercelBlobConfig { token: [REDACTED], .. }")
+        f.write_str("S3Config { credentials: [REDACTED], .. }")
     }
 }
 
@@ -269,8 +275,13 @@ impl Settings {
         if let Ok(client_secret) = env::var("PAYPAL_CLIENT_SECRET") {
             builder = builder.set_override("client.paypal.client_secret", client_secret)?;
         }
-        if let Ok(token) = env::var("BLOB_READ_WRITE_TOKEN") {
-            builder = builder.set_override("client.vercel_blob.token", token)?;
+        for (variable, field) in [
+            ("S3_ACCESS_KEY_ID", "access_key_id"),
+            ("S3_SECRET_ACCESS_KEY", "secret_access_key"),
+        ] {
+            if let Ok(value) = env::var(variable) {
+                builder = builder.set_override(format!("client.s3.{field}"), value)?;
+            }
         }
         if let Ok(key) = env::var("STRIPE_SECRET_KEY") {
             builder = builder.set_override("client.stripe.secret_key", key)?;

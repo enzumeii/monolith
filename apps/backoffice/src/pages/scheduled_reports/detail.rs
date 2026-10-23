@@ -32,7 +32,7 @@ pub fn Detail(id: String, query: String) -> Element {
                     dt { if record.report_type == ScheduleReportType::Inventory { "Inventory ID" } else { "Parameters" } }
                     dd { "{record.parameters}" }
                     dt { "Workflow status" } dd { ReportOutcome { report: record.clone() } }
-                    dt { "Files" } dd { ReportFiles { files: record.files } }
+                    dt { "Files" } dd { ReportFiles { report_id: record.id, files: record.files } }
                 }
             }
         }

@@ -3,7 +3,7 @@ host = "0.0.0.0"
 port = 3000
 
 [database]
-max_connections = 1
+max_connections = 2
 min_connections = 1
 
 [scheduler]
@@ -26,19 +26,23 @@ insecure_local = true
 
 [client.shopify]
 admin_api_url = "https://enzumeii.myshopify.com/admin/api/2026-10/graphql.json"
-timeout_secs = 3
+timeout_secs = 10
 
 [client.resend]
-timeout_secs = 3
+timeout_secs = 10
 
 [client.paypal]
 base_url = "https://api-m.paypal.com"
-timeout_secs = 3
-
-[client.vercel_blob]
-api_url = "https://vercel.com/api/blob"
 timeout_secs = 10
 
 [client.stripe]
 base_url = "https://api.stripe.com/v1/"
-timeout_secs = 3
+timeout_secs = 10
+
+[client.s3]
+endpoint = "https://jbcvsgdvhvzitweteqfo.storage.supabase.co/storage/v1/s3"
+region = "ap-southeast-1"
+bucket = "reports"
+force_path_style = true
+timeout_secs = 10
+signed_url_ttl_secs = 300

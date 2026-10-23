@@ -10,6 +10,7 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | API listener | TOML; platform `PORT` in container server mode | Container listener uses the platform port |
 | API browser | `browser.public_origin`, `browser.insecure_local` in TOML | Exact origin; HTTPS unless explicitly using loopback HTTP |
 | Database | `DATABASE_URL` from ignored `.env` or environment | Secret PostgreSQL connection URL |
+| Report storage | Common/local/prod client.s3 TOML; S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY from private environment | Private reports bucket, region ap-southeast-1; independent of database credentials; local setup supplies synthetic missing/empty values. No signed URL persistence. |
 | Signing key | `JWT_SECRET` from ignored `.env` or environment | Hex-encoded random key of at least 32 bytes |
 | Shopify URL | `client.shopify.admin_api_url` in `services/api/application.toml` | Full `https://<shop>.myshopify.com/admin/api/2026-10/graphql.json`; local overlay does not replace it |
 | Shopify token | `SHOPIFY_ACCESS_TOKEN` from ignored API `.env` or environment | ConfigBuilder overrides client.shopify.access_token before one deserialization; standard file values apply when there is no environment override; Debug redacts credentials |
@@ -20,7 +21,7 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | Frontend environments | Selected local/prod file published as `application.toml` | Production uses `/api/v1`; build restores local source file, including after failure |
 | Frontend hosting | Static CSR HTML/WASM/assets under `/backoffice/` and `/user/` | Browser loads public settings before application calls and session restoration |
 | Cron authorization | Environment `CRON_SECRET` | Backend only; never embedded in browser assets |
-| Local Vercel environment | Inherited environment → ignored root `.env` → ignored API `.env` | `just vercel-dev` checks DATABASE_URL, JWT_SECRET and CRON_SECRET, sets local development metadata and uses the API native dev command through an owned temporary config. The API loads its local TOML overlay and cron choice; production still uses the container |
+| Local Vercel environment | Inherited environment → ignored root `.env` → ignored API `.env` | `just vercel-dev` checks DATABASE_URL, JWT_SECRET, CRON_SECRET and S3 credentials, starts/initializes local S3, sets local development metadata and uses the API native dev command through an owned temporary config. The API loads its local TOML overlay and cron choice; production still uses the container |
 
 Inherited environment variables keep dotenvy's normal precedence. Normal API settings remain file-based; container port and trusted generated-host metadata are narrow platform exceptions. Absent Shopify configuration is optional when no token override is supplied. A token override requires the admin URL from file configuration; missing required fields produce normal configuration errors. Explicit client construction parses the trusted URL and validates the token/header. just setup scaffolds an empty SHOPIFY_ACCESS_TOKEN only in new .env files and preserves existing files.
 
@@ -57,7 +58,7 @@ Run recipes from the package directory.
 | API verification mode | Dependencies and scope |
 | --- | --- |
 | `cargo test --locked -p api --lib` | Library tests and loopback transport fixtures; configured Docker PostgreSQL must be ready; no Shopify credentials |
-| `just test` | Compose PostgreSQL, native Cargo tests once, `cargo api-e2e` for TCP endpoint tests only, and Compose down with volumes removed even on failure |
+| `just test` | Compose PostgreSQL/private S3/init, native Cargo tests once, `cargo api-e2e` for TCP endpoint tests only, and Compose down with volumes removed even on failure |
 | `just check` | Formatting and strict Clippy on all API targets |
 | API E2E | `e2e-test/healthz.rs`, `e2e-test/v1/{auth,admins}.rs`, `e2e-test/v1/admin/{inventories,orders,transactions}.rs` and `e2e-test/v1/admin/cron/{configs,report}.rs`; real TCP endpoints |
 | Process lifecycle | `e2e-test/process.rs` exercises owned-child teardown |
@@ -113,6 +114,7 @@ Inventory returns one caller-selected product page with active inventory levels;
 | Initial administration | Intentional superadmin seed migration |
 | Additional administrators | Authenticated `POST /v1/admins`; API validates credentials and stores hashes |
 | Schema changes | Preserve admin/seed behavior and applied migration history; SQLx uses committed offline metadata |
+| Report receipts | report_results stores audit fields; report_result_files stores ordered private object metadata with parent/filename, parent/position and bucket/key uniqueness. Checkpoint JSON remains worker recovery state; history reads canonical child rows in one SQL snapshot |
 | Deployment | Root Vercel services configuration, two CSR builds, one API container and daily HTTP cron; Release workflow offers manual production deployment from main |
 
 ## Local planning artifacts
@@ -178,7 +180,7 @@ Report queries require product, inventory, location and order access; reading un
 | Module `just test` | Existing suite, no coverage tooling required |
 | Module `just test --coverage` | Native tests with an isolated report at repository `target/coverage/<crate>/lcov.info` |
 | API coverage | Includes TCP API child-process execution; graceful termination flushes profiles before bounded forced cleanup |
-| API test isolation | Optional E2E_COMPOSE_PROJECT, E2E_POSTGRES_PORT and E2E_DATABASE_URL allow independent worktrees; defaults remain e2e/5433 |
+| API test isolation | Optional E2E_COMPOSE_PROJECT, E2E_POSTGRES_PORT and E2E_DATABASE_URL allow independent worktrees; defaults remain e2e/5433; E2E_S3_PORT defaults5434 and dedicated synthetic E2E_S3_ACCESS_KEY_ID/E2E_S3_SECRET_ACCESS_KEY isolate storage credentials |
 | Coverage CI | The existing check job runs report-generator check/test and the four instrumented module suites sequentially, retains four scoped reports, and uploads them together once to Codecov |
 | CODECOV_TOKEN | Add the Codecov repository upload token in GitHub Actions secrets; unavailable secrets skip upload with a visible notice and retain artifacts |
 | Root `just setup` / `just check` | Node 24+; setup installs the pinned Conventional Commits reference parser; check runs Node tests, actionlint 1.7.12 and shellcheck |
@@ -220,7 +222,7 @@ Titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/e
 | `just setup` | Install pinned local Vercel CLI and existing CI parser dependencies |
 | `just check` | Workflow, shell, policy tests and pinned CLI configuration/service resolution |
 | `just vercel-build` | Build both static CSR bundles and the API Docker image |
-| `just vercel-dev` | Load local API secrets, prebuild static bundles, then run all three services on localhost:18027; local TOML selects VPS polling or manual Vercel cron |
+| `just vercel-dev` | Load local API secrets, start/init persistent local S3, prebuild static bundles, then run all three services on localhost:18027 (optional --port/--queue-port/--runtime-cache-port/--schedules-port); local TOML selects VPS polling or manual Vercel cron |
 | `vercel.json` | Static filesystem-first routes, asset404 guards, own-prefix SPA fallbacks, public API and daily cron |
 | `scripts/install-vercel-dx.sh` | Compile pinned Dioxus 0.7.10 with the repository Rust toolchain into writable `.tools/vercel-dx`; reuse verified cached version |
 | `scripts/build-vercel-ui.sh` | Select public production TOML, build web-only WASM, restore local TOML and copy only public assets under the app prefix |
@@ -249,12 +251,24 @@ Static services have no frontend executable or runtime dependency. Their build-o
 | --- | --- |
 | Button | GitHub Actions → Release → Run workflow → select `main` → Run workflow; the workflow file must first exist on the default branch for the button to appear |
 | Target | Only dispatches for `refs/heads/main` deploy; checkout uses that run's exact `github.sha`, including when main advances while queued |
-| GitHub Actions secrets | `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` for the existing Vercel project; missing values fail before installing or calling the CLI |
-| Execution | Install pinned CLI 65.1.0 with the root lockfile, validate services, then make one root `vercel deploy --prod --yes` call; normal remote builds include backoffice, client-ui and API in the same project/deployment |
+| GitHub Actions secrets | `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` for the existing Vercel project, plus `SUPABASE_MIGRATION_DATABASE_URL`; missing values fail before checkout or tool installation |
+| Execution | Install pinned Vercel CLI 65.1.0, validate services, install SQLx CLI 0.9.0 with PostgreSQL/rustls, apply committed migrations, then make one root `vercel deploy --prod --yes` call; normal remote builds include backoffice, client-ui and API in the same project/deployment |
 | Completion | Wait for the deployment/build result; failure fails the job, success records the deployment URL in its summary |
 | Automation boundary | Merged PRs retain version/tag/release publication only. Manual dispatch deploys only; it does not publish a version/tag/release. Merge/tag events never deploy through this workflow |
-| Runtime secrets | Keep database, signing, provider and cron credentials in the existing Vercel project's production environment; CI does not download them |
-| Database | Schema migration remains a separate operator step; container startup connects without migrating |
+| Runtime secrets | Keep database, signing, provider and cron credentials in the existing Vercel project's production environment; CI does not download them. Runtime `DATABASE_URL` must target the same database as the migration URL; this workflow does not set or change it |
+| Database | Before deployment, `sqlx --no-dotenv migrate run --source services/api/migrations` applies pending migrations from the selected commit; reruns skip already-applied migrations. The dedicated secret becomes `DATABASE_URL` only for SQLx; preflight checks its presence, and install/build/deploy commands do not receive it. Container startup still connects without migrating |
+| Migration failure | Fails the job before any Vercel deployment. Successfully committed migrations remain if a later deployment fails; migrations must remain compatible with the currently running application |
 | Current evidence | Configuration and controlled local checks only; no hosted deployment, project link or secret setup has been performed |
 
 Never copy `.env` or local credentials into images or static output. Local validation does not provision, link, migrate or deploy a cloud project.
+
+| Supabase migration connection | Setting |
+| --- | --- |
+| GitHub secret | Set `SUPABASE_MIGRATION_DATABASE_URL` in repository Actions secrets; do not commit it or paste its password into logs |
+| Supplied direct endpoint | `postgresql://postgres:<percent-encoded-password>@db.jbcvsgdvhvzitweteqfo.supabase.co:5432/postgres?sslmode=require` |
+| Network choice | The direct endpoint uses IPv6 unless the Supabase IPv4 add-on is enabled. For an IPv4-only runner, copy the **Session pooler** connection from the project's Dashboard Connect panel: port `5432`, database `postgres`, username `postgres.jbcvsgdvhvzitweteqfo`; the pooler host is project/region-specific and must be copied, not guessed |
+| Pooler mode | Use the direct connection or session pooler for migrations; avoid transaction pooler port `6543` because SQLx migration locking needs session semantics |
+| TLS and escaping | Keep `sslmode=require` in the URL and percent-encode reserved password characters; use the project's database password, not an API key |
+| Production runtime | Configure Vercel's production `DATABASE_URL` separately for the same Supabase database; the migration secret is not copied to Vercel |
+
+Connection modes and network support follow [Supabase's PostgreSQL connection guide](https://supabase.com/docs/guides/database/connecting-to-postgres). These local checks do not establish live Supabase connectivity or permissions.
