@@ -36,7 +36,7 @@ pub fn Detail(id: String) -> Element {
     });
     rsx! {
         Link { to: Route::Conventions { query: String::new() }, "Back to conventions" }
-        if record.pending() || record.read().is_none() { p { role: "status", "Loading convention…" } }
+        if record.read().is_none() || record.pending() { p { role: "status", "Loading convention…" } }
         else if let Some(result) = record.read().as_ref() {
             match result {
                 Err(error) => rsx! { ErrorMessage { message: Some(error.to_string()) } button { onclick: move |_| reload += 1, "Retry loading" } },

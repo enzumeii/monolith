@@ -16,6 +16,16 @@ struct BrowseQuery {
     search: String,
     cursor: Option<String>,
 }
+impl BrowseQuery {
+    fn to_api_query(&self) -> CatalogueQuery {
+        CatalogueQuery {
+            location_id: format!("gid://shopify/Location/{}", self.location),
+            page_size: Some(25),
+            cursor: self.cursor.clone(),
+            search: (!self.search.is_empty()).then(|| self.search.clone()),
+        }
+    }
+}
 #[derive(Clone, PartialEq)]
 struct SourceVariant {
     product_id: String,
@@ -130,16 +140,10 @@ pub fn SelectionEditor(
         let query = submitted();
         async move {
             if let Some(query) = query {
-                let result = session::with_session(|| {
-                    api::catalogue::products(CatalogueQuery {
-                        location_id: query.location.clone(),
-                        page_size: Some(25),
-                        cursor: query.cursor.clone(),
-                        search: Some(query.search.clone()),
-                    })
-                })
-                .await
-                .map(BrowsePage::from_response);
+                let result =
+                    session::with_session(|| api::catalogue::products(query.to_api_query()))
+                        .await
+                        .map(BrowsePage::from_response);
                 Some((query, result))
             } else {
                 None

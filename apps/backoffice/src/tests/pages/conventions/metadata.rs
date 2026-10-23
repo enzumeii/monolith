@@ -16,6 +16,11 @@ fn metadata_fields_keep_identity_readonly_and_date_inputs_are_calendar_dates() {
     dom.rebuild_in_place();
     let html = dioxus_ssr::render(&dom);
     assert!(html.contains("readonly"));
+    assert!(
+        html.contains("<option value=\"THB\" selected=true>THB</option>"),
+        "{html}"
+    );
+    assert!(html.contains("<option value=\"\">Choose currency</option>"));
     assert!(html.contains("type=\"date\""));
     assert!(html.contains("Enable preorders"));
     assert!(html.contains("Description preview"));
@@ -35,7 +40,11 @@ fn unsupported_saved_capabilities_are_preserved_and_explained() {
     let mut dom = VirtualDom::new(app);
     dom.rebuild_in_place();
     let html = dioxus_ssr::render(&dom);
-    assert!(html.contains("JPY (currently unsupported)"));
+    assert!(
+        html.contains("<option value=\"JPY\" selected=true>JPY (currently unsupported)</option>"),
+        "{html}"
+    );
+    assert!(html.contains("<option value=\"\">Choose currency</option>"));
     assert!(html.contains("PayPal"));
     assert!(html.contains("stored method no longer configured"));
     assert!(html.contains("You can edit metadata or disable preorders"));

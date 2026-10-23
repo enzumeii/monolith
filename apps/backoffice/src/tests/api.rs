@@ -140,6 +140,7 @@ pub(crate) async fn metadata_responses<T>(
                 }
                 Err(error) => panic!("accept: {error}"),
             };
+            stream.set_nonblocking(false).expect("blocking stream");
             stream
                 .set_read_timeout(Some(std::time::Duration::from_secs(5)))
                 .expect("timeout");

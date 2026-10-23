@@ -46,7 +46,7 @@ pub fn Conventions(query: String) -> Element {
                     option { value: "all", "All conventions" } option { value: "false", "Disabled" } option { value: "true", "Enabled" }
                 }
             }
-            if response.pending() || response.read().is_none() { p { role: "status", "Loading conventions…" } }
+            if response.read().is_none() || response.pending() { p { role: "status", "Loading conventions…" } }
             else if let Some(result) = response.read().as_ref() {
                 match result {
                     Err(error) => rsx! { ErrorMessage { message: Some(error.to_string()) } button { onclick: move |_| retry += 1, "Retry loading" } },
@@ -104,3 +104,7 @@ fn page_query(page: u32, enabled: Option<bool>) -> String {
         |value| format!("page={page}&preorder_enabled={value}"),
     )
 }
+
+#[cfg(test)]
+#[path = "../tests/pages/conventions.rs"]
+mod tests;

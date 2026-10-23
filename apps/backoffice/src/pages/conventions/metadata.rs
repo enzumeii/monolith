@@ -86,9 +86,9 @@ pub fn MetadataFields(
             div { label { r#for: "convention-slug", "Slug (immutable after creation)" } input { id: "convention-slug", required: true, readonly: editing, value: current.slug, oninput: move |event| draft.write().slug = event.value() } }
             div { label { r#for: "convention-country", "Country code (ISO two-letter)" } input { id: "convention-country", required: true, maxlength: 2, value: current.country, oninput: move |event| draft.write().country = event.value().to_ascii_uppercase() } }
             div { label { r#for: "convention-currency", "Currency (immutable after creation)" } select { id: "convention-currency", required: true, disabled: editing, value: current.currency.clone(), onchange: move |event| { let mut value = draft.write(); value.currency = event.value(); value.methods.clear(); },
-                option { value: "", "Choose currency" }
-                if unsupported_currency { option { value: current.currency.clone(), "{current.currency} (currently unsupported)" } }
-                for (code, _) in &options { option { value: code.clone(), "{code}" } }
+                option { value: "", selected: current.currency.is_empty(), "Choose currency" }
+                if unsupported_currency { option { value: current.currency.clone(), selected: true, "{current.currency} (currently unsupported)" } }
+                for (code, _) in &options { option { value: code.clone(), selected: code == &current.currency, "{code}" } }
             } }
             div { label { r#for: "convention-start", "Event starts on" } input { id: "convention-start", r#type: "date", required: true, value: current.start, oninput: move |event| draft.write().start = event.value() } }
             div { label { r#for: "convention-end", "Event ends on" } input { id: "convention-end", r#type: "date", required: true, value: current.end, oninput: move |event| draft.write().end = event.value() } }

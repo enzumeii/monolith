@@ -1,5 +1,5 @@
 .conventions-page { max-width: 1200px; margin: auto; }
-.convention-section { margin: 1.5rem 0; padding: 1.25rem; }
+.convention-section { max-width: none; margin: 1.5rem 0; padding: 1.25rem; }
 .convention-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 1rem; }
 .convention-form-grid > div { min-width: 0; }
 .convention-actions { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; margin: 1rem 0; }
@@ -8,7 +8,7 @@
 .convention-preview { padding: 1rem; border: 1px solid var(--panel-border); border-radius: .5rem; margin: 1rem 0; overflow-wrap: anywhere; }
 .convention-logo { display: block; width: 180px; max-height: 180px; object-fit: contain; margin: 1rem 0; }
 .convention-table-scroll { overflow-x: auto; max-width: 100%; }
-.convention-table { border-collapse: collapse; width: 100%; }
+.convention-table { border-collapse: collapse; width: 100%; min-width: 640px; }
 .convention-table caption { text-align: left; font-weight: 600; margin: .75rem 0; }
 .convention-table th, .convention-table td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--panel-border); padding: .75rem; overflow-wrap: anywhere; }
 .convention-table input { min-width: 8rem; }
