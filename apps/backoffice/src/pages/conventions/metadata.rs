@@ -56,7 +56,6 @@ pub fn CreateEditor() -> Element {
         if created() {
             CreationComplete {}
         } else {
-        Link { to: Route::Conventions { query: String::new() }, class: "button-link ghost", "Back to conventions" }
         p { "New conventions start with preorders disabled. You can choose an optional PNG or JPEG logo before creating the convention." }
         if capabilities.pending() { p { role: "status", "Loading countries, currencies and payment methods…" } }
         ErrorMessage { message: load_error.clone() }
@@ -86,8 +85,10 @@ pub fn CreateEditor() -> Element {
                 MetadataFields { draft, options: options.clone(), editing: false }
                 h3 { "Optional convention logo" }
                 p { "PNG or JPEG only, at most 2 MiB and 4096 × 4096 pixels. If creation fails, your logo and form stay ready to retry." }
-                LogoPicker { selection, request: logo_request, error, notice }
-                button { r#type: "button", class: "ghost", disabled: (selection.file)().is_none(), onclick: move |_| { selection.reset(); error.set(None); }, "Discard selected file" }
+                div { class: "convention-logo-file-box",
+                    LogoPicker { selection, request: logo_request, error, notice }
+                    button { r#type: "button", class: "ghost convention-file-discard", disabled: (selection.file)().is_none(), onclick: move |_| { selection.reset(); error.set(None); }, "Discard selected file" }
+                }
                 ErrorMessage { message: error() }
                 button { r#type: "submit", class: "primary", if saving() { "Creating…" } else { "Create convention" } }
             }

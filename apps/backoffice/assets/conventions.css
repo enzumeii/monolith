@@ -56,3 +56,14 @@
 
 .convention-name-field { grid-column: 1 / -1; }
 @media (max-width: 600px) { .convention-form-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.convention-create-heading { display: flex; align-items: center; gap: .75rem; }
+.convention-back { min-width: 2.75rem; font-size: 1.25rem; }
+.convention-logo-file-box { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: center; padding: 1rem; border: 1px solid var(--panel-border); background: var(--bg); }
+.convention-logo-file-box > label, .convention-logo-file-box > p { grid-column: 1 / -1; margin: 0; }
+.convention-logo-file-box input[type="file"] { min-width: 0; border: 0; padding: 0; }
+.convention-logo-file-box .convention-file-discard { grid-column: 2; grid-row: 2; border-radius: 999px; }
+@media (max-width: 600px) {
+    .convention-logo-file-box { grid-template-columns: minmax(0, 1fr); }
+    .convention-logo-file-box .convention-file-discard { grid-column: 1; grid-row: auto; justify-self: start; }
+}
