@@ -103,6 +103,59 @@ Merged source `ddaf159` integrates feature head `d2e337f` with upstream `1622b23
 
 Controlled responses establish exercised transport/contracts, not live Shopify schema compatibility, merchant permissions/capabilities, query cost or a real payment. No production migration/deployment, live provider mutation/charge, manual browser UI acceptance or hosted CI is asserted. Public APIs (ENZ-38), routing (ENZ-41), quotes, checkout and historical order snapshots/protection remain future work; parent deletion currently cascades current memberships.
 
+## ENZ-44 PayPal client boundary and currency enum — 2026-10-23
+
+| Local evidence | Result |
+| --- | --- |
+| Current scope | Verification and evidence/money helpers live under `client::paypal::payment`, returning typed ClientError. Existing CurrencyCode variants govern precision with strict canonical spelling; wire fields and supported currencies are unchanged. |
+| Complete API check | 34 setup-helper tests, formatting and strict API/all-target/E2E Clippy pass. |
+| Full API test recipe | 412 native tests and 150 HTTP E2E tests pass; zero failed or ignored. Owned Compose containers, volumes, network and API processes are gone. |
+| Focused PayPal regressions | All47 provider/payment/event tests pass, including accepted currency scales, unsupported/noncanonical inputs, checked money, GET-only verification and typed upstream error causes/locations. These tests are included in the native total. |
+| Independent review and binding | No actionable findings. All509 source-manifest files stayed unchanged through verification; the final documentation result row is added afterward. |
+| Unchanged-contract evidence | Domain/Postman/shared currency/wire/config files are unchanged from b9a7695; its18 domain tests, strict/WASM checks and external Postman32file lint remain the bounded receipts below. Hosted CI is recorded separately for the new published head. |
+| Limits | No new Sandbox charge or genuine signed-webhook acceptance test. Earlier Sandbox receipts are historical; consuming flows still own application HTTP mapping, replay/state handling and Shopify completion. |
+
+## Historical ENZ-44 PayPal provider boundary at b9a7695 — 2026-10-23
+
+These receipts describe `b9a7695`, before moving payment verification into `client::paypal::payment` and reusing `CurrencyCode`. They do not verify the subsequent client-module, error-boundary or currency-enum changes; that continuation requires separate results.
+
+| Local evidence | Result |
+| --- | --- |
+| Resolved parent merge | Integrates main `10d5985` after #55 merged. Latest Stripe client/payment implementation and tests match main; PayPal Sandbox QA override is retained. |
+| Complete API check | 34 setup-helper tests, formatting and strict API/all-target/E2E Clippy pass. |
+| Full API test recipe | 407 native tests and 150 HTTP E2E tests pass; zero failed or ignored. Isolated Compose containers, volumes and network are removed. |
+| Provider/verifier coverage | Controlled HTTP cases verify approved-but-unpaid, final completed capture, exact money/identity, inconsistent evidence, dependency errors and authenticated typed events. Verification makes no payment mutation. |
+| Domain and collections | Domain formatting, strict lint, WASM compilation and 18 tests pass. External Postman lint scans32 files with zero diagnostics. Internal lint retains the unchanged unrelated transaction FMT209 baseline. |
+| Independent review | No actionable findings in the reduced provider slice or resolved merge. No public PayPal gateway, payment/event ledger or Shopify completion remains. |
+| Limits | No new Sandbox charge. Historical receipts below establish approval/capture semantics only. Genuine signed-webhook acceptance is unverified because no webhook is registered. Hosted CI and Vercel results are separate published-head evidence. |
+
+## Historical ENZ-44 PayPal gateway — 2026-10-23
+
+These receipts describe the superseded database-backed gateway. The current provider slice removes its public routes, payment/event tables, capability policy and ingestion loop; these results do not verify the stateless refactor. Current refactor checks are recorded separately after execution.
+
+| Local evidence | Result |
+| --- | --- |
+| Focused real-network endpoints |33 new payment/webhook tests pass together on final scoped source, zero failed/ignored;91.90s. Affected native service tests15/15 pass;0.20s. Actual API child, Compose PostgreSQL and controlled PayPal TCP server exercise routing, SQLx and outbound HTTP. Dedicated PostgreSQL15444/S315445; default checkout target cache. |
+| Request and ownership boundaries | Strict body/path/header validation, exact money, canonical guest capability, ownership, idempotency and immutable inputs; status never initiates capture. |
+| Payment and webhook evidence | Authoritative order/capture verification, optional redundant provider fields absent, pending/terminal/mismatched evidence, retries/response loss/retention, duplicate references, concurrent capture/event reconciliation and verified webhook deduplication. |
+| Dependency failures | OAuth/order/capture/signature failures include HTTP rejection, malformed response, timeout and connection loss. Owned PostgreSQL triggers test write/transaction failures; isolated child-session search path tests SELECT failures without shared schema/data mutation. |
+| Review regressions | Observed RED fixed and covered: busy/pending completed webhooks remain retryable; embedded identity conflicts reject; typed unusable create and zero/multiple captures reject. A later second capture on one payment retains both captures/MULTIPLE review flag and processes the valid event; fresh wrong capture ID still rejects. Retrieval faults leave PENDING receipts and identical-event retry completes them. |
+| Static checks | Strict API all-target/E2E Clippy, API formatting and diff whitespace checks pass. Owned test containers/network/volume are removed with independent empty readbacks. All four new internal Postman requests lint without errors/warnings. Full internal lint has one pre-existing unrelated FMT209 queryParams/URL mismatch in the transactions request. |
+| Limits | No live PayPal Sandbox, real approval UI/signatures, Shopify draft conversion or browser journey. Provider evidence-field permutations are not exhaustive; detailed cases/limits are in ignored task artifacts. Parent full API checks and exact-head hosted CI remain separate evidence. |
+
+
+### Historical ENZ-44 PayPal Sandbox QA continuation
+
+This later real-Sandbox evidence superseded the earlier no-Sandbox limit for the old gateway only. It confirms the approval/capture distinction, not acceptance of the current stateless provider slice. QA overrides the REST origin with `https://api-m.sandbox.paypal.com`; buyer approval uses `www.sandbox.paypal.com`. Existing ignored QA credentials were loaded by the ordinary settings reader.
+
+| Real Sandbox check | Observed result |
+| --- | --- |
+| Create, approval and capture | Application TCP create201; buyer approved the same USD1.00 order; capture200/COMPLETED; real capture lookup and trusted verification both confirm USD1.00/COMPLETED. |
+| Durable identity and ownership | Create replay200 reuses the order; capture replay200 reuses the same capture with one evidence record; wrong owner404; preapproval capture/trusted verification409; wrong expected amount409. |
+| Webhook limit | No webhooks registered. Deliberately malformed signature request returns provider400/application502 without storing an event; genuine signed verification/ingestion remains untested. |
+| QA configuration limit | Checked-in QA sets the API origin only. The smoke injected a temporary payment policy with the discovered merchant and a deliberately invalid webhook ID for negative tests; the old gateway required the complete merchant/webhook/currency/redirect policy, which has since been removed. Buyer return-page UI was a test placeholder. |
+| Cleanup and evidence | Temporary Rust source restored exactly; owned test processes and Compose containers/volumes/networks removed; plaintext capability/resume payloads deleted. Sanitized details: `.superpowers/sdd/2026-10-23-ENZ-44-paypal/sandbox-qa/report.md`. No production payment, Shopify write or publication. |
+
 ## ENZ-27 static services and cron implementations — 2026-10-22 / 23
 
 The approved scope uses static CSR frontends and a single application configuration path. Only the cron implementation differs between VPS and Vercel. Earlier BFF, frontend-container and application-runtime-profile results are superseded. All results are local; no cloud link, deployment, production migration or publication was performed.

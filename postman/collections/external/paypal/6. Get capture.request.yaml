@@ -1,0 +1,13 @@
+$kind: http-request
+description: "Required: paypal API base URL, paypal_capture_id; bearer uses local vault paypal_access_token. Success 200 returns id/status/amount and supplementary_data.related_ids.order_id. Only completed capture matched to trusted order/account/amount/currency is proof. Failures 401/403/404/429/5xx."
+url: "{{paypal}}/v2/payments/captures/{{paypal_capture_id}}"
+method: GET
+order: 6000
+auth:
+  type: inherit
+  credentials:
+    id: 5daed635-8af6-4e64-9242-a4be048bc73a
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: "pm.test(\"Provider response contract\", function () { pm.response.to.have.status(200); pm.expect(pm.response.json().amount.value).to.be.a(\"string\"); });"

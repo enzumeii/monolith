@@ -5,6 +5,7 @@ pub(crate) mod handlers;
 pub mod logging;
 pub(crate) mod middleware;
 pub(crate) mod models;
+pub use models::paypal as paypal_models;
 pub use models::shopify as shopify_models;
 pub use models::stripe as stripe_models;
 mod cron;

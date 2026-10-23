@@ -1,6 +1,7 @@
 pub mod accounting;
 pub mod admin;
 pub mod auth;
+pub(crate) mod cron;
 
 pub mod inventories;
 pub mod orders;

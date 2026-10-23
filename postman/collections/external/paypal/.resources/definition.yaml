@@ -5,3 +5,22 @@ auth:
     name: Bearer Token
     credentials:
       token: "{{vault:paypal_access_token}}"
+variables:
+  paypal_payment_id: "00000000-0000-4000-8000-000000000044"
+  paypal_reference: "synthetic-reference"
+  paypal_currency: "USD"
+  paypal_amount: "12.50"
+  paypal_merchant_id: "SYNTHETICMERCHANT"
+  paypal_return_url: "https://merchant.example/paypal/return"
+  paypal_cancel_url: "https://merchant.example/paypal/cancel"
+  paypal_create_request_id: "00000000-0000-4000-8000-000000000045"
+  paypal_capture_request_id: "00000000-0000-4000-8000-000000000046"
+  paypal_order_id: "SYNTHETICORDER"
+  paypal_capture_id: "SYNTHETICCAPTURE"
+  paypal_auth_algo: "SHA256withRSA"
+  paypal_cert_url: "https://api-m.sandbox.paypal.com/v1/notifications/certs/SYNTHETIC"
+  paypal_transmission_id: "synthetic-transmission-id"
+  paypal_transmission_sig: "synthetic-signature"
+  paypal_transmission_time: "2026-10-23T00:00:00Z"
+  paypal_webhook_id: "SYNTHETICWEBHOOK"
+  paypal_webhook_event_json: '{"id":"SYNTHETICEVENT","event_type":"PAYMENT.CAPTURE.COMPLETED","resource":{"id":"SYNTHETICCAPTURE"}}'
