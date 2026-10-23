@@ -14,6 +14,12 @@ Without Bitwarden CLI, setup uses local defaults. Setup installs pinned dprint u
 - `just run` starts API at `localhost:3000` and local S3 at `localhost:3001`.
 - Edit `application.local.toml` scheduler `implementation` (`vps` or `vercel`) to choose local cron execution. `RUN_ENV=prod` uses production overrides and forces Vercel cron.
 
+## Vercel cron timing
+
+Vercel calls `/_cron` daily at **07:00 Bangkok time**. Report schedules also use Bangkok time: occurrences due by that invocation are queued for processing; those due afterward wait until the next day's trigger, rather than being discarded. Failures or invocation capacity can delay processing further.
+
+For example, `0 0 1 * *` (midnight on the 1st) runs around 07:00 on the 1st, while `0 8 1 * *` (08:00 on the 1st) runs around 07:00 on the 2nd. This daily cutoff applies to Vercel mode; VPS mode polls every 10 seconds. See [cron operations](../../docs/cron.md).
+
 ## Useful commands
 
 | Command | Purpose |
