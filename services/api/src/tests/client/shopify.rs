@@ -470,15 +470,12 @@ async fn list_orders_explicitly_supplies_required_selection_flags() {
 }
 
 fn draft_input() -> crate::models::shopify::CreateDraftOrderInput {
-    use crate::models::shopify::{CreateDraftOrderInput, DraftOrderLineItemInput, Money};
+    use crate::models::shopify::{CreateDraftOrderInput, DraftOrderLineItemInput};
     CreateDraftOrderInput {
         line_items: vec![DraftOrderLineItemInput {
             variant_id: id("ProductVariant", 123),
             quantity: 2,
-            price_override: Money {
-                amount: "1234567890.0123456789".into(),
-                currency_code: "THB".into(),
-            },
+            price_override: None,
         }],
         tags: vec![" EXPLICIT ".into(), "ทดสอบ".into()],
         ..Default::default()
@@ -499,6 +496,10 @@ async fn draft_creation_preserves_customer_prices_tags_and_optional_fields() {
     ])
     .await;
     let mut input = draft_input();
+    input.line_items[0].price_override = Some(Money {
+        amount: "1234567890.0123456789".into(),
+        currency_code: "THB".into(),
+    });
     input.email = Some("buyer@example.test".into());
     input.phone = Some("+66000000000".into());
     input.shipping_address = Some(MailingAddressInput {
@@ -520,10 +521,10 @@ async fn draft_creation_preserves_customer_prices_tags_and_optional_fields() {
     input.line_items.push(DraftOrderLineItemInput {
         variant_id: id("ProductVariant", 124),
         quantity: 1,
-        price_override: Money {
+        price_override: Some(Money {
             amount: "0.1000".into(),
             currency_code: "THB".into(),
-        },
+        }),
     });
     let result = client(&f).create_draft_order(&input).await.unwrap();
     assert_eq!(
@@ -560,11 +561,35 @@ async fn draft_creation_preserves_customer_prices_tags_and_optional_fields() {
     assert_eq!(
         requests[1].2["variables"],
         json!({"input":{
-            "lineItems":[{"variantId":id("ProductVariant",123),"quantity":2,"priceOverride":{"amount":"1234567890.0123456789","currencyCode":"THB"}}],
+            "lineItems":[{"variantId":id("ProductVariant",123),"quantity":2}],
             "tags":[" EXPLICIT ","ทดสอบ"]
         }})
     );
     assert_eq!(f.methods(), vec![reqwest::Method::POST; 2]);
+}
+#[tokio::test]
+async fn draft_creation_omits_price_override_for_catalogue_prices() {
+    let fixture = Fixture::new(vec![Reply::json(draft_response())]).await;
+    client(&fixture)
+        .create_draft_order(&draft_input())
+        .await
+        .unwrap();
+    let requests = fixture.requests();
+    let line_items = requests[0].2["variables"]["input"]["lineItems"]
+        .as_array()
+        .unwrap();
+    assert_eq!(line_items.len(), 1);
+    assert_eq!(
+        line_items[0]["variantId"],
+        "gid://shopify/ProductVariant/123"
+    );
+    assert_eq!(line_items[0]["quantity"], 2);
+    assert!(
+        !line_items[0]
+            .as_object()
+            .unwrap()
+            .contains_key("priceOverride")
+    );
 }
 #[tokio::test]
 async fn draft_creation_preserves_provider_rejections_without_interpreting_them() {

@@ -4,8 +4,10 @@ description: |
   the local vault, the shopify environment URL, write_draft_orders permission,
   and real test-store variant IDs replacing the synthetic ID. Use a suitable
   future reserveInventoryUntil for the test; omit it to request no reservation.
-  Contact/address, prices and tags are caller supplied. Optional sessionToken
-  identifies the draft; it does not guarantee deduplication across invocations.
+  Omitting priceOverride uses Shopify catalogue prices. Callers may explicitly
+  supply an optional line-item priceOverride with amount and currencyCode.
+  Contact/address and tags are caller supplied. Optional sessionToken identifies
+  the draft; it does not guarantee deduplication across invocations.
   Execution creates a draft: do not run this mutation against production during
   verification or retry an ambiguous failure automatically.
 
@@ -51,11 +53,7 @@ variables: |
       "lineItems": [
         {
           "variantId": "gid://shopify/ProductVariant/123",
-          "quantity": 2,
-          "priceOverride": {
-            "amount": "123.4500",
-            "currencyCode": "THB"
-          }
+          "quantity": 2
         }
       ],
       "tags": [

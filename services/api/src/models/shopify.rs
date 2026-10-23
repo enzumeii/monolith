@@ -199,7 +199,8 @@ pub struct CreateDraftOrderInput {
 pub struct DraftOrderLineItemInput {
     pub variant_id: ShopifyId,
     pub quantity: i32,
-    pub price_override: Money,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub price_override: Option<Money>,
 }
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
