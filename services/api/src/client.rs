@@ -131,7 +131,7 @@ impl HttpClient {
         headers: HeaderMap,
         body: Option<&B>,
     ) -> Result<R, ClientError> {
-        self.request_with_retry(method, url, headers, body, |_| false)
+        self.request_with_retry(method, url, headers, body, true, |_| false)
             .await
     }
     pub async fn request_form<B: Serialize + ?Sized, R: DeserializeOwned>(
@@ -151,14 +151,19 @@ impl HttpClient {
         url: Url,
         headers: HeaderMap,
         body: Option<&B>,
+        retry_enabled: bool,
         should_retry: impl Fn(&R) -> bool,
     ) -> Result<R, ClientError> {
         let mut request = self.inner.request(method, url).headers(headers);
         if let Some(body) = body {
             request = request.json(body);
         }
-        self.execute(request, reqwest::StatusCode::is_client_error, should_retry)
-            .await
+        self.execute(
+            request,
+            |status| retry_enabled && status.is_client_error(),
+            should_retry,
+        )
+        .await
     }
 
     async fn execute<R: DeserializeOwned>(
@@ -209,6 +214,23 @@ impl GraphqlClient {
         headers: HeaderMap,
         request: &GraphqlRequest<'_, V>,
     ) -> Result<D, ClientError> {
+        self.execute_with_retry(headers, request, true).await
+    }
+
+    pub async fn execute_once<V: Serialize, D: DeserializeOwned>(
+        &self,
+        headers: HeaderMap,
+        request: &GraphqlRequest<'_, V>,
+    ) -> Result<D, ClientError> {
+        self.execute_with_retry(headers, request, false).await
+    }
+
+    async fn execute_with_retry<V: Serialize, D: DeserializeOwned>(
+        &self,
+        headers: HeaderMap,
+        request: &GraphqlRequest<'_, V>,
+        retry_enabled: bool,
+    ) -> Result<D, ClientError> {
         let envelope: GraphqlResponse = self
             .http
             .request_with_retry(
@@ -216,8 +238,10 @@ impl GraphqlClient {
                 self.endpoint.clone(),
                 headers,
                 Some(request),
+                retry_enabled,
                 |response: &GraphqlResponse| {
-                    response.data.is_none()
+                    retry_enabled
+                        && response.data.is_none()
                         && !response.errors.is_empty()
                         && response.errors.iter().all(|error| {
                             error

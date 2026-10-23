@@ -502,3 +502,71 @@ async fn serialization_failures_retain_the_original_transport_source_without_sen
     assert!(std::error::Error::source(&error).is_some());
     assert_eq!(fixture.requests(), []);
 }
+
+#[tokio::test]
+async fn one_shot_graphql_preserves_timeout_source_without_replay() {
+    use tokio::io::AsyncReadExt;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut bytes = [0; 8192];
+        assert!(stream.read(&mut bytes).await.unwrap() > 0);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), listener.accept())
+                .await
+                .is_err()
+        );
+    });
+    let result: Result<Value, ClientError> = GraphqlClient::new(
+        HttpClient::new(Duration::from_millis(50)).unwrap(),
+        endpoint,
+    )
+    .execute_once(
+        HeaderMap::new(),
+        &GraphqlRequest {
+            query: "mutation Test { draftOrderCreate { draftOrder { id } } }",
+            operation_name: "Test",
+            variables: json!({}),
+        },
+    )
+    .await;
+    let error = result.unwrap_err();
+    assert!(matches!(error.kind(),ClientErrorKind::Transport {source} if source.is_timeout()));
+    assert!(std::error::Error::source(&error).is_some());
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn one_shot_graphql_preserves_disconnect_source_without_replay() {
+    use tokio::io::AsyncReadExt;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut bytes = [0; 8192];
+        assert!(stream.read(&mut bytes).await.unwrap() > 0);
+        drop(stream);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), listener.accept())
+                .await
+                .is_err()
+        );
+    });
+    let result: Result<Value, ClientError> =
+        GraphqlClient::new(HttpClient::new(Duration::from_secs(1)).unwrap(), endpoint)
+            .execute_once(
+                HeaderMap::new(),
+                &GraphqlRequest {
+                    query: "mutation Test { draftOrderCreate { draftOrder { id } } }",
+                    operation_name: "Test",
+                    variables: json!({}),
+                },
+            )
+            .await;
+    let error = result.unwrap_err();
+    assert!(matches!(error.kind(),ClientErrorKind::Transport {source} if !source.is_timeout()));
+    assert!(std::error::Error::source(&error).is_some());
+    server.await.unwrap();
+}
