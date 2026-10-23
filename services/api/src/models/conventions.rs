@@ -21,6 +21,13 @@ pub(crate) struct Convention {
 }
 #[derive(Clone, Debug, sqlx::FromRow)]
 pub(crate) struct ConventionVariant {
+    pub product_title: Option<String>,
+    pub variant_title: Option<String>,
+    pub sku: Option<String>,
+    pub product_image_url: Option<String>,
+    pub product_image_alt_text: Option<String>,
+    pub variant_image_url: Option<String>,
+    pub variant_image_alt_text: Option<String>,
     pub id: uuid::Uuid,
     pub convention_id: uuid::Uuid,
     pub shopify_product_id: String,
@@ -71,7 +78,41 @@ impl Convention {
         })
     }
 }
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct VariantDisplay {
+    pub product_title: Option<String>,
+    pub variant_title: Option<String>,
+    pub sku: Option<String>,
+    pub product_image: Option<domain::dto::CatalogueImage>,
+    pub variant_image: Option<domain::dto::CatalogueImage>,
+}
+#[derive(Clone, Debug)]
+pub(crate) struct SelectedVariant {
+    pub input: ConventionVariantInput,
+    pub display: VariantDisplay,
+}
 impl ConventionVariant {
+    pub(crate) fn display(&self) -> VariantDisplay {
+        VariantDisplay {
+            product_title: self.product_title.clone(),
+            variant_title: self.variant_title.clone(),
+            sku: self.sku.clone(),
+            product_image: self
+                .product_image_url
+                .clone()
+                .map(|url| domain::dto::CatalogueImage {
+                    url,
+                    alt_text: self.product_image_alt_text.clone(),
+                }),
+            variant_image: self
+                .variant_image_url
+                .clone()
+                .map(|url| domain::dto::CatalogueImage {
+                    url,
+                    alt_text: self.variant_image_alt_text.clone(),
+                }),
+        }
+    }
     pub(crate) fn input(&self) -> ConventionVariantInput {
         ConventionVariantInput {
             shopify_product_id: self.shopify_product_id.clone(),
@@ -80,7 +121,13 @@ impl ConventionVariant {
         }
     }
     pub(crate) fn into_dto(self, currency: &str) -> Result<ConventionVariantDTO, AppError> {
+        let display = self.display();
         Ok(ConventionVariantDTO {
+            product_title: display.product_title,
+            variant_title: display.variant_title,
+            sku: display.sku,
+            product_image: display.product_image,
+            variant_image: display.variant_image,
             id: self.id.to_string(),
             convention_id: self.convention_id.to_string(),
             shopify_product_id: self.shopify_product_id,

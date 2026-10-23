@@ -157,7 +157,7 @@ flowchart LR
 | --- | --- |
 | ProductsWithVariants | Report product connection with bounded variants and location inventory/pricing metadata |
 | CatalogueProducts | One root product page with current product content, exact contextual source price and location `available`; fixed 250 variants, no supplier cost |
-| ConventionVariant | One direct variant lookup for product association, product status, tracking and inventory policy; no catalogue scan |
+| ConventionVariant | One direct variant lookup for product association, product status, tracking, inventory policy and display snapshots; no catalogue scan |
 | OrdersByTag | Matching-order connection including bounded report lines |
 | OrdersByPayment | One accounting-enrichment order page; retained operation name |
 | Location | Location existence before inventory report queries |
@@ -228,7 +228,7 @@ All eight operations use the existing ADMIN/SUPER_ADMIN protected group and brow
 | `GET /conventions/{id}` | Read one UUID-identified convention |
 | `PATCH /conventions/{id}` | Patch metadata, methods or manual enable flag; slug/currency are not writable |
 | `DELETE /conventions/{id}` | Delete convention and cascade its current variant memberships |
-| `GET /conventions/{id}/variants` | Page/per-page current selections with exact `final_price` strings |
+| `GET /conventions/{id}/variants` | Page/per-page current selections with exact `final_price` strings and persisted product/variant titles, SKU and representative images |
 | `PUT /conventions/{id}/variants` | Atomically replace all selections, at most 250 unique Shopify variant IDs |
 | `GET /conventions/catalogue` | One Shopify product page for a required location GID, active-product search guard and root cursor; return tracked variants only |
 
@@ -247,12 +247,14 @@ flowchart LR
 | Ownership / state | Current behavior |
 | --- | --- |
 | Shared DTOs | `domain::dto::conventions` owns wire contracts; `dto::common::PatchField` preserves missing/null/value semantics and the root `domain::dto::PatchField` export; cron uses the same type |
-| API persistence | `TIMESTAMPTZ` timestamps decode and serialize in UTC; event dates remain calendar dates. `conventions` stores UUID, unique slug, name/logo, country, event dates, description Markdown, manual enable flag, currency, payment methods and timestamps. `convention_variants` stores UUID, parent, Shopify product/variant GIDs, positive finite `NUMERIC` final price and timestamps; parent+variant is unique |
+| API persistence | `TIMESTAMPTZ` timestamps decode and serialize in UTC; event dates remain calendar dates. `conventions` stores UUID, unique slug, name/logo, country, event dates, description Markdown, manual enable flag, currency, payment methods and timestamps. `convention_variants` stores UUID, parent, Shopify product/variant GIDs, positive finite `NUMERIC` final price, nullable product/variant title, SKU and representative image snapshots, and timestamps; parent+variant is unique |
 | Immutable identity | API excludes slug/currency from PATCH; a database trigger also rejects changes. One convention has one user-supplied currency stored in the database; no currency allowlist configuration |
 | Price representation | Major-unit decimal strings such as `"12.99"` pass through exact decimal validation and PostgreSQL `NUMERIC`, without floating point. Responses use currency precision; positive amounts must fit signed 64-bit minor units and selected payment-method precision |
 | Writes | Services own transactions and parent-row locks; repositories own SQL. Shopify validation precedes the transaction; changed selection/payment assumptions are rechecked under the lock and conflicting validation returns 409 |
 | Eligibility validation | New/changed selections use direct Shopify variant reads; every selection is revalidated while enabled and when enabling. Product must exist, match the submitted product, be ACTIVE, track inventory and use DENY. This does not reserve or check location stock |
 | Manual enablement | Enabling requires nonempty eligible selections and supported currency/methods/prices; clearing an enabled convention is rejected until disabled. Event dates are metadata, without scheduling, lifecycle, version, readiness or display-order fields |
+| Display snapshots | Existing Shopify validation returns trusted product/variant titles, nullable SKU, product featured image and variant image. Required saves write price and snapshot atomically; explicit nulls clear old metadata. Unchanged disabled saves retain the latest locked row snapshot and timestamps. GET uses PostgreSQL only, including during provider failure; legacy rows remain nullable until required validation, without automatic backfill |
+| Router composition | Admin nests the relative convention child router under `/conventions`; canonical collection URL stays slashless with no trailing-slash redirect; outer `/v1` alias and middleware remain shared |
 | Future consumers | Current reads use the list service with its optional enabled filter and the UUID lookup; manual enable/disable remains on PATCH. Public APIs (ENZ-38), routing (ENZ-41), quotes, checkout and historical order snapshots/protection remain future work; current deletion cascades only current membership |
 
 | Catalogue contract | Behavior |

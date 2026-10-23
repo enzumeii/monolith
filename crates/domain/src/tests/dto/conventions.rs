@@ -25,3 +25,21 @@ fn convention_dtos_reject_unknown_fields_and_json_number_prices() {
     assert!(serde_json::from_value::<PatchConvention>(json!({"slug":"immutable"})).is_err());
     assert!(serde_json::from_value::<crate::dto::ConventionVariantInput>(json!({"shopify_product_id":"gid://shopify/Product/1","shopify_variant_id":"gid://shopify/ProductVariant/2","final_price":12.99})).is_err());
 }
+
+#[test]
+fn selected_variant_serialization_preserves_display_snapshot_and_legacy_nulls() {
+    let mut value = json!({"id":"id","convention_id":"parent","shopify_product_id":"gid://shopify/Product/1","shopify_variant_id":"gid://shopify/ProductVariant/2","final_price":"12.99","created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z","product_title":"Product","variant_title":"Blue","sku":"SKU-2","product_image":{"url":"https://example.test/product.png","alt_text":null},"variant_image":null});
+    let dto: crate::dto::ConventionVariantDTO = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(serde_json::to_value(dto).unwrap(), value);
+    for key in [
+        "product_title",
+        "variant_title",
+        "sku",
+        "product_image",
+        "variant_image",
+    ] {
+        value[key] = serde_json::Value::Null;
+    }
+    let dto: crate::dto::ConventionVariantDTO = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(serde_json::to_value(dto).unwrap(), value);
+}

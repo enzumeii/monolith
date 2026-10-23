@@ -103,12 +103,16 @@ pub async fn replace(
     let id = validate::id(path)?;
     let items = validate::variants(validate::body(body)?)?;
     let prepared = service::prepare_save(&state.pool, id, items).await?;
-    if !prepared.checks.is_empty() {
+    let validated = if prepared.checks.is_empty() {
+        vec![]
+    } else {
         service::validate_selection(
             super::dependencies::shopify_client(&state)?,
             &prepared.checks,
         )
-        .await?;
-    }
-    Ok(Json(service::finish_save(&state.pool, prepared).await?))
+        .await?
+    };
+    Ok(Json(
+        service::finish_save(&state.pool, prepared, validated).await?,
+    ))
 }

@@ -1,5 +1,19 @@
 # Verification
 
+## ENZ-35 PR #57 display metadata and route nesting — local verification (2026-10-23)
+
+Results apply to the approved v4 delta atop `34e1e9645830cc6e908e839f77d3251161034ea8`, bound to ignored `delta-source-freeze-v2.json` under `.superpowers/review-comments/PR-57/2026-10-23/`.
+
+| Check | Actual result |
+| --- | --- |
+| Shared contracts | Expected red loses display fields before implementation; final domain tests pass 13 unit + 8 contract cases, zero failed/ignored. Domain check passes strict lint and WASM compilation |
+| API strict check | Exit 0: 34 setup-helper tests, Rust/GraphQL formatting, strict native/all-target and TCP-test Clippy |
+| Final full API recipe | Exit 0: 389 native + 184 real-TCP tests, zero failed/ignored; TCP phase 692.05s. Native suite runs once with Compose PostgreSQL ready; recipe removes owned PostgreSQL/S3 containers, volume and network |
+| Convention regressions | All 24 cases pass, including five new TCP cases for snapshot refresh/null clearing/offline retention, nullable legacy data, missing/malformed requested provider fields, slashless nested routes and aliases, and latest locked snapshot retention. Existing lifecycle, last-completed-save, later-provider failure, write/commit rollback, pagination, auth/cookie/CORS, currency and UTC regressions remain green |
+| Postman / static | Lint from the actual workspace root: 72 entities, zero errors, one existing cron-preview FMT209 warning. Three touched YAML requests parse; ConventionVariant query bytes and variable keys match the formatted GraphQL source. Workspace format and diff checks pass |
+| Persistence / cleanup | Original `20261023090000_conventions.sql` is byte-identical to HEAD; metadata uses additive nullable columns without backfill. Independent post-run audit finds no enz35 containers, volumes, networks or API processes |
+| Limits | Controlled Shopify TCP and real PostgreSQL/S3 dependencies only. No live merchant/browser/deployment run or extra local coverage run; fresh hosted CI remains delivery work |
+
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
 
 ## PR57 review feedback — 2026-10-23

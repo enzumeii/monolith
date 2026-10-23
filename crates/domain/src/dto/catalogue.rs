@@ -26,7 +26,7 @@ pub struct CatalogueProduct {
     pub variants: Vec<CatalogueVariant>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct CatalogueImage {
     pub url: String,
     #[serde(alias = "altText")]

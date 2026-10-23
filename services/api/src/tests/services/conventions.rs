@@ -3,6 +3,10 @@ use super::*;
 use chrono::{DateTime, Utc};
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep the rollback-only UTC session and its timestamp assertions together"
+)]
 async fn convention_timestamps_stay_utc_in_a_non_utc_database_session() {
     let url = std::env::var("E2E_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://e2e:e2e@127.0.0.1:5433/e2e".into());
@@ -40,10 +44,16 @@ async fn convention_timestamps_stay_utc_in_a_non_utc_database_session() {
         database_now
     );
     let mut connection = pool.acquire().await.unwrap();
-    let mut items = vec![ConventionVariantInput {
-        shopify_product_id: "gid://shopify/Product/1".into(),
-        shopify_variant_id: "gid://shopify/ProductVariant/2".into(),
-        final_price: "12.99".into(),
+    let mut items = vec![SelectedVariant {
+        input: ConventionVariantInput {
+            shopify_product_id: "gid://shopify/Product/1".into(),
+            shopify_variant_id: "gid://shopify/ProductVariant/2".into(),
+            final_price: "12.99".into(),
+        },
+        display: VariantDisplay {
+            product_title: Some("Product".into()),
+            ..VariantDisplay::default()
+        },
     }];
     let first = repo::replace(&mut connection, id, &items)
         .await
@@ -57,7 +67,7 @@ async fn convention_timestamps_stay_utc_in_a_non_utc_database_session() {
         .unwrap()
         .into_dto()
         .unwrap();
-    items[0].final_price = "13.99".into();
+    items[0].input.final_price = "13.99".into();
     let changed = repo::replace(&mut connection, id, &items)
         .await
         .unwrap()

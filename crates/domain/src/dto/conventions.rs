@@ -83,6 +83,11 @@ pub struct ConventionDTO {
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct ConventionVariantDTO {
+    pub product_title: Option<String>,
+    pub variant_title: Option<String>,
+    pub sku: Option<String>,
+    pub product_image: Option<super::CatalogueImage>,
+    pub variant_image: Option<super::CatalogueImage>,
     pub id: String,
     pub convention_id: String,
     pub shopify_product_id: String,

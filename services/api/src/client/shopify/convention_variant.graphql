@@ -1,8 +1,19 @@
 query ConventionVariant($id: ID!) {
   productVariant(id: $id) {
     id
+    title
+    sku
+    image {
+      url
+      altText
+    }
     product {
       id
+      title
+      featuredImage {
+        url
+        altText
+      }
       status
     }
     inventoryPolicy
