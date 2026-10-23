@@ -162,3 +162,20 @@ fn paypal_serializes_its_own_whole_currency_units_without_changing_purchase_mone
     row.snapshot.money.minor = 4001;
     assert!(provider::paypal_amount(&row).is_err());
 }
+
+#[test]
+fn reservation_deadline_response_is_stable_after_database_precision_roundtrip() {
+    use chrono::SubsecRound;
+    let mut row = checkout();
+    let deadline = chrono::DateTime::parse_from_rfc3339("2035-01-02T03:04:05.123456789Z")
+        .expect("valid nanosecond timestamp")
+        .with_timezone(&Utc);
+    row.reservation_expires_at = Some(deadline);
+    let first = response(&row, false);
+    row.reservation_expires_at = Some(deadline.trunc_subsecs(6));
+    let recovered = response(&row, false);
+    assert_eq!(
+        first.reservation_expires_at,
+        recovered.reservation_expires_at
+    );
+}

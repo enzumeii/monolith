@@ -9,7 +9,7 @@ use crate::{
     repositories::checkout as repo,
 };
 use axum::http::StatusCode;
-use chrono::Utc;
+use chrono::{SubsecRound, Utc};
 use domain::dto::checkout::{
     CheckoutNextAction, CheckoutOrder, CheckoutProvider, CheckoutResponse, CheckoutStatus,
     CreateCheckoutRequest,
@@ -310,7 +310,9 @@ fn response(checkout: &Checkout, busy: bool) -> CheckoutResponse {
         checkout_id: checkout.id.to_string(),
         status,
         money: checkout.snapshot.money.clone(),
-        reservation_expires_at: checkout.reservation_expires_at.map(|v| v.to_rfc3339()),
+        reservation_expires_at: checkout
+            .reservation_expires_at
+            .map(|value| value.trunc_subsecs(6).to_rfc3339()),
         next_action: if status == CheckoutStatus::RequiresAction {
             checkout
                 .redirect_url

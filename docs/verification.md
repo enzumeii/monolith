@@ -17,6 +17,16 @@ Final implementation source `08e98fec8a2bea2aca1ee4e59f798fc2590c2e9a` includes 
 | Isolation / cleanup | Owned Compose project `enz48`, PostgreSQL port 15448 and S3 port 15449; temporary synthetic API configuration and controlled providers. EXIT teardown removes owned services, volume and network. Independent final Docker and API-process audits are empty |
 | Limits | No live charge, genuine merchant webhook delivery, native Shopify email, frontend purchase/recovery acceptance, production routing or deployment is established. Frontend pages/storage are a future consumer contract. Publication and hosted CI results are recorded separately from this local evidence |
 
+### Hosted timestamp-precision follow-up
+
+[CI run 39995173768](https://github.com/enzumeii/monolith/actions/runs/39995173768) tests source `f8a09ddbfe682ad878ffa431bc7e485ae27530bb` through synthetic merge `c062407fbc8bfc15ef246d0c10e82d2933b59977`; both have tree `2c4cdd525c0c36f8140c23f39872c8e1a8abcd4b`. Build succeeds and all 466 native tests pass, but TCP finishes 204 passed / two failed. Both failures expose nanosecond initial reservation timestamps versus microsecond PostgreSQL recovery timestamps on Linux; payment identities, amounts, status and redirect actions match.
+
+| Follow-up | Actual result |
+| --- | --- |
+| Deterministic regression | A forced `.123456789` deadline versus its PostgreSQL-precision roundtrip fails before repair, including on macOS. Checkout response serialization now uses the existing Chrono microsecond truncation mechanism; initial and recovered deadline strings agree. Existing TCP equality assertions remain unchanged |
+| Final local checks | API strict check passes 34 setup tests, dprint, Rust formatting and both strict Clippy targets. All 467 native API tests pass (22.79s). All 21 checkout TCP cases pass (103.63s), zero failed/ignored; both gateways and restart/retry regressions included |
+| Source / limits | Follow-up changes only checkout response timestamp formatting and its native regression. Domain, catalogue and convention source remain unchanged from their successful checks above. Owned Compose teardown succeeds. The failed hosted run is retained as failure evidence; a later passing run must be confirmed on the updated published source |
+
 ## ENZ-35 PR #57 latest-main integration — local verification (2026-10-23)
 
 The integrated source merges review fixes `fb08fff6e635bbc2b19af78f71485ff966ae64a6` with main `7bd6c2e050f7991e9f6eeeeb5127c2483d79eeba`. Three additive conflicts retain both Shopify client operation groups, convention catalogue documentation and complete verification histories. PayPal crate visibility and fail-closed currency handling remain intact. Independent review identified and cleared one semantic interaction: the expanded currency enum must not silently widen draft-completion payment support.
