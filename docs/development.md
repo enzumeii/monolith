@@ -115,7 +115,7 @@ Inventory returns one caller-selected product page with active inventory levels;
 | Additional administrators | Authenticated `POST /v1/admins`; API validates credentials and stores hashes |
 | Schema changes | Preserve admin/seed behavior and applied migration history; SQLx uses committed offline metadata |
 | Report receipts | report_results stores audit fields; report_result_files stores ordered private object metadata with parent/filename, parent/position and bucket/key uniqueness. Checkpoint JSON remains worker recovery state; history reads canonical child rows in one SQL snapshot |
-| Deployment | Root Vercel services configuration, two CSR builds, one API container and daily HTTP cron; Release workflow offers manual production deployment from main |
+| Deployment | Root Vercel services configuration, two CSR builds, one API container and daily HTTP cron; Release workflow publishes releases from main, then waits for production approval before deployment |
 
 ## Local planning artifacts
 
@@ -199,10 +199,10 @@ Titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/e
 | Release rule | Behavior |
 | --- | --- |
 | Initial baseline | Virtual version 0.1.0 at commit 2f9f9101ad5348c327c75c4504a5827975497ada; earlier history is not released |
-| Version-release trigger | pull_request_target closed for merged PRs targeting main or a native stack with main as effective trunk; trusted main code reconciles landed first-parent history in order, including merged fork PRs |
+| Version-release trigger | Pushes to main only; trusted main code reconciles landed first-parent history in order, including merged fork PRs and native stacks with main as effective trunk |
 | Native stacks | Release only merged layers landing on main, once per PR in landed order. Merge/squash layers target their landed merge SHA; rebase commits group by PR and target its final landed SHA. Unmerged upper layers are excluded; ambiguous membership fails |
 | Version storage | GitHub vX.Y.Z tags and release notes; Cargo package versions stay unchanged |
-| Concurrency/retry | Release jobs serialize in main-releases; manual deployments serialize separately in vercel-production-deployments. Manual dispatches cannot replace queued release jobs; running jobs are never cancelled. Release replay catches queued merges, reuses existing matching tags/releases, and finishes a tag-only partial attempt |
+| Concurrency/retry | Release jobs serialize in main-releases; approval-gated deployments serialize separately in vercel-production-deployments, so deployment queues cannot replace queued release jobs. Running jobs are never cancelled. Release replay catches queued merges, reuses existing matching tags/releases, and finishes a tag-only partial attempt |
 | Conflicts | Invalid titles, direct commits, wrong-trunk or ambiguous associations, conflicting targets, or API errors fail visibly; tags are never moved |
 | Changelog | GitHub generated notes bounded by prior tag and final landed PR SHA; bootstrap release links qualifying and preceding unreleased PRs |
 | First live release | Requires a human merge; local fixtures/dry runs do not verify hosted write permissions |
@@ -249,16 +249,17 @@ Static services have no frontend executable or runtime dependency. Their build-o
 
 | Manual production deployment | Operation |
 | --- | --- |
-| Button | GitHub Actions → Release → Run workflow → select `main` → Run workflow; the workflow file must first exist on the default branch for the button to appear |
-| Target | Only dispatches for `refs/heads/main` deploy; checkout uses that run's exact `github.sha`, including when main advances while queued |
-| GitHub Actions secrets | `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` for the existing Vercel project, plus `SUPABASE_MIGRATION_DATABASE_URL`; missing values fail before checkout or tool installation |
+| Approval | In the Release run started by a main push: publish releases → **Review deployments** → select production → **wichayutdew** approves → SQLx migrates → all three services deploy in that same run |
+| Target | Deploy requires a successful release job. It checks out the exact trusted main HEAD captured by that job as deployment_sha, including when main advances while release or approval is queued |
+| Production environment | Configure GitHub environment `production` with required reviewer `wichayutdew`, self-review allowed and a main-only deployment branch policy. The environment gate holds every deployment step, including credential validation and migrations, until approval; the workflow reference alone does not configure these host rules |
+| GitHub Actions secrets | `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` for the existing Vercel project, plus `SUPABASE_MIGRATION_DATABASE_URL`; after approval, missing values fail before checkout or tool installation |
 | Execution | Install pinned Vercel CLI 65.1.0, validate services, install SQLx CLI 0.9.0 with PostgreSQL/rustls, apply committed migrations, then make one root `vercel deploy --prod --yes` call; normal remote builds include backoffice, client-ui and API in the same project/deployment |
 | Completion | Wait for the deployment/build result; failure fails the job, success records the deployment URL in its summary |
-| Automation boundary | Merged PRs retain version/tag/release publication only. Manual dispatch deploys only; it does not publish a version/tag/release. Merge/tag events never deploy through this workflow |
+| Automation boundary | A main push publishes versions/tags/releases, then offers approval in the same run. Rejected or unapproved deployment does not undo publication; failed release publication skips deployment. There is no separate manual workflow trigger |
 | Runtime secrets | Keep database, signing, provider and cron credentials in the existing Vercel project's production environment; CI does not download them. Runtime `DATABASE_URL` must target the same database as the migration URL; this workflow does not set or change it |
 | Database | Before deployment, `sqlx --no-dotenv migrate run --source services/api/migrations` applies pending migrations from the selected commit; reruns skip already-applied migrations. The dedicated secret becomes `DATABASE_URL` only for SQLx; preflight checks its presence, and install/build/deploy commands do not receive it. Container startup still connects without migrating |
 | Migration failure | Fails the job before any Vercel deployment. Successfully committed migrations remain if a later deployment fails; migrations must remain compatible with the currently running application |
-| Current evidence | Configuration and controlled local checks only; no hosted deployment, project link or secret setup has been performed |
+| Verification boundary | Controlled local checks verify workflow contracts and shell behavior; host environment settings and actual approval waiting require separate GitHub readback. Completed Release run 39905230152 cannot acquire this gate retroactively; it applies to future runs after the workflow fix is merged |
 
 Never copy `.env` or local credentials into images or static output. Local validation does not provision, link, migrate or deploy a cloud project.
 

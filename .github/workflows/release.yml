@@ -1,9 +1,7 @@
 name: Release
 
 on:
-  workflow_dispatch:
-  pull_request_target:
-    types: [closed]
+  push:
     branches: [main]
 
 jobs:
@@ -11,11 +9,13 @@ jobs:
     concurrency:
       group: main-releases
       cancel-in-progress: false
-    if: github.event_name == 'pull_request_target' && github.event.pull_request.merged == true
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: read
+    outputs:
+      deployment_sha: ${{ steps.deployment_revision.outputs.deployment_sha }}
     steps:
       - name: Check out trusted main and full release history
         uses: actions/checkout@v4
@@ -23,6 +23,12 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: false
+      - name: Capture trusted main revision
+        id: deployment_revision
+        shell: bash
+        run: |
+          deployment_sha="$(git rev-parse HEAD)"
+          printf 'deployment_sha=%s\n' "$deployment_sha" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -43,10 +49,12 @@ jobs:
             core.info(JSON.stringify(result));
 
   deploy:
+    needs: release
+    environment: production
     concurrency:
       group: vercel-production-deployments
       cancel-in-progress: false
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -66,10 +74,10 @@ jobs:
               exit 1
             fi
           done
-      - name: Check out the selected main commit
+      - name: Check out the released main commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.release.outputs.deployment_sha }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
