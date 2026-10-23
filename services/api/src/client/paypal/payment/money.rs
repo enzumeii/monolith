@@ -69,14 +69,7 @@ pub(crate) fn currency_scale(currency: &str) -> Option<usize> {
         | CurrencyCode::CHF
         | CurrencyCode::THB
         | CurrencyCode::USD => Some(2),
-        CurrencyCode::BHD
-        | CurrencyCode::IQD
-        | CurrencyCode::JOD
-        | CurrencyCode::KWD
-        | CurrencyCode::LYD
-        | CurrencyCode::OMR
-        | CurrencyCode::TND
-        | CurrencyCode::Other(_) => None,
+        _ => None,
     }
 }
 

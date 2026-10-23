@@ -1,0 +1,73 @@
+$kind: graphql-request
+description: "Read one catalogue product page with up to 250 variants per product. Supply a Location GID and the business search: status:active AND tracks_inventory:true, with optional raw user search grouped in parentheses. Product.variants has no tracked query argument, so the service also filters nested tracked variants and preserves the root page metadata. No cost scope is required. Inspect nested pageInfo: this API rejects overflow instead of returning a partial variant selection."
+url: "{{shopify}}/graphql.json"
+query: |
+  query CatalogueProducts(
+    $first: Int!
+    $locationId: ID!
+    $search: String
+    $after: String
+  ) {
+    products(first: $first, after: $after, query: $search) {
+      nodes {
+        id
+        title
+        description
+        featuredImage {
+          url
+        }
+        variants(first: 250) {
+          nodes {
+            id
+            title
+            sku
+            image {
+              url
+            }
+            selectedOptions {
+              name
+              value
+            }
+            inventoryPolicy
+            contextualPricing(context: { locationId: $locationId }) {
+              price {
+                amount
+                currencyCode
+              }
+            }
+            inventoryItem {
+              id
+              tracked
+              inventoryLevel(locationId: $locationId) {
+                id
+                isActive
+                quantities(names: ["available"]) {
+                  name
+                  quantity
+                }
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+variables: |
+  {
+    "locationId": "gid://shopify/Location/123",
+    "search": "status:active AND tracks_inventory:true AND (collection_id:123 AND title:head*)",
+    "after": null,
+    "first": 25
+  }
+settings: {}
+schema:
+  source: auto
+order: 2940

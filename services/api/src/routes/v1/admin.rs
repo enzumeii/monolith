@@ -1,3 +1,4 @@
+mod conventions;
 mod cron;
 mod inventories;
 mod orders;
@@ -7,6 +8,7 @@ use axum::Router;
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .nest("/conventions", conventions::router())
         .nest("/inventories", inventories::router())
         .nest("/orders", orders::router())
         .nest("/cron", cron::router())

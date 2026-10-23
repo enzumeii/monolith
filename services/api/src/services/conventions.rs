@@ -1,0 +1,305 @@
+pub(crate) mod money;
+use crate::{
+    client::shopify::ShopifyClient,
+    error::{AppError, upstream},
+    models::{
+        conventions::{
+            Convention, ConventionInput, ConventionVariant, SelectedVariant, VariantDisplay,
+        },
+        shopify::{ProductStatus, ShopifyId},
+    },
+    repositories::conventions as repo,
+    validations::conventions as validate,
+};
+use axum::http::StatusCode;
+use domain::dto::{
+    ConventionDTO, ConventionListResponse, ConventionPaymentMethod, ConventionVariantInput,
+    ConventionVariantListResponse, ConventionVariantsResponse, PatchConvention, PatchField,
+};
+use sqlx::PgPool;
+use uuid::Uuid;
+pub(crate) async fn list(
+    pool: &PgPool,
+    page: u32,
+    per_page: u32,
+    enabled: Option<bool>,
+) -> Result<ConventionListResponse, AppError> {
+    let mut records = repo::list(pool, page, per_page, enabled).await?;
+    let has_next = records.len() > per_page as usize;
+    records.truncate(per_page as usize);
+    Ok(ConventionListResponse {
+        items: records
+            .into_iter()
+            .map(Convention::into_dto)
+            .collect::<Result<_, _>>()?,
+        page,
+        per_page,
+        has_next,
+    })
+}
+pub(crate) async fn get(pool: &PgPool, id: Uuid) -> Result<Convention, AppError> {
+    repo::find(pool, id).await?.ok_or_else(missing)
+}
+pub(crate) async fn create(
+    pool: &PgPool,
+    input: &ConventionInput,
+) -> Result<ConventionDTO, AppError> {
+    repo::insert(pool, input).await?.into_dto()
+}
+pub(crate) async fn list_variants(
+    pool: &PgPool,
+    id: Uuid,
+    page: u32,
+    per_page: u32,
+) -> Result<ConventionVariantListResponse, AppError> {
+    let convention = get(pool, id).await?;
+    let records = repo::variants(pool, id).await?;
+    let offset = u64::from(page - 1) * u64::from(per_page);
+    let offset = usize::try_from(offset).unwrap_or(usize::MAX);
+    let mut items = records
+        .into_iter()
+        .skip(offset)
+        .take(per_page as usize + 1)
+        .map(|v| v.into_dto(&convention.currency_code))
+        .collect::<Result<Vec<_>, _>>()?;
+    let has_next = items.len() > per_page as usize;
+    items.truncate(per_page as usize);
+    Ok(ConventionVariantListResponse {
+        items,
+        page,
+        per_page,
+        has_next,
+    })
+}
+pub(crate) struct PreparedPatch {
+    id: Uuid,
+    patch: PatchConvention,
+    observed: Convention,
+    selection: Vec<ConventionVariantInput>,
+    pub checks: Vec<ConventionVariantInput>,
+}
+pub(crate) async fn prepare_patch(
+    pool: &PgPool,
+    id: Uuid,
+    patch: PatchConvention,
+) -> Result<PreparedPatch, AppError> {
+    let observed = get(pool, id).await?;
+    let input = validate::merge(patch.clone(), &observed)?;
+    let selection = inputs(repo::variants(pool, id).await?);
+    let enabling = matches!(patch.preorder_enabled, PatchField::Set(true));
+    let changing_methods = !patch.payment_methods.is_missing();
+    if enabling || changing_methods {
+        prices(&selection, &input.currency_code, &input.payment_methods)?;
+    }
+    if enabling && selection.is_empty() {
+        return Err(conflict(
+            "Select eligible variants before enabling preorders",
+        ));
+    }
+    let checks = if enabling { selection.clone() } else { vec![] };
+    Ok(PreparedPatch {
+        id,
+        patch,
+        observed,
+        selection,
+        checks,
+    })
+}
+pub(crate) async fn finish_patch(
+    pool: &PgPool,
+    prepared: PreparedPatch,
+) -> Result<ConventionDTO, AppError> {
+    let mut tx = pool.begin().await?;
+    let current = repo::lock(&mut tx, prepared.id)
+        .await?
+        .ok_or_else(missing)?;
+    let input = validate::merge(prepared.patch.clone(), &current)?;
+    let selection = inputs(repo::variants(&mut *tx, prepared.id).await?);
+    if matches!(prepared.patch.preorder_enabled, PatchField::Set(true)) {
+        if !same_selection(&selection, &prepared.selection)
+            || current.currency_code != prepared.observed.currency_code
+            || current.payment_methods != prepared.observed.payment_methods
+        {
+            return Err(conflict(
+                "Convention selection or payment methods changed during validation; retry",
+            ));
+        }
+        if selection.is_empty() {
+            return Err(conflict(
+                "Select eligible variants before enabling preorders",
+            ));
+        }
+    }
+    if !prepared.patch.payment_methods.is_missing() {
+        prices(&selection, &input.currency_code, &input.payment_methods)?;
+    }
+    let saved = repo::update(&mut tx, prepared.id, &input).await?;
+    tx.commit().await?;
+    saved.into_dto()
+}
+pub(crate) struct PreparedSave {
+    id: Uuid,
+    observed: Convention,
+    pub items: Vec<ConventionVariantInput>,
+    pub checks: Vec<ConventionVariantInput>,
+}
+pub(crate) async fn prepare_save(
+    pool: &PgPool,
+    id: Uuid,
+    items: Vec<ConventionVariantInput>,
+) -> Result<PreparedSave, AppError> {
+    let observed = get(pool, id).await?;
+    let items = prices(&items, &observed.currency_code, &observed.methods()?)?;
+    let existing = inputs(repo::variants(pool, id).await?);
+    if observed.preorder_enabled && items.is_empty() {
+        return Err(conflict(
+            "Disable preorders before clearing selected variants",
+        ));
+    }
+    let checks: Vec<_> = items
+        .iter()
+        .filter(|item| observed.preorder_enabled || !existing.contains(item))
+        .cloned()
+        .collect();
+    Ok(PreparedSave {
+        id,
+        observed,
+        items,
+        checks,
+    })
+}
+pub(crate) async fn validate_selection(
+    client: &ShopifyClient,
+    items: &[ConventionVariantInput],
+) -> Result<Vec<SelectedVariant>, AppError> {
+    let mut validated = Vec::with_capacity(items.len());
+    for item in items {
+        let id = ShopifyId::new(&item.shopify_variant_id)
+            .map_err(|_| validate::invalid("Invalid Shopify variant ID"))?;
+        let remote = client
+            .convention_variant(&id)
+            .await
+            .map_err(|error| upstream(error))?
+            .ok_or_else(|| validate::invalid("Shopify variant no longer exists"))?;
+        if remote.product.id.as_ref() != item.shopify_product_id {
+            return Err(validate::invalid(
+                "Shopify variant does not belong to the selected product",
+            ));
+        }
+        if !matches!(remote.product.status, ProductStatus::Active) || !remote.inventory_item.tracked
+        {
+            return Err(validate::invalid(
+                "Shopify variant is not eligible for preorders",
+            ));
+        }
+        validated.push(SelectedVariant {
+            input: item.clone(),
+            display: VariantDisplay {
+                inventory_policy: Some(remote.inventory_policy),
+                product_title: Some(remote.product.title),
+                variant_title: Some(remote.title),
+                sku: remote.sku,
+                product_image: remote.product.featured_image,
+                variant_image: remote.image,
+            },
+        });
+    }
+    Ok(validated)
+}
+pub(crate) async fn finish_save(
+    pool: &PgPool,
+    prepared: PreparedSave,
+    validated: Vec<SelectedVariant>,
+) -> Result<ConventionVariantsResponse, AppError> {
+    let mut tx = pool.begin().await?;
+    let current = repo::lock(&mut tx, prepared.id)
+        .await?
+        .ok_or_else(missing)?;
+    if current.currency_code != prepared.observed.currency_code
+        || current.payment_methods != prepared.observed.payment_methods
+    {
+        return Err(conflict(
+            "Convention payment methods changed during validation; retry",
+        ));
+    }
+    let existing_records = repo::variants(&mut *tx, prepared.id).await?;
+    let existing: Vec<_> = existing_records
+        .iter()
+        .map(ConventionVariant::input)
+        .collect();
+    if current.preorder_enabled && prepared.items.is_empty() {
+        return Err(conflict(
+            "Disable preorders before clearing selected variants",
+        ));
+    }
+    if prepared.items.iter().any(|item| {
+        (current.preorder_enabled || !existing.contains(item)) && !prepared.checks.contains(item)
+    }) {
+        return Err(conflict(
+            "Convention selection changed during validation; retry",
+        ));
+    }
+    let items = prepared
+        .items
+        .into_iter()
+        .map(|input| {
+            let display = validated
+                .iter()
+                .find(|item| item.input == input)
+                .map(|item| Ok(item.display.clone()))
+                .or_else(|| {
+                    existing_records
+                        .iter()
+                        .find(|item| item.input() == input)
+                        .map(ConventionVariant::display)
+                })
+                .ok_or_else(|| {
+                    conflict("Convention selection changed during validation; retry")
+                })??;
+            Ok(SelectedVariant { input, display })
+        })
+        .collect::<Result<Vec<_>, AppError>>()?;
+    let records = repo::replace(&mut tx, prepared.id, &items).await?;
+    tx.commit().await?;
+    Ok(ConventionVariantsResponse {
+        items: records
+            .into_iter()
+            .map(|v| v.into_dto(&current.currency_code))
+            .collect::<Result<_, _>>()?,
+    })
+}
+pub(crate) async fn delete(pool: &PgPool, id: Uuid) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    repo::lock(&mut tx, id).await?.ok_or_else(missing)?;
+    repo::delete(&mut tx, id).await?;
+    tx.commit().await?;
+    Ok(())
+}
+fn prices(
+    items: &[ConventionVariantInput],
+    code: &str,
+    methods: &[ConventionPaymentMethod],
+) -> Result<Vec<ConventionVariantInput>, AppError> {
+    items.iter().map(|item| {
+        let final_price = money::validate(&item.final_price, code, methods).map_err(|_| {
+            validate::invalid("final_price must be positive, bounded and compatible with currency/payment precision")
+        })?;
+        Ok(ConventionVariantInput {final_price, ..item.clone()})
+    }).collect()
+}
+fn inputs(records: Vec<ConventionVariant>) -> Vec<ConventionVariantInput> {
+    records.into_iter().map(|r| r.input()).collect()
+}
+fn same_selection(a: &[ConventionVariantInput], b: &[ConventionVariantInput]) -> bool {
+    a.len() == b.len() && a.iter().all(|item| b.contains(item))
+}
+fn missing() -> AppError {
+    AppError::new(StatusCode::NOT_FOUND, "Convention not found")
+}
+fn conflict(message: &'static str) -> AppError {
+    AppError::new(StatusCode::CONFLICT, message)
+}
+
+#[cfg(test)]
+#[path = "../tests/services/conventions.rs"]
+mod tests;

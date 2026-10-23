@@ -6,3 +6,7 @@ mod dependencies;
 
 pub mod inventories;
 pub mod orders;
+
+pub mod catalogue;
+
+pub mod conventions;

@@ -1,6 +1,135 @@
 # Verification
 
+## ENZ-35 PR #57 latest-main integration — local verification (2026-10-23)
+
+The integrated source merges review fixes `fb08fff6e635bbc2b19af78f71485ff966ae64a6` with main `7bd6c2e050f7991e9f6eeeeb5127c2483d79eeba`. Three additive conflicts retain both Shopify client operation groups, convention catalogue documentation and complete verification histories. PayPal crate visibility and fail-closed currency handling remain intact. Independent review identified and cleared one semantic interaction: the expanded currency enum must not silently widen draft-completion payment support.
+
+| Check | Actual result |
+| --- | --- |
+| Completion currency compatibility | Focused regression fails before repair for newly named KRW/VND/AED/INR, then passes 4/4. Explicit arms preserve main's exact 31 supported currencies and precisions; every other enum variant remains unsupported. Existing completion behavior and tests remain intact |
+| Final native / strict checks | Repaired source exits 0: 443 native tests (22.19s), zero failed/ignored, with PostgreSQL ready; Rust formatting and strict all-target/E2E Clippy pass. The preceding full API check also passes 34 setup-helper tests and GraphQL/JSON formatting |
+| Focused real-TCP integration | Initial resolved integration tree `7d2acce9f37991bc71dc0d913e68b47e59e70924` passes 10 catalogue (45.13s) and 24 convention (37.67s) cases. The later two-file completion-helper repair does not change these endpoint paths; those TCP modules were not repeated |
+| Shared contracts | Domain check and test pass 14 unit + 8 contract cases, strict lint and WASM compilation on the integrated DTOs; the isolated completion-helper repair does not change domain code |
+| Preservation / isolation | All 51 upstream changed paths retain their additions; the completion helper and its focused tests have the documented compatibility correction. All 57 disjoint feature paths remain identical. Final owned Compose down-v exits 0; container, volume, network and API-process audits are empty |
+| Evidence / limits | Ignored final-integration-*.json/log/sh scripts and precision-repair-report.md retain source hashes, reviewed index binding, exact commands, red/green proof and actual exits. The full 184-TCP result above remains bound to the pre-integration review fixes. No repeated full local TCP/coverage run, fresh hosted-CI, live-provider, browser or deployment claim |
+
+## ENZ-35 PR #57 catalogue and inventory-policy snapshots — local verification (2026-10-23)
+
+Results bind to the frozen 26-path working-tree delta atop `b996cbdb6c4eb39bcabf41e3eee156521e055dc0`, which includes main `0c506da45e1d0e0498e508b2dd475eb3767a712d`. Complete diff SHA256: `64f64a712993267f8720dab5c1b827e361412e9bf4f718201dc8e2ea51d30b92`. Later main revisions require separate integration evidence; older checkpoints below retain their original bindings.
+
+| Check | Actual result |
+| --- | --- |
+| Shared contracts | Expected red drops inventory_policy before implementation; domain check and test pass: 14 unit + 8 contract cases, strict lint and WASM compilation |
+| API strict / integration | Exit 0: 34 setup-helper tests, dprint, Rust formatting, strict all-target/E2E Clippy. Removed the duplicate cron declaration and retained PayPal's explicit supported-currency policy with fail-closed rejection for the expanded enum; focused payment-money tests pass 4/4 |
+| Final full API recipe | Exit 0: 423 native tests (22.60s) + 184 real-TCP tests (692.76s), zero failed/ignored. One final native run with PostgreSQL ready, then all TCP modules, followed by owned Compose down-v |
+| Catalogue / snapshots | Active/tracked root search, grouped OR search, absent public product status, generic upstream completeness failure, cursor metadata, DENY admission, nullable policy snapshots, strict stored/provider decoding, URL-only saved images, policy-only timestamps, legacy no-call behavior, atomic refresh/null clearing and concurrent locked-row preservation pass |
+| Fresh schema | 26 columns across convention tables; five nullable display columns plus nullable inventory_policy TEXT constrained to DENY/CONTINUE, no image-alt columns. SQLx applies only the original convention CREATE migration; no production migration or backfill |
+| Postman / static | Root workspace lint: 77 entities, zero errors, one existing cron-preview FMT209 warning. Both external GraphQL queries and variable keys match source exactly; workspace formatting and diff checks pass |
+| Isolation / cleanup | Compose enz35, PostgreSQL15435/S315436, owned target, synthetic credentials and dotenv discovery disabled. Recipe and cleanup exit 0; independent label/process audit finds no owned containers, volumes, networks or API processes. All 26 frozen hashes remain unchanged before this evidence-only update |
+| Evidence / limits | Ignored latest-source-freeze.json, latest-source.diff, latest-api-full.log, latest-schema-proof.log and latest-cleanup-audit.json retain source binding, actual execution and cleanup. No local coverage duplicate, live-provider, browser, deployment or fresh hosted-CI claim |
+
+## ENZ-35 PR #57 migration fold — local verification (2026-10-23)
+
+The direct user-authorized correction folds seven nullable display TEXT fields into the original unpublished `20261023090000_conventions.sql` and removes the separate display-metadata migration. Results bind to `migration-fold-source-freeze.json` atop `b2bf1d3c06b6076b320cd57314d80154fb55a45a`; API, provider, DTO, routing and test implementation remain unchanged.
+
+| Check | Actual result |
+| --- | --- |
+| Effective schema | PostgreSQL catalog comparison of former CREATE-plus-ALTER against folded CREATE is identical: all 27 columns across both tables, including physical order, types, nullable/default semantics, constraints, indexes, function and trigger. Display fields remain nullable TEXT with no defaults; timestamp definitions are unchanged |
+| Fresh migrations | Real SQLx applies the committed migration sequence to fresh owned Compose PostgreSQL. Ledger records `20261023090000` once and no removed additive migration; no backfill or production migration |
+| Native / convention TCP | Exit 0: 389 native tests (22.40s) and 24 real-TCP convention tests (38.59s), zero failed/ignored. Missing-data rows, snapshot refresh/null clearing/provider failure, locked snapshot retention, UTC, constraints, rollback and routes remain covered |
+| Strict / static | Exit 0: API check including 34 setup-helper tests, dprint, Rust formatting and strict all-target/E2E Clippy; workspace formatting and diff whitespace checks pass |
+| Isolation / cleanup | Owned `enz35` Compose on PostgreSQL15435/S315436, existing target, synthetic credentials and dotenv discovery disabled. Down-v exits 0; Docker label and owned API-process audits are empty. Frozen product/documentation hashes are preserved |
+| Evidence / limits | Ignored `migration-fold-*.log`, `migration-fold-results.json`, schema equality and cleanup JSON retain commands and actual exits. Initial proof stopped on a harness count typo (30 instead of 27) before Cargo tests, cleaned up, then the corrected fresh run passed. Earlier full 184-TCP evidence remains bound to v4 below; fresh full hosted CI/coverage remains delivery-owned. No live-provider, browser, deployment or production-database action |
+
+## ENZ-35 PR #57 display metadata and route nesting — local verification (2026-10-23)
+
+Historical results below apply to approved v4 commit `b2bf1d3c06b6076b320cd57314d80154fb55a45a`, whose delta atop `34e1e9645830cc6e908e839f77d3251161034ea8` is bound to ignored `delta-source-freeze-v2.json` under `.superpowers/review-comments/PR-57/2026-10-23/`. The later migration fold has separate fresh evidence above.
+
+| Check | Actual result |
+| --- | --- |
+| Shared contracts | Expected red loses display fields before implementation; final domain tests pass 13 unit + 8 contract cases, zero failed/ignored. Domain check passes strict lint and WASM compilation |
+| API strict check | Exit 0: 34 setup-helper tests, Rust/GraphQL formatting, strict native/all-target and TCP-test Clippy |
+| Final full API recipe | Exit 0: 389 native + 184 real-TCP tests, zero failed/ignored; TCP phase 692.05s. Native suite runs once with Compose PostgreSQL ready; recipe removes owned PostgreSQL/S3 containers, volume and network |
+| Convention regressions | All 24 cases pass, including five new TCP cases for snapshot refresh/null clearing/offline retention, nullable legacy data, missing/malformed requested provider fields, slashless nested routes and aliases, and latest locked snapshot retention. Existing lifecycle, last-completed-save, later-provider failure, write/commit rollback, pagination, auth/cookie/CORS, currency and UTC regressions remain green |
+| Postman / static | Lint from the actual workspace root: 72 entities, zero errors, one existing cron-preview FMT209 warning. Three touched YAML requests parse; ConventionVariant query bytes and variable keys match the formatted GraphQL source. Workspace format and diff checks pass |
+| Cleanup | Independent v4 post-run audit finds no enz35 containers, volumes, networks or API processes |
+| Limits | Controlled Shopify TCP and real PostgreSQL/S3 dependencies only. No live merchant/browser/deployment run or extra local coverage run; fresh hosted CI remains delivery work |
+
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
+
+## PR57 review feedback — 2026-10-23
+
+These results apply to review-feedback commit `ea5346741e3ccd76454ed2fa058c250b00be6877`; older results below retain their original source bindings. The current API removes capability configuration, uses user-supplied database currencies, maps catalogue at `/api/v1/admin/conventions/catalogue`, and combines grouped raw search with `status:active` while returning only tracked variants. GET/list/PATCH own the existing reads and manual enable flag. SQL formatting preserves constraints, binds, transactions and locks; `TIMESTAMPTZ`/UTC DTOs preserve timestamp instants and event calendar dates.
+
+| Check / contract | Actual evidence |
+| --- | --- |
+| Route/filter regression | Focused real-TCP catalogue test fails before correction (400 instead of 200), then passes with active/tracked filtering, grouped OR search, exact prices, tracked zero stock and unchanged empty-page cursor metadata |
+| Configuration regression | Focused real-TCP test fails before correction with `Convention currency is not currently enabled`; after removal it creates THB, SGD, JPY and HUF conventions without a currency configuration section |
+| UTC regression | Focused native PostgreSQL test passes: verifies the owned session renders `+07`, then exercises real repository creation/update and DTO conversion for convention/variant timestamps at offset zero; created timestamps/absolute instants/event dates preserved, updated timestamps advance, transaction rolls back |
+| Strict/static checks | `just --no-dotenv --justfile services/api/justfile check` exits 0:21 setup-helper tests, dprint, API formatting and strict native/E2E Clippy. Workspace formatting and whitespace checks pass |
+| Full API recipe | One actual `just test` run exits 0:357 native tests (22.50s) and179 real-TCP tests (689.51s), zero failed/ignored. Includes final currency precision/accounting rejection, UTC, moved-route, active/tracked catalogue, configuration removal, rollback/commit-fault and race regressions |
+| Postman / SQL guidance | Workspace lint exits 0:67 entities, zero errors, one existing cron FMT209 warning. Four changed YAML requests parse; external query bytes/variable keys match source. Migration SQL differs only in whitespace; seven retained repository operations preserve SQL tokens/binds. Skill schema/example and independent representative SQL-guidance application pass; system Python validator lacks PyYAML, so equivalent Ruby Psych metadata validation was used |
+| Isolation / cleanup | Owned Cargo target and Compose `enz35`, PostgreSQL15435/S315436. `JUST_NO_DOTENV=true` disables nested dotenv loading; `COMPOSE_DISABLE_ENV_FILE=1` disables Compose dotenv discovery. An initial numeric dotenv flag was rejected before tests/services ran; corrected actual run completed once. Recipe down-v and independent audit confirm no owned containers, volumes, network or API process. All31 changed-path hashes matched the source freeze before this evidence-only update |
+| Evidence / delivery boundary | Ignored `.superpowers/review-comments/PR-57/2026-10-23/implement-report.md`, full logs, `source-freeze.json` and `full-cleanup-audit.json` retain actual commands, exits and source binding. No fresh hosted CI, live-provider, production or deployment proof is asserted. The later latest-main integration has separate local evidence below; subsequent exact-source hosted CI remains publication-owned |
+
+### Latest-main integration — 2026-10-23
+
+The integrated tree merges review-feedback commit `ea5346741e3ccd76454ed2fa058c250b00be6877` with main `10d5985a6c631551429863a23ff6eb75bb555524`. The merge has no conflicts and preserves the convention changes together with main's Stripe provider helpers and QA configuration/setup behavior. The earlier full 179-case TCP run remains bound to the review-feedback commit above.
+
+| Integrated-source check | Actual evidence |
+| --- | --- |
+| Strict API check | Exit 0:34 setup-helper tests, dprint, API formatting and strict all-target/E2E Clippy |
+| Native API suite | Exit 0:389 passed, zero failed/ignored (22.39s), including QA overlay/precedence, Stripe helpers, currency and non-UTC PostgreSQL/UTC DTO regressions |
+| Focused real-TCP modules | Exit 0:10 catalogue cases (45.26s) and19 convention cases (29.18s), zero failed/ignored; existing local API harness and controlled provider connections |
+| Isolation / cleanup | Same owned target and Compose `enz35`/ports15435/15436, no dotenv discovery. Corrected lifecycle exits 0; down-v exits 0 and independent Docker/process audit finds no owned resources. An earlier initializer consumed script stdin before any Cargo test; its logs are retained separately and it is not test-suite evidence |
+| Evidence / limits | Ignored `integration-report.md`, `integration-tests.sh` and `integration-*.log` under the PR57 review evidence directory retain the exact commands, parents, exits, preservation audit and cleanup. No repeated full179-case local TCP run, fresh hosted CI, live-provider or deployment proof is asserted |
+
+## ENZ-35 + ENZ-36 convention configuration and catalogue — local verification (2026-10-23)
+
+Earlier combined source `a9bf7b0` on `feat/ENZ-35` merges `origin/main` `b3cc7a7` (single browser origin allowlist) with feature source `e57bfb4` and documentation `7597077`. Results are local. The complete API regression below covers this merged source, including the strict request-validation follow-up. Domain/frontend and outbound GraphQL query sources are unchanged from their separately verified revisions. The final review follow-up below has separate scoped evidence; the full recipe remains tied to frozen `a9bf7b0`.
+
+| Check / contract | Actual evidence |
+| --- | --- |
+| API strict check | Existing `just check` exits 0 at merged `a9bf7b0`: 21 setup-helper tests, pinned dprint, Rust formatting and strict native/E2E Clippy |
+| Full API recipe | Existing `just test` exits 0 at merged `a9bf7b0`: 345 native + 176 real-TCP tests, zero failed/ignored; TCP phase 703.61s. Includes all 18 convention cases and upstream allowlist/cookie/CORS regressions; recipe completes owned dependency cleanup |
+| Domain boundary | Existing check/test recipes pass: 12 unit tests + 8 contracts, zero failed/ignored; strict native Clippy and `wasm32-unknown-unknown` compilation. Common PatchField cron compatibility and decimal-string wire types covered |
+| Frontend consumers | Existing backoffice check/test pass: 131 app tests plus 20 shared-domain tests; client UI check/test pass: 8 app tests. Both native/WASM strict lint and domain database-free WASM compilation pass |
+| Workspace/static | `cargo fmt --all -- --check` and whole-tree `git diff --check` exit 0 at merged `a9bf7b0`. Final verification-document fence/text and scoped whitespace checks also pass |
+| Postman | Local workspace lint exit 0: 66 entities, zero errors, one pre-existing cron-preview FMT209 warning. Both new GraphQL documents match saved request bytes and executable variable keys. Seven convention examples and catalogue first/continuation examples parse and retain exact `"12.99"`, raw search and cursor variables |
+| Report preservation | 22 existing report/provider request/query files remain byte-identical to base `884fdc0`; catalogue omits supplier cost and uses `available`, while inventory/report `on_hand`, sorting, paging and numeric totals remain unchanged |
+| Controlled endpoint coverage at `a9bf7b0` | Eight catalogue and 18 convention E2E scenarios use real API TCP, SQLx/Compose PostgreSQL and controlled Shopify TCP. Assertions cover content/zero-vs-null availability/raw search/paging/overflow; metadata/default false, both roles, cookie origins/PUT preflight, strict query/DELETE body rejection, exact SQL NUMERIC 12.99, policy/eligibility failures, rollback/commit faults and concurrent enable/clear/save/PATCH behavior |
+| Isolation | Owned worktree Cargo target; Compose project `enz35`, PostgreSQL port 15435 / S3 port 15436. Recipe removed owned PostgreSQL/S3 containers, S3 volume and network; independent post-recipe queries found no owned resources or API process remaining. No shared production database or provider was used |
+| Detailed evidence | Ignored `.superpowers/sdd/ENZ-35-convention-configuration-variant-pricing/` retains task reports, full check logs and query hashes; `integration-report.md` records merged source, integration audit, command exits, test counts and independent cleanup proof |
+
+### Final review follow-up
+
+The scoped follow-up after `a9bf7b0` changes only the catalogue nested-overflow message and adds the missing extraction regressions. The full 345-native/176-TCP result above remains evidence for frozen `a9bf7b0`; the two added TCP scenarios were exercised by the focused runs below. The full suite was not repeated for this narrow follow-up.
+
+| Check / contract | Actual evidence |
+| --- | --- |
+| Overflow red/green | New real-TCP regression first fails with the old generic error (exit 101), then passes after the catalogue-owned mapper returns exact 502 `Product variants exceed the supported catalogue browse limit of 250`; no partial products, original private cause retained, shared report/upstream mapper unchanged |
+| Focused endpoint matrices | `cargo api-e2e catalogue`: 9 passed, zero failed/ignored, 44.23s; `cargo api-e2e conventions`: 19 passed, zero failed/ignored, 29.43s. Includes existing generic provider failures, both roles, cookie origins/PUT preflight, rollback and concurrency regressions |
+| JSON extraction/no effects | POST/PATCH/PUT each reject malformed JSON with JSON Content-Type and valid JSON with absent/wrong Content-Type: all nine raw requests return exact safe 400. SQLx snapshots prove every owned parent/selection field unchanged and no new POST row; controlled Shopify records zero additional business calls |
+| Strict/static | `just --no-dotenv --justfile services/api/justfile check` exits 0: 21 setup tests, dprint, Rust formatting and both strict Clippy targets. `cargo fmt --all -- --check` and final `git diff --check` exit 0 |
+| Postman | Local lint exits 0: 66 entities, zero errors, same existing cron FMT209 warning. Both executable catalogue descriptions contain exact safe overflow/generic examples; both outbound GraphQL query bytes and variable sets remain identical to source |
+| Isolation/cleanup | Reused owned target and synthetic `enz35` ports 15435/15436 after the full-suite owner released them. Compose used `--env-file /dev/null`; recipe check used `--no-dotenv`. `down -v` exits 0; independent queries find no owned containers, volumes, networks or API process |
+| Detailed evidence | Ignored `final-fix-report.md` and `final-fix-*.log` beside the integration evidence record exact commands, exits and scoped changed paths |
+
+### Publication refresh against upstream draft-order client
+
+Merged source `ddaf159` integrates feature head `d2e337f` with upstream `1622b23` (provider draft-order proxy). The sole textual conflict appended Shopify client tests; both complete parent additions are retained. Production client/models auto-merged unchanged: existing operations keep retries, draft creation uses `execute_once`, and both catalogue identity checks and the upstream DraftOrder ID type remain intact. The fresh results below apply to this merged source. The earlier full 345-native/176-TCP run remains tied to `a9bf7b0`; no full 178-TCP local rerun is claimed.
+
+| Check / contract | Actual evidence |
+| --- | --- |
+| Strict/static | `just --no-dotenv --justfile services/api/justfile check` exits 0: 21 setup-helper tests, dprint, API formatting and strict native/E2E Clippy. Workspace `cargo fmt --all -- --check` and final whitespace/document checks exit 0 |
+| Full native API suite | `cargo test --locked -p api` exits 0 with Compose PostgreSQL ready: 355 passed, zero failed/ignored, 22.39s. Includes both merged Shopify test additions and database-dependent tests |
+| Affected real-TCP matrices | `cargo api-e2e catalogue`: 9 passed / 169 filtered, 45.95s; `cargo api-e2e conventions`: 19 passed / 159 filtered, 29.40s; zero failed/ignored. Existing real API harness, SQLx and controlled Shopify connections retained |
+| Postman parity | New upstream draft request plus both feature requests match source GraphQL bytes and executable variable keys exactly. Prior feature lint remains the separately recorded 66-entity result; no fresh workspace lint or provider execution is claimed |
+| Isolation/cleanup | Owned target and Compose `enz35`, ports 15435/15436; synthetic credentials, `--env-file /dev/null`, no private environment file reads. EXIT-trapped `down -v` exits 0; independent queries confirm no owned containers, volumes, networks or API process |
+| Remaining full-suite boundary | Mechanical test-append integration and unchanged endpoint production logic warranted focused TCP verification. Exact merged-head full 178-TCP CI remains publication-owned and is not established by these local results |
+| Detailed evidence | Ignored `refresh-report.md`, `refresh-verify.sh` and `refresh-*.log` retain identity, exact commands/exits, 355/9/19 counts, conflict preservation proof and cleanup audit |
+
+Controlled responses establish exercised transport/contracts, not live Shopify schema compatibility, merchant permissions/capabilities, query cost or a real payment. No production migration/deployment, live provider mutation/charge, manual browser UI acceptance or hosted CI is asserted. Public APIs (ENZ-38), routing (ENZ-41), quotes, checkout and historical order snapshots/protection remain future work; parent deletion currently cascades current memberships.
 
 ## ENZ-45 stateless completion remediation — 2026-10-23
 
@@ -541,3 +670,14 @@ This checkpoint supersedes the earlier copied-dependency verification blockers. 
 Earlier browser timezone, native Save As and controlled fault coverage limits still apply; no claim of complete browser acceptance. Reconciliation does not change those UI implementations. Logs: `/tmp/enz-30-rebased-{api-check,api-test,api-build,ui-check,ui-test,ui-build}.log`. Snapshots and independent review evidence: `.superpowers/sdd/2026-10-22-enz-30-scheduled-reports/reconcile-enz29-20261022/`.
 
 The preview at `http://localhost:8084/scheduled-reports` now uses the rebased synthetic API/Blob runtime. Its private helper, process identities, credentials, fixture metadata and browser download hashes are under `runtime-rebased-20261022/`. The previous API/storage processes and old Compose project were stopped after ownership checks. Current preview remains running intentionally; provider integrations and scheduler remain disabled.
+
+
+## PR57 catalogue eligibility and country review follow-up — 2026-10-23
+
+| Check | Local evidence on frozen v7 source, based on `78f1f434` |
+| --- | --- |
+| Full API recipe | `just --no-dotenv --justfile services/api/justfile test`: 446 native tests (22.22s) and 185 real-TCP E2E tests (687.34s), zero failed/ignored; recipe exit 0 |
+| Strict/shared contracts | API check passes 34 setup tests, dprint, Rust formatting and strict native/E2E Clippy; domain native/WASM check and 15 unit + 8 contract tests pass |
+| Provider and examples | Root Postman lint: 80 entities, zero errors, one existing cron FMT209 warning; both Shopify GraphQL operation bytes and variable keys match source |
+| Review regressions | URL-only images, supported active/tracked search with unchanged cursors, CONTINUE save/read/enable/reprice, exact 249-country enum acceptance and malformed-country rejection pass; original CREATE migration/UTC and pricing policy repairs preserved |
+| Isolation and limits | Compose `enz35` cleanup exit 0; no owned containers, volumes, networks or API processes remain. Full logs and frozen hashes are retained in ignored `.superpowers/review-comments/PR-57/2026-10-23/v7-*` artifacts. Hosted CI/coverage remains a separate delivered-source check; no live provider or deployment proof is asserted |

@@ -1,0 +1,58 @@
+query CatalogueProducts(
+  $first: Int!
+  $locationId: ID!
+  $search: String
+  $after: String
+) {
+  products(first: $first, after: $after, query: $search) {
+    nodes {
+      id
+      title
+      description
+      featuredImage {
+        url
+      }
+      variants(first: 250) {
+        nodes {
+          id
+          title
+          sku
+          image {
+            url
+          }
+          selectedOptions {
+            name
+            value
+          }
+          inventoryPolicy
+          contextualPricing(context: { locationId: $locationId }) {
+            price {
+              amount
+              currencyCode
+            }
+          }
+          inventoryItem {
+            id
+            tracked
+            inventoryLevel(locationId: $locationId) {
+              id
+              isActive
+              quantities(names: ["available"]) {
+                name
+                quantity
+              }
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}

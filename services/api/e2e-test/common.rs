@@ -131,6 +131,46 @@ impl Drop for TestFixture {
                     .await
                     .expect("owned trigger cleanup");
                 }
+                sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                    "DROP TRIGGER IF EXISTS {prefix}_variant_fault ON convention_variants;
+                     DROP FUNCTION IF EXISTS {prefix}_variant_fault();
+                     DROP TRIGGER IF EXISTS {prefix}_metadata_fault ON conventions;
+                     DROP FUNCTION IF EXISTS {prefix}_metadata_fault();"
+                )))
+                .execute(&pool)
+                .await
+                .expect("owned convention fault cleanup");
+                let role = format!("{prefix}_database");
+                let role_exists: bool = sqlx::query_scalar(
+                    "SELECT EXISTS (
+                         SELECT 1
+                         FROM pg_roles
+                         WHERE rolname = $1
+                     )",
+                )
+                .bind(&role)
+                .fetch_one(&pool)
+                .await
+                .expect("owned role lookup");
+                if role_exists {
+                    sqlx::query(
+                        "SELECT pg_terminate_backend(pid)
+                         FROM pg_stat_activity
+                         WHERE usename = $1
+                           AND pid <> pg_backend_pid()",
+                    )
+                    .bind(&role)
+                    .execute(&pool)
+                    .await
+                    .expect("owned role connection cleanup");
+                    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                        "DROP OWNED BY {role};
+                         DROP ROLE {role};",
+                    )))
+                    .execute(&pool)
+                    .await
+                    .expect("owned database role cleanup");
+                }
                 sqlx::query("DELETE FROM admin WHERE left(username,12)=$1")
                     .bind(&prefix)
                     .execute(&pool)
@@ -152,6 +192,14 @@ impl Drop for TestFixture {
                     .execute(&pool)
                     .await
                     .expect("owned schedule cleanup");
+                sqlx::query(
+                    "DELETE FROM conventions
+                     WHERE left(slug, 12) = $1",
+                )
+                .bind(&prefix)
+                .execute(&pool)
+                .await
+                .expect("owned convention cleanup");
                 pool.close().await;
                 drop(lock);
             });
@@ -807,4 +855,74 @@ async fn wait_for_api(api: &mut TestApi) {
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
     panic!("E2E API did not become ready at {}", api.base);
+}
+
+pub struct WireUpstream {
+    task: tokio::task::JoinHandle<()>,
+    pub requests: std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+}
+impl Drop for WireUpstream {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+pub async fn client_with_wire_script(
+    replies: Vec<Option<serde_json::Value>>,
+) -> (crate::common::TestClient, WireUpstream) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = requests.clone();
+    let task = tokio::spawn(async move {
+        let mut replies = std::collections::VecDeque::from(replies);
+        loop {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            let (header_end, length) = loop {
+                let mut buffer = [0_u8; 4096];
+                let count = stream.read(&mut buffer).await.unwrap();
+                assert!(count > 0);
+                bytes.extend_from_slice(&buffer[..count]);
+                if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                    let headers = String::from_utf8(bytes[..end].to_vec()).unwrap();
+                    assert!(headers.contains("x-shopify-access-token: e2e-fixture-token"));
+                    let length = headers
+                        .lines()
+                        .find_map(|line| {
+                            line.to_ascii_lowercase()
+                                .strip_prefix("content-length: ")
+                                .map(|n| n.parse::<usize>().unwrap())
+                        })
+                        .unwrap();
+                    break (end + 4, length);
+                }
+            };
+            while bytes.len() < header_end + length {
+                let mut buffer = [0_u8; 4096];
+                let count = stream.read(&mut buffer).await.unwrap();
+                assert!(count > 0);
+                bytes.extend_from_slice(&buffer[..count]);
+            }
+            recorded
+                .lock()
+                .unwrap()
+                .push(serde_json::from_slice(&bytes[header_end..header_end + length]).unwrap());
+            if let Some(reply) = replies
+                .pop_front()
+                .expect("unexpected extra Shopify request")
+            {
+                let body = reply.to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        }
+    });
+    let client =
+        crate::common::client_with_shopify(&format!("http://{address}/graphql.json")).await;
+    (client, WireUpstream { task, requests })
 }

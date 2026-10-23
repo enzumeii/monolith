@@ -503,6 +503,7 @@ pub struct LineProduct {
 }
 #[derive(Deserialize)]
 pub struct LocationData {
+    #[serde(deserialize_with = "Option::deserialize")]
     pub location: Option<ResourceReference>,
 }
 
@@ -549,6 +550,9 @@ fn validate_size(first: u16) -> Result<(), ClientError> {
     }
     Ok(())
 }
+pub(crate) mod catalogue;
+pub(crate) mod convention_variant;
+
 mod products;
 
 impl<T> Connection<T> {

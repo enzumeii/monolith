@@ -68,6 +68,21 @@ impl ShopifyClient {
             .await?;
         Ok(data.products)
     }
+    pub(crate) async fn catalogue_products(
+        &self,
+        location_id: &ShopifyId,
+        search: Option<&str>,
+        page: &PageRequest,
+    ) -> Result<Connection<crate::models::shopify::catalogue::CatalogueProduct>, ClientError> {
+        page.validate()?;
+        location_id.require_kind("Location")?;
+        let data: crate::models::shopify::catalogue::CatalogueData = self.execute(
+            "CatalogueProducts",
+            include_str!("shopify/catalogue_products.graphql"),
+            json!({"locationId":location_id,"search":search,"first":page.first,"after":page.after}),
+        ).await?;
+        Ok(data.products)
+    }
     pub(crate) async fn accounting_orders(
         &self,
         search: &str,
@@ -115,7 +130,13 @@ impl ShopifyClient {
                 serde_json::json!({"id":id}),
             )
             .await?;
-        Ok(data.location.is_some())
+        match data.location {
+            None => Ok(false),
+            Some(location) if location.id == *id => Ok(true),
+            Some(_) => Err(ClientError::new(ClientErrorKind::Protocol(
+                "unexpected Shopify location ID",
+            ))),
+        }
     }
     pub async fn activate_existing_inventory(
         &self,
@@ -237,6 +258,29 @@ impl ShopifyClient {
         data.fulfillment_create.into_id()
     }
 
+    pub(crate) async fn convention_variant(
+        &self,
+        id: &ShopifyId,
+    ) -> Result<Option<crate::models::shopify::convention_variant::Variant>, ClientError> {
+        id.number("ProductVariant")?;
+        let data: crate::models::shopify::convention_variant::VariantData = self
+            .execute(
+                "ConventionVariant",
+                include_str!("shopify/convention_variant.graphql"),
+                json!({"id":id}),
+            )
+            .await?;
+        if let Some(v) = &data.product_variant
+            && (v.id != *id
+                || v.id.number("ProductVariant").is_err()
+                || v.product.id.number("Product").is_err())
+        {
+            return Err(ClientError::new(ClientErrorKind::Protocol(
+                "unexpected Shopify variant identity",
+            )));
+        }
+        Ok(data.product_variant)
+    }
     pub(crate) async fn checkout_draft(
         &self,
         id: &ShopifyId,

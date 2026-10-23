@@ -38,3 +38,27 @@ fn currency_codes_normalize_to_uppercase() {
         assert_eq!(serde_json::to_value(currency).unwrap(), json!(expected));
     }
 }
+
+#[test]
+fn convention_currency_expansion_preserves_known_and_unknown_identity() {
+    for code in [
+        "AED", "AFN", "ALL", "AMD", "ANG", "AOA", "ARS", "AWG", "AZN", "BAM", "BBD", "BDT", "BGN",
+        "BIF", "BMD", "BND", "BOB", "BSD", "BWP", "BYN", "BZD", "CDF", "CLP", "COP", "CRC", "CVE",
+        "DJF", "DOP", "DZD", "EGP", "ETB", "FJD", "FKP", "GEL", "GIP", "GMD", "GNF", "GTQ", "GYD",
+        "HNL", "HTG", "IDR", "INR", "ISK", "JMD", "KES", "KGS", "KHR", "KMF", "KRW", "KYD", "KZT",
+        "LAK", "LBP", "LKR", "LRD", "LSL", "MAD", "MDL", "MGA", "MKD", "MMK", "MNT", "MOP", "MUR",
+        "MVR", "MWK", "MZN", "NAD", "NGN", "NIO", "NPR", "PAB", "PEN", "PGK", "PKR", "PYG", "QAR",
+        "RON", "RSD", "RUB", "RWF", "SAR", "SBD", "SCR", "SHP", "SLE", "SOS", "SRD", "STD", "SZL",
+        "TJS", "TOP", "TRY", "TTD", "TZS", "UAH", "UGX", "UYU", "UZS", "VND", "VUV", "WST", "XAF",
+        "XCD", "XOF", "XPF", "YER", "ZAR", "ZMW",
+    ] {
+        let currency = CurrencyCode::from(code.to_ascii_lowercase());
+        assert!(!matches!(currency, CurrencyCode::Other(_)));
+        assert_eq!(currency.as_str(), code);
+        assert_eq!(serde_json::to_value(currency).unwrap(), json!(code));
+    }
+    assert_ne!(
+        CurrencyCode::from("ZZZ".to_owned()),
+        CurrencyCode::from("ZZY".to_owned())
+    );
+}

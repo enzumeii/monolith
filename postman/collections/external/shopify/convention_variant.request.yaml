@@ -1,0 +1,32 @@
+$kind: graphql-request
+description: "Read one current Shopify variant identity, parent status, tracking and inventory policy plus trusted product/variant titles, nullable SKU and representative images for convention validation and display snapshots. Requested nullable fields must be present; image objects require url. Images contain URLs only. inventoryPolicy is captured in the saved snapshot. Replace the synthetic ProductVariant GID. No quantity or mutation is required. An explicit null variant means deleted/missing; GraphQL/transport failures are not eligibility results."
+url: "{{shopify}}/graphql.json"
+query: |
+  query ConventionVariant($id: ID!) {
+    productVariant(id: $id) {
+      id
+      title
+      sku
+      image {
+        url
+      }
+      product {
+        id
+        title
+        featuredImage {
+          url
+        }
+        status
+      }
+      inventoryPolicy
+      inventoryItem {
+        tracked
+      }
+    }
+  }
+variables: |
+  {"id":"gid://shopify/ProductVariant/456"}
+settings: {}
+schema:
+  source: auto
+order: 2950

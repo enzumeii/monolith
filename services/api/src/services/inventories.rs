@@ -47,7 +47,10 @@ pub async fn inventory_report(
     })
 }
 
-async fn validate_location(client: &ShopifyClient, id: &ShopifyId) -> Result<(), AppError> {
+pub(super) async fn validate_location(
+    client: &ShopifyClient,
+    id: &ShopifyId,
+) -> Result<(), AppError> {
     if !client
         .location_exists(id)
         .await

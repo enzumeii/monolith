@@ -9,6 +9,10 @@ pub mod orders;
 
 mod pagination;
 
+pub mod catalogue;
+
+pub mod conventions;
+
 #[cfg(test)]
 #[path = "tests/services/common.rs"]
 pub(super) mod common;
