@@ -13,13 +13,14 @@ use axum::{
     http::{StatusCode, Uri},
 };
 use domain::dto::{
-    ConventionVariantListResponse, ConventionVariantsResponse, CreateConvention,
-    ListConventionVariantsQuery, ListConventionsQuery, PatchConvention, ReplaceConventionVariants,
+    ConventionDTO, ConventionListResponse, ConventionVariantListResponse,
+    ConventionVariantsResponse, CreateConvention, ListConventionVariantsQuery,
+    ListConventionsQuery, PatchConvention, ReplaceConventionVariants,
 };
 pub async fn list(
     State(state): State<AppState>,
     query: Result<Query<ListConventionsQuery>, QueryRejection>,
-) -> Result<impl axum::response::IntoResponse, AppError> {
+) -> Result<Json<ConventionListResponse>, AppError> {
     let q = validate::query(query)?;
     let (page, per_page) = validate_page(q.page, q.per_page)?;
     let response = service::list(
@@ -30,19 +31,18 @@ pub async fn list(
         q.preorder_enabled,
     )
     .await?;
-    Ok((no_store(), Json(response)))
+    Ok(Json(response))
 }
 pub async fn create(
     State(state): State<AppState>,
     uri: Uri,
     body: Result<Json<CreateConvention>, JsonRejection>,
-) -> Result<impl axum::response::IntoResponse, AppError> {
+) -> Result<(StatusCode, Json<ConventionDTO>), AppError> {
     validate::no_query(uri.query())?;
     let input = validate::create(validate::body(body)?)?;
     let s3 = super::dependencies::s3_client(&state)?;
     Ok((
         StatusCode::CREATED,
-        no_store(),
         Json(service::create(&state.pool, s3, &input).await?),
     ))
 }
@@ -50,13 +50,12 @@ pub async fn get(
     State(state): State<AppState>,
     uri: Uri,
     path: Result<Path<String>, PathRejection>,
-) -> Result<impl axum::response::IntoResponse, AppError> {
+) -> Result<Json<ConventionDTO>, AppError> {
     validate::no_query(uri.query())?;
     let id = validate::id(path)?;
     let s3 = super::dependencies::s3_client(&state)?;
-    Ok((
-        no_store(),
-        Json(service::logo::project(service::get(&state.pool, id).await?, s3).await?),
+    Ok(Json(
+        service::logo::project(service::get(&state.pool, id).await?, s3).await?,
     ))
 }
 pub async fn patch(
@@ -64,7 +63,7 @@ pub async fn patch(
     uri: Uri,
     path: Result<Path<String>, PathRejection>,
     body: Result<Json<PatchConvention>, JsonRejection>,
-) -> Result<impl axum::response::IntoResponse, AppError> {
+) -> Result<Json<ConventionDTO>, AppError> {
     validate::no_query(uri.query())?;
     let id = validate::id(path)?;
     let changes = validate::body(body)?;
@@ -78,9 +77,8 @@ pub async fn patch(
         )
         .await?;
     }
-    Ok((
-        no_store(),
-        Json(service::finish_patch(&state.pool, s3, prepared).await?),
+    Ok(Json(
+        service::finish_patch(&state.pool, s3, prepared).await?,
     ))
 }
 pub async fn delete(
@@ -145,8 +143,4 @@ pub async fn options(
         return Err(validate::invalid("Unexpected request body"));
     }
     Ok(Json(service::options()))
-}
-
-fn no_store() -> [(axum::http::HeaderName, &'static str); 1] {
-    [(axum::http::header::CACHE_CONTROL, "no-store")]
 }
