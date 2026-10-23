@@ -186,9 +186,7 @@ pub(crate) async fn validate_selection(
                 "Shopify variant does not belong to the selected product",
             ));
         }
-        if !matches!(remote.product.status, ProductStatus::Active)
-            || !remote.inventory_item.tracked
-            || remote.inventory_policy != domain::dto::CatalogueInventoryPolicy::Deny
+        if !matches!(remote.product.status, ProductStatus::Active) || !remote.inventory_item.tracked
         {
             return Err(validate::invalid(
                 "Shopify variant is not eligible for preorders",

@@ -14,6 +14,9 @@ pub mod paypal;
 
 pub mod stripe;
 
+mod country;
+pub use country::CountryCode;
+
 mod currency;
 pub use currency::CurrencyCode;
 
