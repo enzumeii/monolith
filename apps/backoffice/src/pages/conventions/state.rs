@@ -32,7 +32,7 @@ impl Metadata {
     }
     pub fn create(&self) -> Result<CreateConvention, String> {
         if !(1..=120).contains(&self.name.trim().chars().count()) || self.slug.is_empty() {
-            return Err("Enter a name and slug".into());
+            return Err("Enter a convention name".into());
         }
         if self.slug.len() > 63
             || !self
@@ -52,7 +52,7 @@ impl Metadata {
             .contains(&self.slug.as_str())
         {
             return Err(
-                "Use a slug of at most 63 lowercase letters, numbers and internal hyphens".into(),
+                "The generated convention address is invalid; update the convention name".into(),
             );
         }
         if self.country.len() != 2 || !self.country.bytes().all(|b| b.is_ascii_uppercase()) {
@@ -143,6 +143,41 @@ impl Metadata {
     pub fn requires_capabilities(&self, saved: &Self) -> bool {
         self.methods != saved.methods || (self.enabled && !saved.enabled)
     }
+}
+pub fn convention_slug(name: &str) -> String {
+    let ascii = deunicode::deunicode(name);
+    let characters: Vec<char> = ascii.chars().collect();
+    let mut slug = String::new();
+    for (index, &character) in characters.iter().enumerate() {
+        if !character.is_ascii_alphanumeric() {
+            if !slug.is_empty() && !slug.ends_with('-') {
+                slug.push('-');
+            }
+            continue;
+        }
+        let previous = index.checked_sub(1).map(|index| characters[index]);
+        let next = characters.get(index + 1);
+        if character.is_ascii_uppercase()
+            && previous.is_some_and(|value| {
+                value.is_ascii_lowercase()
+                    || value.is_ascii_digit()
+                    || (value.is_ascii_uppercase() && next.is_some_and(char::is_ascii_lowercase))
+            })
+            && !slug.ends_with('-')
+        {
+            slug.push('-');
+        }
+        slug.push(character.to_ascii_lowercase());
+    }
+    slug.truncate(63);
+    let mut slug = slug.trim_end_matches('-').to_owned();
+    if slug.is_empty() {
+        slug = "convention".into();
+    }
+    if ["api", "v1", "healthz", "backoffice", "user", "assets"].contains(&slug.as_str()) {
+        slug.push_str("-convention");
+    }
+    slug
 }
 #[derive(Clone, Default, PartialEq)]
 pub struct Selection {

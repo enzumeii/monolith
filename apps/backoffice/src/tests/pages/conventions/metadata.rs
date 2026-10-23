@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn metadata_fields_keep_identity_readonly_and_date_inputs_are_calendar_dates() {
+fn metadata_fields_hide_slug_and_date_inputs_are_calendar_dates() {
     fn app() -> Element {
         let value = Metadata {
             slug: "event".into(),
@@ -16,7 +16,8 @@ fn metadata_fields_keep_identity_readonly_and_date_inputs_are_calendar_dates() {
     let mut dom = VirtualDom::new(app);
     dom.rebuild_in_place();
     let html = dioxus_ssr::render(&dom);
-    assert!(html.contains("readonly"));
+    assert!(!html.contains("convention-slug"));
+    assert!(html.contains("convention-name-field"));
     assert!(
         html.contains("<option value=\"THB\" selected=true>THB</option>"),
         "{html}"
@@ -156,7 +157,7 @@ mod mounted {
                 for (input, value) in
                     inputs
                         .iter()
-                        .zip(["Event", "event", "2026-11-01", "2026-11-02", "# Event"])
+                        .zip(["Event", "2026-11-01", "2026-11-02", "# Event"])
                 {
                     form_event(&dom, *input, "input", value);
                 }
@@ -184,7 +185,7 @@ mod mounted {
                     assert!(html.contains("Selected: logo.png"));
                     assert!(html.contains("value=\"Event\""));
                 }
-                form_event(&dom, inputs[1], "input", "event-two");
+                form_event(&dom, inputs[0], "input", "Event Two");
                 settle(&mut dom).await;
                 form_event(&dom, submit, "submit", "");
                 settle(&mut dom).await;

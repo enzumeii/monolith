@@ -118,8 +118,7 @@ pub fn MetadataFields(
         !current.country.is_empty() && !options.countries.contains(&current.country);
     rsx! {
         div { class: "convention-form-grid",
-            div { label { class: "convention-label", r#for: "convention-name", "Name" } input { id: "convention-name", required: true, maxlength: 120, value: current.name, oninput: move |event| draft.write().name = event.value() } }
-            div { label { class: "convention-label", r#for: "convention-slug", "Slug (immutable after creation)" } input { id: "convention-slug", required: true, readonly: editing, value: current.slug, oninput: move |event| draft.write().slug = event.value() } }
+            div { class: "convention-name-field", label { class: "convention-label", r#for: "convention-name", "Name" } input { id: "convention-name", required: true, maxlength: 120, value: current.name, oninput: move |event| { let name = event.value(); let mut value = draft.write(); if !editing { value.slug = super::state::convention_slug(&name); } value.name = name; } } }
             div { label { class: "convention-label", r#for: "convention-country", "Country code (ISO two-letter)" }
                 select { id: "convention-country", required: true, value: current.country.clone(), onchange: move |event| draft.write().country = event.value(),
                     option { value: "", selected: current.country.is_empty(), "Choose country" }

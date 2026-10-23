@@ -292,3 +292,20 @@ fn saved_title_updates_refresh_retained_image_label_without_replacing_the_image(
         Some("Variant image")
     );
 }
+
+#[test]
+fn names_generate_api_safe_kebab_slugs() {
+    for (name, expected) in [
+        (" Anime Expo 2026 ", "anime-expo-2026"),
+        ("AnimeExpo", "anime-expo"),
+        ("XML Expo", "xml-expo"),
+        ("Café / Expo!", "cafe-expo"),
+        ("API", "api-convention"),
+        ("!!!", "convention"),
+    ] {
+        assert_eq!(convention_slug(name), expected);
+    }
+    let slug = convention_slug(&"Long Name ".repeat(20));
+    assert!(slug.len() <= 63);
+    assert!(!slug.ends_with('-'));
+}

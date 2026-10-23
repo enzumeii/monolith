@@ -1,6 +1,6 @@
 .conventions-page { max-width: 1200px; margin: auto; }
 .convention-section { max-width: none; margin: 1.5rem 0; padding: 1.25rem; }
-.convention-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 1rem; }
+.convention-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 .convention-form-grid > div { min-width: 0; }
 .convention-actions { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; margin: 1rem 0; }
 .convention-checkbox { display: flex; align-items: center; gap: .5rem; margin: .75rem 0; }
@@ -53,3 +53,6 @@
 .convention-description-layout .convention-preview { min-width: 0; margin: 0; }
 .convention-description-layout .convention-preview h3 { margin-top: 0; }
 @media (max-width: 767px) { .convention-description-layout { grid-template-columns: minmax(0, 1fr); } }
+
+.convention-name-field { grid-column: 1 / -1; }
+@media (max-width: 600px) { .convention-form-grid { grid-template-columns: minmax(0, 1fr); } }
