@@ -767,8 +767,34 @@ pub(crate) struct CompletionDraft {
     pub order: Option<ResourceReference>,
     pub tags: Vec<String>,
     pub total_price_set: CompletionMoneyBag,
+    #[serde(default)]
+    pub reserve_inventory_until: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default)]
+    pub line_items: Option<CheckoutDraftLines>,
+    #[serde(default)]
+    pub email: Option<String>,
     #[serde(deserialize_with = "required_nullable")]
     pub payment_terms: Option<Value>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CheckoutDraftLines {
+    pub nodes: Vec<CheckoutDraftLine>,
+    pub page_info: CheckoutDraftPageInfo,
+}
+#[derive(Clone, Deserialize)]
+pub(crate) struct CheckoutDraftLine {
+    pub quantity: i64,
+    #[serde(deserialize_with = "required_nullable")]
+    pub variant: Option<ResourceReference>,
+}
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CheckoutDraftPageInfo {
+    pub has_next_page: bool,
+    #[serde(deserialize_with = "required_nullable")]
+    #[serde(rename = "endCursor")]
+    pub _end_cursor: Option<String>,
 }
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -786,6 +812,8 @@ pub(crate) enum CompletionFinancialStatus {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CompletionOrder {
     pub id: ShopifyId,
+    #[serde(default)]
+    pub name: Option<String>,
     pub display_financial_status: CompletionFinancialStatus,
     #[serde(deserialize_with = "required_nullable")]
     pub cancelled_at: Option<String>,

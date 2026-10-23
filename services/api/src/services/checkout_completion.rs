@@ -46,6 +46,23 @@ pub async fn complete_paid_draft(
     payment: PaymentContext<'_>,
     mode: CompletionMode,
 ) -> Result<CompletionOutcome, AppError> {
+    complete_paid_draft_with_before_completion(shopify, draft_id, payment, mode, || async {
+        Ok(())
+    })
+    .await
+}
+
+pub(crate) async fn complete_paid_draft_with_before_completion<Before, BeforeFuture>(
+    shopify: &ShopifyClient,
+    draft_id: &ShopifyId,
+    payment: PaymentContext<'_>,
+    mode: CompletionMode,
+    before_completion: Before,
+) -> Result<CompletionOutcome, AppError>
+where
+    Before: FnOnce() -> BeforeFuture + Send,
+    BeforeFuture: std::future::Future<Output = Result<(), AppError>> + Send,
+{
     draft_id
         .require_kind("DraftOrder")
         .map_err(|error| upstream(error))?;
@@ -99,16 +116,29 @@ pub async fn complete_paid_draft(
             }
         }
     };
-    complete_verified_draft(shopify, draft_id, &money, &references, mode).await
+    complete_verified_draft(
+        shopify,
+        draft_id,
+        &money,
+        &references,
+        mode,
+        before_completion,
+    )
+    .await
 }
 
-async fn complete_verified_draft(
+async fn complete_verified_draft<Before, BeforeFuture>(
     shopify: &ShopifyClient,
     draft_id: &ShopifyId,
     money: &ExactMoney,
     references: &[String],
     mode: CompletionMode,
-) -> Result<CompletionOutcome, AppError> {
+    before_completion: Before,
+) -> Result<CompletionOutcome, AppError>
+where
+    Before: FnOnce() -> BeforeFuture + Send,
+    BeforeFuture: std::future::Future<Output = Result<(), AppError>> + Send,
+{
     let draft = read_draft(shopify, draft_id).await?;
     validate_money(money, &draft.total_price_set.presentment_money)?;
     let order_id = if let Some(order_id) = linked_order(&draft)? {
@@ -123,6 +153,7 @@ async fn complete_verified_draft(
                 "Shopify draft is not eligible for paid completion",
             ));
         }
+        before_completion().await?;
         match shopify.complete_checkout_draft(draft_id).await {
             Ok(order_id) => order_id,
             Err(error) => {

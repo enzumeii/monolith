@@ -5,6 +5,7 @@ query: |
   query CheckoutOrder($id: ID!) {
     order(id: $id) {
       id
+      name
       displayFinancialStatus
       cancelledAt
       tags

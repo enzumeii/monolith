@@ -192,6 +192,7 @@ impl Drop for TestFixture {
                     .execute(&pool)
                     .await
                     .expect("owned schedule cleanup");
+                cleanup_checkouts(&pool, &prefix).await;
                 sqlx::query(
                     "DELETE FROM conventions
                      WHERE left(slug, 12) = $1",
@@ -213,6 +214,56 @@ pub struct TestClient {
     http: reqwest::Client,
     api: Arc<TestApi>,
 }
+async fn cleanup_checkouts(pool: &PgPool, prefix: &str) {
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "DROP TRIGGER IF EXISTS {prefix}_checkout_fault ON checkouts;
+                     DROP FUNCTION IF EXISTS {prefix}_checkout_fault();
+                     DROP TRIGGER IF EXISTS {prefix}_checkout_event_fault ON checkout_events;
+                     DROP FUNCTION IF EXISTS {prefix}_checkout_event_fault();"
+    )))
+    .execute(pool)
+    .await
+    .expect("owned checkout fault cleanup");
+    sqlx::query(
+                    "DELETE FROM checkout_events
+                     WHERE checkout_id IN (
+                         SELECT checkout.id
+                         FROM checkouts checkout
+                         JOIN conventions convention ON convention.id::text = checkout.snapshot ->> 'convention_id'
+                         WHERE left(convention.slug, 12) = $1
+                     )",
+                )
+                .bind(prefix)
+                .execute(pool)
+                .await
+                .expect("owned checkout dependent cleanup");
+    sqlx::query(
+                    "DELETE FROM checkout_items
+                     WHERE checkout_id IN (
+                         SELECT checkout.id
+                         FROM checkouts checkout
+                         JOIN conventions convention ON convention.id::text = checkout.snapshot ->> 'convention_id'
+                         WHERE left(convention.slug, 12) = $1
+                     )",
+                )
+                .bind(prefix)
+                .execute(pool)
+                .await
+                .expect("owned checkout dependent cleanup");
+    sqlx::query(
+        "DELETE FROM checkouts
+                     WHERE snapshot ->> 'convention_id' IN (
+                         SELECT id::text
+                         FROM conventions
+                         WHERE left(slug, 12) = $1
+                     )",
+    )
+    .bind(prefix)
+    .execute(pool)
+    .await
+    .expect("owned checkout cleanup");
+}
+
 pub async fn client() -> TestClient {
     TestClient {
         http: reqwest::Client::new(),
@@ -556,7 +607,11 @@ pub async fn client_with_shopify(url: &str) -> TestClient {
 }
 
 #[derive(Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ProviderConfig<'a> {
+    pub checkout_enabled: bool,
+    pub checkout_rate_limit_attempts: Option<u32>,
+    pub checkout_rate_limit_window_secs: Option<u64>,
     pub shopify_url: Option<&'a str>,
     pub paypal_url: Option<&'a str>,
     pub stripe_url: Option<&'a str>,
@@ -686,6 +741,7 @@ signed_url_ttl_secs = {s3_ttl_secs}
 "#
         )
     };
+    let checkout = checkout_configuration(config);
     std::fs::write(
         api.directory.join("application.toml"),
         format!(
@@ -705,6 +761,7 @@ lease_secs = 5
 max_payload_bytes = 20971520
 max_email_bytes = 20971520
 {s3}
+{checkout}
 [browser]
 allowed_origins = ["http://127.0.0.1:8084", "https://convention.enzumeii.com", "https://enzumeii.vercel.app"]
 insecure_local = true
@@ -727,6 +784,35 @@ insecure_local = true
     ).unwrap();
 }
 
+fn checkout_configuration(config: &ProviderConfig<'_>) -> String {
+    if config.checkout_enabled {
+        let checkout_attempts = config.checkout_rate_limit_attempts.unwrap_or(100);
+        let checkout_window = config.checkout_rate_limit_window_secs.unwrap_or(1);
+        let paypal_origin = config
+            .paypal_url
+            .unwrap_or("http://127.0.0.1:8089")
+            .trim_end_matches('/');
+        format!(
+            r#"
+[checkout]
+frontend_origin = "http://127.0.0.1:8084"
+return_path_template = "/{{convention_slug}}/return?checkout_id={{checkout_id}}"
+cancel_path_template = "/{{convention_slug}}/cancel?checkout_id={{checkout_id}}"
+shopify_location_id = "gid://shopify/Location/1"
+reservation_secs = 3600
+guest_recovery_secs = 604800
+rate_limit_attempts = {checkout_attempts}
+rate_limit_window_secs = {checkout_window}
+stripe_expected_account = "acct_e2e"
+stripe_livemode = false
+paypal_api_origin = "{paypal_origin}"
+"#
+        )
+    } else {
+        String::new()
+    }
+}
+
 fn spawn_api(
     api: &TestApi,
     config: &ProviderConfig<'_>,
@@ -735,7 +821,9 @@ fn spawn_api(
 ) -> Child {
     let shopify_url = config.shopify_url;
     let (access_key_id, secret_access_key) = s3_credentials();
-    Command::new(env!("CARGO_BIN_EXE_api"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_api"));
+    checkout_environment(&mut command, config);
+    command
         .arg("server")
         .current_dir(&api.directory)
         .env(
@@ -831,6 +919,24 @@ fn spawn_api(
         ))
         .spawn()
         .expect("start local E2E API")
+}
+
+fn checkout_environment(command: &mut Command, config: &ProviderConfig<'_>) {
+    command
+        .env_remove("CHECKOUT_STRIPE_WEBHOOK_SECRET")
+        .env_remove("CHECKOUT_PAYPAL_WEBHOOK_ID")
+        .env_remove("CHECKOUT_PAYPAL_MERCHANT_ID")
+        .envs(
+            config
+                .checkout_enabled
+                .then_some([
+                    ("CHECKOUT_STRIPE_WEBHOOK_SECRET", "whsec_e2e"),
+                    ("CHECKOUT_PAYPAL_WEBHOOK_ID", "webhook_e2e"),
+                    ("CHECKOUT_PAYPAL_MERCHANT_ID", "merchant_e2e"),
+                ])
+                .into_iter()
+                .flatten(),
+        );
 }
 
 async fn wait_for_api(api: &mut TestApi) {

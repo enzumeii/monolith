@@ -144,6 +144,8 @@ def local_defaults():
         'CRON_SECRET': secrets.token_hex(32),
         'SHOPIFY_ACCESS_TOKEN': '', 'RESEND_API_KEY': '',
         'PAYPAL_CLIENT_ID': '', 'PAYPAL_CLIENT_SECRET': '', 'STRIPE_SECRET_KEY': '',
+        'CHECKOUT_STRIPE_WEBHOOK_SECRET': '', 'CHECKOUT_PAYPAL_WEBHOOK_ID': '',
+        'CHECKOUT_PAYPAL_MERCHANT_ID': '',
         'S3_ACCESS_KEY_ID': 'synthetic-local-access',
         'S3_SECRET_ACCESS_KEY': 'synthetic-local-secret',
         'SHIPPING_SENDER_NAME': f'Synthetic Sender {token}',

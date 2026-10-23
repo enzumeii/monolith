@@ -49,13 +49,16 @@ async fn run() -> Result<(), AppError> {
     let cron = api::CronTasks::start(&state);
     let router = routes::router(state);
     tracing::info!(%address,"API listening");
-    let result = axum::serve(listener, router)
-        .with_graceful_shutdown(async {
-            if let Err(failure) = shutdown_signal().await {
-                error::log_background_error("shutdown signal", &AppError::from(failure));
-            }
-        })
-        .await;
+    let result = axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        if let Err(failure) = shutdown_signal().await {
+            error::log_background_error("shutdown signal", &AppError::from(failure));
+        }
+    })
+    .await;
     cron.shutdown().await;
     pool.close().await;
     result.map_err(|error| AppError::from(error).context("serve API"))?;

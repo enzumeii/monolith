@@ -242,6 +242,7 @@ fn checkout_request() -> crate::models::stripe::CreateCheckoutSession {
         success_url: "https://example.com/success?session_id={CHECKOUT_SESSION_ID}".into(),
         cancel_url: "https://example.com/cancel".into(),
         idempotency_key: "checkout_fixture_1".into(),
+        expires_at: None,
         metadata: [("reference".into(), "fixture_1".into())].into(),
     }
 }
@@ -277,6 +278,7 @@ async fn creates_card_checkout_with_exact_form_money_and_stable_key() {
     .query_pairs()
     .map(|(k, v)| (k.into_owned(), v.into_owned()))
     .collect();
+    assert!(!form.contains_key("expires_at"));
     assert_eq!(form["mode"], "payment");
     assert_eq!(form["payment_method_types[0]"], "card");
     assert_eq!(form["line_items[0][price_data][unit_amount]"], "1200");
@@ -513,6 +515,136 @@ async fn creation_rejects_provider_money_mode_and_correlation_mismatches() {
                 .is_err(),
             "{field}"
         );
+        assert_eq!(fixture.requests().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn explicit_checkout_expiry_is_sent_and_must_match_provider_response() {
+    let expiry = chrono::Utc::now().timestamp() + 3600;
+    let mut request = checkout_request();
+    request.expires_at = Some(expiry);
+    let mut response = session_response();
+    response["expires_at"] = json!(expiry);
+    let fixture = Fixture::new(vec![Reply::json(response.clone())]).await;
+    let session = client(&fixture)
+        .create_checkout_session(&request)
+        .await
+        .unwrap();
+    assert_eq!(session.expires_at, Some(expiry));
+    let bodies = fixture.raw_bodies();
+    let form = reqwest::Url::parse(&format!(
+        "https://fixture/?{}",
+        String::from_utf8_lossy(&bodies[0])
+    ))
+    .unwrap();
+    assert!(
+        form.query_pairs()
+            .any(|(key, value)| key == "expires_at" && value == expiry.to_string())
+    );
+    for value in [serde_json::Value::Null, json!(expiry + 1)] {
+        response["expires_at"] = value;
+        let fixture = Fixture::new(vec![Reply::json(response.clone())]).await;
+        let error = client(&fixture)
+            .create_checkout_session(&request)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            crate::client::ClientErrorKind::Protocol(_)
+        ));
+        assert_eq!(fixture.requests().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn rejects_checkout_expiry_outside_provider_bounds_before_network() {
+    let fixture = Fixture::new(vec![]).await;
+    for offset in [-1, 0, 1200, 1799, 86_500] {
+        let mut request = checkout_request();
+        request.expires_at = Some(chrono::Utc::now().timestamp() + offset);
+        assert!(
+            client(&fixture)
+                .create_checkout_session(&request)
+                .await
+                .is_err()
+        );
+    }
+    assert_eq!(fixture.requests().len(), 0);
+}
+
+#[tokio::test]
+async fn checkout_recovery_replays_original_expiry_and_key_inside_thirty_minutes() {
+    let mut request = checkout_request();
+    request.expires_at = Some(chrono::Utc::now().timestamp() + 1200);
+    let mut response = session_response();
+    response["expires_at"] = json!(request.expires_at);
+    let fixture = Fixture::new(vec![Reply::json(response.clone()), Reply::json(response)]).await;
+    let c = client(&fixture);
+    for _ in 0..2 {
+        assert_eq!(
+            c.recover_checkout_session(&request).await.unwrap().id,
+            "cs_test_one"
+        );
+    }
+    let requests = fixture.requests();
+    assert_eq!(requests.len(), 2);
+    for received in requests {
+        assert_eq!(received.0, "/v1/checkout/sessions");
+        assert_eq!(received.1["idempotency-key"], request.idempotency_key);
+    }
+    let bodies = fixture.raw_bodies();
+    assert_eq!(bodies[0], bodies[1]);
+    let form: std::collections::BTreeMap<_, _> = reqwest::Url::parse(&format!(
+        "https://fixture/?{}",
+        String::from_utf8_lossy(&bodies[0])
+    ))
+    .unwrap()
+    .query_pairs()
+    .map(|(key, value)| (key.into_owned(), value.into_owned()))
+    .collect();
+    assert_eq!(form["expires_at"], request.expires_at.unwrap().to_string());
+    assert_eq!(form["line_items[0][price_data][unit_amount]"], "1200");
+    assert_eq!(form["metadata[reference]"], "fixture_1");
+    assert_eq!(
+        fixture.methods(),
+        [reqwest::Method::POST, reqwest::Method::POST]
+    );
+}
+
+#[tokio::test]
+async fn checkout_recovery_requires_original_unexpired_expiry_and_key() {
+    let fixture = Fixture::new(vec![]).await;
+    let c = client(&fixture);
+    let mut request = checkout_request();
+    assert!(c.recover_checkout_session(&request).await.is_err());
+    for remaining in [-1, 0, 86_500] {
+        request.expires_at = Some(chrono::Utc::now().timestamp() + remaining);
+        assert!(c.recover_checkout_session(&request).await.is_err());
+    }
+    request.expires_at = Some(chrono::Utc::now().timestamp() + 1200);
+    request.idempotency_key.clear();
+    assert!(c.recover_checkout_session(&request).await.is_err());
+    assert_eq!(fixture.requests().len(), 0);
+}
+
+#[tokio::test]
+async fn checkout_recovery_rejects_a_different_response_expiry_without_replay() {
+    let mut request = checkout_request();
+    let expiry = chrono::Utc::now().timestamp() + 1200;
+    request.expires_at = Some(expiry);
+    for returned_expiry in [json!(expiry + 1), json!(null)] {
+        let mut response = session_response();
+        response["expires_at"] = returned_expiry;
+        let fixture = Fixture::new(vec![Reply::json(response)]).await;
+        let error = client(&fixture)
+            .recover_checkout_session(&request)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            crate::client::ClientErrorKind::Protocol(_)
+        ));
         assert_eq!(fixture.requests().len(), 1);
     }
 }

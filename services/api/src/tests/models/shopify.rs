@@ -355,3 +355,51 @@ fn draft_projection_requires_selected_fields_but_accepts_nulls() {
         );
     }
 }
+
+#[test]
+fn checkout_draft_reservation_projection_requires_complete_line_metadata() {
+    let value = serde_json::json!({
+        "id":"gid://shopify/DraftOrder/123", "ready":true, "status":"OPEN",
+        "order":null, "tags":[], "paymentTerms":null,
+        "totalPriceSet":{"presentmentMoney":{"amount":"40.00","currencyCode":"SGD"}},
+        "reserveInventoryUntil":"2026-10-24T00:00:00Z", "email":"synthetic@example.com",
+        "lineItems":{"nodes":[{"quantity":2,"variant":{"id":"gid://shopify/ProductVariant/456"}}],
+                     "pageInfo":{"hasNextPage":false,"endCursor":null}}
+    });
+    let draft: CompletionDraft = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(
+        draft.reserve_inventory_until.unwrap().to_rfc3339(),
+        "2026-10-24T00:00:00+00:00"
+    );
+    assert_eq!(draft.email.as_deref(), Some("synthetic@example.com"));
+    let lines = draft.line_items.unwrap();
+    assert!(!lines.page_info.has_next_page);
+    assert_eq!(lines.nodes[0].quantity, 2);
+    assert_eq!(
+        lines.nodes[0].variant.as_ref().unwrap().id.as_ref(),
+        "gid://shopify/ProductVariant/456"
+    );
+    assert_eq!(draft.total_price_set.presentment_money.amount, "40.00");
+    for field in ["hasNextPage", "endCursor"] {
+        let mut incomplete = value.clone();
+        incomplete["lineItems"]["pageInfo"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(serde_json::from_value::<CompletionDraft>(incomplete).is_err());
+    }
+    let mut incomplete = value.clone();
+    incomplete["lineItems"]["nodes"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("variant");
+    assert!(serde_json::from_value::<CompletionDraft>(incomplete).is_err());
+    let mut legacy = value;
+    for field in ["lineItems", "email", "reserveInventoryUntil"] {
+        legacy.as_object_mut().unwrap().remove(field);
+    }
+    let draft: CompletionDraft = serde_json::from_value(legacy).unwrap();
+    assert!(draft.line_items.is_none());
+    assert!(draft.email.is_none());
+    assert!(draft.reserve_inventory_until.is_none());
+}

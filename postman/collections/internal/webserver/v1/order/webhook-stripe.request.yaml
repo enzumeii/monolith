@@ -1,0 +1,14 @@
+$kind: http-request
+description: "No admin/guest bearer or Origin. Set checkout_stripe_event_json to EXACT received event bytes and checkout_stripe_signature to the matching Stripe-Signature. API uses CHECKOUT_STRIPE_WEBHOOK_SECRET and 300-second tolerance. Synthetic default is unsigned and intentionally fails 400; this request does not claim to generate a valid signature. For a controlled fixture, compute HMAC-SHA256(endpoint secret, timestamp + \".\" + exact body), set header t=<timestamp>,v1=<hex>, and match configured account/mode. Prefer actual Stripe delivery for Sandbox validation. Supported events associate by resource/checkout metadata and re-read authoritative resources; valid signature/event name alone is not paid. 200 {\"received\":true}; 400 authentication/body, 503 configuration/association/busy/retry, 502/504 provider. Preserve bytes when replacing body; reformatting invalidates signature."
+url: "{{server}}/v1/order/webhook/stripe"
+method: POST
+order: 3000
+auth:
+  type: noauth
+headers:
+  Content-Type: "application/json"
+  Stripe-Signature: "{{checkout_stripe_signature}}"
+body:
+  type: json
+  content: |-
+    {{checkout_stripe_event_json}}

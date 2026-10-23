@@ -1,5 +1,6 @@
 pub(crate) mod admin;
 pub(crate) mod auth;
+pub(crate) mod checkout;
 pub(crate) mod cron_configurations;
 pub(crate) mod cron_jobs;
 pub(crate) mod report_result_files;

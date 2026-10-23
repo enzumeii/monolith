@@ -504,3 +504,101 @@ async fn completed_replay_uses_real_order_tags_even_when_draft_tags_are_stale() 
         .unwrap();
     assert_eq!(operations(&shop), ["CheckoutDraft", "CheckoutOrder"]);
 }
+
+#[tokio::test]
+async fn before_completion_hook_runs_only_after_reads_and_immediately_before_mutation() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let calls = AtomicUsize::new(0);
+    let provider = Fixture::new(paid().into_iter().map(Reply::json).collect()).await;
+    let shop = Fixture::new(vec![Reply::json(json!({"data":{"draftOrder":null}}))]).await;
+    let result = complete_paid_draft_with_before_completion(
+        &client(&shop),
+        &id("DraftOrder", 1),
+        PaymentContext::Stripe {
+            client: &stripe_client(&provider),
+            expected: &expected(),
+        },
+        CompletionMode::CompleteIfOpen,
+        || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        },
+    )
+    .await;
+    assert!(result.is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(operations(&shop), ["CheckoutDraft"]);
+
+    let provider = Fixture::new(paid().into_iter().map(Reply::json).collect()).await;
+    let shop = Fixture::new(
+        vec![draft(false), completed(), order(tags())]
+            .into_iter()
+            .map(Reply::json)
+            .collect(),
+    )
+    .await;
+    let result = complete_paid_draft_with_before_completion(
+        &client(&shop),
+        &id("DraftOrder", 1),
+        PaymentContext::Stripe {
+            client: &stripe_client(&provider),
+            expected: &expected(),
+        },
+        CompletionMode::CompleteIfOpen,
+        || async {
+            assert_eq!(operations(&shop), ["CheckoutDraft"]);
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        },
+    )
+    .await;
+    assert!(matches!(
+        result.unwrap(),
+        CompletionOutcome::Completed { .. }
+    ));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn failed_before_completion_hook_prevents_provider_mutation() {
+    let provider = Fixture::new(paid().into_iter().map(Reply::json).collect()).await;
+    let shop = Fixture::new(vec![Reply::json(draft(false))]).await;
+    let result = complete_paid_draft_with_before_completion(
+        &client(&shop),
+        &id("DraftOrder", 1),
+        PaymentContext::Stripe {
+            client: &stripe_client(&provider),
+            expected: &expected(),
+        },
+        CompletionMode::CompleteIfOpen,
+        || async { Err(conflict("Claim no longer owned")) },
+    )
+    .await;
+    assert!(result.is_err());
+    assert_eq!(operations(&shop), ["CheckoutDraft"]);
+}
+
+#[tokio::test]
+async fn linked_completed_order_never_calls_before_completion_hook() {
+    let provider = Fixture::new(paid().into_iter().map(Reply::json).collect()).await;
+    let shop = Fixture::new(
+        vec![draft(true), order(tags())]
+            .into_iter()
+            .map(Reply::json)
+            .collect(),
+    )
+    .await;
+    complete_paid_draft_with_before_completion(
+        &client(&shop),
+        &id("DraftOrder", 1),
+        PaymentContext::Stripe {
+            client: &stripe_client(&provider),
+            expected: &expected(),
+        },
+        CompletionMode::ReconcileOnly,
+        || async { panic!("A linked completed order must not invoke the mutation hook") },
+    )
+    .await
+    .unwrap();
+    assert_eq!(operations(&shop), ["CheckoutDraft", "CheckoutOrder"]);
+}

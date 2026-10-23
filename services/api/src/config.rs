@@ -1,3 +1,6 @@
+pub mod checkout;
+pub use checkout::CheckoutSettings;
+
 use std::env;
 
 use config::{Config, ConfigBuilder, ConfigError, File, builder::DefaultState};
@@ -105,6 +108,7 @@ impl std::fmt::Debug for StripeConfig {
 
 #[derive(Deserialize, Clone)]
 pub struct Settings {
+    pub checkout: Option<CheckoutSettings>,
     pub shipping_sender: Option<ShippingSender>,
     pub client: Option<ClientConfig>,
     pub browser: BrowserConfig,
@@ -154,6 +158,9 @@ impl JwtSettings {
 impl Settings {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.jwt.key()?;
+        if let Some(checkout) = &self.checkout {
+            checkout.validate(self.browser.insecure_local)?;
+        }
         if !(1..=32).contains(&self.scheduler.concurrency)
             || !(1..=100).contains(&self.scheduler.max_attempts)
             || !(1..=86400).contains(&self.scheduler.retry_backoff_secs)
@@ -275,6 +282,17 @@ impl Settings {
         }
         if let Ok(key) = env::var("STRIPE_SECRET_KEY") {
             builder = builder.set_override("client.stripe.secret_key", key)?;
+        }
+        for (variable, field) in [
+            ("CHECKOUT_STRIPE_WEBHOOK_SECRET", "stripe_webhook_secret"),
+            ("CHECKOUT_PAYPAL_WEBHOOK_ID", "paypal_webhook_id"),
+            ("CHECKOUT_PAYPAL_MERCHANT_ID", "paypal_merchant_id"),
+        ] {
+            if let Ok(value) = env::var(variable)
+                && !value.is_empty()
+            {
+                builder = builder.set_override(format!("checkout.{field}"), value)?;
+            }
         }
         let settings: Self = builder.build()?.try_deserialize()?;
         settings.validate()?;

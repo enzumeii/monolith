@@ -168,6 +168,7 @@ pub struct CreateCheckoutSession {
     pub success_url: String,
     pub cancel_url: String,
     pub idempotency_key: String,
+    pub expires_at: Option<i64>,
     pub metadata: BTreeMap<String, String>,
 }
 
@@ -184,6 +185,7 @@ pub struct CheckoutSession {
     pub metadata: BTreeMap<String, String>,
     pub payment_intent: Option<StripeReference<PaymentIntent>>,
     pub url: Option<String>,
+    pub expires_at: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]

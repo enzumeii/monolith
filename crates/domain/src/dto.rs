@@ -1,3 +1,4 @@
+pub mod checkout;
 pub mod common;
 pub use common::PatchField;
 pub mod conventions;
