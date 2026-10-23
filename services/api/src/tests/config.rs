@@ -982,3 +982,41 @@ fn vercel_nonproduction_metadata_clears_file_additional_origins() {
         assert_eq!(settings.browser.origins().count(), 1);
     }
 }
+
+#[test]
+fn convention_capability_configuration_is_default_empty_and_strict() {
+    let empty: ConventionsConfig = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert!(empty.currencies.is_empty());
+    empty.validate().unwrap();
+    for value in [
+        serde_json::json!({"currencies":[{"code":"THB","payment_methods":["stripe","paypal","promptpay"]}]}),
+        serde_json::json!({"currencies":[{"code":"HUF","payment_methods":["stripe","paypal"]},{"code":"UGX","payment_methods":["stripe"]}]}),
+    ] {
+        serde_json::from_value::<ConventionsConfig>(value)
+            .unwrap()
+            .validate()
+            .unwrap();
+    }
+    for value in [
+        serde_json::json!({"currencies":[{"code":"THB","payment_methods":["stripe"]},{"code":"THB","payment_methods":["paypal"]}]}),
+        serde_json::json!({"currencies":[{"code":"THB","payment_methods":[]}]}),
+        serde_json::json!({"currencies":[{"code":"THB","payment_methods":["stripe","stripe"]}]}),
+        serde_json::json!({"currencies":[{"code":"thb","payment_methods":["stripe"]}]}),
+        serde_json::json!({"currencies":[{"code":"XYZ","payment_methods":["stripe"]}]}),
+        serde_json::json!({"currencies":[{"code":"KWD","payment_methods":["paypal"]}]}),
+        serde_json::json!({"currencies":[{"code":"JPY","payment_methods":["promptpay"]}]}),
+    ] {
+        assert!(
+            serde_json::from_value::<ConventionsConfig>(value)
+                .unwrap()
+                .validate()
+                .is_err()
+        );
+    }
+    for value in [
+        serde_json::json!({"currencies":[{"code":"THB","payment_methods":["cash"]}]}),
+        serde_json::json!({"currencies":[{"code":"THB","payment_methods":["stripe"],"precision":2}]}),
+    ] {
+        assert!(serde_json::from_value::<ConventionsConfig>(value).is_err());
+    }
+}

@@ -1,0 +1,13 @@
+query ConventionVariant($id: ID!) {
+  productVariant(id: $id) {
+    id
+    product {
+      id
+      status
+    }
+    inventoryPolicy
+    inventoryItem {
+      tracked
+    }
+  }
+}

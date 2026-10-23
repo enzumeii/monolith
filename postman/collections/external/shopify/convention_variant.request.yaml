@@ -1,0 +1,23 @@
+$kind: graphql-request
+description: "Read one current Shopify variant identity, parent status, tracking and inventory policy for convention validation. Replace the synthetic ProductVariant GID. No quantity or mutation is required. An explicit null variant means deleted/missing; GraphQL/transport failures are not eligibility results."
+url: "{{shopify}}/graphql.json"
+query: |
+  query ConventionVariant($id: ID!) {
+    productVariant(id: $id) {
+      id
+      product {
+        id
+        status
+      }
+      inventoryPolicy
+      inventoryItem {
+        tracked
+      }
+    }
+  }
+variables: |
+  {"id":"gid://shopify/ProductVariant/456"}
+settings: {}
+schema:
+  source: auto
+order: 2950

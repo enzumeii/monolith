@@ -1,3 +1,12 @@
+pub mod common;
+pub use common::PatchField;
+pub mod conventions;
+pub use conventions::{
+    ConventionDTO, ConventionListResponse, ConventionPaymentMethod, ConventionVariantDTO,
+    ConventionVariantInput, ConventionVariantListResponse, ConventionVariantsResponse,
+    CreateConvention, ListConventionVariantsQuery, ListConventionsQuery, PatchConvention,
+    ReplaceConventionVariants,
+};
 pub mod accounting;
 pub mod admin;
 pub mod auth;
@@ -16,7 +25,7 @@ pub use auth::{LoginRequest, RefreshRequest, SessionResponse, TokenResponse};
 pub use cron::{
     CreateCronConfiguration, CronConfigurationDTO, CronConfigurationListResponse,
     CronConfigurationPreview, CronOccurrencePreview, CronPeriodPreview,
-    ListCronConfigurationsQuery, PatchCronConfiguration, PatchField, PreviewCronConfiguration,
+    ListCronConfigurationsQuery, PatchCronConfiguration, PreviewCronConfiguration,
     SchedulePeriodMode, ScheduleReportType,
 };
 pub use error::ErrorResponse;
@@ -50,3 +59,7 @@ mod cron_tests;
 #[cfg(test)]
 #[path = "tests/dto/report_results.rs"]
 mod report_results_tests;
+
+#[cfg(test)]
+#[path = "tests/dto/conventions.rs"]
+mod convention_tests;

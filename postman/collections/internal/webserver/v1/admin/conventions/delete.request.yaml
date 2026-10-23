@@ -1,0 +1,10 @@
+$kind: http-request
+description: "Admin/Super Admin bearer authentication inherited. Invalid input 400, missing convention 404, duplicate/state conflict 409, database failure 500. Hard delete returns 204 and cascades current variant selections. Missing id 404. Safe error examples: 400 {\"error\":\"Invalid convention request body\"}; 404 {\"error\":\"Convention not found\"}; 500 {\"error\":\"Internal server error\"}."
+url: "{{server}}/v1/admin/conventions/{{convention_id}}"
+method: DELETE
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Expected status", () => pm.expect(pm.response.code).to.eql(204));
+    language: text/javascript
+order: 5000

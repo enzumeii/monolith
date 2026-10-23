@@ -235,6 +235,29 @@ impl ShopifyClient {
         data.fulfillment_create.into_id()
     }
 
+    pub(crate) async fn convention_variant(
+        &self,
+        id: &ShopifyId,
+    ) -> Result<Option<crate::models::shopify::convention_variant::Variant>, ClientError> {
+        id.number("ProductVariant")?;
+        let data: crate::models::shopify::convention_variant::VariantData = self
+            .execute(
+                "ConventionVariant",
+                include_str!("shopify/convention_variant.graphql"),
+                json!({"id":id}),
+            )
+            .await?;
+        if let Some(v) = &data.product_variant
+            && (v.id != *id
+                || v.id.number("ProductVariant").is_err()
+                || v.product.id.number("Product").is_err())
+        {
+            return Err(ClientError::new(ClientErrorKind::Protocol(
+                "unexpected Shopify variant identity",
+            )));
+        }
+        Ok(data.product_variant)
+    }
     async fn orders_query(&self, variables: Value) -> Result<Connection<Order>, ClientError> {
         let data: OrdersData = self
             .execute(

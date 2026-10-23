@@ -666,3 +666,5 @@ impl ShippingOrder {
 #[cfg(test)]
 #[path = "../tests/models/shopify.rs"]
 mod tests;
+
+pub(crate) mod convention_variant;

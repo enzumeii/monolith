@@ -131,6 +131,15 @@ impl Drop for TestFixture {
                     .await
                     .expect("owned trigger cleanup");
                 }
+                sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                    "DROP TRIGGER IF EXISTS {prefix}_variant_fault ON convention_variants; DROP FUNCTION IF EXISTS {prefix}_variant_fault(); DROP TRIGGER IF EXISTS {prefix}_metadata_fault ON conventions; DROP FUNCTION IF EXISTS {prefix}_metadata_fault();"
+                ))).execute(&pool).await.expect("owned convention fault cleanup");
+                let role=format!("{prefix}_database");
+                let role_exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)").bind(&role).fetch_one(&pool).await.expect("owned role lookup");
+                if role_exists {
+                    sqlx::query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename=$1 AND pid<>pg_backend_pid()").bind(&role).execute(&pool).await.expect("owned role connection cleanup");
+                    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP OWNED BY {role}; DROP ROLE {role};"))).execute(&pool).await.expect("owned database role cleanup");
+                }
                 sqlx::query("DELETE FROM admin WHERE left(username,12)=$1")
                     .bind(&prefix)
                     .execute(&pool)
@@ -152,6 +161,7 @@ impl Drop for TestFixture {
                     .execute(&pool)
                     .await
                     .expect("owned schedule cleanup");
+                sqlx::query("DELETE FROM conventions WHERE left(slug,12)=$1").bind(&prefix).execute(&pool).await.expect("owned convention cleanup");
                 pool.close().await;
                 drop(lock);
             });
@@ -509,6 +519,7 @@ pub async fn client_with_shopify(url: &str) -> TestClient {
 
 #[derive(Default)]
 pub struct ProviderConfig<'a> {
+    pub convention_currencies: Option<&'a str>,
     pub shopify_url: Option<&'a str>,
     pub paypal_url: Option<&'a str>,
     pub stripe_url: Option<&'a str>,
@@ -598,6 +609,7 @@ fn write_api_configuration(
     port: &str,
 ) {
     let shopify_url = config.shopify_url;
+    let convention_currencies=config.convention_currencies.unwrap_or(r#"[{code="THB",payment_methods=["stripe","paypal","promptpay"]},{code="SGD",payment_methods=["stripe","paypal"]},{code="JPY",payment_methods=["stripe","paypal"]}]"#);
     let invocation_budget_secs = config.invocation_budget_secs.unwrap_or(30);
     let scheduler_enabled = config.scheduler_enabled.unwrap_or(true);
     let retry_backoff_secs = scheduler_backoff.unwrap_or(1);
@@ -642,6 +654,8 @@ signed_url_ttl_secs = {s3_ttl_secs}
         api.directory.join("application.toml"),
         format!(
             r#"
+[conventions]
+currencies = {convention_currencies}
 [server]
 host = "127.0.0.1"
 port = {port}

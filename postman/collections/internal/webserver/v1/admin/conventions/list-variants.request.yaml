@@ -1,0 +1,13 @@
+$kind: http-request
+description: "Admin/Super Admin bearer authentication inherited. Invalid input 400, missing convention 404, duplicate/state conflict 409, database failure 500. Returns current membership IDs, parent/Shopify IDs, exact major-unit prices and UTC timestamps with 200 {items,page,per_page,has_next}. Safe error examples: 400 {\"error\":\"Invalid convention request body\"}; 404 {\"error\":\"Convention not found\"}; 500 {\"error\":\"Internal server error\"}."
+url: "{{server}}/v1/admin/conventions/{{convention_id}}/variants?page=1&per_page=25"
+method: GET
+queryParams:
+  page: "1"
+  per_page: "25"
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Expected status", () => pm.expect(pm.response.code).to.eql(200));
+    language: text/javascript
+order: 6000

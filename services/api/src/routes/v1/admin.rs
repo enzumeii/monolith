@@ -8,6 +8,22 @@ use axum::Router;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
+            "/conventions",
+            axum::routing::get(crate::handlers::conventions::list)
+                .post(crate::handlers::conventions::create),
+        )
+        .route(
+            "/conventions/{id}",
+            axum::routing::get(crate::handlers::conventions::get)
+                .patch(crate::handlers::conventions::patch)
+                .delete(crate::handlers::conventions::delete),
+        )
+        .route(
+            "/conventions/{id}/variants",
+            axum::routing::get(crate::handlers::conventions::variants)
+                .put(crate::handlers::conventions::replace),
+        )
+        .route(
             "/catalogue/products",
             axum::routing::get(crate::handlers::catalogue::get),
         )

@@ -1,4 +1,5 @@
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+pub use super::common::PatchField;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
@@ -24,35 +25,6 @@ pub struct CreateCronConfiguration {
     pub parameter: String,
     #[serde(default)]
     pub enabled: bool,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub enum PatchField<T> {
-    #[default]
-    Missing,
-    Clear,
-    Set(T),
-}
-impl<T> PatchField<T> {
-    pub fn is_missing(&self) -> bool {
-        matches!(self, Self::Missing)
-    }
-}
-impl<T: Serialize> Serialize for PatchField<T> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::Missing | Self::Clear => serializer.serialize_none(),
-            Self::Set(value) => value.serialize(serializer),
-        }
-    }
-}
-impl<'de, T: Deserialize<'de>> Deserialize<'de> for PatchField<T> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Option::<T>::deserialize(deserializer).map(|value| match value {
-            Some(value) => Self::Set(value),
-            None => Self::Clear,
-        })
-    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]

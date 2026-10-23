@@ -1,0 +1,28 @@
+$kind: http-request
+description: "Admin/Super Admin bearer authentication inherited. Invalid input 400, missing convention 404, duplicate/state conflict 409, database failure 500. Creates metadata with 201 DTO and server-default preorder_enabled=false. Configure THB/payment methods in application.toml first. Slug/currency remain immutable. Save returned id as convention_id. Safe error examples: 400 {\"error\":\"Invalid convention request body\"}; 404 {\"error\":\"Convention not found\"}; 500 {\"error\":\"Internal server error\"}. Success example fields: {\"id\":\"00000000-0000-4000-8000-000000000001\",\"slug\":\"convention-example\",\"preorder_enabled\":false,\"currency_code\":\"THB\",\"payment_methods\":[\"stripe\",\"paypal\"]}."
+url: "{{server}}/v1/admin/conventions"
+method: POST
+body:
+  type: json
+  content: |-
+    {
+      "slug": "convention-example",
+      "name": "Example Convention",
+      "logo_url": null,
+      "country_code": "TH",
+      "event_starts_on": "2028-02-29",
+      "event_ends_on": "2028-03-01",
+      "description_markdown": "# Convention\nPreorder collection at the event.",
+      "currency_code": "THB",
+      "payment_methods": [
+        "stripe",
+        "paypal"
+      ]
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Expected status", () => pm.expect(pm.response.code).to.eql(201));
+      if (pm.response.code === 201) { pm.collectionVariables.set("convention_id", pm.response.json().id); }
+    language: text/javascript
+order: 2000
