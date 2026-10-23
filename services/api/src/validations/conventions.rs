@@ -1,6 +1,7 @@
 use crate::{
     error::AppError,
     models::{
+        CountryCode,
         conventions::{Convention, ConventionInput},
         shopify::ShopifyId,
     },
@@ -56,8 +57,8 @@ pub(crate) fn create(value: CreateConvention) -> Result<ConventionInput, AppErro
     if event_starts_on > event_ends_on {
         return Err(invalid("event_starts_on must not follow event_ends_on"));
     }
-    let country_code = value.country_code.to_ascii_uppercase();
-    if country_code.len() != 2 || !COUNTRIES.split_whitespace().any(|c| c == country_code) {
+    let country_code = CountryCode::from(value.country_code);
+    if matches!(country_code, CountryCode::Other(_)) {
         return Err(invalid(
             "country_code must be an assigned ISO 3166 alpha-2 code",
         ));
@@ -79,7 +80,7 @@ pub(crate) fn create(value: CreateConvention) -> Result<ConventionInput, AppErro
         slug: value.slug,
         name: super::cron::configs::validate_name(&value.name)?,
         logo_location: value.logo_location,
-        country_code,
+        country_code: country_code.into(),
         event_starts_on,
         event_ends_on,
         description_markdown: value.description_markdown,
@@ -119,13 +120,12 @@ pub(crate) fn patch_shape(value: &PatchConvention) -> Result<(), AppError> {
     if let PatchField::Set(v) = &value.logo_location {
         logo(v)?;
     }
-    if let PatchField::Set(v) = &value.country_code {
-        let v = v.to_ascii_uppercase();
-        if v.len() != 2 || !COUNTRIES.split_whitespace().any(|c| c == v) {
-            return Err(invalid(
-                "country_code must be an assigned ISO 3166 alpha-2 code",
-            ));
-        }
+    if let PatchField::Set(v) = &value.country_code
+        && matches!(CountryCode::from(v.clone()), CountryCode::Other(_))
+    {
+        return Err(invalid(
+            "country_code must be an assigned ISO 3166 alpha-2 code",
+        ));
     }
     for v in [&value.event_starts_on, &value.event_ends_on] {
         if let PatchField::Set(v) = v {
@@ -148,9 +148,9 @@ pub(crate) fn merge(
     value: PatchConvention,
     current: &Convention,
 ) -> Result<ConventionInput, AppError> {
+    let retain_logo = value.logo_location.is_missing();
     let logo_location = match value.logo_location {
-        PatchField::Missing => current.logo_location.clone(),
-        PatchField::Clear => None,
+        PatchField::Missing | PatchField::Clear => None,
         PatchField::Set(v) => Some(v),
     };
     let enabled = field(value.preorder_enabled, current.preorder_enabled)?;
@@ -168,6 +168,9 @@ pub(crate) fn merge(
         currency_code: current.currency_code.clone(),
         payment_methods: field(value.payment_methods, current.methods()?)?,
     })?;
+    if retain_logo {
+        merged.logo_location.clone_from(&current.logo_location);
+    }
     merged.preorder_enabled = enabled;
     Ok(merged)
 }
@@ -251,4 +254,7 @@ fn field<T>(patch: PatchField<T>, current: T) -> Result<T, AppError> {
         PatchField::Clear => Err(invalid("Only logo_location may be cleared")),
     }
 }
-const COUNTRIES: &str = "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW";
+
+#[cfg(test)]
+#[path = "../tests/validations/conventions.rs"]
+mod tests;

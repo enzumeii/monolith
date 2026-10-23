@@ -9,8 +9,14 @@ fn variant() -> Value {
 #[test]
 fn selection_images_require_urls_without_requesting_alt_text() {
     let decoded: Variant = serde_json::from_value(variant()).unwrap();
-    assert_eq!(decoded.image.unwrap().alt_text, None);
-    assert_eq!(decoded.product.featured_image.unwrap().alt_text, None);
+    assert_eq!(
+        decoded.image.unwrap().url,
+        "https://example.test/variant.png"
+    );
+    assert_eq!(
+        decoded.product.featured_image.unwrap().url,
+        "https://example.test/product.png"
+    );
     for pointer in ["/image", "/product/featuredImage"] {
         for invalid in [Value::Null, json!({}), json!({"url":17})] {
             let mut value = variant();

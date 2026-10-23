@@ -41,7 +41,7 @@ pub(crate) async fn find(pool: &PgPool, id: Uuid) -> Result<Option<Convention>, 
 pub(crate) async fn insert(pool: &PgPool, v: &ConventionInput) -> Result<Convention, AppError> {
     sqlx::query_as(
         "INSERT INTO conventions (
-             slug, name, logo_location, country_code, event_starts_on, event_ends_on,
+             slug, name, logo_url, country_code, event_starts_on, event_ends_on,
              description_markdown, currency_code, payment_methods
          )
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -81,7 +81,7 @@ pub(crate) async fn update(
     Ok(sqlx::query_as(
         "UPDATE conventions
          SET name = $2,
-             logo_location = $3,
+             logo_url = $3,
              country_code = $4,
              event_starts_on = $5,
              event_ends_on = $6,

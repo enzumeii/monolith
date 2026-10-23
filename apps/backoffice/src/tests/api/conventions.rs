@@ -188,7 +188,7 @@ async fn membership_pages_must_match_the_record_page_and_page_size() {
 #[tokio::test]
 async fn selected_variants_decode_enrichment_and_presence_on_get_and_put_without_changing_requests()
 {
-    let extra = r#", "inventory_policy":"DENY", "product_title":"Fox shirt", "variant_title":"Blue / M", "sku":null, "product_image":{"url":"https://cdn.test/product.png","alt_text":"Product"}, "variant_image":{"url":"https://cdn.test/blue.png","alt_text":"Blue"}"#;
+    let extra = r#", "inventory_policy":"DENY", "product_title":"Fox shirt", "variant_title":"Blue / M", "sku":null, "product_image":{"url":"https://cdn.test/product.png"}, "variant_image":{"url":"https://cdn.test/blue.png"}"#;
     let enriched = format!("{}{extra}}}", row(2).trim_end_matches('}'));
     let page = format!(r#"{{"items":[{enriched}],"page":1,"per_page":100,"has_next":false}}"#);
     let put = format!(r#"{{"items":[{enriched}]}}"#);
@@ -216,7 +216,7 @@ async fn selected_variants_decode_enrichment_and_presence_on_get_and_put_without
         ..
     } = &rows[0];
     assert!(
-        matches!(product_image, PatchField::Set(image) if image.url == "https://cdn.test/product.png" && image.alt_text.as_deref() == Some("Product"))
+        matches!(product_image, PatchField::Set(image) if image.url == "https://cdn.test/product.png")
     );
     assert!(
         matches!(&rows[0].variant_image, PatchField::Set(image) if image.url == "https://cdn.test/blue.png")

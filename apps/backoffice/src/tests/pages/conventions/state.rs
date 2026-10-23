@@ -202,7 +202,7 @@ fn selected_display_updates_preserve_prices_and_legacy_omissions_but_clear_expli
         product_title: Some("Fox shirt".into()),
         variant_title: Some("Blue / M".into()),
         sku: Some("FOX-B-M".into()),
-        variant_image: Some(("https://cdn.test/blue.png".into(), "Blue".into())),
+        variant_image: Some(("https://cdn.test/blue.png".into(), "Blue / M".into())),
         available: Some(0),
         stock_location: Some("123".into()),
     };
@@ -249,4 +249,46 @@ fn saved_stock_preserves_zero_and_negative_values_without_inventing_a_location()
         assert_eq!(details["2"].available, Some(quantity));
         assert_eq!(details["2"].stock_location, None);
     }
+}
+
+#[test]
+fn saved_url_only_variant_images_use_the_variant_title_or_generic_label() {
+    for (title, expected) in [
+        (Some("Blue / M"), "Blue / M"),
+        (Some(" "), "Variant image"),
+        (None, "Variant image"),
+    ] {
+        let mut row = display_row();
+        row.variant_title = title.map_or(PatchField::Clear, |title| PatchField::Set(title.into()));
+        row.variant_image = PatchField::Set(domain::dto::CatalogueImage {
+            url: "https://cdn.test/blue.png".into(),
+        });
+        let mut details = VariantDetails::default();
+        details.apply_saved(&row);
+        assert_eq!(
+            details.variant_image,
+            Some(("https://cdn.test/blue.png".into(), expected.into()))
+        );
+    }
+}
+
+#[test]
+fn saved_title_updates_refresh_retained_image_label_without_replacing_the_image() {
+    let mut details = VariantDetails {
+        variant_image: Some(("https://cdn.test/blue.png".into(), "Previous title".into())),
+        ..Default::default()
+    };
+    let mut row = display_row();
+    row.variant_title = PatchField::Set("Blue / M".into());
+    details.apply_saved(&row);
+    assert_eq!(
+        details.variant_image.as_ref().map(|image| image.1.as_str()),
+        Some("Blue / M")
+    );
+    row.variant_title = PatchField::Clear;
+    details.apply_saved(&row);
+    assert_eq!(
+        details.variant_image.as_ref().map(|image| image.1.as_str()),
+        Some("Variant image")
+    );
 }

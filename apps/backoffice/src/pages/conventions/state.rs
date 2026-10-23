@@ -214,11 +214,15 @@ impl VariantDetails {
             PatchField::Missing => {}
             PatchField::Clear => self.variant_image = None,
             PatchField::Set(image) => {
-                self.variant_image = Some((
-                    image.url.clone(),
-                    image.alt_text.clone().unwrap_or_default(),
-                ));
+                self.variant_image = Some((image.url.clone(), String::new()));
             }
+        }
+        if let Some((_, label)) = &mut self.variant_image {
+            self.variant_title
+                .as_deref()
+                .filter(|title| !title.trim().is_empty())
+                .unwrap_or("Variant image")
+                .clone_into(label);
         }
         if !row.available_quantity.is_missing() {
             apply_patch(&mut self.available, &row.available_quantity);

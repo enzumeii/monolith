@@ -53,17 +53,13 @@ fn catalogue_fixture(variant_image: Option<&str>) -> CatalogueResponse {
             description: "Cotton".into(),
             featured_image: Some(CatalogueImage {
                 url: "https://cdn.test/product.png".into(),
-                alt_text: None,
             }),
             variants: vec![CatalogueVariant {
                 id: "2".into(),
                 inventory_item_id: "3".into(),
                 title: "Blue / M".into(),
                 sku: Some("FOX-B-M".into()),
-                image: variant_image.map(|url| CatalogueImage {
-                    url: url.into(),
-                    alt_text: Some("Blue shirt".into()),
-                }),
+                image: variant_image.map(|url| CatalogueImage { url: url.into() }),
                 selected_options: vec![],
                 price: CataloguePrice {
                     amount: "18.50".into(),
@@ -73,7 +69,6 @@ fn catalogue_fixture(variant_image: Option<&str>) -> CatalogueResponse {
                 inventory_policy: CatalogueInventoryPolicy::Deny,
                 available_quantity: Some(0),
                 eligible: true,
-                unavailable_reason: None,
             }],
         }],
         page_info: PageInfo {
@@ -90,6 +85,10 @@ fn catalogue_retains_sku_and_uses_only_the_actual_safe_variant_image() {
         page.items[0].image.as_ref().map(|image| image.0.as_str()),
         Some("https://cdn.test/blue.png")
     );
+    assert_eq!(
+        page.items[0].image.as_ref().map(|image| image.1.as_str()),
+        Some("Blue / M")
+    );
     for image in [None, Some("javascript:alert(1)")] {
         let page = BrowsePage::from_response(catalogue_fixture(image));
         assert!(
@@ -104,6 +103,19 @@ fn catalogue_retains_sku_and_uses_only_the_actual_safe_variant_image() {
         detail_text(Some("  "), "SKU unavailable"),
         "SKU unavailable"
     );
+}
+
+#[test]
+fn catalogue_image_label_falls_back_without_a_variant_title_and_preserves_selection_guard() {
+    let mut response = catalogue_fixture(Some("https://cdn.test/blue.png"));
+    response.products[0].variants[0].title = "  ".into();
+    response.products[0].variants[0].eligible = false;
+    let page = BrowsePage::from_response(response);
+    assert_eq!(
+        page.items[0].image.as_ref().map(|image| image.1.as_str()),
+        Some("Variant image")
+    );
+    assert!(!page.items[0].eligible);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -150,7 +162,7 @@ mod mounted {
     async fn current_saved_selection_renders_persisted_identity_image_exact_price_and_unknown_stock_on_new_mount()
      {
         let body = page(&saved(
-            r#", "inventory_policy":"DENY", "product_title":"Fox shirt", "variant_title":"Blue / M", "sku":"FOX-B-M", "product_image":null, "variant_image":{"url":"https://cdn.test/blue.png","alt_text":"Blue shirt"}"#,
+            r#", "inventory_policy":"DENY", "product_title":"Fox shirt", "variant_title":"Blue / M", "sku":"FOX-B-M", "product_image":null, "variant_image":{"url":"https://cdn.test/blue.png"}"#,
         ));
         let ((), requests) = crate::api::tests::metadata_responses(&[(200, &body)], async {
             let mut dom = mount();
@@ -162,7 +174,7 @@ mod mounted {
                 "Blue / M",
                 "FOX-B-M",
                 "https://cdn.test/blue.png",
-                "Blue shirt",
+                r#"alt="Blue / M""#,
                 "12.990",
                 "Available stock: Not available",
             ] {
@@ -172,7 +184,7 @@ mod mounted {
         .await;
         assert_eq!(requests.len(), 1, "display must not fetch each variant");
     }
-    const CATALOGUE: &str = r#"{"products":[{"id":"1","title":"Fox shirt","description":"Cotton","featured_image":{"url":"https://cdn.test/product.png","alt_text":"Product"},"variants":[{"id":"2","inventory_item_id":"3","title":"Blue / M","sku":"FOX-B-M","image":{"url":"https://cdn.test/blue.png","alt_text":"Blue shirt"},"selected_options":[],"price":{"amount":"18.50","currency_code":"THB"},"tracked":true,"inventory_policy":"DENY","available_quantity":0,"eligible":true,"unavailable_reason":null}]}],"page_info":{"has_next_page":true,"end_cursor":"next"}}"#;
+    const CATALOGUE: &str = r#"{"products":[{"id":"1","title":"Fox shirt","description":"Cotton","featured_image":{"url":"https://cdn.test/product.png"},"variants":[{"id":"2","inventory_item_id":"3","title":"Blue / M","sku":"FOX-B-M","image":{"url":"https://cdn.test/blue.png"},"selected_options":[],"price":{"amount":"18.50","currency_code":"THB"},"tracked":true,"inventory_policy":"DENY","available_quantity":0,"eligible":true}]}],"page_info":{"has_next_page":true,"end_cursor":"next"}}"#;
     const EMPTY_PAGE: &str =
         r#"{"products":[],"page_info":{"has_next_page":false,"end_cursor":null}}"#;
     const EMPTY_SAVED: &str = r#"{"items":[],"page":1,"per_page":100,"has_next":false}"#;

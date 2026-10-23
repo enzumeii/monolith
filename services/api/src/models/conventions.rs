@@ -6,6 +6,7 @@ pub(crate) struct Convention {
     pub id: uuid::Uuid,
     pub slug: String,
     pub name: String,
+    #[sqlx(rename = "logo_url")]
     pub logo_location: Option<String>,
     pub country_code: String,
     pub event_starts_on: NaiveDate,
@@ -89,17 +90,11 @@ impl ConventionVariant {
             product_image: self
                 .product_image_url
                 .clone()
-                .map(|url| domain::dto::CatalogueImage {
-                    url,
-                    alt_text: None,
-                }),
+                .map(|url| domain::dto::CatalogueImage { url }),
             variant_image: self
                 .variant_image_url
                 .clone()
-                .map(|url| domain::dto::CatalogueImage {
-                    url,
-                    alt_text: None,
-                }),
+                .map(|url| domain::dto::CatalogueImage { url }),
         })
     }
     pub(crate) fn input(&self) -> ConventionVariantInput {

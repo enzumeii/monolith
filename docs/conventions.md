@@ -46,7 +46,8 @@ sequenceDiagram
 | --- | --- |
 | Upload | Authenticated ADMIN/SUPER_ADMIN can upload before convention creation using `POST /api/v1/admin/files?location=conventions/<slug>`. PNG/JPEG must match Content-Type; maximum2MiB, dimensions1–4096 per axis, bounded decode allocation64MiB |
 | Object location | Frontend selects the convention slug folder; backend generates `conventions/<slug>/<UUID>.png` or `.jpg`. No client-selected filename, bucket, provider URL or report namespace |
-| Persistence | Create accepts optional `logo_location`; PATCH preserves missing, clears null, or attaches a validated location for the immutable slug. Database stores the object key, never an expiring URL |
+| Persistence | Create accepts optional `logo_location`; PATCH preserves missing, clears null, or attaches a validated location for the immutable slug. The existing database `logo_url` column stores the object key, never an expiring URL |
+| Published schema | The original CREATE migration remains unchanged. The existing `logo_url` column stores uploaded S3 object locations. Legacy HTTPS values remain stored without S3 preview; an administrator can upload and attach an image through the normal flow |
 | Attachment | HEAD metadata plus bounded GET and complete image decode validate the object before writing its reference. Missing/invalid objects or provider failures cannot report attachment success |
 | Rendering | Convention responses return `logo_location`, transient `logo_url` and RFC3339 `logo_url_expires_at`. Signing uses existing S3 TTL (checked-in300s, maximum900s); signed image GET needs no browser API credentials |
 | Preview availability | Metadata reads/saves remain usable when preview signing is unavailable: location remains, URL/expiry are null and the UI offers refresh. Image failure or expiry has an explicit refresh action that updates only preview state; no editor reload or automatic retry loop |

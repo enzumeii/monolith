@@ -1,12 +1,9 @@
 use crate::{
     client::shopify::ShopifyClient,
     error::{AppError, upstream},
-    models::shopify::{PageRequest, ProductStatus, ShopifyId, catalogue::SelectionVariant},
+    models::shopify::{PageRequest, ShopifyId, catalogue::SelectionVariant},
 };
-use domain::dto::{
-    CatalogueInventoryPolicy, CatalogueProduct, CatalogueResponse, CatalogueUnavailableReason,
-    CatalogueVariant,
-};
+use domain::dto::{CatalogueProduct, CatalogueResponse, CatalogueVariant};
 
 pub async fn products(
     client: &ShopifyClient,
@@ -32,7 +29,6 @@ pub async fn products(
             .id
             .number("Product")
             .map_err(|error| upstream(error))?;
-        let active = matches!(product.status, ProductStatus::Active);
         let mut variants = Vec::new();
         for variant in product
             .variants
@@ -41,7 +37,7 @@ pub async fn products(
         {
             let tracked = variant.inventory_item.tracked;
             let variant = selection_variant(variant)?;
-            if active && tracked {
+            if tracked && variant.eligible {
                 variants.push(variant);
             }
         }
@@ -63,18 +59,8 @@ pub async fn products(
 }
 
 fn selection_variant(variant: SelectionVariant) -> Result<CatalogueVariant, AppError> {
-    use CatalogueUnavailableReason as Reason;
     let quantity = variant
         .available_quantity()
         .map_err(|error| upstream(error))?;
-    let reason = if variant.inventory_policy == CatalogueInventoryPolicy::Continue {
-        Some(Reason::ContinueInventoryPolicy)
-    } else {
-        match &variant.inventory_item.inventory_level {
-            None => Some(Reason::MissingInventoryLevel),
-            Some(level) if !level.is_active => Some(Reason::InactiveInventoryLevel),
-            _ => None,
-        }
-    };
-    Ok(variant.into_dto(quantity, reason))
+    Ok(variant.into_dto(quantity))
 }

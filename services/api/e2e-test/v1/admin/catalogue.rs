@@ -14,7 +14,7 @@ fn variant() -> Value {
     json!({"id":"gid://shopify/ProductVariant/2","title":"Large","sku":"SKU-2","image":null,"selectedOptions":[{"name":"Size","value":"Large"}],"inventoryPolicy":"DENY","contextualPricing":{"price":{"amount":"123.4500","currencyCode":"THB"}},"inventoryItem":{"id":"gid://shopify/InventoryItem/3","tracked":true,"inventoryLevel":{"id":"gid://shopify/InventoryLevel/4","isActive":true,"quantities":[{"name":"available","quantity":0}]}}})
 }
 fn product(variants: Vec<Value>) -> Value {
-    json!({"id":"gid://shopify/Product/1","title":"Shirt","status":"ACTIVE","description":"A cotton shirt","featuredImage":{"url":"https://example.test/shirt.jpg","altText":"shirt"},"variants":page(variants,None)})
+    json!({"id":"gid://shopify/Product/1","title":"Shirt","description":"A cotton shirt","featuredImage":{"url":"https://example.test/shirt.jpg"},"variants":page(variants,None)})
 }
 fn products(nodes: Vec<Value>, next: Option<&str>) -> Value {
     json!({"products":page(nodes,next)})
@@ -31,10 +31,6 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
     untracked["inventoryItem"]["tracked"] = json!(false);
     let mut continuing = variant();
     continuing["inventoryPolicy"] = json!("CONTINUE");
-    let mut archived = product(vec![variant()]);
-    archived["status"] = json!("ARCHIVED");
-    let mut draft = product(vec![variant()]);
-    draft["status"] = json!("DRAFT");
     let mut only_untracked = variant();
     only_untracked["inventoryItem"]["tracked"] = json!(false);
     let (client, upstream) = client_with_upstream_script(
@@ -42,15 +38,23 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
             location(),
             products(
                 vec![
-                    product(vec![variant(), missing, inactive, untracked, continuing]),
-                    archived,
-                    draft,
+                    product(vec![
+                        variant(),
+                        missing.clone(),
+                        inactive.clone(),
+                        untracked,
+                        continuing,
+                    ]),
+                    product(vec![missing.clone(), inactive.clone()]),
                     product(vec![only_untracked]),
                 ],
                 Some("next"),
             ),
             location(),
-            products(vec![product(vec![])], Some("filtered-next")),
+            products(
+                vec![product(vec![missing, inactive])],
+                Some("filtered-next"),
+            ),
         ],
         "http",
     )
@@ -80,20 +84,18 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
     let v = &p["variants"][0];
     assert_eq!(
         *v,
-        json!({"id":"gid://shopify/ProductVariant/2","inventory_item_id":"gid://shopify/InventoryItem/3","title":"Large","sku":"SKU-2","image":null,"selected_options":[{"name":"Size","value":"Large"}],"price":{"amount":"123.4500","currency_code":"THB"},"tracked":true,"inventory_policy":"DENY","available_quantity":0,"eligible":true,"unavailable_reason":null})
+        json!({"id":"gid://shopify/ProductVariant/2","inventory_item_id":"gid://shopify/InventoryItem/3","title":"Large","sku":"SKU-2","image":null,"selected_options":[{"name":"Size","value":"Large"}],"price":{"amount":"123.4500","currency_code":"THB"},"tracked":true,"inventory_policy":"DENY","available_quantity":0,"eligible":true})
     );
-    for (index, reason) in [
-        (1, "missing_inventory_level"),
-        (2, "inactive_inventory_level"),
-        (3, "continue_inventory_policy"),
-    ] {
-        assert_eq!(p["variants"][index]["eligible"], false);
-        assert_eq!(p["variants"][index]["unavailable_reason"], reason);
-    }
-    assert!(p["variants"][1]["available_quantity"].is_null());
-    assert!(p["variants"][2]["available_quantity"].is_null());
+    assert_eq!(p["variants"][1]["inventory_policy"], "CONTINUE");
+    assert_eq!(p["variants"][1]["eligible"], true);
+    assert!(p["variants"][1].get("unavailable_reason").is_none());
+    assert_eq!(p["variants"][1]["available_quantity"], 0);
+    assert_eq!(
+        p["featured_image"],
+        json!({"url":"https://example.test/shirt.jpg"})
+    );
     assert_eq!(body["products"].as_array().unwrap().len(), 1);
-    assert_eq!(p["variants"].as_array().unwrap().len(), 4);
+    assert_eq!(p["variants"].as_array().unwrap().len(), 2);
     assert!(!body.to_string().contains("unitCost"));
     let response = client
         .send(authed("GET", URI, fixture.root_id(), AdminRole::SuperAdmin))
@@ -108,6 +110,9 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
     );
     let requests = upstream.requests();
     assert_eq!(requests.len(), 4);
+    let query = requests[1]["query"].as_str().unwrap();
+    assert!(!query.contains("altText"));
+    assert!(!query.lines().any(|line| line.trim() == "status"));
     assert_eq!(
         requests[1]["variables"],
         json!({"locationId":"gid://shopify/Location/1","first":1,"after":"opaque","search":"status:active AND tracks_inventory:true AND (collection_id:123 OR title:head*)"})
@@ -258,9 +263,12 @@ async fn catalogue_fails_whole_page_for_incomplete_or_invalid_provider_values() 
         json!([{"name":"on_hand","quantity":7}]),
         json!([{"name":"available","quantity":1},{"name":"available","quantity":2}]),
     ] {
-        let mut v = variant();
-        v["inventoryItem"]["inventoryLevel"]["quantities"] = quantities;
-        cases.push(products(vec![product(vec![v])], None));
+        for tracked in [true, false] {
+            let mut v = variant();
+            v["inventoryItem"]["tracked"] = json!(tracked);
+            v["inventoryItem"]["inventoryLevel"]["quantities"] = quantities.clone();
+            cases.push(products(vec![product(vec![v])], None));
+        }
     }
     let mut missing = products(vec![], None);
     missing["products"]
@@ -269,7 +277,7 @@ async fn catalogue_fails_whole_page_for_incomplete_or_invalid_provider_values() 
         .remove("pageInfo");
     cases.push(missing);
     cases.push(json!({"products":{"nodes":[],"pageInfo":{"hasNextPage":true,"endCursor":null}}}));
-    for field in ["id", "title", "status", "description", "featuredImage"] {
+    for field in ["id", "title", "description", "featuredImage"] {
         let mut p = product(vec![variant()]);
         p.as_object_mut().unwrap().remove(field);
         cases.push(products(vec![p], None));
@@ -286,6 +294,7 @@ async fn catalogue_fails_whole_page_for_incomplete_or_invalid_provider_values() 
     }
     for amount in ["NaN", "not-a-price"] {
         let mut v = variant();
+        v["inventoryItem"]["inventoryLevel"] = Value::Null;
         v["contextualPricing"]["price"]["amount"] = json!(amount);
         cases.push(products(vec![product(vec![v])], None));
     }

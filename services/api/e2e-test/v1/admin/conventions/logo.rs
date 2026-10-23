@@ -18,11 +18,15 @@ async fn read(c: &TestClient, f: &TestFixture, id: &str) -> Value {
     body_json(response).await
 }
 async fn location(f: &TestFixture, id: &str) -> Option<String> {
-    sqlx::query_scalar("SELECT logo_location FROM conventions WHERE id=$1")
-        .bind(uuid::Uuid::parse_str(id).unwrap())
-        .fetch_one(&f.pool())
-        .await
-        .unwrap()
+    sqlx::query_scalar(
+        "SELECT logo_url
+         FROM conventions
+         WHERE id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(id).unwrap())
+    .fetch_one(&f.pool())
+    .await
+    .unwrap()
 }
 #[tokio::test]
 async fn logo_upload_before_create_signed_read_replace_preserve_and_clear() {
@@ -126,6 +130,83 @@ async fn logo_upload_before_create_signed_read_replace_preserve_and_clear() {
     }
     assert!(location(&f, id).await.is_none());
     assert_eq!(storage.data.lock().unwrap().puts.len(), 2);
+}
+#[tokio::test]
+async fn existing_legacy_logo_survives_unrelated_patch_and_can_be_replaced_or_cleared() {
+    let f = fixture().await;
+    let storage = crate::s3_fixture::Fixture::new().await;
+    storage.data.lock().unwrap().content_type = Some("image/png".into());
+    let c = client_with_providers(ProviderConfig {
+        s3_url: Some(&storage.base),
+        ..Default::default()
+    })
+    .await;
+    let created = create(&c, &f, input(f.prefix())).await;
+    let id = created["id"].as_str().unwrap();
+    let legacy_url = "https://legacy.example.test/convention.png";
+    sqlx::query(
+        "UPDATE conventions
+         SET logo_url = $2
+         WHERE id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(id).unwrap())
+    .bind(legacy_url)
+    .execute(&f.pool())
+    .await
+    .unwrap();
+    let loaded = read(&c, &f, id).await;
+    assert_eq!(loaded["logo_location"], legacy_url);
+    assert!(loaded["logo_url"].is_null() && loaded["logo_url_expires_at"].is_null());
+    let saved = mutate(
+        &c,
+        &f,
+        "PATCH",
+        &format!("{URI}/{id}"),
+        json!({"name":"Updated legacy fair"}),
+        200,
+    )
+    .await;
+    assert_eq!(saved["name"], "Updated legacy fair");
+    assert_eq!(saved["logo_location"], legacy_url);
+    assert!(saved["logo_url"].is_null() && saved["logo_url_expires_at"].is_null());
+    assert_eq!(location(&f, id).await.as_deref(), Some(legacy_url));
+    mutate(
+        &c,
+        &f,
+        "PATCH",
+        &format!("{URI}/{id}"),
+        json!({"logo_location":legacy_url}),
+        400,
+    )
+    .await;
+    assert_eq!(location(&f, id).await.as_deref(), Some(legacy_url));
+    assert_eq!(storage.data.lock().unwrap().calls, Vec::<String>::new());
+    let uploaded = stored(&c, &f, f.prefix()).await;
+    let replaced = mutate(
+        &c,
+        &f,
+        "PATCH",
+        &format!("{URI}/{id}"),
+        json!({"logo_location":uploaded["location"]}),
+        200,
+    )
+    .await;
+    assert_eq!(replaced["logo_location"], uploaded["location"]);
+    assert!(replaced["logo_url"].is_string());
+    assert_eq!(
+        location(&f, id).await.as_deref(),
+        uploaded["location"].as_str()
+    );
+    mutate(
+        &c,
+        &f,
+        "PATCH",
+        &format!("{URI}/{id}"),
+        json!({"logo_location":null}),
+        200,
+    )
+    .await;
+    assert!(location(&f, id).await.is_none());
 }
 #[tokio::test]
 async fn logo_attachment_location_validation_missing_and_unknown_legacy_url() {

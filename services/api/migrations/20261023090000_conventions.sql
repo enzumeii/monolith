@@ -2,7 +2,7 @@ CREATE TABLE conventions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     slug TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
-    logo_location TEXT,
+    logo_url TEXT,
     country_code TEXT NOT NULL,
     event_starts_on DATE NOT NULL,
     event_ends_on DATE NOT NULL,

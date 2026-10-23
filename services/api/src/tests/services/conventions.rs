@@ -284,3 +284,84 @@ fn options_follow_intrinsic_currency_and_provider_policy_without_runtime_configu
         assert!(money::methods(&currency.code, &currency.payment_methods).is_ok());
     }
 }
+
+#[tokio::test]
+async fn convention_logo_locations_reuse_the_published_logo_url_column() {
+    let url = std::env::var("E2E_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://e2e:e2e@127.0.0.1:5433/e2e".into());
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    // The owned connection keeps repository pool calls in this rollback-only transaction.
+    sqlx::query("BEGIN").execute(&pool).await.unwrap();
+    let mut input = validate::create(
+        serde_json::from_value(serde_json::json!({
+            "slug": format!("native-logo-{}", Uuid::new_v4().simple()),
+            "name": "Legacy fair", "country_code": "TH",
+            "event_starts_on": "2028-02-29", "event_ends_on": "2028-03-01",
+            "description_markdown": "Legacy description", "currency_code": "THB",
+            "payment_methods": ["stripe"]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let legacy_url = "https://legacy.example.test/convention.png";
+    input.logo_location = Some(legacy_url.into());
+    let inserted = repo::insert(&pool, &input).await.unwrap();
+    let id = inserted.id;
+    assert_eq!(inserted.logo_location.as_deref(), Some(legacy_url));
+    let fixture = crate::s3_fixture::Fixture::new().await;
+    let projected = logo::project(inserted, Some(&fixture.client))
+        .await
+        .unwrap();
+    assert_eq!(projected.logo_location.as_deref(), Some(legacy_url));
+    assert!(projected.logo_url.is_none() && projected.logo_url_expires_at.is_none());
+    assert_eq!(fixture.data.lock().unwrap().calls, Vec::<String>::new());
+    let mut connection = pool.acquire().await.unwrap();
+    let locked = repo::lock(&mut connection, id).await.unwrap().unwrap();
+    assert_eq!(locked.logo_location.as_deref(), Some(legacy_url));
+    input.name = "Updated fair".into();
+    let updated = repo::update(&mut connection, id, &input).await.unwrap();
+    assert_eq!(updated.logo_location.as_deref(), Some(legacy_url));
+    let retained: String = sqlx::query_scalar(
+        "SELECT logo_url
+         FROM conventions
+         WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(&mut *connection)
+    .await
+    .unwrap();
+    assert_eq!(retained, legacy_url);
+    let location = format!("conventions/{}/{}.png", input.slug, Uuid::new_v4());
+    input.logo_location = Some(location.clone());
+    let saved = repo::update(&mut connection, id, &input).await.unwrap();
+    assert_eq!(saved.logo_location.as_deref(), Some(location.as_str()));
+    let stored: String = sqlx::query_scalar(
+        "SELECT logo_url
+         FROM conventions
+         WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(&mut *connection)
+    .await
+    .unwrap();
+    assert_eq!(stored, location);
+    drop(connection);
+    let found = repo::find(&pool, id).await.unwrap().unwrap();
+    assert_eq!(found.logo_location.as_deref(), Some(location.as_str()));
+    let listed = repo::list(&pool, 1, u32::MAX, None).await.unwrap();
+    assert!(listed.iter().any(
+        |record| record.id == id && record.logo_location.as_deref() == Some(location.as_str())
+    ));
+    let signed = logo::project(found, Some(&fixture.client)).await.unwrap();
+    assert!(signed.logo_url.unwrap().contains("X-Amz-Signature="));
+    assert!(signed.logo_url_expires_at.is_some());
+    assert_eq!(fixture.data.lock().unwrap().calls, Vec::<String>::new());
+    sqlx::query("ROLLBACK").execute(&pool).await.unwrap();
+    assert!(repo::find(&pool, id).await.unwrap().is_none());
+    pool.close().await;
+}

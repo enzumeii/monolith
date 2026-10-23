@@ -47,7 +47,7 @@ pub use orders::{OrderReportQuery, OrderReportResponse};
 pub mod catalogue;
 pub use catalogue::{
     CatalogueImage, CatalogueInventoryPolicy, CatalogueOption, CataloguePrice, CatalogueProduct,
-    CatalogueQuery, CatalogueResponse, CatalogueUnavailableReason, CatalogueVariant,
+    CatalogueQuery, CatalogueResponse, CatalogueVariant,
 };
 
 pub mod pagination;

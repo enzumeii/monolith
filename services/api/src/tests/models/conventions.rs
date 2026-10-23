@@ -19,7 +19,10 @@ fn stored_inventory_policy_decodes_known_values_null_and_rejects_corruption() {
         updated_at: Utc::now(),
     };
     assert_eq!(row.display().unwrap().inventory_policy, None);
-    assert_eq!(row.display().unwrap().product_image.unwrap().alt_text, None);
+    assert_eq!(
+        row.display().unwrap().product_image.unwrap().url,
+        "https://example.test/product.png"
+    );
     for (wire, policy) in [
         ("DENY", domain::dto::CatalogueInventoryPolicy::Deny),
         ("CONTINUE", domain::dto::CatalogueInventoryPolicy::Continue),

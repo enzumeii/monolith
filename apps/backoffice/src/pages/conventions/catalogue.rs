@@ -41,7 +41,6 @@ struct SourceVariant {
     currency: String,
     available: Option<i64>,
     eligible: bool,
-    reason: String,
 }
 #[derive(Clone, PartialEq)]
 struct BrowsePage {
@@ -61,10 +60,7 @@ impl BrowsePage {
                     .map(|image| {
                         (
                             image.url.clone(),
-                            image
-                                .alt_text
-                                .clone()
-                                .unwrap_or_else(|| product.title.clone()),
+                            detail_text(Some(&variant.title), "Variant image").to_owned(),
                         )
                     });
                 items.push(SourceVariant {
@@ -85,9 +81,6 @@ impl BrowsePage {
                     currency: variant.price.currency_code,
                     available: variant.available_quantity,
                     eligible: variant.eligible,
-                    reason: variant
-                        .unavailable_reason
-                        .map_or_else(String::new, |reason| format!("{reason:?}")),
                 });
             }
         }
@@ -269,7 +262,7 @@ pub fn SelectionEditor(
                         p { "SKU: " {detail_text(source.sku.as_deref(), "SKU unavailable")} }
                         p { "{source.description}" } p { "{source.options}" }
                         p { "Source price: {source.price} {source.currency}" } p { "Available stock: {stock_label(source.available)}" }
-                        p { if source.eligible { "Eligible" } else { "Unavailable: {source.reason}" } }
+                        p { if source.eligible { "Eligible" } else { "Unavailable" } }
                         button { r#type: "button", class: "ghost", disabled: !current.loaded || memberships.pending() || saving.read().pending() || !source.eligible || current.items.contains_key(&source.id) || current.items.len() >= 250,
                             onclick: move |_| { details.write().insert(source.id.clone(), VariantDetails {
                                 product_title: Some(source.product_title.clone()), variant_title: Some(source.title.clone()), sku: source.sku.clone(), variant_image: source.image.clone(), available: source.available,
