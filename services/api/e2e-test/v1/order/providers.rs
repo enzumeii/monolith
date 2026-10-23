@@ -21,6 +21,7 @@ pub struct Providers {
 #[allow(clippy::struct_excessive_bools)]
 struct Scenario {
     calls: Vec<Value>,
+    search_mode: String,
     draft_input: Value,
     stripe_input: Value,
     paypal_input: Value,
@@ -114,6 +115,24 @@ impl Providers {
         let mut scenario = self.state.lock().unwrap();
         scenario.reservation_valid = valid;
         scenario.total_valid = total_valid;
+    }
+
+    pub fn search_mode(&self, mode: &str) {
+        self.state.lock().unwrap().search_mode = mode.into();
+    }
+
+    pub fn edit_draft(&self, field: &str) {
+        let mut scenario = self.state.lock().unwrap();
+        match field {
+            "email" => scenario.draft_input["email"] = json!("changed@example.test"),
+            "quantity" => scenario.draft_input["lineItems"][0]["quantity"] = json!(1),
+            "money" => scenario.total_valid = false,
+            "required_tag" => {
+                scenario.tags.remove(0);
+            }
+            "unrelated_tag" => scenario.tags.push(json!("operator-note")),
+            _ => panic!("unknown draft edit {field}"),
+        }
     }
 
     pub fn stripe_event(&self, checkout: &str, event: &str) -> Value {
@@ -276,6 +295,16 @@ async fn reply(
             _ => panic!("unknown fixture failure {failure}"),
         };
     }
+    if operation == "DraftOrders"
+        && state.lock().unwrap().search_mode == "later_http"
+        && body["variables"]["after"].as_str().is_some()
+    {
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "Synthetic later-page failure",
+        )
+            .into_response();
+    }
     let mut scenario = state.lock().unwrap();
     let data = match operation.as_str() {
         "Location" => json!({"location":{"id":"gid://shopify/Location/1"}}),
@@ -294,6 +323,7 @@ async fn reply(
                 "phone":null,"tags":scenario.tags,"reserveInventoryUntil":scenario.draft_input["reserveInventoryUntil"]},"userErrors":[]}})
         }
         "CheckoutDraft" => draft(&scenario),
+        "DraftOrders" => draft_search(&scenario, &body),
         "CompleteCheckoutDraft" => {
             assert_eq!(body["variables"]["paymentPending"], false);
             scenario.completed = true;
@@ -411,6 +441,58 @@ fn draft(scenario: &Scenario) -> Value {
         "lineItems":{"nodes":lines,"pageInfo":{"hasNextPage":false,"endCursor":null}},
         "order":if scenario.completed {json!({"id":order_id(scenario)})} else {Value::Null},"paymentTerms":null,
         "totalPriceSet":{"presentmentMoney":{"amount":if scenario.total_valid {"40.00"} else {"41.00"},"currencyCode":"SGD"}}}})
+}
+
+fn draft_search(scenario: &Scenario, body: &Value) -> Value {
+    assert_eq!(body["variables"]["first"], 250);
+    assert!(
+        body["variables"]["query"]
+            .as_str()
+            .unwrap()
+            .starts_with("tag:'checkout:")
+    );
+    let later = body["variables"]["after"].as_str().is_some();
+    if scenario.search_mode == "later_http" && later {
+        // The HTTP failure is returned by reply before this projection is used.
+        unreachable!("later-page failure must be intercepted");
+    }
+    let mut expected = if scenario.draft_input.is_object() {
+        vec![draft(scenario)["draftOrder"].clone()]
+    } else {
+        Vec::new()
+    };
+    let mut next = false;
+    let mut cursor = Value::Null;
+    match scenario.search_mode.as_str() {
+        "empty" => expected.clear(),
+        "repeated_cursor" => {
+            next = true;
+            cursor = json!("same-page");
+            expected.clear();
+        }
+        "multiple" => {
+            let mut duplicate = expected[0].clone();
+            duplicate["id"] = json!("gid://shopify/DraftOrder/999999999999999999");
+            expected.push(duplicate);
+        }
+        "mismatch" => expected[0]["email"] = json!("wrong@example.test"),
+        "noisy" | "paginated" | "incomplete" | "later_http" if !later => {
+            let mut noise = expected[0].clone();
+            noise["id"] = json!("gid://shopify/DraftOrder/999999999999999998");
+            noise["tags"] = json!(["checkout:unrelated"]);
+            if scenario.search_mode == "noisy" {
+                expected.insert(0, noise);
+            } else {
+                expected = vec![noise];
+                next = true;
+                if scenario.search_mode != "incomplete" {
+                    cursor = json!("second-page");
+                }
+            }
+        }
+        _ => {}
+    }
+    json!({"draftOrders":{"nodes":expected,"pageInfo":{"hasNextPage":next,"endCursor":cursor}}})
 }
 
 fn stripe_session(scenario: &Scenario) -> Value {

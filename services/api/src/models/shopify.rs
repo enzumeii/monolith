@@ -822,6 +822,11 @@ pub(crate) struct CompletionOrder {
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct DraftOrdersData {
+    pub draft_orders: Connection<CompletionDraft>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct CompletionDraftData {
     #[serde(deserialize_with = "required_nullable")]
     pub draft_order: Option<CompletionDraft>,

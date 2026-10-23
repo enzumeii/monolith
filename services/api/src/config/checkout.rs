@@ -9,8 +9,6 @@ pub struct CheckoutSettings {
     pub shopify_location_id: String,
     pub reservation_secs: u64,
     pub guest_recovery_secs: u64,
-    pub rate_limit_attempts: u32,
-    pub rate_limit_window_secs: u64,
     pub stripe_expected_account: String,
     pub stripe_livemode: bool,
     pub paypal_api_origin: String,
@@ -26,8 +24,6 @@ impl CheckoutSettings {
             || self.reservation_secs > 86400
             || self.guest_recovery_secs < self.reservation_secs
             || self.guest_recovery_secs > 31 * 86400
-            || !(1..=100).contains(&self.rate_limit_attempts)
-            || !(1..=86400).contains(&self.rate_limit_window_secs)
             || self.stripe_expected_account.trim().is_empty()
             || !self
                 .shopify_location_id

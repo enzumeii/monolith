@@ -115,20 +115,6 @@ impl StripeClient {
             .await
     }
 
-    pub async fn expire_checkout_session(
-        &self,
-        id: &str,
-        idempotency_key: &str,
-    ) -> Result<CheckoutSession, ClientError> {
-        validate_id(id)?;
-        self.post(
-            self.operation_url(&["checkout", "sessions", id, "expire"])?,
-            idempotency_key,
-            &[],
-        )
-        .await
-    }
-
     pub async fn get_payment_intent(&self, id: &str) -> Result<PaymentIntent, ClientError> {
         self.get(self.resource_url("payment_intents", id)?).await
     }

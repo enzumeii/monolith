@@ -217,46 +217,18 @@ pub struct TestClient {
 async fn cleanup_checkouts(pool: &PgPool, prefix: &str) {
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         "DROP TRIGGER IF EXISTS {prefix}_checkout_fault ON checkouts;
-                     DROP FUNCTION IF EXISTS {prefix}_checkout_fault();
-                     DROP TRIGGER IF EXISTS {prefix}_checkout_event_fault ON checkout_events;
-                     DROP FUNCTION IF EXISTS {prefix}_checkout_event_fault();"
+         DROP FUNCTION IF EXISTS {prefix}_checkout_fault();"
     )))
     .execute(pool)
     .await
     .expect("owned checkout fault cleanup");
     sqlx::query(
-                    "DELETE FROM checkout_events
-                     WHERE checkout_id IN (
-                         SELECT checkout.id
-                         FROM checkouts checkout
-                         JOIN conventions convention ON convention.id::text = checkout.snapshot ->> 'convention_id'
-                         WHERE left(convention.slug, 12) = $1
-                     )",
-                )
-                .bind(prefix)
-                .execute(pool)
-                .await
-                .expect("owned checkout dependent cleanup");
-    sqlx::query(
-                    "DELETE FROM checkout_items
-                     WHERE checkout_id IN (
-                         SELECT checkout.id
-                         FROM checkouts checkout
-                         JOIN conventions convention ON convention.id::text = checkout.snapshot ->> 'convention_id'
-                         WHERE left(convention.slug, 12) = $1
-                     )",
-                )
-                .bind(prefix)
-                .execute(pool)
-                .await
-                .expect("owned checkout dependent cleanup");
-    sqlx::query(
         "DELETE FROM checkouts
-                     WHERE snapshot ->> 'convention_id' IN (
-                         SELECT id::text
-                         FROM conventions
-                         WHERE left(slug, 12) = $1
-                     )",
+         WHERE convention_id IN (
+             SELECT id
+             FROM conventions
+             WHERE left(slug, 12) = $1
+         )",
     )
     .bind(prefix)
     .execute(pool)
@@ -610,8 +582,6 @@ pub async fn client_with_shopify(url: &str) -> TestClient {
 #[allow(clippy::struct_excessive_bools)]
 pub struct ProviderConfig<'a> {
     pub checkout_enabled: bool,
-    pub checkout_rate_limit_attempts: Option<u32>,
-    pub checkout_rate_limit_window_secs: Option<u64>,
     pub shopify_url: Option<&'a str>,
     pub paypal_url: Option<&'a str>,
     pub stripe_url: Option<&'a str>,
@@ -786,8 +756,6 @@ insecure_local = true
 
 fn checkout_configuration(config: &ProviderConfig<'_>) -> String {
     if config.checkout_enabled {
-        let checkout_attempts = config.checkout_rate_limit_attempts.unwrap_or(100);
-        let checkout_window = config.checkout_rate_limit_window_secs.unwrap_or(1);
         let paypal_origin = config
             .paypal_url
             .unwrap_or("http://127.0.0.1:8089")
@@ -801,8 +769,6 @@ cancel_path_template = "/{{convention_slug}}/cancel?checkout_id={{checkout_id}}"
 shopify_location_id = "gid://shopify/Location/1"
 reservation_secs = 3600
 guest_recovery_secs = 604800
-rate_limit_attempts = {checkout_attempts}
-rate_limit_window_secs = {checkout_window}
 stripe_expected_account = "acct_e2e"
 stripe_livemode = false
 paypal_api_origin = "{paypal_origin}"

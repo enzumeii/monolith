@@ -76,3 +76,79 @@ fn checkout_accepts_bounds_and_rejects_duplicate_variants_and_invalid_money() {
     invalid.operation_id = Uuid::nil().to_string();
     assert!(create(&invalid).is_err());
 }
+
+#[test]
+fn webhook_shape_checks_preserve_mixed_authentication_and_configuration_order() {
+    let mut config: CheckoutSettings = serde_json::from_value(serde_json::json!({
+        "frontend_origin":"https://example.test",
+        "return_path_template":"/{convention_slug}/{checkout_id}",
+        "cancel_path_template":"/{convention_slug}/{checkout_id}",
+        "shopify_location_id":"gid://shopify/Location/1",
+        "reservation_secs":3600,"guest_recovery_secs":604_800,
+        "stripe_expected_account":"acct_test","stripe_livemode":false,
+        "paypal_api_origin":"https://api-m.sandbox.paypal.com"
+    }))
+    .unwrap();
+    let mut headers = HeaderMap::new();
+    assert_eq!(
+        stripe_authentication(&config, &headers)
+            .err()
+            .unwrap()
+            .to_string(),
+        "Stripe webhook configuration unavailable"
+    );
+    assert_eq!(
+        paypal_authentication(&config, &headers, b"malformed")
+            .err()
+            .unwrap()
+            .to_string(),
+        "PayPal webhook configuration unavailable"
+    );
+    headers.insert("paypal-transmission-id", "fixture".parse().unwrap());
+    assert_eq!(
+        stripe_authentication(&config, &headers)
+            .err()
+            .unwrap()
+            .to_string(),
+        "Ambiguous webhook authentication"
+    );
+    headers.insert("stripe-signature", "fixture".parse().unwrap());
+    assert_eq!(
+        paypal_authentication(&config, &headers, b"malformed")
+            .err()
+            .unwrap()
+            .to_string(),
+        "Ambiguous webhook authentication"
+    );
+    headers.clear();
+    assert_eq!(
+        paypal_authentication(&config, &headers, &vec![0; 262_145])
+            .err()
+            .unwrap()
+            .to_string(),
+        "PayPal webhook payload exceeds supported limit"
+    );
+    config.paypal_webhook_id = Some("registered_fixture".into());
+    assert_eq!(
+        paypal_authentication(&config, &headers, b"malformed")
+            .err()
+            .unwrap()
+            .to_string(),
+        "Invalid PayPal webhook event"
+    );
+    assert_eq!(
+        paypal_authentication(&config, &headers, b"{}")
+            .err()
+            .unwrap()
+            .to_string(),
+        "Missing or invalid webhook authentication header"
+    );
+    config.stripe_webhook_secret = Some("whsec_fixture".into());
+    assert_eq!(
+        stripe_authentication(&config, &headers)
+            .err()
+            .unwrap()
+            .to_string(),
+        "Missing or invalid webhook authentication header"
+    );
+}

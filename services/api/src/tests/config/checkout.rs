@@ -9,8 +9,6 @@ fn settings() -> CheckoutSettings {
         shopify_location_id: "gid://shopify/Location/1".into(),
         reservation_secs: 3600,
         guest_recovery_secs: 7 * 86400,
-        rate_limit_attempts: 5,
-        rate_limit_window_secs: 600,
         stripe_expected_account: "acct_test".into(),
         stripe_livemode: false,
         paypal_api_origin: "https://api-m.sandbox.paypal.com".into(),

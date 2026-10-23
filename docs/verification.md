@@ -1,5 +1,22 @@
 # Verification
 
+## PR #66 checkout review comments — local verification (2026-10-24)
+
+Results bind to the approved review-plan version 2 and frozen source atop `239989608a418656437cbed0b08557a128f0be8a`. The ignored `.superpowers/review-comments/PR-66/source-freeze-full-tested.json` records all 33 changed implementation/test/documentation paths; hashes remained unchanged during the final full recipe. This verification entry is the only subsequent documentation addition.
+
+| Check | Actual result |
+| --- | --- |
+| Final API strict recipe | Exit 0: 34 setup-helper tests, dprint, Rust formatting and strict all-target/E2E Clippy |
+| Final full API recipe | Exit 0: 473 native tests (22.49s) and 211 real-HTTP tests (797.69s), zero failed or ignored. Native database tests ran with Compose PostgreSQL ready; the recipe completed owned teardown |
+| Focused checkout rerun | Exit 0: all 26 checkout TCP cases (106.68s), including Stripe/PayPal and post-mutation draft/payment ID-save failures. The subsequent full recipe includes all these cases |
+| Persistence and recovery | Fresh SQLx migrations create one checkout control/linkage table. Interruption-phase row assertions reject local email/items/purchase payloads and confirm removed item/event/rate tables. Draft recovery covers unique/zero/multiple/noisy/paginated/incomplete results, dependency failures, changed purchase evidence and required-tag subsets; ambiguous absence never creates another draft |
+| Payment and completion | Tests preserve exact money, ownership, price consent, last-unit contention, PayPal whole-unit currencies and six-digit response timestamp stability. Gateway retries compare the original key/body/frozen deadline; owned-row faults verify recovery after upstream creation but before ID persistence. Paid and uncertain Shopify completion remain separate; callbacks share fenced state and preserve raw authentication/irrelevant-event handling |
+| Initial failure and correction | First full run: 473 native passed; 205/210 TCP passed. Four failures shared a stale controlled draft-search page-size assertion (100 instead of 250); another retained the former 200 expectation for an invalid draft instead of the approved safe 409. Corrected fixtures/assertions without changing production code, then passed checkout and complete final recipes |
+| Postman/static review | Workspace lint: 84 entities, zero errors, one pre-existing cron-preview FMT209 warning. New DraftOrders query bytes and variable keys match the formatted source; exact-tag example uses the production quoting. Scoped whitespace checks and independent source review pass. No provider request collection was executed |
+| Journey artifact | Local journey HTML/Markdown updated for authoritative Shopify data, browser attempt credentials and the pre-draft recovery boundary. Desktop1440/mobile390 renders in light/dark have no page overflow; viewport screenshots inspected. These are documentation renders, not frontend purchase acceptance |
+| Isolation and cleanup | Compose `enz48`, PostgreSQL15448/S315449, synthetic credentials, no dotenv discovery. Final independent audit finds no owned containers, networks, volumes or API processes; both recorded database/S3 volume names are removed. The reused ENZ-48 checkout and unrelated work remain intact |
+| Evidence and limits | Ignored `api-check-final.log`, `checkout-final.log`, `api-full-final.log`, initial `api-full.log`, manifests and `cleanup-final.json` preserve actual results and source boundaries. No live Stripe/PayPal payment, merchant email delivery, production webhook registration, complete browser purchase or deployment was performed. Hosted results remain delivery-owned and must match the published source |
+
 ## ENZ-48 durable guest checkout — local verification (2026-10-24)
 
 Final implementation source `08e98fec8a2bea2aca1ee4e59f798fc2590c2e9a` includes main `7a319c36f5b12b8e5def22b08743394947b1ceaf` and merged ENZ-35. The final checkout-only inventory-policy guard has separate regression evidence below; earlier full-suite results retain their original source boundary.

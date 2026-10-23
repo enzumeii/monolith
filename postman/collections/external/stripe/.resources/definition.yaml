@@ -7,7 +7,6 @@ auth:
       token: "{{vault:stripe_secret_key}}"
 variables:
   stripe_checkout_idempotency_key: synthetic-create-001
-  stripe_checkout_expire_idempotency_key: synthetic-expire-001
   stripe_checkout_expires_at: ""
   stripe_checkout_amount: "1000"
   stripe_checkout_currency: usd

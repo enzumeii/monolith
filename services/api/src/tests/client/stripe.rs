@@ -305,20 +305,11 @@ async fn checkout_mutations_never_automatically_replay_rejections() {
             matches!(error.kind(), crate::client::ClientErrorKind::Http {status: actual,..} if *actual == status)
         );
         assert_eq!(fixture.requests().len(), 1);
-        let fixture =
-            Fixture::new(vec![Reply::status(status), Reply::json(session_response())]).await;
-        assert!(
-            client(&fixture)
-                .expire_checkout_session("cs_test_one", "expire_fixture")
-                .await
-                .is_err()
-        );
-        assert_eq!(fixture.requests().len(), 1);
     }
 }
 #[tokio::test]
-async fn retrieves_sessions_intents_account_and_expires_by_real_paths() {
-    let fixture = Fixture::new(vec![Reply::json(session_response()), Reply::json(json!({"id":"pi_one","object":"payment_intent","status":"succeeded","amount":1200,"amount_received":1200,"currency":"thb","livemode":false,"metadata":{},"latest_charge":"ch_one"})), Reply::json(json!({"id":"acct_one","object":"account"})), Reply::json(session_response())]).await;
+async fn retrieves_sessions_intents_and_account_by_real_paths() {
+    let fixture = Fixture::new(vec![Reply::json(session_response()), Reply::json(json!({"id":"pi_one","object":"payment_intent","status":"succeeded","amount":1200,"amount_received":1200,"currency":"thb","livemode":false,"metadata":{},"latest_charge":"ch_one"})), Reply::json(json!({"id":"acct_one","object":"account"}))]).await;
     let c = client(&fixture);
     c.get_checkout_session("cs_test_one").await.unwrap();
     assert_eq!(
@@ -331,17 +322,13 @@ async fn retrieves_sessions_intents_account_and_expires_by_real_paths() {
         "ch_one"
     );
     assert_eq!(c.get_account().await.unwrap().id, "acct_one");
-    c.expire_checkout_session("cs_test_one", "expire_fixture")
-        .await
-        .unwrap();
     let requests = fixture.requests();
     assert_eq!(
         requests.iter().map(|r| r.0.as_str()).collect::<Vec<_>>(),
         [
             "/v1/checkout/sessions/cs_test_one",
             "/v1/payment_intents/pi_one",
-            "/v1/account",
-            "/v1/checkout/sessions/cs_test_one/expire"
+            "/v1/account"
         ]
     );
     assert_eq!(
@@ -349,11 +336,9 @@ async fn retrieves_sessions_intents_account_and_expires_by_real_paths() {
         [
             reqwest::Method::GET,
             reqwest::Method::GET,
-            reqwest::Method::GET,
-            reqwest::Method::POST
+            reqwest::Method::GET
         ]
     );
-    assert_eq!(requests[3].1["idempotency-key"], "expire_fixture");
 }
 #[tokio::test]
 async fn rejects_invalid_checkout_inputs_before_sending() {
@@ -390,11 +375,6 @@ async fn rejects_invalid_checkout_inputs_before_sending() {
     for id in ["", "../x", &"x".repeat(256)] {
         assert!(c.get_checkout_session(id).await.is_err());
         assert!(c.get_payment_intent(id).await.is_err());
-        assert!(
-            c.expire_checkout_session(id, "expire_fixture")
-                .await
-                .is_err()
-        );
     }
     assert_eq!(fixture.requests(), []);
 }
@@ -402,7 +382,7 @@ async fn rejects_invalid_checkout_inputs_before_sending() {
 #[tokio::test]
 async fn checkout_operations_reject_malformed_success_without_replay() {
     for body in ["invalid", "{}", "{\"id\":null}"] {
-        for operation in 0..5 {
+        for operation in 0..4 {
             let fixture = Fixture::new(vec![
                 Reply {
                     status: 200,
@@ -419,11 +399,7 @@ async fn checkout_operations_reject_malformed_success_without_replay() {
                     .await
                     .map(|_| ()),
                 1 => c.get_checkout_session("cs_test_one").await.map(|_| ()),
-                2 => c
-                    .expire_checkout_session("cs_test_one", "expire_fixture")
-                    .await
-                    .map(|_| ()),
-                3 => c.get_payment_intent("pi_one").await.map(|_| ()),
+                2 => c.get_payment_intent("pi_one").await.map(|_| ()),
                 _ => c.get_account().await.map(|_| ()),
             };
             assert!(matches!(
@@ -436,46 +412,34 @@ async fn checkout_operations_reject_malformed_success_without_replay() {
 }
 #[tokio::test]
 async fn checkout_mutation_timeouts_and_connection_failures_are_not_replayed() {
-    for expire in [false, true] {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let c = StripeClient::new(&StripeConfig {
-            base_url: format!("http://{}/v1/", listener.local_addr().unwrap()),
-            timeout_secs: 1,
-            secret_key: Some("fixture".into()),
-        })
-        .unwrap();
-        let error = if expire {
-            c.expire_checkout_session("cs_test_one", "expire_fixture")
-                .await
-                .unwrap_err()
-        } else {
-            c.create_checkout_session(&checkout_request())
-                .await
-                .unwrap_err()
-        };
-        assert!(
-            matches!(error.kind(),crate::client::ClientErrorKind::Transport {source} if source.is_timeout())
-        );
-        listener.accept().await.unwrap();
-        assert!(
-            tokio::time::timeout(std::time::Duration::from_millis(30), listener.accept())
-                .await
-                .is_err()
-        );
-        drop(listener);
-        let error = if expire {
-            c.expire_checkout_session("cs_test_one", "expire_fixture")
-                .await
-                .unwrap_err()
-        } else {
-            c.create_checkout_session(&checkout_request())
-                .await
-                .unwrap_err()
-        };
-        assert!(
-            matches!(error.kind(),crate::client::ClientErrorKind::Transport {source} if source.is_connect())
-        );
-    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let c = StripeClient::new(&StripeConfig {
+        base_url: format!("http://{}/v1/", listener.local_addr().unwrap()),
+        timeout_secs: 1,
+        secret_key: Some("fixture".into()),
+    })
+    .unwrap();
+    let error = c
+        .create_checkout_session(&checkout_request())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error.kind(),crate::client::ClientErrorKind::Transport {source} if source.is_timeout())
+    );
+    listener.accept().await.unwrap();
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(30), listener.accept())
+            .await
+            .is_err()
+    );
+    drop(listener);
+    let error = c
+        .create_checkout_session(&checkout_request())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error.kind(),crate::client::ClientErrorKind::Transport {source} if source.is_connect())
+    );
 }
 
 #[tokio::test]

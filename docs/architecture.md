@@ -179,7 +179,7 @@ flowchart LR
 
 | Layer | Responsibility |
 | --- | --- |
-| Shared Stripe client | One pooled provider operation per call: create/retrieve/expire hosted Checkout Session, retrieve PaymentIntent/current direct account, and existing Charge/accounting reads. Integer minor-unit money; mutation idempotency stays caller-owned |
+| Shared Stripe client | One pooled provider operation per call: create/retrieve hosted Checkout Session, retrieve PaymentIntent/current direct account, and existing Charge/accounting reads. Integer minor-unit money; mutation idempotency stays caller-owned |
 | `client::stripe::payment` | Compare authoritative current Session, PaymentIntent and Charge with trusted caller account/environment/money/correlation expectations; return explicit pending, expired/unpaid or verified paid outcome. No Shopify dependency |
 | `client::stripe::webhook` | Authenticate timestamp and exact signed bytes before typed decoding; expose event identity/version without treating signature/event type as proof of paid |
 | Consumer boundary | Trusted callers own return destinations, durable operation identities, refund policy, replay handling and stored business state. The provider layer has no persistence or Shopify effects; the durable guest checkout consumer owns its routes and state |
@@ -257,7 +257,7 @@ flowchart LR
 | Manual enablement | Enabling requires nonempty eligible selections and supported currency/methods/prices; clearing an enabled convention is rejected until disabled. Event dates are metadata, without scheduling, lifecycle, version, readiness or display-order fields |
 | Display snapshots | Existing Shopify validation returns trusted product/variant titles, nullable SKU, product featured image URL, variant image URL and inventory policy. Saved images expose URLs only. Required saves write price and snapshot atomically; explicit nulls clear old metadata. Unchanged disabled saves retain the latest locked row snapshot and timestamps. GET uses PostgreSQL only, including during provider failure; rows with missing display data or policy remain nullable until required validation, without automatic backfill |
 | Router composition | Admin nests the relative convention child router under `/conventions`; canonical collection URL stays slashless with no trailing-slash redirect; outer `/v1` alias and middleware remain shared |
-| Future consumers | Current reads use the list service with its optional enabled filter and the UUID lookup; manual enable/disable remains on PATCH. Public catalogue APIs (ENZ-38), routing (ENZ-41) and quotes remain separate work. Guest checkout saves independent historical snapshots; changing current membership does not rewrite checkout history |
+| Future consumers | Current reads use the list service with its optional enabled filter and the UUID lookup; manual enable/disable remains on PATCH. Public catalogue APIs (ENZ-38), routing (ENZ-41) and quotes remain separate work. Guest checkout stores linkage and evidence hashes; Shopify retains the accepted draft purchase independently of current convention membership |
 
 | Catalogue contract | Behavior |
 | --- | --- |
@@ -379,33 +379,33 @@ sequenceDiagram
     participant Gateway as Stripe or PayPal
     Browser->>Browser: Save random operation UUID and guest secret per attempt
     Browser->>API: POST /order/checkout with guest bearer and purchase intent
-    API->>DB: Save validated immutable purchase snapshot
+    API->>DB: Save ownership, purchase evidence hash and mutation intent
     API->>Shopify: Create draft and reserve inventory
     API->>DB: Save confirmed draft and reservation deadline
-    API->>Gateway: Create payment with stored money and stable key
+    API->>Gateway: Create payment from verified draft money and stable key
     API-->>Browser: Checkout ID, status, money, deadline and redirect action
     Browser->>Gateway: Follow hosted payment or wallet approval URL
     Gateway-->>Browser: Return to configured frontend path with checkout ID
     Browser->>API: POST /order/{checkout_id}/verify; same guest bearer, empty body
     opt PayPal approved but unpaid
-        API->>Gateway: Capture with stored stable request ID
+        API->>Gateway: Capture with stable derived request ID
     end
     API->>Gateway: Independently verify current payment and exact money
     API->>Shopify: Complete eligible draft; read back paid order and tags
     API->>DB: Save payment, completion and order state
     API-->>Browser: Completed with order, processing, unpaid or reconciliation required
     Gateway->>API: POST /order/webhook/{provider} with provider authentication
-    API->>DB: Associate and deduplicate event; claim same advancement path
+    API->>DB: Authenticate association; claim same advancement path
     Note over API,DB: Browser return and webhook are independent; neither proves paid
 ```
 
 | Endpoint / owner | Data and behavior |
 | --- | --- |
 | `POST /order/checkout` | Random v4 `operation_id` (also checkout ID), convention UUID, email, selected provider, distinct convention-variant UUIDs, quantities, expected positive minor-unit prices and uppercase currency. Revalidate current convention, prices, eligibility and Shopify inventory. Checkout requires tracked inventory, DENY policy and sufficient available quantity at its configured location; catalogue browsing accepts both policies. Submitted prices are comparison guards; changed price requires refreshed consent |
-| `POST /order/{checkout_id}/verify` | Same guest bearer, empty body, no query. Advance stored purchase/provider bindings; no email or cart restoration response. Recover a lost create response using the ID saved before sending |
-| `POST /order/webhook/{provider}` | Exact event bytes and Stripe signature or PayPal transmission headers; no admin JWT or Origin. Authenticate before association; deduplicate by provider, account, environment and event ID. Unsupported authenticated events are acknowledged; unfinished/busy advancement remains retryable |
+| `POST /order/{checkout_id}/verify` | Same guest bearer, empty body, no query. Hydrate the accepted Shopify draft/provider bindings; no email or cart restoration response. Recover by the ID saved before sending when authoritative resources exist; pre-draft recovery has the boundary below |
+| `POST /order/webhook/{provider}` | Exact event bytes and Stripe signature or PayPal transmission headers; no admin JWT or Origin. Authenticate before association. Unsupported authenticated events are acknowledged without requiring Shopify; supported events use current provider truth and the checkout state/claim rather than a stored event receipt. Unfinished/busy advancement remains retryable |
 | Shared advancement | Database claim token serializes and fences state updates; persist external-write intent before upstream calls. Same guest and unchanged create payload resume one attempt; changed payload conflicts. Uncertain draft creation/completion requires reconciliation rather than blind replacement writes |
-| Payment / reservation | Draft reservation precedes payment creation; stored amount/currency are immutable. Stripe expiry matches confirmed reservation. PayPal approval remains unpaid until capture. Paid evidence after expiry requires reconciliation; no automatic refund or stock oversell |
+| Payment / reservation | Draft reservation precedes payment creation; accepted draft evidence commits to email, variants/quantities and exact total/currency. Fresh reads must match this commitment and the required tag subset. Stripe expiry matches confirmed reservation. PayPal approval remains unpaid until capture. Paid evidence after expiry requires reconciliation; no automatic refund or stock oversell |
 | Completion | Existing completion service verifies provider truth and Shopify money/order/tag readback. Payment alone is not completed checkout. Replays read the real linked order; native Shopify completion remains the confirmation-email mechanism |
 
 | Location | Retained information |
@@ -413,8 +413,18 @@ sequenceDiagram
 | Browser cart storage (future UI) | Convention/variant IDs, quantities and displayed price/currency for shopping convenience; always revalidated. Keep cart separate from payment attempts |
 | Browser per-attempt `localStorage` (future UI) | Before first request: cryptographically random v4 UUID and independent random 32-byte secret encoded as 64 hex characters; convention slug, provider and local expiry for navigation/recovery. Send secret only in guest Bearer header; URL contains only checkout ID. Reloads, gateway navigation and tabs recover by attempt ID. Clear expired/finished credentials; never reuse for another attempt |
 | Browser memory only | Contact email/form state during entry. No durable email, provider secret, card data or authoritative paid flag. Lost guest storage prevents guest access; ID alone cannot restore PII |
-| `checkouts` | SHA-256 hash of decoded guest-secret bytes, recovery expiry, fingerprint, immutable convention/contact/items/money snapshot, trusted provider account/environment/correlation, draft/payment/order references, redirect, reservation deadline, stable create/capture keys, independent payment/draft/completion states and fenced claim |
-| `checkout_items` | Independent variant/product/title/SKU, quantity and exact unit/line minor-unit snapshot; no dependency on mutable convention membership |
-| `checkout_events` / `checkout_rate_limits` | Authenticated event identity with processed marker; hashed source IP and bounded create-attempt window. No raw guest secret or raw event payload |
+| `checkouts` | SHA-256 hash of decoded guest-secret bytes, recovery expiry, fingerprint, convention linkage, trusted provider account/environment, draft/payment/order references, accepted-draft and required-tag hashes, frozen success/cancel URLs until gateway binding, gateway request fingerprint, reservation deadline, independent payment/draft/completion states and fenced claim. Create/capture keys derive from checkout ID; email/items/totals/redirect/order-name are not cached locally |
+| Shopify draft / order | Authoritative email, items and exact presentment money; confirmed reservation and real completion. Required checkout/convention tags bind identity; unrelated added tags remain accepted |
+| Gateway resources | Current redirect/approval URL and verified payment evidence. No local item, event-receipt or source-admission tables; removal of the SQL admission counter removes that checkout-only throttle |
 
 Guest credentials are distinct from backoffice JWT/cookies. Recovery expiry limits browser authorization; callbacks can finish independently. Same-origin scripts can read localStorage, so the eventual frontend must prevent XSS. These backend routes deliver no frontend storage implementation or browser acceptance proof.
+
+
+| Recovery boundary | Required behavior |
+| --- | --- |
+| No draft attempted | Only the unchanged original create body can resume creation. ID + secret cannot reconstruct an email or selection that never reached Shopify |
+| Draft mutation attempted, ID missing | Paginate Shopify drafts filtered by checkout tag; inspect exact tag and accepted evidence. Bind one unique match. Zero/multiple/incomplete results require reconciliation; never create a replacement draft from search absence |
+| Gateway create ambiguous | Rebuild from verified draft money, pinned account/environment, stored URLs and fixed reservation deadline. Require the original request fingerprint and derived idempotency key; mismatch stops instead of opening another payment |
+| Authoritative money unavailable | Return safe 409/503 for domain/busy cases or sanitized upstream failure, preserving the existing required-money DTO. Never manufacture zero totals |
+
+The evidence projection verifies email, total/currency, variant/quantity pairs and required tags. It does not claim separate line-price, tax or shipping verification. Reservation deadlines are checked separately at database microsecond precision.

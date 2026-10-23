@@ -1,4 +1,7 @@
-use crate::error::AppError;
+use crate::{
+    config::CheckoutSettings, error::AppError, models::paypal::VerifyWebhookSignatureRequest,
+    services::checkout::notification::StripeAuthentication,
+};
 use axum::{
     body::Bytes,
     extract::rejection::BytesRejection,
@@ -90,6 +93,73 @@ pub(crate) fn no_query(value: Option<&str>) -> Result<(), AppError> {
 
 pub(crate) fn invalid(message: &'static str) -> AppError {
     AppError::new(StatusCode::BAD_REQUEST, message)
+}
+
+pub(crate) fn stripe_authentication<'a>(
+    config: &'a CheckoutSettings,
+    headers: &'a HeaderMap,
+) -> Result<StripeAuthentication<'a>, AppError> {
+    if headers.contains_key("paypal-transmission-id") {
+        return Err(invalid("Ambiguous webhook authentication"));
+    }
+    let secret = config
+        .stripe_webhook_secret
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            AppError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Stripe webhook configuration unavailable",
+            )
+        })?;
+    Ok(StripeAuthentication {
+        signature: webhook_header(headers, "stripe-signature")?,
+        secret,
+    })
+}
+
+pub(crate) fn paypal_authentication(
+    config: &CheckoutSettings,
+    headers: &HeaderMap,
+    raw: &[u8],
+) -> Result<VerifyWebhookSignatureRequest, AppError> {
+    if headers.contains_key("stripe-signature") {
+        return Err(invalid("Ambiguous webhook authentication"));
+    }
+    if raw.len() > 262_144 {
+        return Err(AppError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "PayPal webhook payload exceeds supported limit",
+        ));
+    }
+    let webhook_id = config
+        .paypal_webhook_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            AppError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "PayPal webhook configuration unavailable",
+            )
+        })?;
+    let value = serde_json::from_slice(raw).map_err(|_| invalid("Invalid PayPal webhook event"))?;
+    Ok(VerifyWebhookSignatureRequest {
+        auth_algo: webhook_header(headers, "paypal-auth-algo")?.into(),
+        cert_url: webhook_header(headers, "paypal-cert-url")?.into(),
+        transmission_id: webhook_header(headers, "paypal-transmission-id")?.into(),
+        transmission_sig: webhook_header(headers, "paypal-transmission-sig")?.into(),
+        transmission_time: webhook_header(headers, "paypal-transmission-time")?.into(),
+        webhook_id: webhook_id.into(),
+        webhook_event: value,
+    })
+}
+
+fn webhook_header<'a>(headers: &'a HeaderMap, name: &'static str) -> Result<&'a str, AppError> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| invalid("Missing or invalid webhook authentication header"))
 }
 
 #[cfg(test)]
