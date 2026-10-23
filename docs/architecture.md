@@ -230,7 +230,7 @@ All eight operations use the existing ADMIN/SUPER_ADMIN protected group and brow
 | `DELETE /conventions/{id}` | Delete convention and cascade its current variant memberships |
 | `GET /conventions/{id}/variants` | Page/per-page current selections with exact `final_price` strings and persisted product/variant titles, SKU and representative images |
 | `PUT /conventions/{id}/variants` | Atomically replace all selections, at most 250 unique Shopify variant IDs |
-| `GET /conventions/catalogue` | One Shopify product page for a required location GID, active-product search guard and root cursor; return tracked variants only |
+| `GET /conventions/catalogue` | One Shopify product page for a required location GID, active-product search guard and root cursor; return tracked variants with active inventory levels at the requested location |
 
 ```mermaid
 flowchart LR
@@ -263,8 +263,8 @@ flowchart LR
 | --- | --- |
 | Content | Current Shopify product title/description/image, variant title/SKU/image/options and inventory-item ID; no invented variant description or supplier cost |
 | Source price | Exact current contextual Shopify amount string and currency; distinct from persisted convention final prices |
-| Available quantity | Requested location `available` integer; active zero/negative values remain numbers and zero remains eligible. Missing/inactive levels return null with an ineligibility reason; DENY and CONTINUE variants are eligible with active location inventory; inactive products and untracked variants are omitted |
-| Search / paging | The service supplies `status:active AND tracks_inventory:true`, grouping optional raw search as `status:active AND tracks_inventory:true AND (<search>)`; products with no tracked variants are omitted. One root page with opaque cursor and unchanged upstream metadata, including empty filtered pages; variants fixed `first:250`, without child paging. Any nested overflow or incomplete provider page fails safely with 502 |
+| Available quantity | Requested location `available` integer; active zero/negative values remain numbers and zero remains eligible. Missing/inactive levels and untracked variants are omitted; DENY and CONTINUE variants with active location inventory remain visible. Returned variants have eligible=true |
+| Search / paging | The service supplies `status:active AND tracks_inventory:true`, grouping optional raw search as `status:active AND tracks_inventory:true AND (<search>)`; products with no eligible tracked variants are omitted. One root page with opaque cursor and unchanged upstream metadata, including empty filtered pages; variants fixed `first:250`, without child paging. Any nested overflow or incomplete provider page fails safely with 502 |
 | Failure / inventory boundary | Missing location 404; unavailable client 503; upstream 502/timeout 504. Catalogue reads do not change stock. Existing inventory/report `on_hand`, filtering, supplier-cost and numeric-total semantics remain unchanged |
 
 ## Inventory enablement

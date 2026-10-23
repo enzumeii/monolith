@@ -38,13 +38,23 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
             location(),
             products(
                 vec![
-                    product(vec![variant(), missing, inactive, untracked, continuing]),
+                    product(vec![
+                        variant(),
+                        missing.clone(),
+                        inactive.clone(),
+                        untracked,
+                        continuing,
+                    ]),
+                    product(vec![missing.clone(), inactive.clone()]),
                     product(vec![only_untracked]),
                 ],
                 Some("next"),
             ),
             location(),
-            products(vec![product(vec![])], Some("filtered-next")),
+            products(
+                vec![product(vec![missing, inactive])],
+                Some("filtered-next"),
+            ),
         ],
         "http",
     )
@@ -74,27 +84,18 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
     let v = &p["variants"][0];
     assert_eq!(
         *v,
-        json!({"id":"gid://shopify/ProductVariant/2","inventory_item_id":"gid://shopify/InventoryItem/3","title":"Large","sku":"SKU-2","image":null,"selected_options":[{"name":"Size","value":"Large"}],"price":{"amount":"123.4500","currency_code":"THB"},"tracked":true,"inventory_policy":"DENY","available_quantity":0,"eligible":true,"unavailable_reason":null})
+        json!({"id":"gid://shopify/ProductVariant/2","inventory_item_id":"gid://shopify/InventoryItem/3","title":"Large","sku":"SKU-2","image":null,"selected_options":[{"name":"Size","value":"Large"}],"price":{"amount":"123.4500","currency_code":"THB"},"tracked":true,"inventory_policy":"DENY","available_quantity":0,"eligible":true})
     );
-    for (index, reason) in [
-        (1, "missing_inventory_level"),
-        (2, "inactive_inventory_level"),
-    ] {
-        assert_eq!(p["variants"][index]["eligible"], false);
-        assert_eq!(p["variants"][index]["unavailable_reason"], reason);
-    }
-    assert_eq!(p["variants"][3]["inventory_policy"], "CONTINUE");
-    assert_eq!(p["variants"][3]["eligible"], true);
-    assert!(p["variants"][3]["unavailable_reason"].is_null());
-    assert_eq!(p["variants"][3]["available_quantity"], 0);
+    assert_eq!(p["variants"][1]["inventory_policy"], "CONTINUE");
+    assert_eq!(p["variants"][1]["eligible"], true);
+    assert!(p["variants"][1].get("unavailable_reason").is_none());
+    assert_eq!(p["variants"][1]["available_quantity"], 0);
     assert_eq!(
         p["featured_image"],
         json!({"url":"https://example.test/shirt.jpg"})
     );
-    assert!(p["variants"][1]["available_quantity"].is_null());
-    assert!(p["variants"][2]["available_quantity"].is_null());
     assert_eq!(body["products"].as_array().unwrap().len(), 1);
-    assert_eq!(p["variants"].as_array().unwrap().len(), 4);
+    assert_eq!(p["variants"].as_array().unwrap().len(), 2);
     assert!(!body.to_string().contains("unitCost"));
     let response = client
         .send(authed("GET", URI, fixture.root_id(), AdminRole::SuperAdmin))
@@ -262,9 +263,12 @@ async fn catalogue_fails_whole_page_for_incomplete_or_invalid_provider_values() 
         json!([{"name":"on_hand","quantity":7}]),
         json!([{"name":"available","quantity":1},{"name":"available","quantity":2}]),
     ] {
-        let mut v = variant();
-        v["inventoryItem"]["inventoryLevel"]["quantities"] = quantities;
-        cases.push(products(vec![product(vec![v])], None));
+        for tracked in [true, false] {
+            let mut v = variant();
+            v["inventoryItem"]["tracked"] = json!(tracked);
+            v["inventoryItem"]["inventoryLevel"]["quantities"] = quantities.clone();
+            cases.push(products(vec![product(vec![v])], None));
+        }
     }
     let mut missing = products(vec![], None);
     missing["products"]
@@ -290,6 +294,7 @@ async fn catalogue_fails_whole_page_for_incomplete_or_invalid_provider_values() 
     }
     for amount in ["NaN", "not-a-price"] {
         let mut v = variant();
+        v["inventoryItem"]["inventoryLevel"] = Value::Null;
         v["contextualPricing"]["price"]["amount"] = json!(amount);
         cases.push(products(vec![product(vec![v])], None));
     }

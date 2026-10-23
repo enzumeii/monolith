@@ -70,3 +70,18 @@ fn catalogue_images_serialize_only_the_url() {
         json!({"url":"https://example.test/image.png"})
     );
 }
+
+#[test]
+fn catalogue_variants_omit_unavailable_reason() {
+    let variant: crate::dto::CatalogueVariant = serde_json::from_value(json!({
+        "id":"gid://shopify/ProductVariant/2", "inventory_item_id":"gid://shopify/InventoryItem/3",
+        "title":"Large", "sku":null, "image":null, "selected_options":[],
+        "price":{"amount":"12.99","currency_code":"USD"}, "tracked":true,
+        "inventory_policy":"CONTINUE", "available_quantity":0, "eligible":true
+    }))
+    .unwrap();
+    let wire = serde_json::to_value(variant).unwrap();
+    assert!(wire.get("unavailable_reason").is_none());
+    assert_eq!(wire["available_quantity"], 0);
+    assert_eq!(wire["eligible"], true);
+}

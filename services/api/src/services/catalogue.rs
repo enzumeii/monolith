@@ -3,9 +3,7 @@ use crate::{
     error::{AppError, upstream},
     models::shopify::{PageRequest, ShopifyId, catalogue::SelectionVariant},
 };
-use domain::dto::{
-    CatalogueProduct, CatalogueResponse, CatalogueUnavailableReason, CatalogueVariant,
-};
+use domain::dto::{CatalogueProduct, CatalogueResponse, CatalogueVariant};
 
 pub async fn products(
     client: &ShopifyClient,
@@ -39,7 +37,7 @@ pub async fn products(
         {
             let tracked = variant.inventory_item.tracked;
             let variant = selection_variant(variant)?;
-            if tracked {
+            if tracked && variant.eligible {
                 variants.push(variant);
             }
         }
@@ -61,14 +59,8 @@ pub async fn products(
 }
 
 fn selection_variant(variant: SelectionVariant) -> Result<CatalogueVariant, AppError> {
-    use CatalogueUnavailableReason as Reason;
     let quantity = variant
         .available_quantity()
         .map_err(|error| upstream(error))?;
-    let reason = match &variant.inventory_item.inventory_level {
-        None => Some(Reason::MissingInventoryLevel),
-        Some(level) if !level.is_active => Some(Reason::InactiveInventoryLevel),
-        _ => None,
-    };
-    Ok(variant.into_dto(quantity, reason))
+    Ok(variant.into_dto(quantity))
 }

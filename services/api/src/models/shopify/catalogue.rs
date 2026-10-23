@@ -1,8 +1,7 @@
 use super::{Connection, InventoryLevel, Money, ShopifyId};
 use crate::client::{ClientError, ClientErrorKind};
 use domain::dto::{
-    CatalogueImage, CatalogueInventoryPolicy, CatalogueOption, CataloguePrice,
-    CatalogueUnavailableReason, CatalogueVariant,
+    CatalogueImage, CatalogueInventoryPolicy, CatalogueOption, CataloguePrice, CatalogueVariant,
 };
 use serde::{Deserialize, Deserializer};
 
@@ -83,11 +82,7 @@ impl SelectionVariant {
         Ok(Some(quantity.quantity))
     }
 
-    pub(crate) fn into_dto(
-        self,
-        quantity: Option<i64>,
-        reason: Option<CatalogueUnavailableReason>,
-    ) -> CatalogueVariant {
+    pub(crate) fn into_dto(self, quantity: Option<i64>) -> CatalogueVariant {
         CatalogueVariant {
             id: self.id.as_ref().to_owned(),
             inventory_item_id: self.inventory_item.id.as_ref().to_owned(),
@@ -102,8 +97,7 @@ impl SelectionVariant {
             tracked: self.inventory_item.tracked,
             inventory_policy: self.inventory_policy,
             available_quantity: quantity,
-            eligible: reason.is_none(),
-            unavailable_reason: reason,
+            eligible: quantity.is_some(),
         }
     }
 }

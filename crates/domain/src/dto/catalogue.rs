@@ -49,15 +49,6 @@ pub enum CatalogueInventoryPolicy {
     Continue,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum CatalogueUnavailableReason {
-    InactiveProduct,
-    UntrackedInventory,
-    MissingInventoryLevel,
-    InactiveInventoryLevel,
-}
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CatalogueVariant {
     pub id: String,
@@ -71,5 +62,4 @@ pub struct CatalogueVariant {
     pub inventory_policy: CatalogueInventoryPolicy,
     pub available_quantity: Option<i64>,
     pub eligible: bool,
-    pub unavailable_reason: Option<CatalogueUnavailableReason>,
 }
