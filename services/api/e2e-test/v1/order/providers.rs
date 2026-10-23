@@ -36,6 +36,9 @@ struct Scenario {
     tracked: bool,
     reservation_valid: bool,
     total_valid: bool,
+    last_unit: bool,
+    reserved: bool,
+    stock_barrier: Option<Arc<tokio::sync::Barrier>>,
 }
 
 impl Providers {
@@ -91,6 +94,13 @@ impl Providers {
     pub async fn stop(&mut self) {
         self.server.abort();
         let _ = (&mut self.server).await;
+    }
+
+    pub fn contend_last_unit(&self) {
+        let mut scenario = self.state.lock().unwrap();
+        scenario.stock = 1;
+        scenario.last_unit = true;
+        scenario.stock_barrier = Some(Arc::new(tokio::sync::Barrier::new(2)));
     }
 
     pub fn inventory(&self, stock: i64, tracked: bool, policy: &str) {
@@ -216,6 +226,14 @@ async fn reply(
             .filter(|(name, _)| operation == *name || *name == provider_operation(path, &method))
             .map(|(_, fault)| fault.clone())
     };
+    let stock_barrier = if operation == "CatalogueProducts" {
+        state.lock().unwrap().stock_barrier.clone()
+    } else {
+        None
+    };
+    if let Some(barrier) = stock_barrier {
+        barrier.wait().await;
+    }
     if let Some(failure) = failure {
         if failure == "lost" {
             let mut scenario = state.lock().unwrap();
@@ -263,6 +281,10 @@ async fn reply(
         "Location" => json!({"location":{"id":"gid://shopify/Location/1"}}),
         "CatalogueProducts" => catalogue(&scenario),
         "CreateDraftOrder" => {
+            if scenario.last_unit && scenario.reserved {
+                return axum::Json(json!({"data":{"draftOrderCreate":{"draftOrder":null,"userErrors":[{"field":["lineItems"],"message":"Insufficient stock"}]}}})).into_response();
+            }
+            scenario.reserved = true;
             scenario.draft_input = body["variables"]["input"].clone();
             scenario
                 .tags

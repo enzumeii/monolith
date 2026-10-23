@@ -8,7 +8,10 @@ use crate::{
 use axum::{
     Json,
     body::Bytes,
-    extract::{ConnectInfo, Path, State, rejection::JsonRejection},
+    extract::{
+        ConnectInfo, Path, State,
+        rejection::{BytesRejection, JsonRejection},
+    },
     http::{HeaderMap, StatusCode, Uri},
 };
 use domain::dto::checkout::{CheckoutProvider, CheckoutResponse, CreateCheckoutRequest};
@@ -25,7 +28,7 @@ pub(crate) async fn create(
 ) -> Result<Json<CheckoutResponse>, AppError> {
     validate::no_query(uri.query())?;
     let guest_hash = validate::credential(&headers)?;
-    let Json(request) = body.map_err(|_| validate::invalid("Invalid checkout request body"))?;
+    let Json(request) = body.map_err(|error| validate::body_error(error.status()))?;
     validate::create(&request)?;
     match request.provider {
         CheckoutProvider::Stripe => {
@@ -55,10 +58,11 @@ pub(crate) async fn verify(
     Path(checkout_id): Path<String>,
     uri: Uri,
     headers: HeaderMap,
-    body: Bytes,
+    body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<CheckoutResponse>, AppError> {
     validate::no_query(uri.query())?;
     let credential = validate::credential(&headers)?;
+    let body = validate::bytes(body)?;
     if !body.is_empty() {
         return Err(validate::invalid(
             "Checkout verification does not accept a request body",
@@ -82,9 +86,10 @@ pub(crate) async fn webhook(
     Path(provider): Path<String>,
     uri: Uri,
     headers: HeaderMap,
-    raw: Bytes,
+    raw: Result<Bytes, BytesRejection>,
 ) -> Result<Json<Value>, AppError> {
     validate::no_query(uri.query())?;
+    let raw = validate::bytes(raw)?;
     let config = settings(&state)?;
     let notification = match provider.as_str() {
         "stripe" => stripe_event(config, &headers, &raw)?,

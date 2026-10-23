@@ -1,5 +1,9 @@
 use crate::error::AppError;
-use axum::http::{HeaderMap, StatusCode, header::AUTHORIZATION};
+use axum::{
+    body::Bytes,
+    extract::rejection::BytesRejection,
+    http::{HeaderMap, StatusCode, header::AUTHORIZATION},
+};
 use domain::dto::checkout::CreateCheckoutRequest;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -18,6 +22,18 @@ pub(crate) fn credential(headers: &HeaderMap) -> Result<Vec<u8>, AppError> {
                 .with_bearer_challenge()
         })?;
     Ok(Sha256::digest(raw).to_vec())
+}
+
+pub(crate) fn bytes(body: Result<Bytes, BytesRejection>) -> Result<Bytes, AppError> {
+    body.map_err(|error| body_error(error.status()))
+}
+
+pub(crate) fn body_error(status: StatusCode) -> AppError {
+    if status == StatusCode::PAYLOAD_TOO_LARGE {
+        AppError::new(status, "Checkout request body is too large")
+    } else {
+        invalid("Invalid checkout request body")
+    }
 }
 
 pub(crate) fn create(request: &CreateCheckoutRequest) -> Result<(), AppError> {

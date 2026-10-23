@@ -707,6 +707,7 @@ async fn checkout_webhook_rejects_invalid_headers_payload_account_and_provider_w
             .await
             .unwrap();
         assert_eq!(response.status(), 413);
+        assert!(body_json(response).await["error"].is_string());
     }
     assert_eq!(upstream.calls(), Vec::<Value>::new());
     let mut irrelevant = event;
@@ -1258,4 +1259,69 @@ async fn checkout_rate_limit_rejects_new_intents_but_allows_owned_retries() {
     .await
     .unwrap();
     assert!(!exists);
+}
+
+#[tokio::test]
+async fn checkout_last_unit_race_only_opens_payment_for_the_successfully_reserved_draft() {
+    let fixture = fixture().await;
+    let upstream = Providers::start().await;
+    upstream.contend_last_unit();
+    let client = configured(&upstream).await;
+    let mut first = purchase(&fixture, "stripe").await;
+    let variant = Uuid::parse_str(first["items"][0]["variant_id"].as_str().unwrap()).unwrap();
+    sqlx::query(
+        "UPDATE convention_variants
+SET final_price = 40
+WHERE id = $1",
+    )
+    .bind(variant)
+    .execute(&fixture.pool())
+    .await
+    .unwrap();
+    first["items"][0]["quantity"] = json!(1);
+    first["items"][0]["expected_unit_price"] = json!(4000);
+    let mut second = first.clone();
+    second["operation_id"] = json!(Uuid::new_v4().to_string());
+    let (first_response, second_response) = tokio::join!(
+        client.send(request(CHECKOUT, Some(SECRET), &first)),
+        client.send(request(CHECKOUT, Some(SECRET), &second)),
+    );
+    let mut statuses = [
+        first_response.unwrap().status().as_u16(),
+        second_response.unwrap().status().as_u16(),
+    ];
+    statuses.sort_unstable();
+    assert_eq!(statuses, [200, 409]);
+    assert_eq!(upstream.count("CatalogueProducts"), 2);
+    assert_eq!(upstream.count("CreateDraftOrder"), 2);
+    assert_eq!(upstream.payment_creates(), 1);
+}
+
+#[tokio::test]
+async fn checkout_oversized_customer_payloads_use_shared_safe_error_responses() {
+    let _fixture = fixture().await;
+    let upstream = Providers::start().await;
+    let client = configured(&upstream).await;
+    let id = Uuid::new_v4();
+    for path in [CHECKOUT.to_owned(), format!("/api/v1/order/{id}/verify")] {
+        let response = client
+            .send(
+                Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .header("authorization", format!("Bearer {SECRET}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(vec![b'x'; 1_048_577]))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 413);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        assert_eq!(
+            body_json(response).await,
+            json!({"error":"Checkout request body is too large"})
+        );
+    }
+    assert_eq!(upstream.calls(), Vec::<Value>::new());
 }
