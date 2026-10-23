@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+use chrono::SubsecRound;
 
 #[tokio::test]
 async fn postgres_payment_replay_lease_fencing_evidence_and_event_recovery() {
@@ -147,7 +148,7 @@ async fn assert_capture_persistence(
         currency: "USD".into(),
         minor_units: 1234,
         provider_status: "COMPLETED".into(),
-        verified_at: Utc::now(),
+        verified_at: Utc::now().trunc_subsecs(6),
     };
     let mut transaction = pool.begin().await.unwrap();
     lock_reference(&mut transaction, payment).await.unwrap();
