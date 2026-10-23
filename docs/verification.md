@@ -4,7 +4,7 @@ Results describe this revision's exercised scope, separately from [architecture]
 
 ## PR57 review feedback — 2026-10-23
 
-These results apply to the uncommitted review-feedback changes based on `2fb0874`; older results below retain their original source bindings. The current API removes capability configuration, uses user-supplied database currencies, maps catalogue at `/api/v1/admin/conventions/catalogue`, and combines grouped raw search with `status:active` while returning only tracked variants. GET/list/PATCH own the existing reads and manual enable flag. SQL formatting preserves constraints, binds, transactions and locks; `TIMESTAMPTZ`/UTC DTOs preserve timestamp instants and event calendar dates.
+These results apply to review-feedback commit `ea5346741e3ccd76454ed2fa058c250b00be6877`; older results below retain their original source bindings. The current API removes capability configuration, uses user-supplied database currencies, maps catalogue at `/api/v1/admin/conventions/catalogue`, and combines grouped raw search with `status:active` while returning only tracked variants. GET/list/PATCH own the existing reads and manual enable flag. SQL formatting preserves constraints, binds, transactions and locks; `TIMESTAMPTZ`/UTC DTOs preserve timestamp instants and event calendar dates.
 
 | Check / contract | Actual evidence |
 | --- | --- |
@@ -15,7 +15,19 @@ These results apply to the uncommitted review-feedback changes based on `2fb0874
 | Full API recipe | One actual `just test` run exits 0:357 native tests (22.50s) and179 real-TCP tests (689.51s), zero failed/ignored. Includes final currency precision/accounting rejection, UTC, moved-route, active/tracked catalogue, configuration removal, rollback/commit-fault and race regressions |
 | Postman / SQL guidance | Workspace lint exits 0:67 entities, zero errors, one existing cron FMT209 warning. Four changed YAML requests parse; external query bytes/variable keys match source. Migration SQL differs only in whitespace; seven retained repository operations preserve SQL tokens/binds. Skill schema/example and independent representative SQL-guidance application pass; system Python validator lacks PyYAML, so equivalent Ruby Psych metadata validation was used |
 | Isolation / cleanup | Owned Cargo target and Compose `enz35`, PostgreSQL15435/S315436. `JUST_NO_DOTENV=true` disables nested dotenv loading; `COMPOSE_DISABLE_ENV_FILE=1` disables Compose dotenv discovery. An initial numeric dotenv flag was rejected before tests/services ran; corrected actual run completed once. Recipe down-v and independent audit confirm no owned containers, volumes, network or API process. All31 changed-path hashes matched the source freeze before this evidence-only update |
-| Evidence / delivery boundary | Ignored `.superpowers/review-comments/PR-57/2026-10-23/implement-report.md`, full logs, `source-freeze.json` and `full-cleanup-audit.json` retain actual commands, exits and source binding. No fresh hosted CI, live-provider, production or deployment proof is asserted. Upstream main advanced during this run; reconciliation and subsequent exact-source CI are publication-owned |
+| Evidence / delivery boundary | Ignored `.superpowers/review-comments/PR-57/2026-10-23/implement-report.md`, full logs, `source-freeze.json` and `full-cleanup-audit.json` retain actual commands, exits and source binding. No fresh hosted CI, live-provider, production or deployment proof is asserted. The later latest-main integration has separate local evidence below; subsequent exact-source hosted CI remains publication-owned |
+
+### Latest-main integration — 2026-10-23
+
+The integrated tree merges review-feedback commit `ea5346741e3ccd76454ed2fa058c250b00be6877` with main `10d5985a6c631551429863a23ff6eb75bb555524`. The merge has no conflicts and preserves the convention changes together with main's Stripe provider helpers and QA configuration/setup behavior. The earlier full 179-case TCP run remains bound to the review-feedback commit above.
+
+| Integrated-source check | Actual evidence |
+| --- | --- |
+| Strict API check | Exit 0:34 setup-helper tests, dprint, API formatting and strict all-target/E2E Clippy |
+| Native API suite | Exit 0:389 passed, zero failed/ignored (22.39s), including QA overlay/precedence, Stripe helpers, currency and non-UTC PostgreSQL/UTC DTO regressions |
+| Focused real-TCP modules | Exit 0:10 catalogue cases (45.26s) and19 convention cases (29.18s), zero failed/ignored; existing local API harness and controlled provider connections |
+| Isolation / cleanup | Same owned target and Compose `enz35`/ports15435/15436, no dotenv discovery. Corrected lifecycle exits 0; down-v exits 0 and independent Docker/process audit finds no owned resources. An earlier initializer consumed script stdin before any Cargo test; its logs are retained separately and it is not test-suite evidence |
+| Evidence / limits | Ignored `integration-report.md`, `integration-tests.sh` and `integration-*.log` under the PR57 review evidence directory retain the exact commands, parents, exits, preservation audit and cleanup. No repeated full179-case local TCP run, fresh hosted CI, live-provider or deployment proof is asserted |
 
 ## ENZ-35 + ENZ-36 convention configuration and catalogue — local verification (2026-10-23)
 
