@@ -6,7 +6,7 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 
 | Owner | Source / setting | Behavior |
 | --- | --- | --- |
-| API | Common `application.toml` → `application.{RUN_ENV}.toml`; RUN_ENV defaults to local | One existing typed reader; local scheduler.implementation selects vps/vercel, prod forces vercel before deserialization |
+| API | Common `application.toml` → `application.{RUN_ENV}.toml`; RUN_ENV defaults to local | One existing typed reader; scheduler.implementation selects vps/vercel from the selected TOML overlay |
 | API listener | TOML; platform `PORT` in container server mode | Container listener uses the platform port |
 | API browser | Required nonempty `browser.allowed_origins` and `browser.insecure_local` in TOML | CORS and cookie mutations share exact origin membership; HTTPS is allowed; explicit loopback HTTP requires insecure_local |
 | Database | `DATABASE_URL` from ignored `.env` or environment | Secret PostgreSQL connection URL |
@@ -240,7 +240,7 @@ Titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/e
 | API invocation | Behavior |
 | --- | --- |
 | `api` | Existing local configuration and migration behavior; local configuration selects VPS or Vercel cron |
-| `api server` | Existing container command; connect only, no automatic migrations; RUN_ENV=prod forces Vercel cron |
+| `api server` | Existing container command; connect only, no automatic migrations; RUN_ENV=prod uses the scheduler selected by application.prod.toml (checked in as vercel) |
 | Configuration files | Only application.toml, application.local.toml and application.prod.toml; API image copies common/prod files and sets RUN_ENV=prod; no runtime profiles/CLI flag |
 | Cron lifecycle | VPS owns periodic scheduler and independent hourly retention; Vercel awaits authenticated HTTP ticks without background tasks |
 

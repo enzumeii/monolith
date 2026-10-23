@@ -216,9 +216,7 @@ impl Settings {
             return Err(ConfigError::Message("RUN_ENV must be local or prod".into()));
         }
         if mode == "prod" {
-            builder = builder
-                .set_override("scheduler.implementation", "vercel")?
-                .set_override("browser.insecure_local", false)?;
+            builder = builder.set_override("browser.insecure_local", false)?;
         }
         if (mode == "prod" || env::var("VERCEL_ENV").as_deref() == Ok("development"))
             && env::var("VERCEL_ENV").as_deref() != Ok("production")

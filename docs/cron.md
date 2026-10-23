@@ -183,7 +183,7 @@ flowchart LR
 | Local settings | Existing application.local.toml `client.s3.endpoint` must match LOCAL_S3_PORT (default3001); common region ap-southeast-1 and bucket reports. Keep S3 credentials separate from DATABASE_URL/JWT_SECRET. |
 | API `just test` | Dedicated Compose PostgreSQL/local-s3/init → native Cargo once → registered TCP suite → owned Compose down -v, including failure. |
 | Test isolation | Unique E2E_COMPOSE_PROJECT, E2E_POSTGRES_PORT, E2E_S3_PORT and matching E2E_DATABASE_URL; dedicated E2E_S3_ACCESS_KEY_ID/E2E_S3_SECRET_ACCESS_KEY default to fixed synthetic credentials, never production S3 keys. |
-| Cron selection | Local application.local.toml selects VPS polling or manual Vercel cron; production still forces Vercel in the one existing reader. |
+| Cron selection | The selected application.local.toml or application.prod.toml chooses VPS polling or Vercel cron; the checked-in production overlay selects Vercel. |
 | Postman | The three external S3 requests exercise SigV4 PUT/HEAD/GET; supply credentials privately through environment values. Internal reports/download-url requests a fresh signed URL under the authenticated no-store contract; fetching that URL is a separate manual step. |
 
 | Production readiness | Boundary |

@@ -12,7 +12,7 @@ Without Bitwarden CLI, setup uses local defaults. Setup installs pinned dprint u
 
 - `just setup` installs formatter tooling and fills missing/empty `.env` settings from Bitwarden when installed, otherwise local defaults.
 - `just run` starts API at `localhost:3000` and local S3 at `localhost:3001`.
-- Edit `application.local.toml` scheduler `implementation` (`vps` or `vercel`) to choose local cron execution. `RUN_ENV=prod` uses production overrides and forces Vercel cron.
+- Edit `application.local.toml` scheduler `implementation` (`vps` or `vercel`) to choose local cron execution. `RUN_ENV=prod` reads `application.prod.toml`, which selects Vercel cron.
 
 ## Vercel cron timing
 

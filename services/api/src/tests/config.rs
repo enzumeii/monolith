@@ -843,33 +843,47 @@ fn local_toml_can_choose_either_cron_without_deployment_metadata() {
 }
 
 #[test]
-fn production_forces_vercel_even_when_toml_selects_vps() {
+fn production_preserves_toml_scheduler_selection() {
     temp_env::with_vars(
         [
             ("VERCEL_ENV", Some("production")),
-            ("VERCEL_URL", Some("preview.vercel.app")),
-            ("VERCEL_PROJECT_PRODUCTION_URL", Some("project.vercel.app")),
+            ("VERCEL_URL", None),
+            ("VERCEL_PROJECT_PRODUCTION_URL", None),
+            (
+                "DATABASE_URL",
+                Some("postgres://synthetic:synthetic@localhost/runtime"),
+            ),
+            (
+                "JWT_SECRET",
+                Some("abababababababababababababababababababababababababababababababab"),
+            ),
         ],
         || {
-            let settings = Settings::load(
-                settings_builder()
-                    .set_override(
-                        "browser.allowed_origins",
-                        vec!["https://project.vercel.app"],
-                    )
-                    .unwrap(),
-                "prod",
-            )
-            .unwrap();
-            assert_eq!(
-                settings.scheduler.implementation,
-                CronImplementation::Vercel
-            );
-            assert_eq!(
-                settings.browser.allowed_origins,
-                vec!["https://project.vercel.app"]
-            );
-            assert!(!settings.browser.insecure_local);
+            for (value, expected) in [
+                ("vps", CronImplementation::Vps),
+                ("vercel", CronImplementation::Vercel),
+            ] {
+                let overlay = format!("[scheduler]\nimplementation={value:?}");
+                let settings = Settings::load(
+                    settings_builder()
+                        .add_source(File::from_str(
+                            include_str!("../../application.prod.toml"),
+                            FileFormat::Toml,
+                        ))
+                        .add_source(File::from_str(&overlay, FileFormat::Toml)),
+                    "prod",
+                )
+                .unwrap();
+                assert_eq!(settings.scheduler.implementation, expected);
+                assert_eq!(
+                    settings.browser.allowed_origins,
+                    vec![
+                        "https://convention.enzumeii.com",
+                        "https://enzumeii.vercel.app"
+                    ]
+                );
+                assert!(!settings.browser.insecure_local);
+            }
         },
     );
 }
