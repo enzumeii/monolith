@@ -84,9 +84,9 @@ printf 'https://monolith-test.vercel.app\\n'
  return {root,result,calls:read(calls),deployment:read(deployment),summary:read(summary),migration:read(migration),secret};
 }
 
-test('only manual releases reconcile trusted main history without automatic deployment triggers',()=>{
- assert.match(workflow,/^on:\n  workflow_dispatch:\n\njobs:/m);
- assert.match(release,/^    if: github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'$/m);
+test('main pushes reconcile trusted main history before production approval',()=>{
+ assert.match(workflow,/^on:\n  push:\n    branches: \[main\]\n\njobs:/m);
+ assert.match(release,/^    if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'$/m);
  assert.match(release,/ref: main\n          fetch-depth: 0\n          persist-credentials: false/);
  assert.match(release,/publishReleases\(\{github, \.\.\.context\.repo, commits\}\)/);
 });
@@ -95,7 +95,7 @@ test('production approval gates every deployment step after successful release p
  const header=deploy.split('    steps:')[0];
  assert.match(header,/^    needs: release$/m);
  assert.match(header,/^    environment: production$/m);
- assert.match(header,/^    if: github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'$/m);
+ assert.match(header,/^    if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'$/m);
  assert.doesNotMatch(header,/always\(|failure\(|cancelled\(/);
  assert.doesNotMatch(release,/continue-on-error:|secrets\.(?:VERCEL|SUPABASE)/);
  assert.doesNotMatch(deploy,/continue-on-error:/);
