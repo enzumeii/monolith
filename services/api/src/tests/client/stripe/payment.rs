@@ -1,8 +1,12 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
 use crate::{
-    client::tests::{Fixture, Reply},
+    client::{
+        ClientErrorKind,
+        tests::{Fixture, Reply},
+    },
     config::StripeConfig,
+    error::upstream,
 };
 use axum::response::IntoResponse;
 use serde_json::{Value, json};
@@ -49,7 +53,10 @@ async fn verifies_paid_from_authoritative_objects_and_returns_real_references() 
             charge_id: "ch_real".into(),
             amount: 1250,
             currency: "thb".into(),
-            livemode: false
+            livemode: false,
+            refunded: false,
+            amount_refunded: 0,
+            disputed: false
         })
     );
     assert_eq!(
@@ -121,11 +128,23 @@ async fn rejects_context_and_paid_object_mismatches_before_following_the_next_re
         let mut replies = objects();
         replies[index][field] = value.clone();
         let fixture = Fixture::new(replies.into_iter().map(Reply::json).collect()).await;
+        let error = verify_payment(&client(&fixture), &expected())
+            .await
+            .unwrap_err();
         assert!(
-            verify_payment(&client(&fixture), &expected())
-                .await
-                .is_err(),
+            matches!(
+                error.kind(),
+                ClientErrorKind::Protocol("Payment verification failed")
+            ),
             "object {index} field {field}: {value}"
+        );
+        assert!(
+            error
+                .location()
+                .file()
+                .ends_with("client/stripe/payment.rs"),
+            "object {index} field {field}: origin {}",
+            error.location()
         );
         assert_eq!(
             fixture.requests().len(),
@@ -215,7 +234,28 @@ async fn every_upstream_failure_and_malformed_object_remains_an_error() {
                 .await
                 .unwrap_err();
             assert_eq!(fixture.requests().len(), index + 1);
-            let response = error.into_response();
+            let origin = error.location();
+            assert!(origin.file().ends_with("client.rs"));
+            match error.kind() {
+                ClientErrorKind::Http { status, .. } => assert_eq!(*status, 500),
+                ClientErrorKind::Decode { source } => {
+                    assert!(std::ptr::eq(
+                        std::error::Error::source(&error)
+                            .unwrap()
+                            .downcast_ref()
+                            .unwrap(),
+                        source
+                    ));
+                }
+                _ => panic!("provider failure lost its typed cause"),
+            }
+            let mapped = upstream(error);
+            let retained = std::error::Error::source(&mapped)
+                .unwrap()
+                .downcast_ref::<crate::client::ClientError>()
+                .unwrap();
+            assert_eq!(retained.location(), origin);
+            let response = mapped.into_response();
             assert_eq!(response.status(), axum::http::StatusCode::BAD_GATEWAY);
             let body = axum::body::to_bytes(response.into_body(), 1024)
                 .await
@@ -234,31 +274,94 @@ async fn refund_does_not_erase_original_payment_success() {
     replies[3]["refunded"] = json!(true);
     replies[3]["amount_refunded"] = json!(1250);
     let fixture = Fixture::new(replies.into_iter().map(Reply::json).collect()).await;
-    assert!(matches!(
-        verify_payment(&client(&fixture), &expected())
-            .await
-            .unwrap(),
-        PaymentOutcome::VerifiedPaid(_)
-    ));
+    let PaymentOutcome::VerifiedPaid(payment) = verify_payment(&client(&fixture), &expected())
+        .await
+        .unwrap()
+    else {
+        panic!("original paid fact must remain verified")
+    };
+    assert!(payment.refunded);
+    assert_eq!(payment.amount_refunded, 1250);
+    assert_eq!(fixture.requests().len(), 4);
 }
 
 #[tokio::test]
 async fn invalid_trusted_expectations_fail_before_provider_calls() {
-    for field in ["session_id", "account_id", "amount", "currency", "metadata"] {
+    for field in [
+        "session_id",
+        "session_prefix_only",
+        "session_too_long",
+        "session_invalid_character",
+        "account_id",
+        "account_prefix_only",
+        "amount",
+        "currency",
+        "metadata",
+    ] {
         let mut expectation = expected();
         match field {
             "session_id" => expectation.session_id = "pi_other".into(),
+            "session_prefix_only" => expectation.session_id = "cs_".into(),
+            "session_too_long" => expectation.session_id = format!("cs_{}", "a".repeat(253)),
+            "session_invalid_character" => expectation.session_id = "cs_test/invalid".into(),
             "account_id" => expectation.account_id = String::new(),
+            "account_prefix_only" => expectation.account_id = "acct_".into(),
             "amount" => expectation.amount = 0,
             "currency" => expectation.currency = "???".into(),
             _ => expectation.metadata.clear(),
         }
         let fixture = Fixture::new(vec![]).await;
-        assert!(
-            verify_payment(&client(&fixture), &expectation)
-                .await
-                .is_err()
-        );
+        let error = verify_payment(&client(&fixture), &expectation)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            ClientErrorKind::InvalidInput("Invalid expected payment context")
+        ));
         assert_eq!(fixture.requests().len(), 0);
     }
+}
+
+#[tokio::test]
+async fn provider_timeout_keeps_transport_source_and_origin_for_safe_http_mapping() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let client = StripeClient::new(&StripeConfig {
+        base_url: format!("http://{}/v1/", listener.local_addr().unwrap()),
+        timeout_secs: 1,
+        secret_key: Some("sk_test_fixture".into()),
+    })
+    .unwrap();
+    let expectation = expected();
+    let (error, connection) =
+        tokio::join!(verify_payment(&client, &expectation), listener.accept());
+    let _connection = connection.unwrap();
+    let error = error.unwrap_err();
+    let ClientErrorKind::Transport { source } = error.kind() else {
+        panic!("timeout must retain the original transport failure");
+    };
+    assert!(source.is_timeout());
+    assert!(std::ptr::eq(
+        std::error::Error::source(&error)
+            .unwrap()
+            .downcast_ref()
+            .unwrap(),
+        source
+    ));
+    let origin = error.location();
+    assert!(origin.file().ends_with("client.rs"));
+    let mapped = upstream(error);
+    let retained = std::error::Error::source(&mapped)
+        .unwrap()
+        .downcast_ref::<crate::client::ClientError>()
+        .unwrap();
+    assert_eq!(retained.location(), origin);
+    let response = mapped.into_response();
+    assert_eq!(response.status(), axum::http::StatusCode::GATEWAY_TIMEOUT);
+    let body = axum::body::to_bytes(response.into_body(), 1024)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&body).unwrap(),
+        json!({"error":"Upstream request failed"})
+    );
 }

@@ -1,6 +1,6 @@
 use crate::models::shopify::{
-    AccountingOrderData, CreateData, CreateDraftOrderData, CreateDraftOrderInput,
-    DraftOrderCreatePayload, OrderData, OrderSummary, OrdersPage, ShippingOrder, TagData,
+    CreateData, CreateDraftOrderData, CreateDraftOrderInput, DraftOrderCreatePayload, OrderData,
+    OrderSummary, OrdersPage, ShippingOrder, TagData,
 };
 use crate::{
     client::{ClientError, ClientErrorKind, GraphqlClient, GraphqlRequest, HttpClient},
@@ -76,21 +76,6 @@ impl ShopifyClient {
         page.validate()?;
         self.orders_query(json!({"search": search, "first":page.first, "after":page.after}))
             .await
-    }
-
-    pub(crate) async fn accounting_order(
-        &self,
-        id: &ShopifyId,
-    ) -> Result<Option<Order>, ClientError> {
-        id.require_kind("Order")?;
-        let data: AccountingOrderData = self
-            .execute(
-                "AccountingOrder",
-                include_str!("shopify/orders_by_payment.graphql"),
-                json!({"id": id.as_ref()}),
-            )
-            .await?;
-        Ok(data.order)
     }
 
     pub async fn orders_by_tag(
@@ -272,11 +257,6 @@ impl ShopifyClient {
                     "draft identity mismatch",
                 )));
             }
-            if draft.line_items.page_info.has_next_page {
-                return Err(ClientError::new(ClientErrorKind::Protocol(
-                    "checkout draft line pagination is incomplete",
-                )));
-            }
         }
         Ok(data.draft_order)
     }
@@ -333,41 +313,9 @@ impl ShopifyClient {
                     "order identity mismatch",
                 )));
             }
-            if order.line_items.page_info.has_next_page {
-                return Err(ClientError::new(ClientErrorKind::Protocol(
-                    "checkout order line pagination is incomplete",
-                )));
-            }
         }
         Ok(data.order)
     }
-    pub(crate) async fn set_checkout_payment_metadata(
-        &self,
-        id: &ShopifyId,
-        value: &Value,
-        compare_digest: Option<&str>,
-    ) -> Result<(), ClientError> {
-        use crate::models::shopify::CompletionMetadataData;
-        id.require_kind("Order")?;
-        let data:CompletionMetadataData=self.execute_once("SetCheckoutPaymentMetadata",include_str!("shopify/set_checkout_payment_metadata.graphql"),json!({"metafields":[{"ownerId":id,"namespace":"convention_checkout","key":"payment_references","type":"json","value":value.to_string(),"compareDigest":compare_digest}]})).await?;
-        let payload = data.metafields_set;
-        if !payload.user_errors.is_empty() {
-            return Err(ClientError::new(ClientErrorKind::Mutation {
-                errors: payload.user_errors,
-            }));
-        }
-        if payload
-            .metafields
-            .as_ref()
-            .is_none_or(|fields| fields.len() != 1)
-        {
-            return Err(ClientError::new(ClientErrorKind::Protocol(
-                "payment metadata result missing",
-            )));
-        }
-        Ok(())
-    }
-
     async fn execute_once<D: DeserializeOwned>(
         &self,
         operation_name: &str,

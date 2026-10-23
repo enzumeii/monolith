@@ -261,8 +261,6 @@ pub struct Money {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MoneyBag {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub presentment_money: Option<Money>,
     pub shop_money: Money,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -329,10 +327,8 @@ pub struct OrderTransaction {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Order {
-    pub total_price_set: Option<MoneyBag>,
-    pub total_shipping_price_set: Option<MoneyBag>,
-    pub id: ShopifyId,
     pub tags: Vec<String>,
+    pub id: ShopifyId,
     pub number: i64,
     pub phone: Option<String>,
     pub shipping_address: Option<Address>,
@@ -344,17 +340,11 @@ pub struct Order {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountingLineItem {
-    #[serde(deserialize_with = "required_nullable")]
-    pub variant: Option<AccountingVariant>,
     pub title: String,
     pub variant_title: Option<String>,
     pub sku: Option<Sku>,
     pub quantity: i64,
     pub original_unit_price_set: MoneyBag,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AccountingVariant {
-    pub id: ShopifyId,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -434,11 +424,6 @@ pub struct InventoryActivationCandidate {
 #[derive(Deserialize)]
 pub struct ProductsData {
     pub products: Connection<Product>,
-}
-#[derive(Deserialize)]
-pub(crate) struct AccountingOrderData {
-    #[serde(deserialize_with = "Option::deserialize")]
-    pub order: Option<Order>,
 }
 #[derive(Deserialize)]
 pub struct OrdersData {
@@ -762,19 +747,6 @@ pub(crate) struct CompletionMoneyBag {
     pub presentment_money: Money,
 }
 #[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CompletionLine {
-    #[serde(deserialize_with = "required_nullable")]
-    pub variant: Option<ResourceReference>,
-    pub quantity: i64,
-    pub original_unit_price_set: CompletionMoneyBag,
-}
-#[derive(Clone, Deserialize)]
-pub(crate) struct CompletionAttribute {
-    pub key: String,
-    pub value: String,
-}
-#[derive(Clone, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum CompletionDraftStatus {
     Open,
@@ -789,20 +761,10 @@ pub(crate) struct CompletionDraft {
     pub status: CompletionDraftStatus,
     #[serde(deserialize_with = "required_nullable")]
     pub order: Option<ResourceReference>,
-    #[serde(deserialize_with = "required_nullable")]
-    pub reserve_inventory_until: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(deserialize_with = "required_nullable")]
-    pub email: Option<String>,
-    #[serde(deserialize_with = "required_nullable")]
-    pub phone: Option<String>,
-    pub custom_attributes: Vec<CompletionAttribute>,
     pub tags: Vec<String>,
-    pub taxes_included: bool,
     pub total_price_set: CompletionMoneyBag,
-    pub total_shipping_price_set: CompletionMoneyBag,
     #[serde(deserialize_with = "required_nullable")]
     pub payment_terms: Option<Value>,
-    pub line_items: Connection<CompletionLine>,
 }
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -817,45 +779,14 @@ pub(crate) enum CompletionFinancialStatus {
     Expired,
 }
 #[derive(Clone, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum CompletionFulfillmentStatus {
-    Unfulfilled,
-    Partial,
-    Fulfilled,
-    Restocked,
-    PendingFulfillment,
-    Open,
-    InProgress,
-    OnHold,
-    Scheduled,
-    RequestDeclined,
-}
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CompletionMetafield {
-    pub value: String,
-    pub compare_digest: String,
-}
-#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CompletionOrder {
     pub id: ShopifyId,
     pub display_financial_status: CompletionFinancialStatus,
-    pub display_fulfillment_status: CompletionFulfillmentStatus,
     #[serde(deserialize_with = "required_nullable")]
     pub cancelled_at: Option<String>,
-    #[serde(deserialize_with = "required_nullable")]
-    pub email: Option<String>,
-    #[serde(deserialize_with = "required_nullable")]
-    pub phone: Option<String>,
-    pub custom_attributes: Vec<CompletionAttribute>,
     pub tags: Vec<String>,
-    pub taxes_included: bool,
     pub total_price_set: CompletionMoneyBag,
-    pub total_shipping_price_set: CompletionMoneyBag,
-    pub line_items: Connection<CompletionLine>,
-    #[serde(deserialize_with = "required_nullable")]
-    pub metafield: Option<CompletionMetafield>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -886,19 +817,6 @@ pub(crate) struct CompletedDraft {
     #[serde(deserialize_with = "required_nullable")]
     pub order: Option<ResourceReference>,
 }
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CompletionMetadataData {
-    pub metafields_set: CompletionMetadataPayload,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CompletionMetadataPayload {
-    #[serde(deserialize_with = "required_nullable")]
-    pub metafields: Option<Vec<Value>>,
-    pub user_errors: Vec<MutationUserError>,
-}
-
 fn required_nullable<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     deserializer: D,
 ) -> Result<Option<T>, D::Error> {

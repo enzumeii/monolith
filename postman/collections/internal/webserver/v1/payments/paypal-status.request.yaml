@@ -1,9 +1,0 @@
-$kind: http-request
-description: Read owned payment status. Set payment_id from create and keep the same local Vault payment_capability. 200 returns durable state and verified capture_id only after authoritative verification. GET never initiates capture; invalid ownership404; unavailable gateway503.
-url: "{{server}}/v1/payments/paypal/{{payment_id}}"
-method: GET
-auth:
-  type: bearer
-  credentials:
-    token: "{{vault:payment_capability}}"
-order: 2000

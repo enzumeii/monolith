@@ -11,10 +11,8 @@ use chrono::{DateTime, Utc};
 use serde_json::json;
 use std::{sync::Arc, time::Duration};
 
-fn config(f: &Fixture) -> PaypalConfig {
+pub(super) fn config(f: &Fixture) -> PaypalConfig {
     PaypalConfig {
-        payment: None,
-        verification_environment: None,
         base_url: f.url.join("/").unwrap().to_string(),
         timeout_secs: 1,
         client_id: Some("fixture-id".into()),
@@ -27,7 +25,7 @@ fn dates() -> (DateTime<Utc>, DateTime<Utc>) {
         "2026-10-02T00:00:00Z".parse().unwrap(),
     )
 }
-fn token(value: &str) -> Reply {
+pub(super) fn token(value: &str) -> Reply {
     Reply::json(json!({"access_token":value,"token_type":"Bearer","expires_in":3600}))
 }
 fn page() -> Reply {
@@ -675,166 +673,5 @@ async fn payment_operations_keep_transport_causes_for_connection_and_timeout_fai
             safe(&error);
             drop(listener);
         }
-    }
-}
-
-#[tokio::test]
-async fn retrieves_orders_and_captures_using_cached_oauth() {
-    use crate::models::paypal::{CaptureStatus, OrderIntent, OrderStatus};
-    let f = Fixture::new(vec![token("fixture-token"),
-        Reply::json(json!({"id":"ORDER1","intent":"CAPTURE","status":"COMPLETED","purchase_units":[{"reference_id":"unit-one","custom_id":"checkout-one","invoice_id":"invoice-one","payee":{"merchant_id":"MERCHANT1"},"amount":{"currency_code":"THB","value":"12.34"},"payments":{"captures":[{"id":"CAPTURE1","status":"COMPLETED","amount":{"currency_code":"THB","value":"12.34"},"final_capture":true}]}}]})),
-        Reply::json(json!({"id":"CAPTURE1","status":"COMPLETED","amount":{"currency_code":"THB","value":"12.34"},"final_capture":true,"supplementary_data":{"related_ids":{"order_id":"ORDER1"}}})),
-    ]).await;
-    let c = PaypalClient::new(&config(&f)).unwrap();
-    let order = c.get_order("ORDER1").await.unwrap();
-    assert_eq!(order.intent, Some(OrderIntent::Capture));
-    assert_eq!(order.status, OrderStatus::Completed);
-    let unit = &order.purchase_units[0];
-    assert_eq!(unit.custom_id.as_deref(), Some("checkout-one"));
-    assert_eq!(unit.reference_id.as_deref(), Some("unit-one"));
-    assert_eq!(unit.payee.as_ref().unwrap().merchant_id, "MERCHANT1");
-    assert_eq!(
-        unit.payments.as_ref().unwrap().captures[0].status,
-        CaptureStatus::Completed
-    );
-    let capture = c.get_capture("CAPTURE1").await.unwrap();
-    assert_eq!(capture.amount.value, "12.34");
-    assert_eq!(
-        capture
-            .supplementary_data
-            .unwrap()
-            .related_ids
-            .order_id
-            .as_deref(),
-        Some("ORDER1")
-    );
-    let requests = f.requests();
-    assert_eq!(requests.len(), 3);
-    assert_eq!(requests[1].0, "/v2/checkout/orders/ORDER1");
-    assert_eq!(requests[2].0, "/v2/payments/captures/CAPTURE1");
-    assert_eq!(requests[2].1["authorization"], "Bearer fixture-token");
-    assert_eq!(
-        f.methods(),
-        [
-            reqwest::Method::POST,
-            reqwest::Method::GET,
-            reqwest::Method::GET
-        ]
-    );
-}
-
-#[tokio::test]
-async fn endpoint_environment_only_classifies_official_https_roots() {
-    use crate::models::paypal::EndpointEnvironment;
-    let f = Fixture::new(vec![]).await;
-    for (url, expected) in [
-        ("https://api-m.paypal.com/", Some(EndpointEnvironment::Live)),
-        ("https://api.paypal.com/", Some(EndpointEnvironment::Live)),
-        (
-            "https://api-m.sandbox.paypal.com/",
-            Some(EndpointEnvironment::Sandbox),
-        ),
-        (
-            "https://api.sandbox.paypal.com/",
-            Some(EndpointEnvironment::Sandbox),
-        ),
-        ("http://api-m.paypal.com/", None),
-        ("https://api-m.paypal.com.attacker.test/", None),
-        ("https://user:private@api-m.paypal.com/", None),
-        ("https://api-m.paypal.com/custom/", None),
-        ("https://api-m.paypal.com/?query=x", None),
-        ("https://api-m.paypal.com/#fragment", None),
-        ("https://api-m.paypal.com:444/", None),
-        (f.url.as_str(), None),
-    ] {
-        let mut cfg = config(&f);
-        cfg.base_url = url.into();
-        assert_eq!(
-            PaypalClient::new(&cfg).unwrap().endpoint_environment(),
-            expected,
-            "{url}"
-        );
-    }
-}
-
-#[tokio::test]
-async fn order_and_capture_reads_renew_rejected_bearer_and_preserve_failures() {
-    for capture in [false, true] {
-        let f = Fixture::new(vec![
-            token("old"),
-            Reply::status(401),
-            token("new"),
-            Reply::status(403),
-        ])
-        .await;
-        let c = PaypalClient::new(&config(&f)).unwrap();
-        let error = if capture {
-            c.get_capture("CAPTURE1").await.map(|_| ())
-        } else {
-            c.get_order("ORDER1").await.map(|_| ())
-        }
-        .unwrap_err();
-        assert!(matches!(
-            error.kind(),
-            ClientErrorKind::Http { status: 403, .. }
-        ));
-        assert_eq!(f.requests().len(), 4);
-        assert_eq!(f.requests()[3].1["authorization"], "Bearer new");
-        safe(&error);
-        let f = Fixture::new(vec![
-            token("fixture-token"),
-            Reply::json(json!({"private":"private payer"})),
-        ])
-        .await;
-        let c = PaypalClient::new(&config(&f)).unwrap();
-        let error = if capture {
-            c.get_capture("CAPTURE1").await.map(|_| ())
-        } else {
-            c.get_order("ORDER1").await.map(|_| ())
-        }
-        .unwrap_err();
-        assert!(matches!(error.kind(), ClientErrorKind::Decode { .. }));
-        assert!(std::error::Error::source(&error).is_some());
-        safe(&error);
-    }
-}
-
-#[tokio::test]
-async fn trusted_custom_environment_is_explicit_and_cannot_relabel_official_endpoints() {
-    use crate::models::paypal::EndpointEnvironment;
-    for (url, environment, expected) in [
-        (
-            "http://127.0.0.1:1234/",
-            "SANDBOX",
-            Some(EndpointEnvironment::Sandbox),
-        ),
-        (
-            "https://trusted.example/",
-            "LIVE",
-            Some(EndpointEnvironment::Live),
-        ),
-    ] {
-        let cfg: PaypalConfig = serde_json::from_value(json!({"base_url":url,"timeout_secs":1,"client_id":"fixture","client_secret":"fixture","verification_environment":environment})).unwrap();
-        assert_eq!(
-            PaypalClient::new(&cfg).unwrap().endpoint_environment(),
-            expected
-        );
-    }
-    let cfg: PaypalConfig = serde_json::from_value(json!({"base_url":"https://api-m.paypal.com/","timeout_secs":1,"client_id":"fixture","client_secret":"fixture","verification_environment":"SANDBOX"})).unwrap();
-    assert!(PaypalClient::new(&cfg).is_err());
-}
-
-#[test]
-fn explicit_environment_cannot_relabel_live_paypal_host_with_url_components() {
-    for url in [
-        "https://api-m.paypal.com/?q=x",
-        "https://api-m.paypal.com./",
-        "https://api-m.paypal.com/#fragment",
-        "https://api-m.paypal.com/custom/",
-        "https://api.paypal.com:444/",
-        "http://api.paypal.com/",
-    ] {
-        let cfg:PaypalConfig=serde_json::from_value(json!({"base_url":url,"timeout_secs":1,"client_id":"fixture","client_secret":"fixture","verification_environment":"SANDBOX"})).unwrap();
-        assert!(PaypalClient::new(&cfg).is_err(), "{url}");
     }
 }

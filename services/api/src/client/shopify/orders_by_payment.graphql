@@ -1,110 +1,22 @@
 query OrdersByPayment($first: Int!, $search: String!, $after: String) {
   orders(first: $first, after: $after, query: $search) {
     nodes {
-      ...AccountingOrder
-    }
-    pageInfo {
-      hasNextPage
-      endCursor
-    }
-  }
-}
-query AccountingOrder($id: ID!) {
-  order(id: $id) {
-    ...AccountingOrder
-  }
-}
-fragment AccountingOrder on Order {
-  id
-  number
-  tags
-  totalPriceSet {
-    shopMoney {
-      amount
-      currencyCode
-    }
-    presentmentMoney {
-      amount
-      currencyCode
-    }
-  }
-  totalShippingPriceSet {
-    shopMoney {
-      amount
-      currencyCode
-    }
-    presentmentMoney {
-      amount
-      currencyCode
-    }
-  }
-  phone
-  shippingAddress {
-    name
-    address1
-    address2
-    city
-    provinceCode
-    zip
-    country
-    countryCodeV2
-    phone
-  }
-  transactions {
-    paymentId
-    gateway
-    kind
-    status
-    amountSet {
-      shopMoney {
-        amount
-        currencyCode
+      id
+      number
+      tags
+      phone
+      shippingAddress {
+        name
+        address1
+        address2
+        city
+        provinceCode
+        zip
+        country
+        countryCodeV2
+        phone
       }
-    }
-    receiptJson
-  }
-  lineItems(first: 250) {
-    nodes {
-      variant {
-        id
-      }
-      title
-      variantTitle
-      sku
-      quantity
-      originalUnitPriceSet {
-        presentmentMoney {
-          amount
-          currencyCode
-        }
-        shopMoney {
-          amount
-          currencyCode
-        }
-      }
-    }
-    pageInfo {
-      hasNextPage
-      endCursor
-    }
-  }
-  shippingLines(first: 250) {
-    nodes {
-      priceSet: originalPriceSet {
-        shopMoney {
-          amount
-          currencyCode
-        }
-      }
-    }
-    pageInfo {
-      hasNextPage
-      endCursor
-    }
-  }
-  refunds(first: 250) {
-    transactions(first: 250) {
-      nodes {
+      transactions {
         paymentId
         gateway
         kind
@@ -117,58 +29,104 @@ fragment AccountingOrder on Order {
         }
         receiptJson
       }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-    }
-    refundShippingLines(first: 250) {
-      nodes {
-        subtotalAmountSet {
-          shopMoney {
-            amount
-            currencyCode
-          }
-        }
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-    }
-    refundLineItems(first: 250) {
-      nodes {
-        quantity
-        subtotalSet {
-          shopMoney {
-            amount
-            currencyCode
-          }
-        }
-        lineItem {
-          variant {
-            id
-          }
+      lineItems(first: 250) {
+        nodes {
           title
           variantTitle
           sku
           quantity
           originalUnitPriceSet {
-            presentmentMoney {
-              amount
-              currencyCode
-            }
             shopMoney {
               amount
               currencyCode
             }
           }
         }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
       }
-      pageInfo {
-        hasNextPage
-        endCursor
+      shippingLines(first: 250) {
+        nodes {
+          priceSet: originalPriceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
       }
+      refunds(first: 250) {
+        transactions(first: 250) {
+          nodes {
+            paymentId
+            gateway
+            kind
+            status
+            amountSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+            receiptJson
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+        refundShippingLines(first: 250) {
+          nodes {
+            subtotalAmountSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+        refundLineItems(first: 250) {
+          nodes {
+            quantity
+            subtotalSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+            lineItem {
+              title
+              variantTitle
+              sku
+              quantity
+              originalUnitPriceSet {
+                shopMoney {
+                  amount
+                  currencyCode
+                }
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
     }
   }
 }

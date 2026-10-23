@@ -150,8 +150,6 @@ async fn paypal_state_is_optional_shared_and_retains_invalid_configuration() {
     ] {
         let mut settings = settings(&json!(null));
         settings.client.as_mut().unwrap().paypal = Some(crate::config::PaypalConfig {
-            payment: None,
-            verification_environment: None,
             base_url: "https://api-m.sandbox.paypal.com/".into(),
             timeout_secs: 10,
             client_id: id.map(str::to_owned),
@@ -177,8 +175,6 @@ async fn paypal_state_is_optional_shared_and_retains_invalid_configuration() {
     }
     let mut settings = settings(&json!(null));
     settings.client.as_mut().unwrap().paypal = Some(crate::config::PaypalConfig {
-        payment: None,
-        verification_environment: None,
         base_url: "invalid".into(),
         timeout_secs: 10,
         client_id: Some("id".into()),

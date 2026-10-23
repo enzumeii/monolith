@@ -126,32 +126,3 @@ async fn checkpoint_rejects_a_digest_that_does_not_match_its_frozen_key() {
     prepared.checkpoint.files[0].sha256 = "a".repeat(64);
     assert!(prepared.checkpoint.validate().is_err());
 }
-
-#[tokio::test]
-async fn scheduled_transaction_csv_preserves_actual_tag_array_bytes() {
-    let mut row: domain::dto::AccountingTransaction = serde_json::from_value(serde_json::json!({
-        "gateway":"STRIPE", "type":"SALE", "po_number":"po_fixture", "po_date":null,
-        "transaction_date":"2026-10-01T00:00:00Z", "payment_reference":"ch_fixture", "description":"fixture",
-        "shopify_order_id":12, "shopify_order_number":12, "customer_name":"Fixture", "customer_address":"", "customer_phone":0,
-        "currency":"THB", "exchange_rate":1.0, "net_paid":98.0, "fee":2.0, "vat":0.0, "gross_paid":100.0,
-        "shipping_fee":0.0, "order_adjusted":false, "shopify_order_tags":[]
-    })).unwrap();
-    row.shopify_order_tags = vec!["Convention".into(), "comma,quote\"".into(), "ไทย".into()];
-    let expected = report_generator::accounting::encode_transactions([&row]);
-    let report = domain::dto::AccountingReportResponse {
-        transactions: domain::dto::accounting::AccountingTransactions {
-            stripe: vec![row],
-            paypal: vec![],
-        },
-        items: vec![],
-    };
-    let files = encode(ReportData::Transaction(report), 16_384)
-        .await
-        .unwrap();
-    assert_eq!(files[0].bytes, expected.as_bytes());
-    let csv = String::from_utf8(files[0].bytes.clone()).unwrap();
-    assert!(csv.contains("shopify_order_tags"));
-    assert!(csv.contains("Convention"));
-    assert!(csv.contains("ไทย"));
-    assert!(csv.contains("98"));
-}

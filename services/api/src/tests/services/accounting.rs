@@ -38,7 +38,7 @@ pub(super) fn order_value() -> Value {
         "currentTotalPriceSet":{"shopMoney":{"amount":"100","currencyCode":"USD"}},
         "shippingAddress":{"name":"Buyer","address1":"1 Road","city":"Bangkok","zip":"10000","phone":"+66 81-234-5678"},
         "transactions":[transaction("stripe","CAPTURE",json!({"charges":{"data":[{"id":"ch_1"}]}}))],
-        "lineItems":page(vec![json!({"variant":null,"title":"Keychain","variantTitle":"Blue","sku":"ABCKEY001","quantity":1,"originalUnitPriceSet":{"shopMoney":{"amount":"95","currencyCode":"USD"}}})]),
+        "lineItems":page(vec![json!({"title":"Keychain","variantTitle":"Blue","sku":"ABCKEY001","quantity":1,"originalUnitPriceSet":{"shopMoney":{"amount":"95","currencyCode":"USD"}}})]),
         "shippingLines":page(vec![json!({"priceSet":{"shopMoney":{"amount":"5","currencyCode":"USD"}}})]),
         "refunds":[]
     })

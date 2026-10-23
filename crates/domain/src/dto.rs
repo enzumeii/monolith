@@ -1,6 +1,3 @@
-pub mod paypal_payments;
-pub use paypal_payments::{CreatePaypalPaymentRequest, PaypalPaymentResponse, PaypalPaymentStatus};
-
 pub mod accounting;
 pub mod admin;
 pub mod auth;
@@ -47,6 +44,3 @@ mod cron_tests;
 #[cfg(test)]
 #[path = "tests/dto/report_results.rs"]
 mod report_results_tests;
-
-pub mod checkouts;
-pub use checkouts::{CheckoutCompletionState, CheckoutPaymentState, VerifyPaymentResponse};

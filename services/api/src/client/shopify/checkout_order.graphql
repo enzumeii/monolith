@@ -2,49 +2,13 @@ query CheckoutOrder($id: ID!) {
   order(id: $id) {
     id
     displayFinancialStatus
-    displayFulfillmentStatus
     cancelledAt
-    email
-    phone
-    customAttributes {
-      key
-      value
-    }
     tags
-    taxesIncluded
     totalPriceSet {
       presentmentMoney {
         amount
         currencyCode
       }
-    }
-    totalShippingPriceSet {
-      presentmentMoney {
-        amount
-        currencyCode
-      }
-    }
-    lineItems(first: 250) {
-      nodes {
-        variant {
-          id
-        }
-        quantity
-        originalUnitPriceSet {
-          presentmentMoney {
-            amount
-            currencyCode
-          }
-        }
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-    }
-    metafield(namespace: "convention_checkout", key: "payment_references") {
-      value
-      compareDigest
     }
   }
 }

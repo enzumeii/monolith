@@ -1,5 +1,5 @@
 $kind: graphql-request
-description: "Known reserved draft read; returns exact presentment money, contact/pickup attributes, variants, tags, reservation and completed order relation. Nullable draft means unavailable. Nested lineItems first250 is an explicit bound: hasNextPage true is rejected; never infer a complete snapshot from truncation."
+description: "Authoritative Shopify draft/order read for stateless paid completion; nullable resource is unavailable. Exact presentment total and actual order tags are authoritative; no local checkout ledger or metafield protocol."
 url: "{{shopify}}/graphql.json"
 query: |
   query CheckoutDraft($id: ID!) {
@@ -7,25 +7,11 @@ query: |
       id
       ready
       status
+      tags
       order {
         id
       }
-      reserveInventoryUntil
-      email
-      phone
-      customAttributes {
-        key
-        value
-      }
-      tags
-      taxesIncluded
       totalPriceSet {
-        presentmentMoney {
-          amount
-          currencyCode
-        }
-      }
-      totalShippingPriceSet {
         presentmentMoney {
           amount
           currencyCode
@@ -33,24 +19,6 @@ query: |
       }
       paymentTerms {
         id
-      }
-      lineItems(first: 250) {
-        nodes {
-          variant {
-            id
-          }
-          quantity
-          originalUnitPriceSet {
-            presentmentMoney {
-              amount
-              currencyCode
-            }
-          }
-        }
-        pageInfo {
-          hasNextPage
-          endCursor
-        }
       }
     }
   }

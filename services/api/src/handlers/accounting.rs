@@ -15,6 +15,6 @@ pub async fn report(
     let paypal = paypal_client(&state)?;
     let shopify = shopify_client(&state)?;
     Ok(Json(
-        services::accounting::report(&state.pool, shopify, stripe, paypal, range).await?,
+        services::accounting::report(shopify, stripe, paypal, range).await?,
     ))
 }

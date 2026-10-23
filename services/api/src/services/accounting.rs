@@ -17,7 +17,6 @@ struct Payment {
 }
 
 pub async fn report(
-    pool: &sqlx::PgPool,
     shopify: &crate::client::shopify::ShopifyClient,
     stripe: &crate::client::stripe::StripeClient,
     paypal: &crate::client::paypal::PaypalClient,
@@ -26,15 +25,7 @@ pub async fn report(
     let mut payments = Vec::new();
     payments.extend(stripe::collect(stripe, &range).await?);
     payments.extend(paypal::collect(paypal, &range).await?);
-    let mut response = shopify::enrich(
-        pool,
-        shopify,
-        stripe,
-        paypal,
-        sort_payments(payments)?,
-        &range,
-    )
-    .await?;
+    let mut response = shopify::enrich(shopify, sort_payments(payments)?, &range).await?;
     let mut items = response
         .items
         .into_iter()
@@ -105,7 +96,6 @@ fn money(value: &str) -> Result<f64, AppError> {
 fn date(value: &str) -> Result<chrono::DateTime<chrono::FixedOffset>, AppError> {
     parse_rfc3339(value).map_err(|error| upstream(error))
 }
-mod checkout;
 mod paypal;
 mod shopify;
 mod stripe;

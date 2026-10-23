@@ -2,7 +2,6 @@ pub(crate) mod admin;
 pub(crate) mod auth;
 pub(crate) mod cron_configurations;
 pub(crate) mod cron_jobs;
-pub(crate) mod paypal_payments;
 pub(crate) mod report_result_files;
 pub(crate) mod report_results;
 
@@ -36,7 +35,3 @@ pub async fn connect_pool(settings: &Settings) -> Result<PgPool, crate::error::A
         .await
         .map_err(|error| crate::error::AppError::from(error).context("connect database"))
 }
-
-pub(crate) mod checkout_completions;
-
-pub(crate) mod checkout_verifications;

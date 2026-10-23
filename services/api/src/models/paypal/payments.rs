@@ -11,6 +11,13 @@ pub struct CreateOrderRequest {
     pub application_context: Option<ExperienceContext>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum OrderIntent {
+    Capture,
+    Authorize,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PurchaseUnitRequest {
     pub reference_id: String,
@@ -49,7 +56,6 @@ pub struct ExperienceContext {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Order {
     pub id: String,
-    pub intent: Option<OrderIntent>,
     pub status: OrderStatus,
     #[serde(default)]
     pub purchase_units: Vec<PurchaseUnit>,
@@ -60,7 +66,6 @@ pub struct Order {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PurchaseUnit {
     pub reference_id: Option<String>,
-    pub invoice_id: Option<String>,
     pub custom_id: Option<String>,
     pub amount: PaymentMoney,
     pub payee: Option<Payee>,
@@ -74,7 +79,6 @@ pub struct PaymentCollection {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[expect(clippy::struct_field_names, reason = "PayPal wire schema field names")]
 pub struct Capture {
     pub id: String,
     pub status: CaptureStatus,
@@ -82,7 +86,6 @@ pub struct Capture {
     pub final_capture: Option<bool>,
     pub payee: Option<Payee>,
     pub custom_id: Option<String>,
-    pub invoice_id: Option<String>,
     pub supplementary_data: Option<SupplementaryData>,
 }
 
@@ -92,7 +95,6 @@ pub struct SupplementaryData {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[expect(clippy::struct_field_names, reason = "PayPal wire schema field names")]
 pub struct RelatedIds {
     pub order_id: Option<String>,
     pub capture_id: Option<String>,
@@ -157,11 +159,6 @@ macro_rules! wire_enum {
         }
     };
 }
-
-wire_enum!(OrderIntent {
-    Capture => "CAPTURE",
-    Authorize => "AUTHORIZE",
-});
 
 wire_enum!(OrderStatus {
     Created => "CREATED",

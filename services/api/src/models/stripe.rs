@@ -43,8 +43,6 @@ pub struct BalanceTransaction {
 
 #[derive(Debug, Deserialize)]
 pub struct Metadata {
-    #[serde(flatten)]
-    pub extra: BTreeMap<String, String>,
     pub email: Option<String>,
     pub customer_email: Option<String>,
     pub order_id: Option<String>,
@@ -183,7 +181,6 @@ pub struct CheckoutSession {
     pub livemode: bool,
     pub amount_total: Option<i64>,
     pub currency: Option<String>,
-    pub client_reference_id: Option<String>,
     pub metadata: BTreeMap<String, String>,
     pub payment_intent: Option<StripeReference<PaymentIntent>>,
     pub url: Option<String>,

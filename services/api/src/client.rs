@@ -253,20 +253,17 @@ impl GraphqlClient {
                 },
             )
             .await?;
-        decode_graphql(envelope)
+        if !envelope.errors.is_empty() {
+            return Err(ClientError::new(ClientErrorKind::Graphql {
+                errors: envelope.errors,
+                extensions: envelope.extensions,
+            }));
+        }
+        let data = envelope.data.ok_or_else(|| {
+            ClientError::new(ClientErrorKind::Protocol("GraphQL data is missing"))
+        })?;
+        Ok(serde_json::from_value(data)?)
     }
-}
-fn decode_graphql<D: DeserializeOwned>(envelope: GraphqlResponse) -> Result<D, ClientError> {
-    if !envelope.errors.is_empty() {
-        return Err(ClientError::new(ClientErrorKind::Graphql {
-            errors: envelope.errors,
-            extensions: envelope.extensions,
-        }));
-    }
-    let data = envelope
-        .data
-        .ok_or_else(|| ClientError::new(ClientErrorKind::Protocol("GraphQL data is missing")))?;
-    Ok(serde_json::from_value(data)?)
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

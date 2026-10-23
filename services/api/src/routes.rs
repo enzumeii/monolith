@@ -34,10 +34,7 @@ pub fn router(state: AppState) -> Router {
             axum::http::header::AUTHORIZATION,
             axum::http::HeaderName::from_static(crate::middleware::cookies::MODE_HEADER),
         ])
-        .expose_headers([
-            axum::http::header::CONTENT_DISPOSITION,
-            axum::http::header::RETRY_AFTER,
-        ]);
+        .expose_headers([axum::http::header::CONTENT_DISPOSITION]);
     let cron =
         if state.settings.scheduler.implementation == crate::config::CronImplementation::Vercel {
             cron::router()

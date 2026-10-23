@@ -37,7 +37,7 @@ Inherited environment variables keep dotenvy's normal precedence, including `RUN
 | Mode switch | Replace only imported fields with selected-item values or defaults | Clear missing optional provider fields; generate missing signing/cron defaults; preserve database, S3, sender, unrelated values and dotenv records |
 | Missing Bitwarden CLI | Apply the same preservation/switch policy using defaults | Optional providers may remain unconfigured; vault retrieval failures leave the file unchanged |
 
-QA mode alone does not establish payment readiness or select sandbox resources. Provider credentials select their account/environment; other provider URLs retain their configured behavior, including the common production PayPal URL. Keep credentials and private profiles out of tracked files. The runner retains ordinary inherited-environment precedence and uses the single `just run` command.
+QA mode alone does not establish payment readiness. QA overrides PayPal with `https://api-m.sandbox.paypal.com`; supply matching Sandbox credentials. Stripe retains its common URL and uses the selected credential to select its account/environment. Keep credentials and private profiles out of tracked files. The runner retains ordinary inherited-environment precedence and uses the single `just run` command.
 
 ```mermaid
 flowchart LR
@@ -74,7 +74,7 @@ Run recipes from the package directory.
 | `cargo test --locked -p api --lib` | Library tests and loopback transport fixtures; configured Docker PostgreSQL must be ready; no Shopify credentials |
 | `just test` | Compose PostgreSQL/private S3/init, native Cargo tests once, `cargo api-e2e` for TCP endpoint tests only, and Compose down with volumes removed even on failure |
 | `just check` | Formatting and strict Clippy on all API targets |
-| API E2E | `e2e-test/healthz.rs`, `e2e-test/v1/{auth,admins,checkouts}.rs`, `e2e-test/v1/admin/{inventories,orders,transactions}.rs` and `e2e-test/v1/admin/cron/{configs,report}.rs`; real TCP endpoints |
+| API E2E | `e2e-test/healthz.rs`, `e2e-test/v1/{auth,admins}.rs`, `e2e-test/v1/admin/{inventories,orders,transactions}.rs` and `e2e-test/v1/admin/cron/{configs,report}.rs`; real TCP endpoints |
 | Process lifecycle | `e2e-test/process.rs` exercises owned-child teardown |
 | Shared harness | `e2e-test/common.rs` owns temporary TOML, local API child, readiness, and teardown |
 | Fixtures | Unique owned records; shared Compose database during a run; cleanup only test-owned data |
@@ -90,8 +90,7 @@ Handlers resolve the shared state.shopify client initialized once by app_state a
 | Operation | Caller responsibility |
 | --- | --- |
 | Product listing | products_with_variants(request, page): location/statuses; one product page with fixed250 variants and completeness metadata |
-| Accounting enrichment | accounting_orders(search, page) / accounting_order(id): one order page / one saved order by exact ID; named OrdersByPayment and AccountingOrder operations share the same document and nested completeness metadata |
-| Checkout completion | checkout_draft(id) / checkout_order(id) inspect known identities; complete_checkout_draft and set_checkout_payment_metadata use one-attempt mutations. Reconcile saved draft/order and compareDigest after an uncertain response |
+| Accounting enrichment | accounting_orders(search, page): one order page including actual order tags for the accounting service; retains the OrdersByPayment document and nested completeness metadata |
 | Tag lookup | orders_by_tag(request, page): literal tags combined with AND; one order page including fixed250 report lines |
 | Inventory discovery | find_inventory_to_activate(request, page): one raw level page; caller decides eligibility from tracked/isActive/on_hand |
 | Inventory activation | activate_existing_inventory(request): item/location IDs and stable UUID only; no quantity arguments; inspect userErrors/optional level |
@@ -105,10 +104,10 @@ Inventory returns one caller-selected product page with active inventory levels;
 | Outbound request behavior | Policy |
 | --- | --- |
 | Timeout / redirects | client.shopify.timeout_secs in application.toml, checked-in value3 seconds per attempt; redirects disabled |
-| Retryable rejection | Default execution: HTTP 4xx or data-less GraphQL-only `THROTTLED`, sharing one HttpClient retry budget |
+| Retryable rejection | HTTP 4xx or data-less GraphQL-only `THROTTLED`, sharing one HttpClient retry budget |
 | Backoff | At most three retries after the initial attempt; 1/2/4 seconds plus jitter and applicable Retry-After |
 | Budget | Shared HTTP/GraphQL attempt count; 30-second total sleep budget |
-| Fail without retry | HTTP 5xx and other errors, ambiguous network failures, decoding/partial-data errors, mutation user errors. Completion/metafield execute_once calls make one attempt even on otherwise retryable rejection |
+| Fail without retry | HTTP 5xx and other errors, ambiguous network failures, decoding/partial-data errors, mutation user errors |
 | Stored inventory | Enablement sends no initial quantity arguments; live provider quantity behavior remains unverified |
 
 ## Stripe-hosted Checkout
@@ -121,7 +120,7 @@ The existing Stripe client exposes provider operations to trusted Rust callers. 
 | Create Checkout Session | Set folder variables for positive integer minor-unit amount, lowercase currency, fixed success/cancel URLs, non-personal `correlation_id`, product name and operation idempotency key. One line item with quantity1 and card payment method; account/device support determines wallet presentation. Keep tax, shipping, discounts and adaptive pricing disabled |
 | Retrieve resources | Copy the actual Session ID into `stripe_checkout_session_id`, its PaymentIntent ID into `stripe_payment_intent_id`, and the actual latest Charge ID into the existing Retrieve charge request's `charge_id`. Session `expand[]=payment_intent.latest_charge` and PaymentIntent `expand[]=latest_charge` can return expanded objects; string references remain valid |
 | Expected identity | Trusted caller supplies Session ID, merchant account ID, environment, exact money and correlation independently. Retrieve current account must match that merchant; all payment resources must match the expected test/live mode and money. Session and PaymentIntent metadata must retain the correlation |
-| Paid verification | Use the typed Rust payment-result verifier for an application decision. It retrieves current provider objects and requires matching context, payment Session paid status, succeeded PaymentIntent with exact received amount and its successful captured Charge. A redirect, completed Session, event name, `no_payment_required` or valid signature alone does not prove paid |
+| Paid verification | Use `api::client::stripe::payment::verify_payment` with trusted expectations for an application decision. It returns `ClientError`; application callers own HTTP error mapping. It retrieves current provider objects and requires matching context, payment Session paid status, succeeded PaymentIntent with exact received amount and its successful captured Charge. A redirect, completed Session, event name, `no_payment_required` or valid signature alone does not prove paid |
 | Expiry / ambiguity | Expire only an open Session with its own stable idempotency key. New create/expire operations are sent once without automatic retries. Re-read state after an expiry race. After ambiguous create/expire transport failure, reconcile the same operation; never blindly issue a new key. Stripe can prune keys after at least24 hours, so replay after retention needs external reconciliation |
 | Errors / refunds | Provider rejections, malformed objects, unknown statuses and mismatched account/mode/money/correlation never produce verified paid. Original successful payment verification does not assert an unrefunded balance; refund policy belongs to a consumer |
 | Signed events | Pass exact raw bytes, signature header, endpoint secret, trusted time and bounded tolerance to the Rust verifier before decoding. Signature authentication does not deduplicate events or establish payment success; use current resource verification and consumer-owned replay/state handling |
@@ -129,6 +128,34 @@ The existing Stripe client exposes provider operations to trusted Rust callers. 
 For a sandbox exercise, prepare and run the backend with `just setup --qa` then `just run`. In the existing Stripe Postman requests, select the QA test key, retrieve current account and compare the expected merchant → create a test Session → open the returned Stripe-hosted URL and complete the payer flow using [Stripe test payment details](https://docs.stripe.com/testing) → retrieve Session, PaymentIntent and Charge → require `livemode=false`, exact expected minor-unit money and actual returned references, then invoke the existing Rust payment-result verifier from a trusted Rust caller. The backend has no payment initiation endpoint. These requests mutate the selected account when creating/expiring; do not run the external collection wholesale against a provider. Example IDs and bodies are synthetic and must be replaced with returned values. Local tests do not verify the actual Bitwarden item, Stripe-hosted payment flow, wallet availability or live acceptance.
 
 Provider references: [Session creation](https://docs.stripe.com/api/checkout/sessions/create), [Session retrieval](https://docs.stripe.com/api/checkout/sessions/retrieve), [PaymentIntent retrieval](https://docs.stripe.com/api/payment_intents/retrieve), [direct-account SDK operation](https://github.com/stripe/stripe-dotnet/blob/master/src/Stripe.net/Services/Accounts/AccountService.cs), [idempotency](https://docs.stripe.com/api/idempotent_requests).
+
+## PayPal Orders
+
+| Concern | Caller requirement |
+| --- | --- |
+| Configuration | Use the shared optional `PaypalClient` with TOML REST origin/timeout and environment credentials. `just setup --qa` selects the checked-in Sandbox origin; merchant, correlation and expected money are trusted consuming-flow inputs |
+| Provider operations | Existing external Postman requests create/get/capture an order, get a capture and verify a webhook signature. Replace synthetic values with returned provider IDs; use a stable caller-owned `PayPal-Request-Id` for each create/capture operation |
+| Approval and capture | Buyer approval is unpaid. The consuming flow explicitly captures an approved wallet order and owns retention-aware recovery if a write response is ambiguous; polling/webhooks alone do not collect the payment |
+| Result verification | Invoke the Rust `paypal_payments::verify_payment` contract with trusted order ID, merchant, configured origin, reference/custom correlation, positive minor-unit amount and currency. It only retrieves current resources and checks their exact identity/money |
+| Webhooks | Supply the exact complete event, five transmission headers and trusted webhook registration ID to the authenticated-event helper. A successful signature postback establishes event authenticity; consumers still verify current payment resources and own durable replay/state handling |
+| Application boundary | No public payment initiation/status/capture/webhook endpoints or PayPal ledger. Trusted checkout consumers own authorization, durable operation IDs, expected values, persistence, Shopify binding and cross-request serialization |
+| Verification limits | Local controlled HTTP checks and collection lint do not establish provider acceptance. Historical Sandbox approval/capture receipts predate the stateless refactor; genuine signed-webhook acceptance remains unverified without an app webhook registration |
+
+Run only selected external requests with intended Sandbox credentials; creating/capturing mutates that account. Do not execute the external collection wholesale. Earlier local gateway/Sandbox results remain dated historical receipts in [verification](verification.md).
+
+## Paid Shopify draft completion
+
+| Input / operation | Trusted caller contract |
+| --- | --- |
+| Entry point | Call the Rust completion service with a typed DraftOrder ID and the existing Stripe or PayPal expected-payment context. There is no public checkout verification endpoint, guest token issuance or checkout/payment ledger |
+| Trusted values | Bind provider payment to draft independently; provider-copied/browser totals and paid flags are insufficient. Existing verifiers establish account/merchant, environment/origin, correlation and exact money |
+| Completion | Read the draft, compare exact presentment amount/currency, and use `CompleteIfOpen` only when the caller permits an eligible open draft to be completed. Verify the real linked paid/not-cancelled order and its money |
+| Ambiguous outcome | Retain the durable operation identity and uncertainty in the consuming flow. Use `ReconcileOnly` after uncertain completion; this mode never completes an open draft. A still-open read does not authorize blind replay |
+| Reference tags | Add verified references as `payment:stripe:session:<id>`, `payment:stripe:intent:<id>`, `payment:stripe:charge:<id>`, `payment:paypal:order:<id>` or `payment:paypal:capture:<id>`. Reject conflicting/invalid owned references, preserve unrelated tags and require actual tag readback |
+| Replay and ownership | Read Shopify on every call; reconcile tags on an already completed linked order. The caller owns authorization, serialization, payment-to-draft uniqueness policy, polling and webhook dispatch. There is no local cache or exactly-once guarantee |
+| Postman | Retained external Shopify requests exercise draft/order reads, completion and tag edits directly with synthetic inputs replaced by real returned IDs. No internal guest checkout collection remains; direct mutation requests change the selected store |
+| Email / limits | Shopify native completion is the confirmation-email mechanism. Fixture tests and Postman lint do not establish live merchant email delivery or end-to-end browser/webhook acceptance |
+| Accounting | Existing collection/matching rules and financial values remain unchanged. Matched rows expose actual `shopify_order_tags`, unmatched rows expose `[]`; CSV preserves commas/quotes. No local mapping fallback, additional Charge/account request or cron change |
 
 ## Runtime, failures, and administration
 
@@ -140,8 +167,6 @@ Provider references: [Session creation](https://docs.stripe.com/api/checkout/ses
 | API rejection | Invalid request400; unauthenticated401; forbidden403; missing Shopify location404; duplicate username409. Missing admin targets return401 with {"error":"Not authorized"} and WWW-Authenticate: Bearer |
 | Accounting dependencies | `GET /v1/admin/transactions` requires initialized Stripe, PayPal and Shopify clients. Resolve all three before upstream work; missing/init-failed clients return provider-specific503 in that order. Startup and unrelated endpoints keep optional-provider behavior |
 | Accounting collection | Query both payment providers even if one is empty; both empty returns empty transactions/items without Shopify enrichment. Actual upstream failures abort without partial results:502 or timeout504 with safe `Upstream request failed` |
-| Accounting correlation | Saved local sale mappings require real provider account/environment and original full-payment proof, then exact saved Shopify order/snapshot validation; historical refunds retain sale identity. Missing mappings remain unmatched; ambiguous/conflicting mappings or unreadable saved orders fail safely. No second transaction source or new scheduled behavior |
-| Accounting exports | Actual order tags are a JSON-array text column appended by the shared report-generator to interactive ZIP and scheduled transaction CSV. Existing finance columns/numeric indices and item schema remain stable |
 | Internal failure | Generic public 500; underlying source retained internally |
 | Normal logs | One boundary event with operation, HTTP status and automatic source location in the prefix; optional client_origin retains the client's original file:line:column. No error messages or causes |
 | Error location | First AppError creation/conversion location survives propagation; external-library failures identify our mapping site, not an internal dependency frame |
@@ -309,15 +334,3 @@ Never copy `.env` or local credentials into images or static output. Local valid
 | Production runtime | Configure Vercel's production `DATABASE_URL` separately for the same Supabase database; the migration secret is not copied to Vercel |
 
 Connection modes and network support follow [Supabase's PostgreSQL connection guide](https://supabase.com/docs/guides/database/connecting-to-postgres). These local checks do not establish live Supabase connectivity or permissions.
-
-## Guest checkout verification operations
-
-| Concern | Required behavior |
-| --- | --- |
-| Caller | `POST /v1/checkouts/{checkout_id}/verify-payment` (or `/api/v1` alias), `Authorization: Bearer <opaque checkout token>`, empty body. Obtain the token securely through checkout provisioning; this endpoint never creates checkouts/attempts/tokens. This base uses owned SQL fixtures for the not-yet-integrated upstream contract. |
-| Browser fallback | Wait about five seconds between calls, honor Retry-After5, and prevent overlapping requests. Stop on COMPLETE or authoritative terminal unpaid/expired and when the page closes; transient502/503/504 retry with backoff.409 surfaces operator action. ENZ-46 owns the rendered browser timer; no runtime scheduler was added here. |
-| Credentials | Token hash, token/Authorization and raw provider data must never enter shared variables, logs or responses. Wrong/expired/revoked token and unknown checkout return the same404. Postman uses local Vault `checkout_guest_token`, a non-secret checkout_id variable, and a body-free request. |
-| PayPal environment | Optional non-secret `client.paypal.verification_environment = "SANDBOX"` or `"LIVE"` in application TOML identifies a trusted custom/test endpoint. Official HTTPS roots infer environment without the setting. Unknown custom endpoints without it fail503. A conflicting known official hostname, including terminal DNS dots or extra URL components, is rejected rather than relabeled. Existing configured clients/credentials and generic config reader are reused. |
-| Stripe amount support | Verification interprets the current currency whitelist as JPY0 / known charge2, including fractional HUF/TWD charges. Unsupported codes and precision fail409 safely; never assume all currencies use two decimals or reuse payout rounding to prove payment. |
-| Recovery | The next allowed check and invocation lease persist across processes. Paid proof is durable before Shopify completion; retry/reconciliation uses the known draft/order and saved proof even with the payment client absent. A lost completion response remains uncertain until authoritative readback. No automatic refund, hold-release promise or independent recovery timer. |
-| Local validation | Existing registered `cargo api-e2e` route module uses Compose PostgreSQL, real application TCP and controlled provider/Shopify HTTP. It does not establish live-provider credentials, real webhook sequencing, delivered Shopify email or rendered polling. |

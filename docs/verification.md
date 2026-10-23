@@ -2,7 +2,36 @@
 
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
 
-## ENZ-44 independent PayPal gateway — 2026-10-23
+## ENZ-45 stateless completion remediation — 2026-10-23
+
+This contract supersedes PR #56's earlier stateful checkout design. Verification results for the superseded design do not establish acceptance of this refactor. The combined implementation passed the checks below; historical results remain separate.
+
+| Scope | Current implementation / verification boundary |
+| --- | --- |
+| Completion | Trusted server-side caller context, existing authoritative Stripe/PayPal verification, exact draft/order money, real Shopify linked-order readback and additive verified reference tags |
+| Recovery | `CompleteIfOpen` versus `ReconcileOnly`; caller retains uncertainty and serialization. Reconciliation-only calls never issue completion. No local checkout/payment ledger, guest UUID endpoint, cache or exactly-once claim |
+| Reporting | Actual Shopify order tags flow through existing matching, DTOs and CSV; no saved-order fallback, database mapping, extra provider lookup or cron change |
+| API checks | Final formatting, strict all-target/E2E Clippy and 34 setup-helper tests pass. Full API recipe passes 423 native and 150 real TCP tests; final native rerun after the completion-only preflight guard passes 425 tests, including all 14 completion-service cases. Zero failed or ignored; owned Compose containers, volumes and networks removed |
+| Shared code and exports | Domain 18, report-generator 7 and backoffice 131 tests pass, including actual CSV/ZIP tag bytes. Native/WASM checks, root workflow/shell/configuration checks and workspace formatting pass |
+| Contracts and review | Stripe 9, PayPal 7, Shopify 15 and internal 30 Postman files lint with zero diagnostics; all 10 Shopify query/variable pairs match source. Accounting tag regression fails when the tag assignment is removed and passes restored. Independent final review finds no actionable gaps; cron, routes, repositories and migrations match the dependency |
+| Hosted checks | Main-only PR workflow does not run for the stacked `feat/ENZ-44` target; current-head hosted CI is waived by the approved plan. Historical CI and Vercel preview are separate evidence |
+| Limits | No live Shopify/email proof, production migration or provider mutation. Trusted caller authorization/durable ownership, future public/browser/webhook integration and merchant-specific behavior remain outside this slice |
+
+## ENZ-44 PayPal provider boundary — 2026-10-23
+
+| Local evidence | Result |
+| --- | --- |
+| Resolved parent merge | Integrates main `10d5985` after #55 merged. Latest Stripe client/payment implementation and tests match main; PayPal Sandbox QA override is retained. |
+| Complete API check | 34 setup-helper tests, formatting and strict API/all-target/E2E Clippy pass. |
+| Full API test recipe | 407 native tests and 150 HTTP E2E tests pass; zero failed or ignored. Isolated Compose containers, volumes and network are removed. |
+| Provider/verifier coverage | Controlled HTTP cases verify approved-but-unpaid, final completed capture, exact money/identity, inconsistent evidence, dependency errors and authenticated typed events. Verification makes no payment mutation. |
+| Domain and collections | Domain formatting, strict lint, WASM compilation and 18 tests pass. External Postman lint scans32 files with zero diagnostics. Internal lint retains the unchanged unrelated transaction FMT209 baseline. |
+| Independent review | No actionable findings in the reduced provider slice or resolved merge. No public PayPal gateway, payment/event ledger or Shopify completion remains. |
+| Limits | No new Sandbox charge. Historical receipts below establish approval/capture semantics only. Genuine signed-webhook acceptance is unverified because no webhook is registered. Hosted CI and Vercel results are separate published-head evidence. |
+
+## Historical ENZ-44 PayPal gateway — 2026-10-23
+
+These receipts describe the superseded database-backed gateway. The current provider slice removes its public routes, payment/event tables, capability policy and ingestion loop; these results do not verify the stateless refactor. Current refactor checks are recorded separately after execution.
 
 | Local evidence | Result |
 | --- | --- |
@@ -15,16 +44,16 @@ Results describe this revision's exercised scope, separately from [architecture]
 | Limits | No live PayPal Sandbox, real approval UI/signatures, Shopify draft conversion or browser journey. Provider evidence-field permutations are not exhaustive; detailed cases/limits are in ignored task artifacts. Parent full API checks and exact-head hosted CI remain separate evidence. |
 
 
-### ENZ-44 PayPal Sandbox QA continuation
+### Historical ENZ-44 PayPal Sandbox QA continuation
 
-This later real-Sandbox evidence supersedes the earlier no-Sandbox limit above. QA overrides the REST origin with `https://api-m.sandbox.paypal.com`; buyer approval uses `www.sandbox.paypal.com`. Existing ignored QA credentials were loaded by the ordinary settings reader.
+This later real-Sandbox evidence superseded the earlier no-Sandbox limit for the old gateway only. It confirms the approval/capture distinction, not acceptance of the current stateless provider slice. QA overrides the REST origin with `https://api-m.sandbox.paypal.com`; buyer approval uses `www.sandbox.paypal.com`. Existing ignored QA credentials were loaded by the ordinary settings reader.
 
 | Real Sandbox check | Observed result |
 | --- | --- |
 | Create, approval and capture | Application TCP create201; buyer approved the same USD1.00 order; capture200/COMPLETED; real capture lookup and trusted verification both confirm USD1.00/COMPLETED. |
 | Durable identity and ownership | Create replay200 reuses the order; capture replay200 reuses the same capture with one evidence record; wrong owner404; preapproval capture/trusted verification409; wrong expected amount409. |
 | Webhook limit | No webhooks registered. Deliberately malformed signature request returns provider400/application502 without storing an event; genuine signed verification/ingestion remains untested. |
-| QA configuration limit | Checked-in QA sets the API origin only. The smoke injected a temporary payment policy with the discovered merchant and a deliberately invalid webhook ID for negative tests; QA routes still require the complete merchant/webhook/currency/redirect policy. Buyer return-page UI was a test placeholder. |
+| QA configuration limit | Checked-in QA sets the API origin only. The smoke injected a temporary payment policy with the discovered merchant and a deliberately invalid webhook ID for negative tests; the old gateway required the complete merchant/webhook/currency/redirect policy, which has since been removed. Buyer return-page UI was a test placeholder. |
 | Cleanup and evidence | Temporary Rust source restored exactly; owned test processes and Compose containers/volumes/networks removed; plaintext capability/resume payloads deleted. Sanitized details: `.superpowers/sdd/2026-10-23-ENZ-44-paypal/sandbox-qa/report.md`. No production payment, Shopify write or publication. |
 
 ## ENZ-27 static services and cron implementations — 2026-10-22 / 23
@@ -498,25 +527,3 @@ This checkpoint supersedes the earlier copied-dependency verification blockers. 
 Earlier browser timezone, native Save As and controlled fault coverage limits still apply; no claim of complete browser acceptance. Reconciliation does not change those UI implementations. Logs: `/tmp/enz-30-rebased-{api-check,api-test,api-build,ui-check,ui-test,ui-build}.log`. Snapshots and independent review evidence: `.superpowers/sdd/2026-10-22-enz-30-scheduled-reports/reconcile-enz29-20261022/`.
 
 The preview at `http://localhost:8084/scheduled-reports` now uses the rebased synthetic API/Blob runtime. Its private helper, process identities, credentials, fixture metadata and browser download hashes are under `runtime-rebased-20261022/`. The previous API/storage processes and old Compose project were stopped after ownership checks. Current preview remains running intentionally; provider integrations and scheduler remain disabled.
-
-
-## Draft completion and payment correlation (2026-10-23)
-
-| Area | Verified result |
-| --- | --- |
-| Source boundary | `feat/ENZ-45` based on `884fdc0e`; fixture-provisioned checkout/attempt/guest credential contract, real read-only Stripe/PayPal adapters. Final published source and hosted CI are recorded in the PR. |
-| API recipes | `just fix`, `just check` and complete `just test` passed. Strict native/E2E Clippy, Rust/GraphQL/JSON formatting, SQLx preparation and 21 setup-helper tests passed. |
-| Complete API suite | 381 native tests and 171 real TCP E2E tests passed, zero failures/ignored. E2E completed in 759.91 seconds. Actual app, SQLx/PostgreSQL and provider HTTP clients exercised against controlled services. |
-| Runtime isolation | Dedicated Compose project on 18453/18454; unique owned fixtures and scoped SQL faults. Recipe removed owned containers, network and volumes after the run. Other projects were preserved. |
-| Completion | Exact snapshot/amount/account/environment/attempt checks; same-draft paid completion, immutable real order, truthful alias metadata/CAS and final paid/unfulfilled validation. |
-| Recovery | Concurrent/replayed handoffs, stale ownership, lost mutation/local-save responses, SQL rollback/replay, metadata recovery, second-payment evidence and missing-field/malformed-amount failures. Transient failures retain recoverable paid progress; unknown external completion remains uncertain. |
-| Guest verification | Both mounts; credential/expiry/revocation and request rejection matrix; persisted five-second throttle, no-overlap ownership, provider proof/identity/currency/state matrix, provider/Shopify/SQL faults, cached completion and saved-paid recovery. Allowed-origin preflight and readable Retry-After verified over TCP. |
-| Accounting | Stripe/PayPal local sale linkage outside discovery dates, native/local agreement and collisions, pending/unmatched compatibility, direct-order/provider failure matrix, invalid saved mapping 500 and malformed external money 502. Historical refunds and COMPLETE deleted-variant handling preserve original-sale enrichment. |
-| Shared consumers | Domain check/test: 10 unit plus 8 contracts. Report-generator check/test: 7 tests. Backoffice check/test: 131 tests. Strict native/WASM checks passed. |
-| Export bytes | Shared transaction CSV, backoffice CSV-in-ZIP and scheduled output assert actual JSON-array tag text, escaping/Unicode/formula-like tags and unchanged original finance columns/numeric semantics. |
-| Serialization compatibility | Existing exact tagged-order JSON roundtrip passes; absent optional presentment money remains omitted. |
-| Postman | 58 affected requests lint with zero errors/warnings; six Shopify request/query-variable pairs exactly match formatted source. New guest request executed against the real controlled fixture API: 202 and four assertions passed, event/result dispatch disabled. |
-| Independent review | Core and integration findings corrected and independently rechecked; staged spec and quality verdicts pass. |
-| Integration limits | Actual ENZ-42 provisioning, ENZ-43/44 signed webhook/receipt lifecycle and ENZ-46 rendered polling await later dependency integration. No live provider credentials, delivered Shopify email, merchant-specific inventory/tax/automatic fulfillment or load benchmark verified. |
-
-Shopify native confirmation follows draft completion; no independent sender, invoice or deliberate resend is added. Controlled tests do not establish full live ENZ-45 acceptance. No cron or autonomous polling capability is introduced.

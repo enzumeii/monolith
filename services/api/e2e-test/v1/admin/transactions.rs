@@ -51,7 +51,7 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
             body["data"][1]["description"] =
                 json!("REFUND FOR CHARGE (gid://shopify/PaymentSession/session_12345)");
         }
-        let expected_calls = steps.len();
+        let expected_paths = steps.iter().map(|step| step.path).collect::<Vec<_>>();
         let server = Server::start(steps).await;
         let client = server.client().await;
         let response = client
@@ -207,7 +207,26 @@ async fn transactions_maps_settled_sales_refunds_and_receipt_references_over_tcp
                 && item["price"] == -10.0)
                 || !stripe
         );
-        assert_eq!(server.finish().await.len(), expected_calls);
+        let requests = server.finish().await;
+        let actual_paths = requests
+            .iter()
+            .map(|request| {
+                let uri = request.split_whitespace().nth(1).unwrap();
+                reqwest::Url::parse(&format!("http://fixture{uri}"))
+                    .unwrap()
+                    .path()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(actual_paths, expected_paths);
+        assert_eq!(
+            actual_paths
+                .iter()
+                .filter(|path| *path == "/charges/ch_123")
+                .count(),
+            usize::from(stripe)
+        );
+        assert!(actual_paths.iter().all(|path| path != "/account"));
     }
 }
 
@@ -790,7 +809,6 @@ enum Reply {
 #[derive(Clone)]
 struct Step {
     path: &'static str,
-    order_id: Option<String>,
     query: BTreeMap<String, String>,
     reply: Reply,
     cursor: Option<&'static str>,
@@ -800,7 +818,6 @@ impl Step {
     fn json(path: &'static str, value: Value) -> Self {
         Self {
             path,
-            order_id: None,
             query: BTreeMap::new(),
             reply: Reply::Json(value),
             cursor: None,
@@ -920,34 +937,28 @@ impl Server {
                         let query =
                             include_str!("../../../src/client/shopify/orders_by_payment.graphql");
                         assert_eq!(input["query"], query);
-                        if let Some(id) = step.order_id {
-                            assert_eq!(input["operationName"], "AccountingOrder");
-                            assert_eq!(input["variables"], json!({"id":id}));
-                        } else {
-                            assert_eq!(input["operationName"], "OrdersByPayment");
-                            let compact = query.split_whitespace().collect::<String>();
-                            assert!(compact.contains("transactions(first:250){nodes{"));
-                            assert!(compact.contains("refundShippingLines(first:250)"));
-                            assert!(!compact.contains("orderAdjustments"));
-                            assert!(compact.contains("priceSet:originalPriceSet"));
-                            assert_eq!(input["variables"]["first"], 10);
-                            assert_eq!(input["variables"]["after"], json!(step.cursor));
-                            let (start, end) = step.search_bounds.unwrap_or((
-                                "2026-10-01T00:00:00+07:00",
-                                "2026-10-31T23:59:59+07:00",
-                            ));
-                            let expected = format!(
-                                "(created_at:>='{start}' AND created_at:<='{end}') OR (updated_at:>='{start}' AND updated_at:<='{end}')"
-                            );
-                            assert_eq!(input["variables"]["search"], expected);
-                        }
+                        assert_eq!(input["operationName"], "OrdersByPayment");
+                        let compact = query.split_whitespace().collect::<String>();
+                        assert!(compact.contains("transactions(first:250){nodes{"));
+                        assert!(compact.contains("refundShippingLines(first:250)"));
+                        assert!(!compact.contains("orderAdjustments"));
+                        assert!(compact.contains("priceSet:originalPriceSet"));
+                        assert_eq!(input["variables"]["first"], 10);
+                        assert_eq!(input["variables"]["after"], json!(step.cursor));
+                        let (start, end) = step
+                            .search_bounds
+                            .unwrap_or(("2026-10-01T00:00:00+07:00", "2026-10-31T23:59:59+07:00"));
+                        let expected = format!(
+                            "(created_at:>='{start}' AND created_at:<='{end}') OR (updated_at:>='{start}' AND updated_at:<='{end}')"
+                        );
+                        assert_eq!(input["variables"]["search"], expected);
                     }
                     "/v1/oauth2/token" => {
                         assert!(first.starts_with("POST "));
                         assert!(lower.contains("authorization: basic "));
                         assert_eq!(body, b"grant_type=client_credentials");
                     }
-                    "/v2/checkout/orders/ORDERFIXTURE" | "/v1/reporting/transactions" => {
+                    "/v1/reporting/transactions" => {
                         assert!(first.starts_with("GET "));
                         assert!(lower.contains("authorization: bearer e2e-token"));
                     }
@@ -989,7 +1000,6 @@ impl Server {
             shopify_url: Some(&graphql),
             stripe_url: Some(&self.url),
             paypal_url: Some(&self.url),
-            paypal_verification_environment: Some("SANDBOX"),
             ..Default::default()
         })
         .await
@@ -1219,7 +1229,7 @@ fn page(nodes: Vec<Value>, cursor: Option<&str>) -> Value {
 }
 fn order(stripe: bool) -> Value {
     let currency = if stripe { "USD" } else { "THB" };
-    let line = json!({"variant":null,"title":"Keychain","variantTitle":"Blue","sku":"ABCKEY001","quantity":if stripe {2} else {1},"originalUnitPriceSet":{"shopMoney":{"amount":if stripe {"47.5"} else {"90"},"currencyCode":currency}}});
+    let line = json!({"title":"Keychain","variantTitle":"Blue","sku":"ABCKEY001","quantity":if stripe {2} else {1},"originalUnitPriceSet":{"shopMoney":{"amount":if stripe {"47.5"} else {"90"},"currencyCode":currency}}});
     let transaction = |refund: bool| json!({"id":if refund {"gid://shopify/OrderTransaction/2"} else {"gid://shopify/OrderTransaction/1"},"paymentId":"different-payment-id","gateway":if stripe {"stripe"} else {"paypal"},"kind":if refund {"REFUND"} else {"CAPTURE"},"status":"SUCCESS","processedAt":"2026-10-02T00:00:00Z","amountSet":{"shopMoney":{"amount":"100","currencyCode":currency}},"receiptJson":if stripe {if refund {json!({"id":"re_123"})} else {json!({"charges":{"data":[{"id":"ch_123"}]}})}} else if refund {json!({"refund_transaction_id":"pp_refund"})} else {json!({"transaction_id":"pp_sale"})}.to_string()});
     json!({"id":if stripe {"gid://shopify/Order/123"} else {"gid://shopify/Order/124"},"name":"#9876","number":9876,"createdAt":"2026-10-01T00:00:00Z","displayFulfillmentStatus":"UNFULFILLED","tags":["Native", "comma,quote\"", "ไทย"],
         "shippingAddress":{"name":"Buyer","address1":"1 Road","city":"Bangkok","zip":"10000","country":"Thailand","phone":"+66 81-234-5678"},
@@ -1227,533 +1237,4 @@ fn order(stripe: bool) -> Value {
         "transactions":[transaction(false)],"lineItems":page(vec![line.clone()],None),
         "shippingLines":page(vec![json!({"priceSet":{"shopMoney":{"amount":if stripe {"5"} else {"10"},"currencyCode":currency}}})],None),
         "refunds":[{"transactions":page(vec![transaction(true)],None),"refundShippingLines":page(vec![json!({"subtotalAmountSet":{"shopMoney":{"amount":if stripe {"1"} else {"2"},"currencyCode":currency}}})],None),"refundLineItems":page(vec![json!({"quantity":1,"subtotalSet":{"shopMoney":{"amount":if stripe {"10"} else {"20"},"currencyCode":currency}},"lineItem":line})],None)}]})
-}
-
-async fn seed_accounting_mapping(
-    pool: &sqlx::PgPool,
-    stripe: bool,
-    account: &str,
-    environment: &str,
-    order_id: Option<&str>,
-) -> uuid::Uuid {
-    seed_accounting_mapping_data(pool, stripe, account, environment, order_id, None).await
-}
-
-async fn seed_accounting_mapping_data(
-    pool: &sqlx::PgPool,
-    stripe: bool,
-    account: &str,
-    environment: &str,
-    order_id: Option<&str>,
-    invalid_field: Option<&str>,
-) -> uuid::Uuid {
-    let id = uuid::Uuid::new_v4();
-    let currency = if stripe { "USD" } else { "THB" };
-    let mut snapshot = json!({
-        "draft_id":format!("gid://shopify/DraftOrder/{}", u64::from_be_bytes(id.as_bytes()[..8].try_into().unwrap())),
-        "accepted":{"minor":10000,"currency":currency,"precision":2},
-        "lines":[{"variant_id":"gid://shopify/ProductVariant/1","quantity":1,"unit_price":{"minor":10000,"currency":currency,"precision":2}}],
-        "email":"fixture@example.invalid", "phone":null,"attributes":{"pickup":"desk"},"tags":["Convention","Portal"],"reservation_until":"2099-01-01T00:00:00Z"
-    });
-    let provider = if stripe { "STRIPE" } else { "PAYPAL" };
-    let mut attempt = json!({"attempt_id":format!("attempt-{id}"),"provider":provider,"account":account,"environment":environment,"reference":if stripe {"cs_fixture"} else {"ORDERFIXTURE"}});
-    match invalid_field {
-        Some("snapshot") => snapshot["lines"] = json!("invalid stored shape"),
-        Some("attempt") => attempt["provider"] = json!("UNKNOWN"),
-        _ => {}
-    }
-    sqlx::query("INSERT INTO checkout_completions(id,draft_id,snapshot,attempt,guest_token_hash,guest_token_expires_at,order_id) VALUES($1,$2,$3,$4,$5,CURRENT_TIMESTAMP+INTERVAL '1 hour',$6)")
-        .bind(id).bind(snapshot["draft_id"].as_str().unwrap()).bind(snapshot).bind(attempt).bind(vec![0_u8;32]).bind(order_id).execute(pool).await.unwrap();
-    sqlx::query("INSERT INTO checkout_payment_aliases(checkout_id,provider,account,environment,kind,value) VALUES($1,$2,$3,$4,$5,$6)")
-        .bind(id).bind(provider).bind(account).bind(environment).bind(if stripe {"STRIPE_CHARGE"} else {"PAYPAL_CAPTURE"}).bind(if stripe {"ch_123"} else {"pp_sale"}).execute(pool).await.unwrap();
-    id
-}
-
-async fn delete_accounting_mapping(pool: &sqlx::PgPool, id: uuid::Uuid) {
-    sqlx::query("DELETE FROM checkout_completions WHERE id=$1")
-        .bind(id)
-        .execute(pool)
-        .await
-        .unwrap();
-}
-
-fn mapped_accounting_order(stripe: bool) -> Value {
-    let mut value = order(stripe);
-    let currency = if stripe { "USD" } else { "THB" };
-    value["id"] = json!(if stripe {
-        "gid://shopify/Order/9001"
-    } else {
-        "gid://shopify/Order/9002"
-    });
-    value["createdAt"] = json!("2025-01-01T00:00:00Z");
-    value["tags"] = json!(["Convention", "comma,quote\"", "ไทย"]);
-    value["transactions"] = json!([]);
-    value["refunds"] = json!([]);
-    value["shippingLines"] = page(vec![], None);
-    let amount = json!({"shopMoney":{"amount":"100","currencyCode":currency},"presentmentMoney":{"amount":"100.00","currencyCode":currency}});
-    value["totalPriceSet"] = amount.clone();
-    value["totalShippingPriceSet"] = json!({"shopMoney":{"amount":"0","currencyCode":currency},"presentmentMoney":{"amount":"0.00","currencyCode":currency}});
-    value["lineItems"]["nodes"][0]["quantity"] = json!(1);
-    value["lineItems"]["nodes"][0]["variant"] = json!({"id":"gid://shopify/ProductVariant/1"});
-    value["lineItems"]["nodes"][0]["originalUnitPriceSet"] = amount;
-    value
-}
-
-fn local_mapping_flow(stripe: bool, native: Option<Value>, mapped: Value) -> Vec<Step> {
-    let mut steps = flow(stripe, !stripe, false, Rows::Populated);
-    let search = steps.pop().unwrap();
-    if stripe {
-        let charge = steps
-            .iter()
-            .find(|s| s.path == "/charges/ch_123")
-            .unwrap()
-            .clone();
-        steps.push(Step::json(
-            "/account",
-            json!({"object":"account","id":"acct_fixture"}),
-        ));
-        let mut charge = charge;
-        if let Reply::Json(value) = &mut charge.reply {
-            value["livemode"] = json!(false);
-        }
-        steps.push(charge);
-    } else {
-        steps.push(Step::json("/v2/checkout/orders/ORDERFIXTURE", json!({"id":"ORDERFIXTURE","intent":"CAPTURE","status":"COMPLETED","purchase_units":[{"payee":{"merchant_id":"merchant_fixture"},"amount":{"currency_code":"THB","value":"100.00"},"payments":{"captures":[{"id":"pp_sale","status":"COMPLETED","amount":{"currency_code":"THB","value":"100.00"},"final_capture":true}]}}]})));
-    }
-    let mut search = search;
-    search.reply = Reply::Json(json!({"data":{"orders":page(native.into_iter().collect(), None)}}));
-    steps.push(search);
-    let order_id = mapped["id"]
-        .as_str()
-        .unwrap_or("gid://shopify/Order/1")
-        .to_owned();
-    let mut direct = Step::json("/graphql.json", json!({"data":{"order":mapped}}));
-    direct.order_id = Some(order_id);
-    steps.push(direct);
-    steps
-}
-
-#[tokio::test]
-async fn transactions_links_local_sales_outside_search_window_with_real_database_and_provider_reads()
- {
-    let fixture = fixture().await;
-    for (stripe, refunded) in [(true, false), (true, true), (false, false), (false, true)] {
-        let number = u64::from_be_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap());
-        let order_id = format!("gid://shopify/Order/{number}");
-        let id = seed_accounting_mapping(
-            &fixture.pool(),
-            stripe,
-            if stripe {
-                "acct_fixture"
-            } else {
-                "merchant_fixture"
-            },
-            "TEST",
-            Some(&order_id),
-        )
-        .await;
-        let mut mapped = mapped_accounting_order(stripe);
-        mapped["id"] = json!(order_id);
-        let mut steps = local_mapping_flow(stripe, None, mapped);
-        if refunded {
-            for step in &mut steps {
-                if let Reply::Json(value) = &mut step.reply {
-                    if step.path == "/charges/ch_123" {
-                        value["refunded"] = json!(true);
-                        value["amount_refunded"] = json!(10000);
-                    } else if step.path == "/v2/checkout/orders/ORDERFIXTURE" {
-                        value["purchase_units"][0]["payments"]["captures"][0]["status"] =
-                            json!("REFUNDED");
-                    }
-                }
-            }
-        }
-        let expected_calls = steps.len();
-        let server = Server::start(steps).await;
-        let client = server.client().await;
-        let response = client
-            .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
-            .await
-            .unwrap();
-        delete_accounting_mapping(&fixture.pool(), id).await;
-        assert_eq!(
-            response.status(),
-            200,
-            "stripe={stripe}, requests={:?}, logs={}",
-            server.requests.lock().unwrap(),
-            client.logs()
-        );
-        let report = body_json(response).await;
-        let rows = report["transactions"][if stripe { "stripe" } else { "paypal" }]
-            .as_array()
-            .unwrap();
-        assert_eq!(rows.len(), if stripe { 2 } else { 6 });
-        let sale = rows
-            .iter()
-            .find(|r| r["payment_reference"] == if stripe { "ch_123" } else { "pp_sale" })
-            .unwrap();
-        assert_eq!(sale["shopify_order_id"], number);
-        assert_eq!(
-            sale["shopify_order_tags"],
-            json!(["Convention", "comma,quote\"", "ไทย"])
-        );
-        assert_eq!(sale["gross_paid"], if stripe { 3600.0 } else { 100.0 });
-        assert_eq!(sale["net_paid"], if stripe { 3480.0 } else { 98.0 });
-        assert_eq!(sale["shipping_fee"], 0.0);
-        let refund = rows.iter().find(|r| r["type"] == "REFUND").unwrap();
-        assert_eq!(refund["shopify_order_id"], 0);
-        assert_eq!(refund["shopify_order_tags"], json!([]));
-        let items = report["items"].as_array().unwrap();
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0]["shopify_order_id"], sale["shopify_order_id"]);
-        assert_eq!(items[0]["price"], 100.0);
-        assert_eq!(server.finish().await.len(), expected_calls);
-    }
-}
-
-#[tokio::test]
-async fn transactions_local_mapping_rejects_missing_incomplete_and_disagreeing_orders() {
-    let fixture = fixture().await;
-    for scenario in [
-        "missing",
-        "incomplete",
-        "wrong_id",
-        "wrong_amount",
-        "native_conflict",
-        "native_same",
-        "deleted_complete",
-        "deleted_incomplete",
-        "missing_variant_complete",
-    ] {
-        let number = u64::from_be_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap());
-        let order_id = format!("gid://shopify/Order/{number}");
-        let id = seed_accounting_mapping(
-            &fixture.pool(),
-            true,
-            "acct_fixture",
-            "TEST",
-            Some(&order_id),
-        )
-        .await;
-        if matches!(scenario, "deleted_complete" | "missing_variant_complete") {
-            sqlx::query("UPDATE checkout_completions SET payment_state='PAID',trusted_payment=$2,completion_state='COMPLETE' WHERE id=$1").bind(id).bind(json!({"Paid":{"money":{"minor":10000,"currency":"USD","precision":2},"aliases":[{"kind":"STRIPE_CHARGE","value":"ch_123"}]}})).execute(&fixture.pool()).await.unwrap();
-        }
-        let mut mapped = mapped_accounting_order(true);
-        mapped["id"] = json!(order_id);
-        let native = match scenario {
-            "native_conflict" => Some(order(true)),
-            "native_same" => {
-                let mut native = mapped.clone();
-                native["transactions"] = order(true)["transactions"].clone();
-                Some(native)
-            }
-            _ => None,
-        };
-        match scenario {
-            "missing" => mapped = Value::Null,
-            "missing_variant_complete" => {
-                mapped["lineItems"]["nodes"][0]
-                    .as_object_mut()
-                    .unwrap()
-                    .remove("variant");
-            }
-            "deleted_complete" | "deleted_incomplete" => {
-                mapped["lineItems"]["nodes"][0]["variant"] = Value::Null;
-            }
-            "incomplete" => mapped["lineItems"]["pageInfo"]["hasNextPage"] = json!(true),
-            "wrong_id" => mapped["id"] = json!("gid://shopify/Order/1"),
-            "wrong_amount" => {
-                mapped["totalPriceSet"]["presentmentMoney"]["amount"] = json!("100.01");
-            }
-            _ => {}
-        }
-        let mut steps = local_mapping_flow(true, native, mapped);
-        if scenario == "native_same" {
-            steps.pop();
-        } else {
-            steps.last_mut().unwrap().order_id = Some(order_id.clone());
-        }
-        let expected_calls = steps.len();
-        let server = Server::start(steps).await;
-        let client = server.client().await;
-        let response = client
-            .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
-            .await
-            .unwrap();
-        delete_accounting_mapping(&fixture.pool(), id).await;
-        if matches!(scenario, "native_same" | "deleted_complete") {
-            assert_eq!(response.status(), 200, "{scenario}, {}", client.logs());
-            let report = body_json(response).await;
-            assert_eq!(
-                report["transactions"]["stripe"].as_array().unwrap().len(),
-                2
-            );
-            assert_eq!(report["items"].as_array().unwrap().len(), 1);
-            assert_eq!(report["items"][0]["shopify_order_id"], number);
-        } else {
-            assert_report_error(response, 502, "Upstream request failed").await;
-        }
-        assert_eq!(server.finish().await.len(), expected_calls, "{scenario}");
-    }
-}
-
-#[tokio::test]
-async fn transactions_pending_mapping_stays_unmatched_and_account_environment_collisions_error() {
-    let fixture = fixture().await;
-    for scenario in [
-        "pending",
-        "wrong_account",
-        "wrong_environment",
-        "ambiguous_account",
-        "ambiguous_environment",
-    ] {
-        let number = u64::from_be_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap());
-        let order_id = format!("gid://shopify/Order/{number}");
-        let id = seed_accounting_mapping(
-            &fixture.pool(),
-            true,
-            if scenario == "wrong_account" {
-                "wrong_account"
-            } else {
-                "acct_fixture"
-            },
-            if scenario == "wrong_environment" {
-                "LIVE"
-            } else {
-                "TEST"
-            },
-            if scenario == "pending" {
-                None
-            } else {
-                Some(&order_id)
-            },
-        )
-        .await;
-        let extra = if scenario.starts_with("ambiguous") {
-            Some(
-                seed_accounting_mapping(
-                    &fixture.pool(),
-                    true,
-                    if scenario == "ambiguous_account" {
-                        "other_account"
-                    } else {
-                        "acct_fixture"
-                    },
-                    if scenario == "ambiguous_environment" {
-                        "LIVE"
-                    } else {
-                        "TEST"
-                    },
-                    None,
-                )
-                .await,
-            )
-        } else {
-            None
-        };
-        let mut steps = if scenario == "pending" || scenario.starts_with("ambiguous") {
-            let mut steps = flow(true, false, false, Rows::Populated);
-            let search = steps.pop().unwrap();
-            if scenario == "pending" {
-                let mut search = search;
-                search.reply = Reply::Json(json!({"data":{"orders":page(vec![],None)}}));
-                steps.push(search);
-            }
-            steps
-        } else {
-            let mut steps = local_mapping_flow(true, None, mapped_accounting_order(true));
-            steps.truncate(
-                steps
-                    .iter()
-                    .position(|step| step.path == "/graphql.json")
-                    .unwrap(),
-            );
-            steps
-        };
-        let expected_calls = steps.len();
-        let server = Server::start(std::mem::take(&mut steps)).await;
-        let client = server.client().await;
-        let response = client
-            .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
-            .await
-            .unwrap();
-        delete_accounting_mapping(&fixture.pool(), id).await;
-        if let Some(extra) = extra {
-            delete_accounting_mapping(&fixture.pool(), extra).await;
-        }
-        if scenario == "pending" {
-            assert_eq!(response.status(), 200, "{}", client.logs());
-            let report = body_json(response).await;
-            assert_eq!(
-                report["transactions"]["stripe"].as_array().unwrap().len(),
-                2
-            );
-            assert_eq!(report["transactions"]["stripe"][0]["shopify_order_id"], 0);
-            assert_eq!(
-                report["transactions"]["stripe"][0]["shopify_order_tags"],
-                json!([])
-            );
-            assert_eq!(
-                report["items"].as_array().unwrap().as_slice(),
-                &[] as &[Value]
-            );
-        } else {
-            assert_report_error(response, 502, "Upstream request failed").await;
-        }
-        assert_eq!(server.finish().await.len(), expected_calls, "{scenario}");
-    }
-}
-
-#[tokio::test]
-async fn transactions_local_mapping_dependency_failures_stop_without_partial_report() {
-    let fixture = fixture().await;
-    for stripe in [true, false] {
-        for stage in if stripe {
-            vec!["account", "charge", "order"]
-        } else {
-            vec!["paypal"]
-        } {
-            for fault in ["http", "malformed", "refused", "timeout"] {
-                let number =
-                    u64::from_be_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap());
-                let order_id = format!("gid://shopify/Order/{number}");
-                let id = seed_accounting_mapping(
-                    &fixture.pool(),
-                    stripe,
-                    if stripe {
-                        "acct_fixture"
-                    } else {
-                        "merchant_fixture"
-                    },
-                    "TEST",
-                    Some(&order_id),
-                )
-                .await;
-                let mut mapped = mapped_accounting_order(stripe);
-                mapped["id"] = json!(order_id);
-                let mut steps = local_mapping_flow(stripe, None, mapped);
-                let index = match stage {
-                    "account" => steps.iter().position(|s| s.path == "/account").unwrap(),
-                    "charge" => steps
-                        .iter()
-                        .rposition(|s| s.path == "/charges/ch_123")
-                        .unwrap(),
-                    "paypal" => steps
-                        .iter()
-                        .position(|s| s.path == "/v2/checkout/orders/ORDERFIXTURE")
-                        .unwrap(),
-                    _ => steps.len() - 1,
-                };
-                steps.truncate(index + 1);
-                steps[index].reply = Reply::Fault(fault);
-                let server = Server::start(steps).await;
-                let client = server.client().await;
-                let response = client
-                    .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
-                    .await
-                    .unwrap();
-                delete_accounting_mapping(&fixture.pool(), id).await;
-                assert_report_error(
-                    response,
-                    if fault == "timeout" { 504 } else { 502 },
-                    "Upstream request failed",
-                )
-                .await;
-                assert_eq!(
-                    server.finish().await.len(),
-                    index + usize::from(fault != "refused"),
-                    "{stage}, {fault}"
-                );
-            }
-        }
-    }
-}
-
-#[tokio::test]
-async fn transactions_local_mapping_invalid_persisted_data_returns_safe_500() {
-    let fixture = fixture().await;
-    for field in ["snapshot", "attempt"] {
-        let order_id = format!(
-            "gid://shopify/Order/{}",
-            u64::from_be_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap())
-        );
-        let id = seed_accounting_mapping_data(
-            &fixture.pool(),
-            true,
-            "acct_fixture",
-            "TEST",
-            Some(&order_id),
-            Some(field),
-        )
-        .await;
-        let mut steps = flow(true, false, false, Rows::Populated);
-        steps.pop();
-        let expected_calls = steps.len();
-        let server = Server::start(steps).await;
-        let client = server.client().await;
-        let response = client
-            .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
-            .await
-            .unwrap();
-        delete_accounting_mapping(&fixture.pool(), id).await;
-        assert_report_error(response, 500, "Saved checkout metadata is invalid").await;
-        assert_eq!(server.finish().await.len(), expected_calls, "{field}");
-    }
-}
-
-#[tokio::test]
-async fn transactions_local_mapping_malformed_exact_amount_is_upstream_502() {
-    let fixture = fixture().await;
-    for stripe in [false, true] {
-        for amount in ["invalid", "9223372036854775808.00", "100.001"] {
-            let order_id = format!(
-                "gid://shopify/Order/{}",
-                u64::from_be_bytes(uuid::Uuid::new_v4().as_bytes()[..8].try_into().unwrap())
-            );
-            let id = seed_accounting_mapping(
-                &fixture.pool(),
-                stripe,
-                if stripe {
-                    "acct_fixture"
-                } else {
-                    "merchant_fixture"
-                },
-                "TEST",
-                Some(&order_id),
-            )
-            .await;
-            let mut mapped = mapped_accounting_order(stripe);
-            mapped["id"] = json!(order_id);
-            if stripe {
-                mapped["lineItems"]["nodes"][0]["originalUnitPriceSet"]["presentmentMoney"]["amount"] =
-                    json!(amount);
-            }
-            let mut steps = local_mapping_flow(stripe, None, mapped);
-            if !stripe {
-                let index = steps
-                    .iter()
-                    .position(|step| step.path == "/v2/checkout/orders/ORDERFIXTURE")
-                    .unwrap();
-                if let Reply::Json(value) = &mut steps[index].reply {
-                    value["purchase_units"][0]["payments"]["captures"][0]["amount"]["value"] =
-                        json!(amount);
-                }
-                steps.truncate(index + 1);
-            }
-            let expected_calls = steps.len();
-            let server = Server::start(steps).await;
-            let client = server.client().await;
-            let response = client
-                .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
-                .await
-                .unwrap();
-            delete_accounting_mapping(&fixture.pool(), id).await;
-            assert_report_error(response, 502, "Upstream request failed").await;
-            assert_eq!(
-                server.finish().await.len(),
-                expected_calls,
-                "stripe={stripe}, amount={amount}"
-            );
-        }
-    }
 }
