@@ -192,6 +192,24 @@ impl S3Client {
             .await
     }
 
+    pub async fn presign_image(
+        &self,
+        key: &str,
+        content_type: &str,
+    ) -> Result<PresignedDownload, ClientError> {
+        if !matches!(content_type, "image/png" | "image/jpeg") {
+            return Err(invalid("invalid image content type"));
+        }
+        self.presign_at(
+            key,
+            "inline",
+            Some(content_type),
+            self.signed_url_ttl_secs,
+            std::time::SystemTime::now(),
+        )
+        .await
+    }
+
     async fn presign_download_at(
         &self,
         key: &str,
@@ -214,6 +232,28 @@ impl S3Client {
         {
             return Err(invalid("invalid CSV attachment filename"));
         }
+        self.presign_at(
+            key,
+            &format!("attachment; filename=\"{filename}\""),
+            None,
+            ttl_secs,
+            signing_time,
+        )
+        .await
+    }
+
+    async fn presign_at(
+        &self,
+        key: &str,
+        disposition: &str,
+        content_type: Option<&str>,
+        ttl_secs: u32,
+        signing_time: std::time::SystemTime,
+    ) -> Result<PresignedDownload, ClientError> {
+        validate_key(key)?;
+        if ttl_secs == 0 || ttl_secs > self.signed_url_ttl_secs {
+            return Err(invalid("invalid S3 signed URL lifetime"));
+        }
         let presigning = PresigningConfig::builder()
             .start_time(signing_time)
             .expires_in(Duration::from_secs(u64::from(ttl_secs)))
@@ -224,7 +264,8 @@ impl S3Client {
             .get_object()
             .bucket(&self.bucket)
             .key(key)
-            .response_content_disposition(format!("attachment; filename=\"{filename}\""))
+            .response_content_disposition(disposition)
+            .set_response_content_type(content_type.map(str::to_owned))
             .presigned(presigning)
             .await
             .map_err(sdk_error)?;

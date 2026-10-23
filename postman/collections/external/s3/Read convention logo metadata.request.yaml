@@ -1,6 +1,6 @@
 $kind: http-request
-description: "Private convention object HEAD via existing S3 operation; use synthetic owned IDs. HEAD returns image/png or image/jpeg and bounded content-length; GET returns original bytes. 404 absent; provider403/5xx. API validates metadata and full image decoding before public delivery."
-url: "{{s3_endpoint}}/reports/conventions/logos/{{convention_id}}/{{convention_logo_asset_id}}"
+description: "Private S3 image operation for server-generated conventions/<slug>/<UUID>.png or .jpg location. Set convention_logo_location from authenticated upload response. Backend validates HEAD metadata and full GET image bytes before attaching to convention. PNG/JPEG Content-Type; missing404, provider403/5xx. Browser image rendering uses Read signed image without AWS credentials."
+url: "{{s3_endpoint}}/reports/{{convention_logo_location}}"
 method: HEAD
 order: 5000
 auth:

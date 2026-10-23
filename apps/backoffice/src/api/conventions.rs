@@ -68,30 +68,20 @@ pub async fn replace_variants(
 ) -> ApiResult<ConventionVariantsResponse> {
     super::decode(child_request(Method::PUT, id, "variants")?.json(&input)).await
 }
-pub async fn upload_logo(id: &str, content_type: &str, bytes: Vec<u8>) -> ApiResult<ConventionDTO> {
-    super::decode(
-        child_request(Method::PUT, id, "logo")?
-            .header(reqwest::header::CONTENT_TYPE, content_type)
-            .body(bytes),
-    )
-    .await
-}
-pub fn logo_url(value: &str, api_base: &str) -> Option<String> {
-    let parts: Vec<_> = value.split('/').collect();
-    if parts.len() == 7
-        && parts[..4] == ["", "api", "v1", "conventions"]
-        && parts[5] == "logo"
-        && valid_uuid_id(parts[4])
-        && valid_uuid_id(parts[6])
-    {
-        return reqwest::Url::parse(api_base)
-            .ok()?
-            .join(value)
-            .ok()
-            .map(Into::into);
-    }
+pub fn logo_url(value: &str) -> Option<String> {
     let url = reqwest::Url::parse(value).ok()?;
-    (url.scheme() == "https"
+    let authority = value
+        .strip_prefix("http://")
+        .and_then(|rest| rest.split(['/', '?', '#']).next());
+    let local = authority.is_some_and(|authority| {
+        ["localhost", "127.0.0.1", "[::1]"].iter().any(|host| {
+            authority == *host
+                || authority.strip_prefix(host).is_some_and(|suffix| {
+                    suffix.starts_with(':') && suffix[1..].parse::<u16>().is_ok()
+                })
+        })
+    });
+    ((url.scheme() == "https" || (url.scheme() == "http" && local))
         && url.host_str().is_some()
         && url.username().is_empty()
         && url.password().is_none()

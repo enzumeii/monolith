@@ -29,17 +29,33 @@ async fn decodes_complete_images_and_rejects_mime_size_and_dimension_violations(
     assert!(validate(png(4096, 1), "image/png").await.is_ok());
 }
 #[test]
-fn managed_reference_is_canonical_and_owned_by_one_convention() {
-    let id = Uuid::new_v4();
-    let asset = Uuid::new_v4();
-    assert!(is_managed_url(id, &url(id, asset)));
-    for value in [
-        url(Uuid::new_v4(), asset),
-        format!("{}?x=1", url(id, asset)),
-        format!("{}/report", url(id, asset)),
-        format!("/api/v1/conventions/{id}/logo/../report"),
+fn locations_are_canonical_and_owned_by_the_slug() {
+    let key = "conventions/fair/550e8400-e29b-41d4-a716-446655440000.png";
+    assert_eq!(location(key, Some("fair")).unwrap(), "image/png");
+    assert!(location(key, Some("another")).is_err());
+    for bad in [
+        "reports/fair/a.png",
+        "conventions/fair/../a.png",
+        "conventions/fair/a.png",
+        "https://storage.test/a.png",
+        "conventions/fair/550e8400-e29b-41d4-a716-446655440000.svg",
+        "conventions/fair/550E8400-E29B-41D4-A716-446655440000.png",
+        "conventions/fair/550e8400-e29b-41d4-0716-446655440000.png",
     ] {
-        assert!(!is_managed_url(id, &value));
+        assert!(location(bad, None).is_err(), "{bad}");
+    }
+    assert!(folder("conventions/fair").is_ok());
+    for bad in [
+        "conventions/api",
+        "reports/fair",
+        "conventions/fair/",
+        "conventions/fair/a.png",
+        "conventions/../fair",
+        "/conventions/fair",
+        "conventions/Fair",
+        "conventions/fair?x=1",
+    ] {
+        assert!(folder(bad).is_err(), "{bad}");
     }
 }
 

@@ -16,16 +16,102 @@ pub(crate) struct Logo {
     pub content_type: &'static str,
 }
 
-pub(crate) fn url(id: Uuid, asset: Uuid) -> String {
-    format!("/api/v1/conventions/{id}/logo/{asset}")
+pub(crate) fn folder(value: &str) -> Result<&str, AppError> {
+    let slug = value
+        .strip_prefix("conventions/")
+        .ok_or_else(|| invalid("Invalid upload location"))?;
+    crate::validations::conventions::slug(slug)?;
+    Ok(slug)
 }
-pub(crate) fn is_managed_url(id: Uuid, value: &str) -> bool {
-    let prefix = format!("/api/v1/conventions/{id}/logo/");
-    value
-        .strip_prefix(&prefix)
-        .and_then(|v| v.parse::<Uuid>().ok())
-        .is_some_and(|asset| url(id, asset) == value)
+
+pub(crate) fn location(value: &str, slug: Option<&str>) -> Result<&'static str, AppError> {
+    let (directory, filename) = value
+        .rsplit_once('/')
+        .ok_or_else(|| invalid("Invalid logo_location"))?;
+    let owner = folder(directory)?;
+    if slug.is_some_and(|slug| slug != owner) {
+        return Err(invalid("Logo location must belong to the convention slug"));
+    }
+    let (id, extension) = filename
+        .rsplit_once('.')
+        .ok_or_else(|| invalid("Invalid logo_location"))?;
+    let asset: Uuid = id.parse().map_err(|_| invalid("Invalid logo_location"))?;
+    if asset.to_string() != id
+        || asset.get_version_num() != 4
+        || asset.get_variant() != uuid::Variant::RFC4122
+    {
+        return Err(invalid("Invalid logo_location"));
+    }
+    match extension {
+        "png" => Ok("image/png"),
+        "jpg" => Ok("image/jpeg"),
+        _ => Err(invalid("Invalid logo_location")),
+    }
 }
+
+pub(crate) async fn upload(
+    s3: &S3Client,
+    directory: &str,
+    logo: Logo,
+) -> Result<domain::dto::UploadedFileDTO, AppError> {
+    folder(directory)?;
+    let extension = if logo.content_type == "image/png" {
+        "png"
+    } else {
+        "jpg"
+    };
+    let key = format!("{directory}/{}.{extension}", Uuid::new_v4());
+    let signed = s3
+        .presign_image(&key, logo.content_type)
+        .await
+        .map_err(|error| upstream(error))?;
+    s3.put(&key, logo.content_type, logo.bytes)
+        .await
+        .map_err(|error| upstream(error))?;
+    Ok(domain::dto::UploadedFileDTO {
+        location: key,
+        url: signed.url,
+        expires_at: signed.expires_at.to_rfc3339(),
+    })
+}
+
+pub(crate) async fn preview(
+    s3: &S3Client,
+    key: &str,
+) -> Result<crate::client::s3::PresignedDownload, AppError> {
+    let mime = location(key, None)?;
+    s3.presign_image(key, mime)
+        .await
+        .map_err(|error| upstream(error))
+}
+
+pub(crate) async fn validate_attachment(
+    s3: &S3Client,
+    key: &str,
+    slug: &str,
+) -> Result<(), AppError> {
+    let mime = location(key, Some(slug))?;
+    let metadata = s3
+        .metadata(key)
+        .await
+        .map_err(|error| upstream(error))?
+        .ok_or_else(|| invalid("Logo object does not exist"))?;
+    if !(1..=MAX_BYTES as u64).contains(&metadata.size) || metadata.content_type != mime {
+        return Err(bad_object());
+    }
+    let bytes = s3
+        .download(key, MAX_BYTES)
+        .await
+        .map_err(|error| upstream(error))?;
+    if bytes.len() as u64 != metadata.size {
+        return Err(bad_object());
+    }
+    validate(bytes, mime)
+        .await
+        .map_err(|source| bad_object().with_source(source))?;
+    Ok(())
+}
+
 pub(crate) async fn validate(bytes: Vec<u8>, mime: &str) -> Result<Logo, AppError> {
     let format = match mime {
         "image/png" => ImageFormat::Png,
@@ -82,42 +168,8 @@ pub(crate) async fn validate(bytes: Vec<u8>, mime: &str) -> Result<Logo, AppErro
     .await
     .map_err(|source| AppError::from(anyhow::Error::new(source)))?
 }
-pub(crate) async fn put(s3: &S3Client, id: Uuid, asset: Uuid, logo: Logo) -> Result<(), AppError> {
-    s3.put(&key(id, asset), logo.content_type, logo.bytes)
-        .await
-        .map_err(|error| upstream(error))
-}
-pub(crate) async fn download(s3: &S3Client, id: Uuid, asset: Uuid) -> Result<Logo, AppError> {
-    let key = key(id, asset);
-    let metadata = s3
-        .metadata(&key)
-        .await
-        .map_err(|error| upstream(error))?
-        .ok_or_else(missing)?;
-    if !(1..=MAX_BYTES as u64).contains(&metadata.size)
-        || !matches!(metadata.content_type.as_str(), "image/png" | "image/jpeg")
-    {
-        return Err(bad_object());
-    }
-    let bytes = s3
-        .download(&key, MAX_BYTES)
-        .await
-        .map_err(|error| upstream(error))?;
-    if bytes.len() as u64 != metadata.size {
-        return Err(bad_object());
-    }
-    validate(bytes, &metadata.content_type)
-        .await
-        .map_err(|source| bad_object().with_source(source))
-}
-fn key(id: Uuid, asset: Uuid) -> String {
-    format!("conventions/logos/{id}/{asset}")
-}
 fn invalid(message: &'static str) -> AppError {
     AppError::new(StatusCode::BAD_REQUEST, message)
-}
-fn missing() -> AppError {
-    AppError::new(StatusCode::NOT_FOUND, "Convention logo not found")
 }
 fn bad_object() -> AppError {
     AppError::new(StatusCode::BAD_GATEWAY, "Invalid stored convention logo")

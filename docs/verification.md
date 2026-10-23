@@ -4,7 +4,25 @@ Results describe this revision's exercised scope, separately from [architecture]
 
 ## ENZ-37 convention administration and logo uploads — local verification (2026-10-23)
 
-The feature is stacked above ENZ-35/36. Full API regression below ran at `a0d031b`; the compatible final backend catalogue-message change and browser-discovered loading correction have focused follow-up evidence below. No live provider, production migration or deployment is asserted.
+The feature is stacked above ENZ-35/36. The PR #58 follow-up verifies the revised logo contract; earlier feature results below are historical evidence. No live provider, production migration or deployment is asserted.
+
+### PR #58 logo review follow-up
+
+| Check | Actual evidence |
+| --- | --- |
+| API complete recipes | Strict check passed (21 setup-helper tests, dprint, formatting, native/all-target/E2E Clippy). Full test passed: 360 native +191 real-TCP, zero failed/ignored; TCP701.52s. Owned PostgreSQL/RustFS services, network and volumes removed |
+| Backoffice | Strict native/WASM checks,14 domain +8 contract +161 backoffice tests, domain WASM compilation and final web build passed |
+| New endpoint and association | Seven upload and25 convention TCP cases pass. Actual RustFS accepts the returned signed image URL without Authorization and rejects query tampering403. Cases include body/path/auth boundaries, provider failures, complete image checks, location-only SQL, pre-insert/patch failure ordering and optional preview degradation |
+| Browser creation and rendering | Optional68-byte PNG uploaded before creation. SQL stores `conventions/<slug>/<UUID>.png`; signed S3 image renders with RFC3339 expiry. Returned signed GET is200/image/png and SHA256 `431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460`, identical to original and stored bytes |
+| Browser picker and retry | Same absolute file works after discard and upload/clear, without editor reload. Native input clears after discard/success; upload failure retains candidate. Attach failure after successful upload preserves the previous DB key; retry saves the staged location with unchanged PUT count |
+| Browser drafts and refresh | Unsaved name and13.99 price survive both resets, upload/attach failure and preview GET failure/recovery. Explicit refresh restores image/new expiry without replacing drafts. Both saved through real API/SQLx; SQL final price is exact13.99. Browser diagnostic query returned no warnings/errors |
+| Independent review | Backend/domain/E2E, frontend, and final cross-layer source reviews accepted with no actionable findings. Original native-picker regressions failed before the fix and pass after adapting to upload-plus-attach |
+| Postman |73 requests lint with zero errors and one existing unrelated cron-preview FMT209 warning. Shared runtime globals connect upload/location, create/PATCH and unauthenticated signed image GET; obsolete proxy requests removed |
+| Isolation and limits | Controlled Shopify/S3 plus owned PostgreSQL/RustFS only. Final source hashes unchanged after checks. Temporary browser module removed byte-identically, helper/server stopped, browser tab closed and Compose resources removed. Browser tests cover image-error refresh rather than a five-minute wall-clock expiry wait; SDK expiry/signature behavior has separate automated checks. No live provider/deployment claim |
+
+The revised contract stores locations and returns expiring previews. Old signed links may work until expiry; unreferenced private objects have no garbage collection in this scope. The approved stacked target remains `feat/ENZ-35`; GitHub CI only triggers main-target PRs, so local checks are not hosted CI evidence.
+
+### Original feature verification
 
 | Check | Actual evidence |
 | --- | --- |

@@ -5,10 +5,7 @@ use crate::{middleware, state::AppState};
 use axum::{Router, middleware as axum_middleware};
 
 pub fn router(state: &AppState) -> Router<AppState> {
-    let public_routes = Router::new().nest("/auth", auth::public_router()).route(
-        "/conventions/{id}/logo/{asset_id}",
-        axum::routing::get(crate::handlers::conventions::read_logo),
-    );
+    let public_routes = Router::new().nest("/auth", auth::public_router());
 
     let super_admin_routes = Router::new()
         .nest("/admins", admins::super_admin_router())

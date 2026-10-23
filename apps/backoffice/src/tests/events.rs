@@ -1,14 +1,17 @@
 pub(crate) struct FormEventConverter;
 
-struct TestFormValue(String);
+struct TestFormValue {
+    value: String,
+    files: Vec<dioxus::html::FileData>,
+}
 impl dioxus::html::HasFileData for TestFormValue {
     fn files(&self) -> Vec<dioxus::html::FileData> {
-        vec![]
+        self.files.clone()
     }
 }
 impl dioxus::html::HasFormData for TestFormValue {
     fn value(&self) -> String {
-        self.0.clone()
+        self.value.clone()
     }
     fn valid(&self) -> bool {
         true
@@ -64,7 +67,10 @@ macro_rules! form_event_converter {
         }
     };
     (@data MouseData, $event:ident) => { dioxus::html::MouseData::new(TestClick) };
-    (@data FormData, $event:ident) => { dioxus::html::FormData::new(TestFormValue($event.downcast::<String>().expect("form value").clone())) };
+    (@data FormData, $event:ident) => { dioxus::html::FormData::new(TestFormValue {
+        value: $event.downcast::<String>().cloned().unwrap_or_default(),
+        files: $event.downcast::<Vec<dioxus::html::FileData>>().cloned().unwrap_or_default(),
+    }) };
     (@data $other:ident, $event:ident) => { panic!("unexpected non-form event: {}", stringify!($other)) };
 }
 dioxus::html::with_html_event_groups!(form_event_converter);

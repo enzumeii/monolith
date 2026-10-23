@@ -13,45 +13,62 @@ use axum::{
     http::{StatusCode, Uri},
 };
 use domain::dto::{
-    ConventionDTO, ConventionListResponse, ConventionVariantListResponse,
-    ConventionVariantsResponse, CreateConvention, ListConventionVariantsQuery,
-    ListConventionsQuery, PatchConvention, ReplaceConventionVariants,
+    ConventionVariantListResponse, ConventionVariantsResponse, CreateConvention,
+    ListConventionVariantsQuery, ListConventionsQuery, PatchConvention, ReplaceConventionVariants,
 };
 pub async fn list(
     State(state): State<AppState>,
     query: Result<Query<ListConventionsQuery>, QueryRejection>,
-) -> Result<Json<ConventionListResponse>, AppError> {
+) -> Result<impl axum::response::IntoResponse, AppError> {
     let q = validate::query(query)?;
     let (page, per_page) = validate_page(q.page, q.per_page)?;
     let response = if q.preorder_enabled == Some(true) {
-        service::enabled_list(&state.pool, page, per_page).await?
+        service::enabled_list(&state.pool, optional_s3(&state), page, per_page).await?
     } else {
-        service::list(&state.pool, page, per_page, q.preorder_enabled).await?
+        service::list(
+            &state.pool,
+            optional_s3(&state),
+            page,
+            per_page,
+            q.preorder_enabled,
+        )
+        .await?
     };
-    Ok(Json(response))
+    Ok((no_store(), Json(response)))
 }
 pub async fn create(
     State(state): State<AppState>,
     uri: Uri,
     body: Result<Json<CreateConvention>, JsonRejection>,
-) -> Result<(StatusCode, Json<ConventionDTO>), AppError> {
+) -> Result<impl axum::response::IntoResponse, AppError> {
     validate::no_query(uri.query())?;
     let input = validate::create(validate::body(body)?)?;
+    let s3 = if input.logo_location.is_some() {
+        Some(super::dependencies::s3_client(&state)?)
+    } else {
+        optional_s3(&state)
+    };
     Ok((
         StatusCode::CREATED,
-        Json(service::create(&state.pool, &state.settings.conventions, &input).await?),
+        no_store(),
+        Json(service::create(&state.pool, s3, &state.settings.conventions, &input).await?),
     ))
 }
 pub async fn get(
     State(state): State<AppState>,
     uri: Uri,
     path: Result<Path<String>, PathRejection>,
-) -> Result<Json<ConventionDTO>, AppError> {
+) -> Result<impl axum::response::IntoResponse, AppError> {
     validate::no_query(uri.query())?;
-    Ok(Json(
-        service::get(&state.pool, validate::id(path)?)
-            .await?
-            .into_dto()?,
+    Ok((
+        no_store(),
+        Json(
+            service::logo::project(
+                service::get(&state.pool, validate::id(path)?).await?,
+                optional_s3(&state),
+            )
+            .await?,
+        ),
     ))
 }
 pub async fn patch(
@@ -59,13 +76,18 @@ pub async fn patch(
     uri: Uri,
     path: Result<Path<String>, PathRejection>,
     body: Result<Json<PatchConvention>, JsonRejection>,
-) -> Result<Json<ConventionDTO>, AppError> {
+) -> Result<impl axum::response::IntoResponse, AppError> {
     validate::no_query(uri.query())?;
     let id = validate::id(path)?;
     let changes = validate::body(body)?;
     validate::patch_shape(&changes)?;
+    let s3 = if matches!(changes.logo_location, domain::dto::PatchField::Set(_)) {
+        Some(super::dependencies::s3_client(&state)?)
+    } else {
+        optional_s3(&state)
+    };
     let prepared =
-        service::prepare_patch(&state.pool, &state.settings.conventions, id, changes).await?;
+        service::prepare_patch(&state.pool, s3, &state.settings.conventions, id, changes).await?;
     if !prepared.checks.is_empty() {
         service::validate_selection(
             super::dependencies::shopify_client(&state)?,
@@ -73,8 +95,17 @@ pub async fn patch(
         )
         .await?;
     }
-    Ok(Json(
-        service::finish_patch(&state.pool, &state.settings.conventions, prepared).await?,
+    Ok((
+        no_store(),
+        Json(
+            service::finish_patch(
+                &state.pool,
+                optional_s3(&state),
+                &state.settings.conventions,
+                prepared,
+            )
+            .await?,
+        ),
     ))
 }
 pub async fn delete(
@@ -151,66 +182,16 @@ pub async fn options(
             .collect(),
     }))
 }
-pub async fn upload_logo(
-    State(state): State<AppState>,
-    path: Result<Path<String>, PathRejection>,
-    query: Result<Query<EmptyQuery>, QueryRejection>,
-    headers: axum::http::HeaderMap,
-    body: Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
-) -> Result<Json<ConventionDTO>, AppError> {
-    let id = validate::id(path)?;
-    validate::query(query)?;
-    let body = body.map_err(|source| {
-        AppError::new(source.status(), "Unable to read logo body").with_source(source)
-    })?;
-    let mime = headers
-        .get(axum::http::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| validate::invalid("Logo Content-Type is required"))?;
-    let logo = crate::storage::convention_logo::validate(body.to_vec(), mime).await?;
-    service::get(&state.pool, id).await?;
-    Ok(Json(
-        service::logo::upload(
-            &state.pool,
-            super::dependencies::s3_client(&state)?,
-            id,
-            logo,
-        )
-        .await?,
-    ))
+
+fn no_store() -> [(axum::http::HeaderName, &'static str); 1] {
+    [(axum::http::header::CACHE_CONTROL, "no-store")]
 }
-pub async fn read_logo(
-    State(state): State<AppState>,
-    path: Result<Path<(String, String)>, PathRejection>,
-    query: Result<Query<EmptyQuery>, QueryRejection>,
-    body: Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
-) -> Result<impl axum::response::IntoResponse, AppError> {
-    validate::query(query)?;
-    let body =
-        body.map_err(|source| validate::invalid("Unexpected request body").with_source(source))?;
-    if !body.is_empty() {
-        return Err(validate::invalid("Unexpected request body"));
+fn optional_s3(state: &AppState) -> Option<&crate::client::s3::S3Client> {
+    match state.s3.as_ref() {
+        Ok(client) => client.as_deref(),
+        Err(error) => {
+            tracing::debug!(error = ?error, "Convention S3 client unavailable");
+            None
+        }
     }
-    let Path((id, asset)) = path.map_err(|_| validate::invalid("Invalid logo identifiers"))?;
-    let id = id
-        .parse()
-        .map_err(|_| validate::invalid("Invalid convention identifier"))?;
-    let asset = asset
-        .parse()
-        .map_err(|_| validate::invalid("Invalid logo asset identifier"))?;
-    service::logo::current(&state.pool, id, asset).await?;
-    let logo = crate::storage::convention_logo::download(
-        super::dependencies::s3_client(&state)?,
-        id,
-        asset,
-    )
-    .await?;
-    Ok((
-        [
-            (axum::http::header::CONTENT_TYPE, logo.content_type),
-            (axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-            (axum::http::header::CACHE_CONTROL, "no-store"),
-        ],
-        logo.bytes,
-    ))
 }

@@ -331,3 +331,18 @@ async fn ambiguous_put_disconnect_is_returned_without_hidden_replay() {
     );
     assert!(server.await.unwrap().ends_with(b"original"));
 }
+
+#[tokio::test]
+async fn inline_image_signer_preserves_mime_and_configured_expiry_without_attachment() {
+    let c = S3Client::new(&config("https://example.test/storage/v1/s3")).unwrap();
+    let signed = c
+        .presign_image("conventions/fair/a.png", "image/png")
+        .await
+        .unwrap();
+    let url = reqwest::Url::parse(&signed.url).unwrap();
+    let q: std::collections::HashMap<_, _> = url.query_pairs().collect();
+    assert_eq!(q["response-content-type"], "image/png");
+    assert_eq!(q["response-content-disposition"], "inline");
+    assert_eq!(q["X-Amz-Expires"], "300");
+    assert!(c.presign_image("a", "text/csv").await.is_err());
+}

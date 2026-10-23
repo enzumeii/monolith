@@ -1,14 +1,12 @@
 use crate::{error::AppError, services::conventions::money};
 use chrono::{DateTime, NaiveDate, Utc};
-use domain::dto::{
-    ConventionDTO, ConventionPaymentMethod, ConventionVariantDTO, ConventionVariantInput,
-};
+use domain::dto::{ConventionPaymentMethod, ConventionVariantDTO, ConventionVariantInput};
 #[derive(Clone, Debug, sqlx::FromRow)]
 pub(crate) struct Convention {
     pub id: uuid::Uuid,
     pub slug: String,
     pub name: String,
-    pub logo_url: Option<String>,
+    pub logo_location: Option<String>,
     pub country_code: String,
     pub event_starts_on: NaiveDate,
     pub event_ends_on: NaiveDate,
@@ -33,7 +31,7 @@ pub(crate) struct ConventionVariant {
 pub(crate) struct ConventionInput {
     pub slug: String,
     pub name: String,
-    pub logo_url: Option<String>,
+    pub logo_location: Option<String>,
     pub country_code: String,
     pub event_starts_on: NaiveDate,
     pub event_ends_on: NaiveDate,
@@ -51,24 +49,6 @@ impl Convention {
                     .map_err(|error| AppError::from(anyhow::Error::new(error)))
             })
             .collect()
-    }
-    pub(crate) fn into_dto(self) -> Result<ConventionDTO, AppError> {
-        let payment_methods = self.methods()?;
-        Ok(ConventionDTO {
-            id: self.id.to_string(),
-            slug: self.slug,
-            name: self.name,
-            logo_url: self.logo_url,
-            country_code: self.country_code,
-            event_starts_on: self.event_starts_on.to_string(),
-            event_ends_on: self.event_ends_on.to_string(),
-            description_markdown: self.description_markdown,
-            preorder_enabled: self.preorder_enabled,
-            currency_code: self.currency_code,
-            payment_methods,
-            created_at: self.created_at.to_rfc3339(),
-            updated_at: self.updated_at.to_rfc3339(),
-        })
     }
 }
 impl ConventionVariant {

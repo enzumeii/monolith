@@ -1,5 +1,6 @@
 mod catalogue;
 mod detail;
+mod logo;
 mod metadata;
 mod state;
 

@@ -1,3 +1,5 @@
+pub mod files;
+pub use files::{UploadFileQuery, UploadedFileDTO};
 pub mod common;
 pub use common::PatchField;
 pub mod conventions;
@@ -63,3 +65,7 @@ mod report_results_tests;
 #[cfg(test)]
 #[path = "tests/dto/conventions.rs"]
 mod convention_tests;
+
+#[cfg(test)]
+#[path = "tests/dto/files.rs"]
+mod file_tests;

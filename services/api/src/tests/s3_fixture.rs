@@ -3,7 +3,7 @@ use crate::{client::s3::S3Client, config::S3Config};
 use axum::{
     Router,
     body::Bytes,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::get,
@@ -121,7 +121,7 @@ async fn metadata(
                 "content-type",
                 data.content_type
                     .as_deref()
-                    .unwrap_or("text/csv; charset=utf-8")
+                    .unwrap_or_else(|| object_mime(&key))
                     .parse()
                     .unwrap(),
             );
@@ -177,20 +177,54 @@ async fn upload(
 async fn download(
     State(shared): State<Arc<Mutex<Data>>>,
     Path(key): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
     headers: HeaderMap,
 ) -> axum::response::Response {
-    authenticated(&headers);
+    if query.contains_key("X-Amz-Signature") {
+        assert!(!headers.contains_key("authorization"));
+        assert_eq!(query["X-Amz-Algorithm"], "AWS4-HMAC-SHA256");
+        assert!(query["X-Amz-Credential"].starts_with("synthetic-access-id/"));
+        assert!(query["X-Amz-Credential"].ends_with("/ap-southeast-1/s3/aws4_request"));
+        assert_eq!(query["X-Amz-SignedHeaders"], "host");
+        assert_eq!(query["X-Amz-Signature"].len(), 64);
+        let signed_at =
+            chrono::NaiveDateTime::parse_from_str(&query["X-Amz-Date"], "%Y%m%dT%H%M%SZ")
+                .unwrap()
+                .and_utc();
+        let ttl: i64 = query["X-Amz-Expires"].parse().unwrap();
+        assert!((1..=900).contains(&ttl));
+        if chrono::Utc::now() > signed_at + chrono::Duration::seconds(ttl) {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+    } else {
+        authenticated(&headers);
+    }
     if let Some(response) = failure(&shared, "download").await {
         return response;
     }
     let data = shared.lock().unwrap();
     match data.objects.get(&key) {
         Some(bytes) => (
-            [("content-type", "text/csv; charset=utf-8")],
+            [(
+                "content-type",
+                data.content_type
+                    .as_deref()
+                    .unwrap_or_else(|| object_mime(&key)),
+            )],
             data.download_override.as_ref().unwrap_or(bytes).clone(),
         )
             .into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+fn object_mime(key: &str) -> &'static str {
+    match std::path::Path::new(key)
+        .extension()
+        .and_then(std::ffi::OsStr::to_str)
+    {
+        Some("png") => "image/png",
+        Some("jpg") => "image/jpeg",
+        _ => "text/csv; charset=utf-8",
     }
 }
 async fn failure(shared: &Arc<Mutex<Data>>, operation: &str) -> Option<axum::response::Response> {
@@ -217,6 +251,7 @@ async fn failure(shared: &Arc<Mutex<Data>>, operation: &str) -> Option<axum::res
         return None;
     }
     Some(match kind {
+        "forbidden" => StatusCode::FORBIDDEN.into_response(),
         "http" => (
             StatusCode::SERVICE_UNAVAILABLE,
             "<Error><Code>InternalError</Code><Message>private S3 failure</Message></Error>",

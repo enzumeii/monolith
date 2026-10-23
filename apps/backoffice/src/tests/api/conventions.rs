@@ -79,7 +79,7 @@ async fn crud_options_logo_and_exact_price_requests_use_the_existing_cookie_tran
     let input = CreateConvention {
         slug: "event".into(),
         name: "Event".into(),
-        logo_url: None,
+        logo_location: None,
         country_code: "TH".into(),
         event_starts_on: "2026-11-01".into(),
         event_ends_on: "2026-11-02".into(),
@@ -105,14 +105,6 @@ async fn crud_options_logo_and_exact_price_requests_use_the_existing_cookie_tran
     .await;
     result.expect("valid fixture value");
     assert!(request.ends_with(r#"{"name":"Changed"}"#));
-    let bytes = b"\0PNG\r\nraw-bytes".to_vec();
-    let (result, request) =
-        metadata_response(200, RECORD, upload_logo(ID, "image/png", bytes.clone())).await;
-    result.expect("valid fixture value");
-    assert!(request.starts_with(&format!("PUT /v1/admin/conventions/{ID}/logo HTTP/1.1")));
-    assert!(request.contains("content-type: image/png"));
-    assert!(request.as_bytes().ends_with(&bytes));
-    assert!(!request.contains("multipart"));
     let (result, request) = metadata_response(
         200,
         r#"{"items":[]}"#,
@@ -130,36 +122,27 @@ async fn crud_options_logo_and_exact_price_requests_use_the_existing_cookie_tran
     .await;
     result.expect("valid fixture value");
     assert!(request.contains(r#""final_price":"12.990""#));
-    let (result, _) = metadata_response(
-        413,
-        r#"{"error":"Logo exceeds 2 MiB"}"#,
-        upload_logo(ID, "image/png", vec![0]),
-    )
-    .await;
-    assert_eq!(
-        result.expect_err("expected rejection").to_string(),
-        "Logo exceeds 2 MiB"
-    );
 }
 #[test]
-fn managed_logos_resolve_at_api_origin_and_arbitrary_relative_paths_are_rejected() {
-    let path = format!("/api/v1/conventions/{ID}/logo/{ID}");
-    assert_eq!(
-        logo_url(&path, "https://api.example.test/custom/v1").expect("valid fixture value"),
-        format!("https://api.example.test{path}")
-    );
-    for path in [
-        "//evil.test/logo",
-        "/reports/private",
-        "/api/v1/conventions/../logo/key",
-        "javascript:alert(1)",
-        "data:image/svg+xml,hi",
-        "https://user:pass@example.test/logo",
+fn signed_logo_urls_allow_only_https_or_literal_local_http() {
+    for url in [
+        "https://storage.test/image?signature=abc",
+        "http://127.0.0.1:8080/image",
+        "http://localhost/image",
+        "http://[::1]/image",
     ] {
-        assert!(
-            logo_url(path, "https://api.example.test/v1").is_none(),
-            "{path}"
-        );
+        assert!(logo_url(url).is_some(), "{url}");
+    }
+    for url in [
+        "/api/v1/conventions/key/logo/key",
+        "http://storage.test/image",
+        "http://2130706433/image",
+        "http://0x7f000001/image",
+        "https://user:pass@storage.test/image",
+        "https://storage.test/image#fragment",
+        "//storage.test/image",
+    ] {
+        assert!(logo_url(url).is_none(), "{url}");
     }
 }
 #[tokio::test]
@@ -168,13 +151,6 @@ async fn unsafe_ids_are_rejected_before_transport() {
         assert_eq!(get(id).await.expect_err("expected rejection").status, 400);
         assert_eq!(
             variants(id, 1)
-                .await
-                .expect_err("expected rejection")
-                .status,
-            400
-        );
-        assert_eq!(
-            upload_logo(id, "image/png", vec![0])
                 .await
                 .expect_err("expected rejection")
                 .status,

@@ -12,8 +12,8 @@ pub fn router() -> Router<AppState> {
             axum::routing::get(crate::handlers::conventions::options),
         )
         .route(
-            "/conventions/{id}/logo",
-            axum::routing::put(crate::handlers::conventions::upload_logo).layer(
+            "/files",
+            axum::routing::post(crate::handlers::files::upload).layer(
                 axum::extract::DefaultBodyLimit::max(crate::storage::convention_logo::MAX_BYTES),
             ),
         )

@@ -1,0 +1,19 @@
+$kind: http-request
+description: "Admin/SuperAdmin raw image upload before convention creation. Client chooses folder conventions/<slug>; server generates a unique UUID filename. PNG/JPEG,1..2097152 bytes,up to4096x4096. 201 returns location (persist this), url and RFC3339 expires_at (transient rendering only). No convention mutation. Invalid query/path/type/image400; oversized413; authentication401; cookie Origin403; S3 unavailable503/rejected502/timeout504. Browser cookie mode requires configured Origin. Uploaded but unattached objects are not automatically collected."
+url: "{{server}}/v1/admin/files?location=conventions/{{convention_slug}}"
+method: POST
+order: 1000
+queryParams:
+  location: "conventions/{{convention_slug}}"
+headers:
+  Content-Type: image/png
+body:
+  type: file
+  content:
+    src: postman/fixtures/convention-logo.png
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Image uploaded", () => { pm.response.to.have.status(201); pm.expect(pm.response.headers.get("Cache-Control")).to.eql("no-store"); });
+      if (pm.response.code === 201) { const image = pm.response.json(); pm.globals.set("convention_logo_location", image.location); pm.globals.set("convention_logo_url", image.url); pm.globals.set("convention_logo_url_expires_at", image.expires_at); }
+    language: text/javascript

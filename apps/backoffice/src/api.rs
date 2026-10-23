@@ -4,6 +4,7 @@ pub mod auth;
 pub mod catalogue;
 pub mod conventions;
 pub mod cron_configurations;
+pub mod files;
 pub mod inventories;
 pub mod orders;
 pub mod report_results;

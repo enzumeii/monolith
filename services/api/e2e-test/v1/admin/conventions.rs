@@ -140,7 +140,7 @@ async fn conventions_lifecycle_exact_prices_replacement_and_cascade() {
         &f,
         "PATCH",
         &path,
-        json!({"preorder_enabled":false,"logo_url":"https://example.test/logo.png"}),
+        json!({"preorder_enabled":false}),
         200,
     )
     .await;
@@ -149,7 +149,7 @@ async fn conventions_lifecycle_exact_prices_replacement_and_cascade() {
         &f,
         "PATCH",
         &path,
-        json!({"logo_url":null,"name":"  Updated  "}),
+        json!({"logo_location":null,"name":"  Updated  "}),
         200,
     )
     .await;
@@ -279,11 +279,11 @@ async fn conventions_validation_families_reject_without_shopify_calls() {
         "https://example.test/".to_owned().as_str(),
     ] {
         if logo != "https://example.test/" {
-            cases.push(("logo_url", json!(logo)));
+            cases.push(("logo_location", json!(logo)));
         }
     }
     cases.push((
-        "logo_url",
+        "logo_location",
         json!(format!("https://example.test/{}", "x".repeat(2048))),
     ));
     for currency in ["thb", "XYZ", ""] {
@@ -1049,7 +1049,6 @@ async fn conventions_accept_boundaries_paginate_and_allow_both_admin_roles() {
         let mut value = input(&format!("{}-{index}", f.prefix()));
         value["name"] = json!("ก".repeat(120));
         value["description_markdown"] = json!("x".repeat(20000));
-        value["logo_url"] = json!(format!("https://example.test/{}", "x".repeat(2027)));
         let r = c
             .send(authed_json("POST", URI, f.root_id(), role, &value))
             .await
@@ -1216,7 +1215,7 @@ async fn conventions_wrong_types_nulls_and_unknown_fields_never_reach_shopify() 
     for field in [
         "slug",
         "name",
-        "logo_url",
+        "logo_location",
         "country_code",
         "event_starts_on",
         "event_ends_on",

@@ -217,9 +217,10 @@ All eight operations use the existing ADMIN/SUPER_ADMIN protected group and brow
 | Method and suffix | Contract |
 | --- | --- |
 | `GET /conventions` | Page/per-page list with optional `preorder_enabled` filter |
-| `POST /conventions` | Create immutable slug/currency and editable metadata/payment methods; server sets `preorder_enabled=false` |
+| `POST /files` | Upload a bounded PNG/JPEG to a requested convention slug folder; return a versioned object location and short-lived signed preview |
+| `POST /conventions` | Create immutable slug/currency, metadata/payment methods and an optional validated logo location; server sets `preorder_enabled=false` |
 | `GET /conventions/{id}` | Read one UUID-identified convention |
-| `PATCH /conventions/{id}` | Patch metadata, methods or manual enable flag; slug/currency are not writable |
+| `PATCH /conventions/{id}` | Patch metadata, logo location, methods or manual enable flag; slug/currency are not writable |
 | `DELETE /conventions/{id}` | Delete convention and cascade its current variant memberships |
 | `GET /conventions/{id}/variants` | Page/per-page current selections with exact `final_price` strings |
 | `PUT /conventions/{id}/variants` | Atomically replace all selections, at most 250 unique Shopify variant IDs |
@@ -240,7 +241,7 @@ flowchart LR
 | Ownership / state | Current behavior |
 | --- | --- |
 | Shared DTOs | `domain::dto::conventions` owns wire contracts; `dto::common::PatchField` preserves missing/null/value semantics and the root `domain::dto::PatchField` export; cron uses the same type |
-| API persistence | `conventions` stores UUID, unique slug, name/logo, country, event dates, description Markdown, manual enable flag, currency, payment methods and timestamps. `convention_variants` stores UUID, parent, Shopify product/variant GIDs, positive finite `NUMERIC` final price and timestamps; parent+variant is unique |
+| API persistence | `conventions` stores UUID, unique slug, name/logo location, country, event dates, description Markdown, manual enable flag, currency, payment methods and timestamps. `convention_variants` stores UUID, parent, Shopify product/variant GIDs, positive finite `NUMERIC` final price and timestamps; parent+variant is unique |
 | Immutable identity | API excludes slug/currency from PATCH; a database trigger also rejects changes. One convention has one currency |
 | Price representation | Major-unit decimal strings such as `"12.99"` pass through exact decimal validation and PostgreSQL `NUMERIC`, without floating point. Responses use currency precision; positive amounts must fit signed 64-bit minor units and selected payment-method precision |
 | Writes | Services own transactions and parent-row locks; repositories own SQL. Shopify validation precedes the transaction; changed selection/payment assumptions are rechecked under the lock and conflicting validation returns 409 |
@@ -289,4 +290,4 @@ flowchart LR
 
 ## Convention administration
 
-[Convention administration and logo storage](conventions.md) describes saved and draft state, catalogue selection and durable private-S3 logo access.
+[Convention administration and logo storage](conventions.md) describes saved and draft state, catalogue selection and persistent S3 logo locations and short-lived signed preview access.

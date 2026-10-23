@@ -1,7 +1,7 @@
 pub(crate) mod logo;
 pub(crate) mod money;
 use crate::{
-    client::shopify::ShopifyClient,
+    client::{s3::S3Client, shopify::ShopifyClient},
     config::ConventionsConfig,
     error::{AppError, upstream},
     models::{
@@ -20,12 +20,13 @@ use sqlx::PgPool;
 use uuid::Uuid;
 pub(crate) async fn enabled_list(
     pool: &PgPool,
+    s3: Option<&S3Client>,
     page: u32,
     per_page: u32,
 ) -> Result<ConventionListResponse, AppError> {
     let (page, per_page) =
         crate::validations::cron::configs::validate_page(Some(page), Some(per_page))?;
-    list(pool, page, per_page, Some(true)).await
+    list(pool, s3, page, per_page, Some(true)).await
 }
 #[cfg_attr(
     not(test),
@@ -33,12 +34,13 @@ pub(crate) async fn enabled_list(
 )]
 pub(crate) async fn enabled_by_id(
     pool: &PgPool,
+    s3: Option<&S3Client>,
     id: Uuid,
 ) -> Result<Option<ConventionDTO>, AppError> {
-    repo::find(pool, id, true)
-        .await?
-        .map(Convention::into_dto)
-        .transpose()
+    match repo::find(pool, id, true).await? {
+        Some(record) => Ok(Some(logo::project(record, s3).await?)),
+        None => Ok(None),
+    }
 }
 #[cfg_attr(
     not(test),
@@ -46,15 +48,17 @@ pub(crate) async fn enabled_by_id(
 )]
 pub(crate) async fn enabled_by_slug(
     pool: &PgPool,
+    s3: Option<&S3Client>,
     slug: &str,
 ) -> Result<Option<ConventionDTO>, AppError> {
-    repo::enabled_slug(pool, slug)
-        .await?
-        .map(Convention::into_dto)
-        .transpose()
+    match repo::enabled_slug(pool, slug).await? {
+        Some(record) => Ok(Some(logo::project(record, s3).await?)),
+        None => Ok(None),
+    }
 }
 pub(crate) async fn list(
     pool: &PgPool,
+    s3: Option<&S3Client>,
     page: u32,
     per_page: u32,
     enabled: Option<bool>,
@@ -62,11 +66,12 @@ pub(crate) async fn list(
     let mut records = repo::list(pool, page, per_page, enabled).await?;
     let has_next = records.len() > per_page as usize;
     records.truncate(per_page as usize);
+    let mut items = Vec::with_capacity(records.len());
+    for record in records {
+        items.push(logo::project(record, s3).await?);
+    }
     Ok(ConventionListResponse {
-        items: records
-            .into_iter()
-            .map(Convention::into_dto)
-            .collect::<Result<_, _>>()?,
+        items,
         page,
         per_page,
         has_next,
@@ -77,11 +82,15 @@ pub(crate) async fn get(pool: &PgPool, id: Uuid) -> Result<Convention, AppError>
 }
 pub(crate) async fn create(
     pool: &PgPool,
+    s3: Option<&S3Client>,
     config: &ConventionsConfig,
     input: &ConventionInput,
 ) -> Result<ConventionDTO, AppError> {
     capability(config, &input.currency_code, &input.payment_methods)?;
-    repo::insert(pool, input).await?.into_dto()
+    if let Some(location) = &input.logo_location {
+        logo::attach(s3, location, &input.slug).await?;
+    }
+    logo::project(repo::insert(pool, input).await?, s3).await
 }
 pub(crate) async fn list_variants(
     pool: &PgPool,
@@ -117,12 +126,16 @@ pub(crate) struct PreparedPatch {
 }
 pub(crate) async fn prepare_patch(
     pool: &PgPool,
+    s3: Option<&S3Client>,
     config: &ConventionsConfig,
     id: Uuid,
     patch: PatchConvention,
 ) -> Result<PreparedPatch, AppError> {
     let observed = get(pool, id).await?;
     let input = validate::merge(patch.clone(), &observed)?;
+    if let PatchField::Set(location) = &patch.logo_location {
+        logo::attach(s3, location, &observed.slug).await?;
+    }
     let selection = inputs(repo::variants(pool, id).await?);
     let enabling = matches!(patch.preorder_enabled, PatchField::Set(true));
     let changing_methods = !patch.payment_methods.is_missing();
@@ -146,6 +159,7 @@ pub(crate) async fn prepare_patch(
 }
 pub(crate) async fn finish_patch(
     pool: &PgPool,
+    s3: Option<&S3Client>,
     config: &ConventionsConfig,
     prepared: PreparedPatch,
 ) -> Result<ConventionDTO, AppError> {
@@ -177,7 +191,7 @@ pub(crate) async fn finish_patch(
     }
     let saved = repo::update(&mut tx, prepared.id, &input).await?;
     tx.commit().await?;
-    saved.into_dto()
+    logo::project(saved, s3).await
 }
 pub(crate) struct PreparedSave {
     id: Uuid,

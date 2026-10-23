@@ -42,7 +42,7 @@ pub(crate) async fn enabled_slug(
     )
 }
 pub(crate) async fn insert(pool: &PgPool, v: &ConventionInput) -> Result<Convention, AppError> {
-    sqlx::query_as("INSERT INTO conventions(slug,name,logo_url,country_code,event_starts_on,event_ends_on,description_markdown,currency_code,payment_methods) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *").bind(&v.slug).bind(&v.name).bind(&v.logo_url).bind(&v.country_code).bind(v.event_starts_on).bind(v.event_ends_on).bind(&v.description_markdown).bind(&v.currency_code).bind(method_values(&v.payment_methods)).fetch_one(pool).await.map_err(conflict)
+    sqlx::query_as("INSERT INTO conventions(slug,name,logo_location,country_code,event_starts_on,event_ends_on,description_markdown,currency_code,payment_methods) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *").bind(&v.slug).bind(&v.name).bind(&v.logo_location).bind(&v.country_code).bind(v.event_starts_on).bind(v.event_ends_on).bind(&v.description_markdown).bind(&v.currency_code).bind(method_values(&v.payment_methods)).fetch_one(pool).await.map_err(conflict)
 }
 pub(crate) async fn lock(c: &mut PgConnection, id: Uuid) -> Result<Option<Convention>, AppError> {
     Ok(
@@ -57,7 +57,7 @@ pub(crate) async fn update(
     id: Uuid,
     v: &ConventionInput,
 ) -> Result<Convention, AppError> {
-    Ok(sqlx::query_as("UPDATE conventions SET name=$2,logo_url=$3,country_code=$4,event_starts_on=$5,event_ends_on=$6,description_markdown=$7,payment_methods=$8,preorder_enabled=$9,updated_at=GREATEST(CURRENT_TIMESTAMP,updated_at+INTERVAL '1 microsecond') WHERE id=$1 RETURNING *").bind(id).bind(&v.name).bind(&v.logo_url).bind(&v.country_code).bind(v.event_starts_on).bind(v.event_ends_on).bind(&v.description_markdown).bind(method_values(&v.payment_methods)).bind(v.preorder_enabled).fetch_one(c).await?)
+    Ok(sqlx::query_as("UPDATE conventions SET name=$2,logo_location=$3,country_code=$4,event_starts_on=$5,event_ends_on=$6,description_markdown=$7,payment_methods=$8,preorder_enabled=$9,updated_at=GREATEST(CURRENT_TIMESTAMP,updated_at+INTERVAL '1 microsecond') WHERE id=$1 RETURNING *").bind(id).bind(&v.name).bind(&v.logo_location).bind(&v.country_code).bind(v.event_starts_on).bind(v.event_ends_on).bind(&v.description_markdown).bind(method_values(&v.payment_methods)).bind(v.preorder_enabled).fetch_one(c).await?)
 }
 pub(crate) async fn delete(c: &mut PgConnection, id: Uuid) -> Result<(), AppError> {
     sqlx::query("DELETE FROM conventions WHERE id=$1")
@@ -86,14 +86,6 @@ pub(crate) async fn replace(
         sqlx::query("INSERT INTO convention_variants(convention_id,shopify_product_id,shopify_variant_id,final_price) VALUES($1,$2,$3,$4::text::numeric) ON CONFLICT(convention_id,shopify_variant_id) DO UPDATE SET shopify_product_id=EXCLUDED.shopify_product_id,final_price=EXCLUDED.final_price,updated_at=CASE WHEN convention_variants.final_price IS DISTINCT FROM EXCLUDED.final_price OR convention_variants.shopify_product_id IS DISTINCT FROM EXCLUDED.shopify_product_id THEN GREATEST(CURRENT_TIMESTAMP,convention_variants.updated_at+INTERVAL '1 microsecond') ELSE convention_variants.updated_at END").bind(id).bind(&item.shopify_product_id).bind(&item.shopify_variant_id).bind(&item.final_price).execute(&mut *c).await?;
     }
     variants(c, id).await
-}
-pub(crate) async fn update_logo(
-    c: &mut PgConnection,
-    id: Uuid,
-    url: &str,
-) -> Result<Option<Convention>, AppError> {
-    Ok(sqlx::query_as("UPDATE conventions SET logo_url=$2,updated_at=GREATEST(CURRENT_TIMESTAMP,updated_at+INTERVAL '1 microsecond') WHERE id=$1 RETURNING *")
-        .bind(id).bind(url).fetch_optional(c).await?)
 }
 fn conflict(error: sqlx::Error) -> AppError {
     if let sqlx::Error::Database(ref db) = error

@@ -34,6 +34,27 @@ impl Metadata {
         if !(1..=120).contains(&self.name.trim().chars().count()) || self.slug.is_empty() {
             return Err("Enter a name and slug".into());
         }
+        if self.slug.len() > 63
+            || !self
+                .slug
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+            || self.slug.split('-').any(str::is_empty)
+            || [
+                "api",
+                "v1",
+                "healthz",
+                "_cron",
+                "backoffice",
+                "user",
+                "assets",
+            ]
+            .contains(&self.slug.as_str())
+        {
+            return Err(
+                "Use a slug of at most 63 lowercase letters, numbers and internal hyphens".into(),
+            );
+        }
         if self.country.len() != 2 || !self.country.bytes().all(|b| b.is_ascii_uppercase()) {
             return Err("Enter a two-letter uppercase country code".into());
         }
@@ -66,7 +87,7 @@ impl Metadata {
         Ok(CreateConvention {
             slug: self.slug.clone(),
             name: self.name.trim().into(),
-            logo_url: None,
+            logo_location: None,
             country_code: self.country.clone(),
             event_starts_on: self.start.clone(),
             event_ends_on: self.end.clone(),
