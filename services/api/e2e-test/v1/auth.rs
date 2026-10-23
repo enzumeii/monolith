@@ -5,25 +5,13 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use domain::dto::AdminRole;
 
+const CUSTOM_ORIGIN: &str = "https://convention.enzumeii.com";
+const VERCEL_ORIGIN: &str = "https://project.vercel.app";
+
 pub(super) const BROWSER_ORIGIN: &str = "http://127.0.0.1:8084";
 
 pub(super) async fn cookie_login(username: &str, password: &str) -> axum::response::Response {
-    common::client()
-        .await
-        .send(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/auth/login")
-                .header("x-session-mode", "cookie")
-                .header("origin", BROWSER_ORIGIN)
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::json!({"username": username, "password": password}).to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap()
+    cookie_login_from_origin(username, password, BROWSER_ORIGIN).await
 }
 
 pub(super) async fn cookie_request(
@@ -31,20 +19,7 @@ pub(super) async fn cookie_request(
     uri: &str,
     cookie: &str,
 ) -> axum::response::Response {
-    common::client()
-        .await
-        .send(
-            Request::builder()
-                .method(method)
-                .uri(uri)
-                .header("x-session-mode", "cookie")
-                .header("origin", BROWSER_ORIGIN)
-                .header("cookie", cookie)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap()
+    cookie_request_from_origin(method, uri, cookie, BROWSER_ORIGIN).await
 }
 
 pub(super) fn cookie_pair(response: &axum::response::Response) -> String {
@@ -55,6 +30,51 @@ pub(super) fn cookie_pair(response: &axum::response::Response) -> String {
         .next()
         .unwrap()
         .to_string()
+}
+
+async fn cookie_login_from_origin(
+    username: &str,
+    password: &str,
+    origin: &str,
+) -> axum::response::Response {
+    common::client()
+        .await
+        .send(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("x-session-mode", "cookie")
+                .header("origin", origin)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"username":username,"password":password}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+async fn cookie_request_from_origin(
+    method: &str,
+    uri: &str,
+    cookie: &str,
+    origin: &str,
+) -> axum::response::Response {
+    common::client()
+        .await
+        .send(
+            Request::builder()
+                .method(method)
+                .uri(uri)
+                .header("x-session-mode", "cookie")
+                .header("origin", origin)
+                .header("cookie", cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
 }
 
 #[tokio::test]
@@ -688,7 +708,15 @@ async fn cookie_logout_revokes_only_its_family() {
 async fn cookie_mutations_require_origin() {
     let db = common::fixture().await;
     let valid = cookie_pair(&cookie_login(&db.username("root"), "fixture-root-password").await);
-    for origin in [None, Some("null"), Some("https://foreign.example.test")] {
+    for origin in [
+        None,
+        Some("null"),
+        Some("https://foreign.example.test"),
+        Some("https://convention.enzumeii.com.evil.test"),
+        Some("https://evilconvention.enzumeii.com"),
+        Some("http://convention.enzumeii.com"),
+        Some("https://convention.enzumeii.com/"),
+    ] {
         for uri in [
             "/api/v1/auth/login",
             "/api/v1/auth/refresh",
@@ -719,6 +747,12 @@ async fn cookie_mutations_require_origin() {
                 "{uri}: {origin:?}"
             );
             assert!(!response.headers().contains_key("set-cookie"));
+            assert!(
+                !response
+                    .headers()
+                    .contains_key("access-control-allow-origin")
+            );
+            assert_eq!(response.headers()["cache-control"], "no-store");
         }
     }
     assert_eq!(
@@ -779,7 +813,14 @@ async fn explicit_invalid_bearer_never_falls_back() {
 #[tokio::test]
 async fn cors_preflight_matches_configured_origin() {
     let _db = common::fixture().await;
-    for origin in [BROWSER_ORIGIN, "https://foreign.example.test"] {
+    for origin in [
+        BROWSER_ORIGIN,
+        CUSTOM_ORIGIN,
+        VERCEL_ORIGIN,
+        "https://foreign.example.test",
+        "null",
+        "https://convention.enzumeii.com.evil.test",
+    ] {
         let response = common::client()
             .await
             .send(
@@ -797,12 +838,9 @@ async fn cors_preflight_matches_configured_origin() {
             )
             .await
             .unwrap();
-        if origin == BROWSER_ORIGIN {
+        if [BROWSER_ORIGIN, CUSTOM_ORIGIN, VERCEL_ORIGIN].contains(&origin) {
             assert_eq!(response.status(), StatusCode::OK);
-            assert_eq!(
-                response.headers()["access-control-allow-origin"],
-                BROWSER_ORIGIN
-            );
+            assert_eq!(response.headers()["access-control-allow-origin"], origin);
             assert_eq!(
                 response.headers()["access-control-allow-credentials"],
                 "true"
@@ -822,13 +860,93 @@ async fn cors_preflight_matches_configured_origin() {
                 assert!(headers.split(',').any(|value| value.trim() == header));
             }
         } else {
-            assert_ne!(
-                response
+            assert!(
+                !response
                     .headers()
-                    .get("access-control-allow-origin")
-                    .and_then(|value| value.to_str().ok()),
-                Some(origin)
+                    .contains_key("access-control-allow-origin")
             );
         }
     }
+}
+
+#[tokio::test]
+async fn additional_origins_support_cookie_login_rotation_and_logout() {
+    let db = common::fixture().await;
+    for origin in [CUSTOM_ORIGIN, VERCEL_ORIGIN] {
+        let response =
+            cookie_login_from_origin(&db.username("root"), "fixture-root-password", origin).await;
+        assert_eq!(response.status(), StatusCode::OK, "{origin}");
+        assert_eq!(response.headers()["access-control-allow-origin"], origin);
+        assert_eq!(
+            response.headers()["access-control-allow-credentials"],
+            "true"
+        );
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        let mut cookie = cookie_pair(&response);
+        let body = common::body_json(response).await;
+        assert!(body.get("access_token").is_none());
+        assert!(body.get("refresh_token").is_none());
+        let old = cookie.clone();
+        let mut rotated_cookie = String::new();
+        for (path, expected) in [
+            ("refresh", StatusCode::OK),
+            ("logout", StatusCode::NO_CONTENT),
+        ] {
+            let response = cookie_request_from_origin(
+                "POST",
+                &format!("/api/v1/auth/{path}"),
+                &cookie,
+                origin,
+            )
+            .await;
+            assert_eq!(response.status(), expected, "{origin}: {path}");
+            assert_eq!(response.headers()["access-control-allow-origin"], origin);
+            assert_eq!(
+                response.headers()["access-control-allow-credentials"],
+                "true"
+            );
+            assert_eq!(response.headers()["cache-control"], "no-store");
+            cookie = cookie_pair(&response);
+            if path == "refresh" {
+                assert_ne!(old, cookie);
+                rotated_cookie.clone_from(&cookie);
+            } else {
+                assert!(
+                    response.headers()["set-cookie"]
+                        .to_str()
+                        .unwrap()
+                        .contains("Max-Age=0")
+                );
+            }
+        }
+        for revoked in [&old, &rotated_cookie] {
+            assert_eq!(
+                cookie_request("POST", "/api/v1/auth/refresh", revoked)
+                    .await
+                    .status(),
+                StatusCode::UNAUTHORIZED
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn cors_without_origin_has_no_allow_origin_header() {
+    let _db = common::fixture().await;
+    let response = common::client()
+        .await
+        .send(
+            Request::builder()
+                .uri("/healthz")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        !response
+            .headers()
+            .contains_key("access-control-allow-origin")
+    );
 }

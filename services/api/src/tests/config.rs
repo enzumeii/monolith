@@ -63,6 +63,7 @@ fn vercel_development_metadata_uses_only_explicit_loopback_http() {
         )
         .unwrap();
         assert_eq!(settings.browser.public_origin, format!("http://{host}"));
+        assert_eq!(settings.browser.additional_origins, Vec::<String>::new());
         assert!(settings.browser.insecure_local);
     }
     for host in [
@@ -169,6 +170,15 @@ fn vercel_public_origin_uses_generated_production_alias_and_preview_host() {
         )
         .unwrap();
         assert_eq!(settings.browser.public_origin, expected);
+        assert_eq!(
+            settings.browser.additional_origins,
+            if mode == "production" {
+                vec!["https://convention.enzumeii.com"]
+            } else {
+                vec![]
+            }
+        );
+        assert!(!settings.browser.insecure_local);
     }
 }
 
@@ -879,4 +889,96 @@ fn s3_absent_credentials_remain_optional_and_inherited_values_are_preserved() {
             assert!(!format!("{config:?}").contains("inherited"));
         },
     );
+}
+
+#[test]
+fn additional_browser_origins_require_exact_https_origins() {
+    for origin in [
+        "http://localhost:8084",
+        "http://custom.example.test",
+        "https://*.example.test",
+        "https://user@custom.example.test",
+        "https://user:pass@custom.example.test",
+        "https://custom.example.test/",
+        "https://custom.example.test/backoffice/",
+        "https://custom.example.test?query=1",
+        "https://custom.example.test#fragment",
+        "null",
+        "*",
+        "custom.example.test",
+        "",
+        "https://custom.example.test:invalid",
+        "https://custom.example.test:65536",
+        "https://custom.example.test:",
+    ] {
+        let settings: Settings = settings_builder()
+            .set_override("browser.additional_origins", vec![origin])
+            .unwrap()
+            .build()
+            .unwrap()
+            .try_deserialize()
+            .unwrap();
+        assert!(settings.validate().is_err(), "{origin}");
+    }
+}
+
+#[test]
+fn additional_browser_origins_default_empty_and_preserve_exact_https_values() {
+    let settings: Settings = settings_builder()
+        .build()
+        .unwrap()
+        .try_deserialize()
+        .unwrap();
+    assert_eq!(settings.browser.additional_origins, Vec::<String>::new());
+    for origin in [
+        "https://convention.enzumeii.com",
+        "https://custom.example.test:8443",
+    ] {
+        let settings: Settings = settings_builder()
+            .set_override("browser.additional_origins", vec![origin])
+            .unwrap()
+            .build()
+            .unwrap()
+            .try_deserialize()
+            .unwrap();
+        settings.validate().unwrap();
+        assert_eq!(
+            settings.browser.origins().collect::<Vec<_>>(),
+            vec!["http://localhost:8084", origin]
+        );
+    }
+}
+
+#[test]
+fn vercel_nonproduction_metadata_clears_file_additional_origins() {
+    for (mode, environment, host) in [
+        ("local", "development", "localhost:18027"),
+        ("prod", "development", "localhost:18027"),
+        ("prod", "preview", "preview.vercel.app"),
+    ] {
+        let settings = temp_env::with_vars(
+            [
+                ("VERCEL_ENV", Some(environment)),
+                ("VERCEL_URL", Some(host)),
+            ],
+            || {
+                Settings::load(
+                    settings_builder()
+                        .set_override(
+                            "browser.additional_origins",
+                            vec!["https://custom.example.test"],
+                        )
+                        .unwrap(),
+                    mode,
+                )
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            settings.browser.additional_origins,
+            Vec::<String>::new(),
+            "{mode}: {environment}"
+        );
+        assert_eq!(settings.browser.origins().count(), 1);
+    }
 }

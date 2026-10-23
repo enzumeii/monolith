@@ -8,7 +8,7 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | --- | --- | --- |
 | API | Common `application.toml` → `application.{RUN_ENV}.toml`; RUN_ENV defaults to local | One existing typed reader; local scheduler.implementation selects vps/vercel, prod forces vercel before deserialization |
 | API listener | TOML; platform `PORT` in container server mode | Container listener uses the platform port |
-| API browser | `browser.public_origin`, `browser.insecure_local` in TOML | Exact origin; HTTPS unless explicitly using loopback HTTP |
+| API browser | `browser.public_origin`, default-empty `browser.additional_origins`, `browser.insecure_local` in TOML | CORS and cookie mutations share exact origins; additions require HTTPS; primary permits explicit loopback HTTP |
 | Database | `DATABASE_URL` from ignored `.env` or environment | Secret PostgreSQL connection URL |
 | Report storage | Common/local/prod client.s3 TOML; S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY from private environment | Private reports bucket, region ap-southeast-1; independent of database credentials; local setup supplies synthetic missing/empty values. No signed URL persistence. |
 | Signing key | `JWT_SECRET` from ignored `.env` or environment | Hex-encoded random key of at least 32 bytes |
@@ -16,7 +16,7 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | Shopify token | `SHOPIFY_ACCESS_TOKEN` from ignored API `.env` or environment | ConfigBuilder overrides client.shopify.access_token before one deserialization; standard file values apply when there is no environment override; Debug redacts credentials |
 | Backoffice | Public `application.toml`, `[api] base_url` | Default `http://localhost:3000/v1`; loaded once by typed `Settings`/`ApiConfig` |
 | Local browser | UI `http://localhost:8084`, API `http://localhost:3000` | Same hostname is required for exact origins and SameSite cookies |
-| Production browser | Trusted `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_URL` metadata | API derives the generated HTTPS public origin; preview/production require `*.vercel.app`; browser calls go directly to same-origin `/api/v1` |
+| Production browser | Trusted `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_URL` metadata | API derives the generated HTTPS primary alias; production also permits `https://convention.enzumeii.com` from TOML; preview/development clear additional origins; browser calls use same-origin `/api/v1` |
 | Vercel local browser | `VERCEL_ENV=development` and explicit loopback `VERCEL_URL` host:port | API permits HTTP/insecure cookies only for `localhost`, `127.0.0.1` or `[::1]` with a nonzero port |
 | Frontend environments | Selected local/prod file published as `application.toml` | Production uses `/api/v1`; build restores local source file, including after failure |
 | Frontend hosting | Static CSR HTML/WASM/assets under `/backoffice/` and `/user/` | Browser loads public settings before application calls and session restoration |

@@ -2,6 +2,7 @@
 implementation = "vercel"
 
 [browser]
-# Filled at startup from Vercel deployment metadata; /backoffice and /user share this origin.
+# Primary alias is filled at startup from Vercel deployment metadata.
 public_origin = ""
+additional_origins = ["https://convention.enzumeii.com"]
 insecure_local = false

@@ -659,6 +659,7 @@ max_email_bytes = 20971520
 {s3}
 [browser]
 public_origin = "http://127.0.0.1:8084"
+additional_origins = ["https://convention.enzumeii.com", "https://project.vercel.app"]
 insecure_local = true
 {shopify}
 {stripe}
