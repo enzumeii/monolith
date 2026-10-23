@@ -22,20 +22,18 @@ pub struct ExpectedPayment {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PaymentOutcome {
-    Pending { session_id: String },
-    ExpiredUnpaid { session_id: String },
+    Pending,
+    ExpiredUnpaid,
     VerifiedPaid(VerifiedPayment),
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct VerifiedPayment {
-    pub account_id: String,
     pub session_id: String,
     pub payment_intent_id: String,
     pub charge_id: String,
     pub amount: i64,
     pub currency: String,
-    pub livemode: bool,
     pub refunded: bool,
     pub amount_refunded: i64,
     pub disputed: bool,
@@ -66,14 +64,10 @@ pub async fn verify_payment(
     }
     match (&session.status, &session.payment_status) {
         (CheckoutStatus::Open | CheckoutStatus::Complete, CheckoutPaymentStatus::Unpaid) => {
-            return Ok(PaymentOutcome::Pending {
-                session_id: session.id,
-            });
+            return Ok(PaymentOutcome::Pending);
         }
         (CheckoutStatus::Expired, CheckoutPaymentStatus::Unpaid) => {
-            return Ok(PaymentOutcome::ExpiredUnpaid {
-                session_id: session.id,
-            });
+            return Ok(PaymentOutcome::ExpiredUnpaid);
         }
         (CheckoutStatus::Complete, CheckoutPaymentStatus::Paid) => {}
         _ => return Err(verification_error()),
@@ -117,13 +111,11 @@ pub async fn verify_payment(
         return Err(verification_error());
     }
     Ok(PaymentOutcome::VerifiedPaid(VerifiedPayment {
-        account_id: account.id,
         session_id: session.id,
         payment_intent_id: intent.id,
         charge_id: charge.id,
         amount: expected.amount,
         currency,
-        livemode: expected.livemode,
         refunded: charge.payment_status.refunded,
         amount_refunded: charge.amount_refunded,
         disputed: charge.disputed,

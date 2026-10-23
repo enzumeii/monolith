@@ -87,7 +87,6 @@ pub(crate) async fn webhook(
     settings: &CheckoutSettings,
     clients: &CheckoutClients<'_>,
     provider: CheckoutProvider,
-    _event_id: &str,
     resource_id: Option<&str>,
     correlation_id: Option<Uuid>,
 ) -> Result<(), AppError> {

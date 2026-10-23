@@ -1,5 +1,20 @@
 # Verification
 
+## PR #66 verifier-output cleanup — local verification (2026-10-24)
+
+Results bind to approved review-plan version 4 atop `32f2685349b1c632cbf4e6e0ce601c8d6765e04e`. The ignored `source-freeze-v4-tested.json` records 18 changed source/test/documentation hashes, unchanged during the full recipe; this verification entry is the subsequent documentation addition.
+
+| Check | Actual result |
+| --- | --- |
+| Strict API | Exit 0: 34 setup-helper tests, dprint, Rust formatting and strict all-target/E2E Clippy |
+| Full API recipe | Exit 0: 474 native tests (22.91s) and 211 real-HTTP tests (802.83s), zero failed or ignored; native database tests ran against owned Compose PostgreSQL |
+| Verifier boundaries | Removed unused payment context copies, pending/unpaid ID payloads, redundant webhook outputs and event-ID forwarding ending in an ignored argument. All 27 functions in the six payment/webhook/evidence/money modules remain used; PayPal evidence/money modules are unchanged. The unused Shopify Nodes Default impl is removed |
+| Input regressions | Signed Stripe tests reject missing/malformed event IDs, non-string API versions and malformed nested references. PayPal tests reject invalid event IDs before postback and preserve capture/order contradiction checks. Expanded existing HTTP callback matrix rejects missing/malformed event IDs for both gateways and malformed Stripe API versions without advancement |
+| Preserved behavior | Full suite retains trusted account/environment/money/correlation checks, refund/dispute guards, raw authentication, callback/recovery/fenced-state behavior and separate payment/Shopify completion. Generic provider DTOs, protocol serialization and HTTP contracts remain intact |
+| Static review and Postman | Independent diff/consumer review finds no actionable regressions. Local workspace lint: 84 entities, zero errors and one existing cron-preview FMT209 warning. Initial top-level lint invocation was unsupported; corrected workspace lint exited 0. No provider collection was executed |
+| Isolation and cleanup | Compose enz48, PostgreSQL15448/S315449, no dotenv discovery. Full recipe tears down owned services; independent audit confirms recorded database/S3 volumes, network, containers and API processes are absent |
+| Evidence and limits | Ignored v4-api-check.log, v4-api-full.log, v4-postman-lint.log and v4-cleanup-final.json retain results. No live provider payment/callback, merchant email, browser purchase or deployment claim. New published-source CI remains a separate delivery check |
+
 ## PR #66 checkout review comments — local verification (2026-10-24)
 
 Results bind to the approved review-plan version 2 and frozen source atop `239989608a418656437cbed0b08557a128f0be8a`. The ignored `.superpowers/review-comments/PR-66/source-freeze-full-tested.json` records all 33 changed implementation/test/documentation paths; hashes remained unchanged during the final full recipe. This verification entry is the only subsequent documentation addition.

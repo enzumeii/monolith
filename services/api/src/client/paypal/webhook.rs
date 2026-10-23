@@ -11,10 +11,8 @@ const MAX_HEADER_BYTES: usize = 4096;
 /// Authenticated notification identity; this is never proof of collected payment.
 #[derive(Debug, PartialEq, Eq)]
 pub struct VerifiedEvent {
-    pub id: String,
     pub event_type: WebhookEventType,
     pub order_id: Option<String>,
-    pub capture_id: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -90,7 +88,7 @@ fn validate_request(request: &VerifyWebhookSignatureRequest) -> Result<(), Webho
 }
 
 fn parse_event(event: &Value) -> Result<VerifiedEvent, WebhookError> {
-    let id = required_id(event.get("id"))?;
+    required_id(event.get("id"))?;
     let event_type = WebhookEventType::from(required_id(event.get("event_type"))?);
     let resource = event
         .get("resource")
@@ -135,23 +133,14 @@ fn parse_event(event: &Value) -> Result<VerifiedEvent, WebhookError> {
     {
         return Err(WebhookError::InvalidEvent);
     }
-    let capture_id = if matches!(event_type, WebhookEventType::CaptureRefunded) {
-        related_capture
-    } else if capture_event {
-        resource_id.clone()
-    } else {
-        None
-    };
     let order_id = if order_event {
         resource_id
     } else {
         related_order
     };
     Ok(VerifiedEvent {
-        id,
         event_type,
         order_id,
-        capture_id,
     })
 }
 

@@ -11,12 +11,10 @@ const MAX_TOLERANCE: Duration = Duration::from_mins(15);
 /// Authenticated snapshot event data; authentication alone never establishes payment success.
 #[derive(Debug, PartialEq, Eq)]
 pub struct VerifiedEvent {
-    pub id: String,
     pub event_type: EventType,
     pub livemode: bool,
     pub account: Option<String>,
-    pub api_version: Option<String>,
-    pub object: EventObject,
+    pub object_id: String,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -32,17 +30,17 @@ pub enum EventType {
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
-pub struct EventObject {
-    pub id: String,
+struct EventObject {
+    id: String,
     #[serde(rename = "object")]
-    pub object_type: String,
-    pub payment_intent: Option<EventReference>,
-    pub latest_charge: Option<EventReference>,
+    object_type: String,
+    payment_intent: Option<EventReference>,
+    latest_charge: Option<EventReference>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
-pub enum EventReference {
+enum EventReference {
     Id(String),
     Expanded { id: String },
 }
@@ -70,7 +68,8 @@ struct EventEnvelope {
     event_type: EventType,
     livemode: bool,
     account: Option<String>,
-    api_version: Option<String>,
+    #[serde(rename = "api_version")]
+    _api_version: Option<String>,
     data: EventData,
 }
 
@@ -83,7 +82,8 @@ struct EventData {
 ///
 /// `now` is Unix time in seconds. Tolerance must be between one and 900 seconds;
 /// 300 seconds is the usual caller choice. This does not prevent replay within
-/// that window: a future ingestion consumer must durably deduplicate event IDs.
+/// that window: callers must reconcile authoritative payment state and guard
+/// mutations against repeated delivery.
 pub fn verify_event(
     raw: &[u8],
     signature_header: &str,
@@ -123,12 +123,10 @@ pub fn verify_event(
         serde_json::from_slice(raw).map_err(|_| WebhookError::InvalidEvent)?;
     validate_event(&event)?;
     Ok(VerifiedEvent {
-        id: event.id,
         event_type: event.event_type,
         livemode: event.livemode,
         account: event.account,
-        api_version: event.api_version,
-        object: event.data.object,
+        object_id: event.data.object.id,
     })
 }
 
@@ -167,7 +165,7 @@ impl From<String> for EventType {
 
 impl EventReference {
     #[must_use]
-    pub fn id(&self) -> &str {
+    fn id(&self) -> &str {
         match self {
             Self::Id(id) | Self::Expanded { id } => id,
         }

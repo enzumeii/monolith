@@ -21,8 +21,8 @@ pub struct ExpectedPayment {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PaymentOutcome {
-    Pending { order_id: String },
-    TerminalUnpaid { order_id: String },
+    Pending,
+    TerminalUnpaid,
     VerifiedPaid(VerifiedPayment),
 }
 
@@ -30,10 +30,6 @@ pub enum PaymentOutcome {
 pub struct VerifiedPayment {
     pub order_id: String,
     pub capture_id: String,
-    pub merchant_id: String,
-    pub api_origin: String,
-    pub reference_id: String,
-    pub custom_id: String,
     pub amount: i64,
     pub currency: String,
 }
@@ -58,10 +54,8 @@ pub async fn verify_payment(
             OrderStatus::Created
             | OrderStatus::Saved
             | OrderStatus::Approved
-            | OrderStatus::PayerActionRequired => {
-                Ok(PaymentOutcome::Pending { order_id: order.id })
-            }
-            OrderStatus::Voided => Ok(PaymentOutcome::TerminalUnpaid { order_id: order.id }),
+            | OrderStatus::PayerActionRequired => Ok(PaymentOutcome::Pending),
+            OrderStatus::Voided => Ok(PaymentOutcome::TerminalUnpaid),
             _ => Err(evidence::mismatch()),
         };
     }
@@ -72,9 +66,9 @@ pub async fn verify_payment(
     let capture = client.get_capture(&embedded.id).await?;
     evidence::validate_capture_binding(expected, embedded, &capture)?;
     match capture.status {
-        CaptureStatus::Pending => Ok(PaymentOutcome::Pending { order_id: order.id }),
+        CaptureStatus::Pending => Ok(PaymentOutcome::Pending),
         CaptureStatus::Denied | CaptureStatus::Declined | CaptureStatus::Failed => {
-            Ok(PaymentOutcome::TerminalUnpaid { order_id: order.id })
+            Ok(PaymentOutcome::TerminalUnpaid)
         }
         CaptureStatus::Completed => {
             if embedded.final_capture != Some(true) || capture.final_capture != Some(true) {
@@ -83,10 +77,6 @@ pub async fn verify_payment(
             Ok(PaymentOutcome::VerifiedPaid(VerifiedPayment {
                 order_id: order.id,
                 capture_id: capture.id,
-                merchant_id: expected.merchant_id.clone(),
-                api_origin: client.api_origin(),
-                reference_id: expected.reference_id.clone(),
-                custom_id: expected.custom_id.clone(),
                 amount: expected.amount,
                 currency: expected.currency.clone(),
             }))

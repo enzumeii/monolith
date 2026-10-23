@@ -47,13 +47,11 @@ async fn verifies_paid_from_authoritative_objects_and_returns_real_references() 
     assert_eq!(
         outcome,
         PaymentOutcome::VerifiedPaid(VerifiedPayment {
-            account_id: "acct_real".into(),
             session_id: "cs_test_real".into(),
             payment_intent_id: "pi_real".into(),
             charge_id: "ch_real".into(),
             amount: 1250,
             currency: "thb".into(),
-            livemode: false,
             refunded: false,
             amount_refunded: 0,
             disputed: false
@@ -166,13 +164,9 @@ async fn pending_and_expired_unpaid_do_not_require_intent_or_charge() {
             .await
             .unwrap();
         let want = if expired {
-            PaymentOutcome::ExpiredUnpaid {
-                session_id: "cs_test_real".into(),
-            }
+            PaymentOutcome::ExpiredUnpaid
         } else {
-            PaymentOutcome::Pending {
-                session_id: "cs_test_real".into(),
-            }
+            PaymentOutcome::Pending
         };
         assert_eq!(result, want);
         assert_eq!(fixture.requests().len(), 2);

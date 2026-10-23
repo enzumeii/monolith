@@ -21,7 +21,6 @@ pub(crate) struct StripeAuthentication<'a> {
 
 pub(crate) struct Notification {
     pub provider: CheckoutProvider,
-    pub event_id: String,
     pub resource_id: Option<String>,
     pub correlation_id: Option<Uuid>,
 }
@@ -58,12 +57,10 @@ pub(crate) fn stripe(
         .and_then(|value| Uuid::parse_str(value).ok());
     Ok(Some(Notification {
         provider: CheckoutProvider::Stripe,
-        event_id: event.id,
         resource_id: event
-            .object
-            .id
+            .object_id
             .starts_with("cs_")
-            .then_some(event.object.id),
+            .then_some(event.object_id),
         correlation_id,
     }))
 }
@@ -89,7 +86,6 @@ pub(crate) async fn paypal(
         .and_then(|value| Uuid::parse_str(value).ok());
     Ok(Some(Notification {
         provider: CheckoutProvider::Paypal,
-        event_id: event.id,
         resource_id: event.order_id,
         correlation_id,
     }))

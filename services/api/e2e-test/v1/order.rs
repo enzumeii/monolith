@@ -716,13 +716,37 @@ async fn checkout_webhook_rejects_invalid_headers_payload_account_and_provider_w
     wrong_mode["livemode"] = json!(true);
     let mut malformed = event.clone();
     malformed.as_object_mut().unwrap().remove("data");
-    for event in [wrong_account, wrong_mode, malformed] {
+    let mut missing_id = event.clone();
+    missing_id.as_object_mut().unwrap().remove("id");
+    let mut malformed_id = event.clone();
+    malformed_id["id"] = json!("");
+    let mut malformed_version = event.clone();
+    malformed_version["api_version"] = json!(42);
+    for event in [
+        wrong_account,
+        wrong_mode,
+        malformed,
+        missing_id,
+        malformed_id,
+        malformed_version,
+    ] {
         assert_eq!(
             client
                 .send(stripe_webhook(&event, chrono::Utc::now().timestamp()))
                 .await
                 .unwrap()
                 .status(),
+            400
+        );
+    }
+    let paypal = upstream.paypal_event(&id, "event_fixture");
+    let mut missing_paypal_id = paypal.clone();
+    missing_paypal_id.as_object_mut().unwrap().remove("id");
+    let mut malformed_paypal_id = paypal;
+    malformed_paypal_id["id"] = json!(42);
+    for event in [missing_paypal_id, malformed_paypal_id] {
+        assert_eq!(
+            client.send(paypal_webhook(&event)).await.unwrap().status(),
             400
         );
     }

@@ -191,10 +191,10 @@ async fn advance_stripe(
         .await
         .map_err(|error| upstream(error))?
     {
-        stripe::payment::PaymentOutcome::Pending { .. } => {
+        stripe::payment::PaymentOutcome::Pending => {
             return pending(pool, checkout, token).await;
         }
-        stripe::payment::PaymentOutcome::ExpiredUnpaid { .. } => {
+        stripe::payment::PaymentOutcome::ExpiredUnpaid => {
             checkout.payment_state = PaymentState::Unpaid;
             return repo::save(pool, checkout, token).await;
         }
@@ -231,7 +231,7 @@ async fn advance_paypal(
     let mut outcome = paypal::payment::verify_payment(client, &expected)
         .await
         .map_err(|error| upstream(error))?;
-    if matches!(outcome, paypal::payment::PaymentOutcome::Pending { .. }) {
+    if matches!(outcome, paypal::payment::PaymentOutcome::Pending) {
         let order = client
             .get_order(&expected.order_id)
             .await
@@ -260,10 +260,10 @@ async fn advance_paypal(
         }
     }
     match outcome {
-        paypal::payment::PaymentOutcome::Pending { .. } => {
+        paypal::payment::PaymentOutcome::Pending => {
             return pending(pool, checkout, token).await;
         }
-        paypal::payment::PaymentOutcome::TerminalUnpaid { .. } => {
+        paypal::payment::PaymentOutcome::TerminalUnpaid => {
             checkout.payment_state = PaymentState::Unpaid;
             return repo::save(pool, checkout, token).await;
         }

@@ -105,7 +105,6 @@ pub(crate) async fn webhook(
         config,
         &super::dependencies::checkout_clients(&state)?,
         notification.provider,
-        &notification.event_id,
         notification.resource_id.as_deref(),
         notification.correlation_id,
     )

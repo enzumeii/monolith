@@ -76,7 +76,6 @@ fn selected_events_carry_checkout_identity_without_binding_payment_intent_as_ses
             "data":{"object":{"id":object_id,"object":object_type,"metadata":{"checkout_id":id.to_string()}}}
         })).unwrap().unwrap();
         assert_eq!(notification.provider, CheckoutProvider::Stripe);
-        assert_eq!(notification.event_id, "evt_fixture");
         assert_eq!(notification.resource_id.as_deref(), expected_resource);
         assert_eq!(notification.correlation_id, Some(id));
     }

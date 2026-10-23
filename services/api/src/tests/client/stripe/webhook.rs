@@ -10,16 +10,10 @@ const NOW: i64 = 1_700_000_000;
 fn authenticates_independently_computed_signature() {
     let event =
         verify_event(RAW, &header(), SECRET, NOW, Duration::from_mins(5)).expect("valid event");
-    assert_eq!(event.id, "evt_test");
     assert_eq!(event.event_type, EventType::CheckoutSessionCompleted);
     assert!(!event.livemode);
     assert_eq!(event.account.as_deref(), Some("acct_test"));
-    assert_eq!(event.object.id, "cs_test");
-    assert_eq!(event.object.object_type, "checkout.session");
-    assert_eq!(
-        event.object.payment_intent.expect("reference").id(),
-        "pi_test"
-    );
+    assert_eq!(event.object_id, "cs_test");
 }
 
 #[test]
@@ -167,14 +161,53 @@ fn preserves_unknown_event_identity_and_expanded_object_references() {
         EventType::Other("future.payment.signal".into())
     );
     assert_eq!(event.event_type.as_str(), "future.payment.signal");
-    assert_eq!(event.api_version.as_deref(), Some("2026-09-30.clover"));
     assert_eq!(event.account, None);
     assert!(event.livemode);
-    assert_eq!(
-        event.object.payment_intent.expect("expanded").id(),
-        "pi_expanded"
-    );
-    assert_eq!(event.object.latest_charge.expect("charge").id(), "ch_real");
+    assert_eq!(event.object_id, "obj_future");
+}
+
+#[test]
+fn authenticated_events_preserve_identity_version_and_reference_shape_validation() {
+    use serde_json::{Value, json};
+
+    let original: Value = serde_json::from_slice(RAW).expect("fixture JSON");
+    let mut payloads = Vec::new();
+    let mut missing_id = original.clone();
+    missing_id
+        .as_object_mut()
+        .expect("event object")
+        .remove("id");
+    payloads.push(missing_id);
+    for id in [
+        Value::Null,
+        json!(7),
+        json!("evt/invalid"),
+        json!("a".repeat(256)),
+    ] {
+        let mut payload = original.clone();
+        payload["id"] = id;
+        payloads.push(payload);
+    }
+    for version in [json!(7), json!(false), json!({}), json!([])] {
+        let mut payload = original.clone();
+        payload["api_version"] = version;
+        payloads.push(payload);
+    }
+    for field in ["payment_intent", "latest_charge"] {
+        for reference in [json!("pi/invalid"), json!({"id":"ch/invalid"}), json!({})] {
+            let mut payload = original.clone();
+            payload["data"]["object"][field] = reference;
+            payloads.push(payload);
+        }
+    }
+    for payload in payloads {
+        let raw = serde_json::to_vec(&payload).expect("encode fixture");
+        assert_eq!(
+            verify_event(&raw, &sign(&raw), SECRET, NOW, Duration::from_mins(5)),
+            Err(WebhookError::InvalidEvent),
+            "{payload}"
+        );
+    }
 }
 
 #[test]

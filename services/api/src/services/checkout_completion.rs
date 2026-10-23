@@ -72,10 +72,10 @@ where
                 .await
                 .map_err(|error| upstream(error))?
             {
-                stripe::payment::PaymentOutcome::Pending { .. } => {
+                stripe::payment::PaymentOutcome::Pending => {
                     return Ok(CompletionOutcome::Pending);
                 }
-                stripe::payment::PaymentOutcome::ExpiredUnpaid { .. } => {
+                stripe::payment::PaymentOutcome::ExpiredUnpaid => {
                     return Ok(CompletionOutcome::Unpaid);
                 }
                 stripe::payment::PaymentOutcome::VerifiedPaid(paid) => {
@@ -100,10 +100,10 @@ where
                 .await
                 .map_err(|error| upstream(error))?
             {
-                paypal::payment::PaymentOutcome::Pending { .. } => {
+                paypal::payment::PaymentOutcome::Pending => {
                     return Ok(CompletionOutcome::Pending);
                 }
-                paypal::payment::PaymentOutcome::TerminalUnpaid { .. } => {
+                paypal::payment::PaymentOutcome::TerminalUnpaid => {
                     return Ok(CompletionOutcome::Unpaid);
                 }
                 paypal::payment::PaymentOutcome::VerifiedPaid(paid) => (

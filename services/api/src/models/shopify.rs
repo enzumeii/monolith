@@ -11,11 +11,6 @@ pub use domain::dto::PageInfo;
 pub struct Nodes<T> {
     pub nodes: Vec<T>,
 }
-impl<T> Default for Nodes<T> {
-    fn default() -> Self {
-        Self { nodes: Vec::new() }
-    }
-}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Connection<T> {
