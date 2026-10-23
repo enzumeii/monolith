@@ -266,3 +266,89 @@ async fn saved_logo_has_replacement_action_without_manual_refresh_and_preserves_
     .await;
     assert_eq!(requests.len(), 1);
 }
+
+#[tokio::test]
+async fn metadata_save_validates_retries_and_preserves_selected_logo() {
+    let saved = RECORD
+        .replace("Loaded event", "Saved event")
+        .replace("# Event", "# Updated description");
+    let ((), requests) = crate::api::tests::metadata_responses(
+        &[
+            (200, MEMBERSHIPS),
+            (502, r#"{"error":"Metadata unavailable"}"#),
+            (200, &saved),
+        ],
+        async {
+            dioxus::html::set_event_converter(Box::new(FormEventConverter));
+            let settings = consume_context::<crate::config::Settings>();
+            let mut dom = VirtualDom::new(editor).with_root_context(settings);
+            dom.in_scope(ScopeId::ROOT, || {
+                *session::SESSION.write() = Some(session::Session {
+                    admin_id: 1,
+                    username: "fixture".into(),
+                    role: domain::AdminRole::Admin,
+                    expires_at: u64::MAX,
+                });
+            });
+            dom.rebuild_in_place();
+            settled(&mut dom).await;
+            choose(
+                &dom,
+                crate::test_events::element_id(&dom, "convention-logo-file"),
+            );
+            settled(&mut dom).await;
+            let name = crate::test_events::element_id(&dom, "convention-name");
+            form_event(&dom, name, "input", " ");
+            settled(&mut dom).await;
+            form_event(&dom, name, "submit", "");
+            settled(&mut dom).await;
+            assert!(dioxus_ssr::render(&dom).contains("Enter a convention name"));
+
+            form_event(&dom, name, "input", "Saved event");
+            form_event(
+                &dom,
+                crate::test_events::element_id(&dom, "convention-markdown"),
+                "input",
+                "# Updated description",
+            );
+            settled(&mut dom).await;
+            form_event(&dom, name, "submit", "");
+            settled(&mut dom).await;
+            let html = dioxus_ssr::render(&dom);
+            assert!(html.contains("Metadata unavailable"), "{html}");
+            assert!(html.contains("Loaded event</h2>"), "{html}");
+            assert!(html.contains("Saved event"));
+            assert!(html.contains("# Updated description"));
+            assert!(html.contains("Selected: logo.png (not yet saved)"));
+
+            form_event(&dom, name, "submit", "");
+            settled(&mut dom).await;
+            let html = dioxus_ssr::render(&dom);
+            assert!(html.contains("Metadata saved"), "{html}");
+            assert!(html.contains("Saved event</h2>"), "{html}");
+            assert!(!html.contains("Metadata unavailable"));
+            assert!(html.contains("# Updated description"));
+            assert!(html.contains("Selected: logo.png (not yet saved)"));
+            assert!(html.contains("data:image/png;base64,bG9nbw=="));
+            form_event(&dom, name, "submit", "");
+            settled(&mut dom).await;
+            assert!(dioxus_ssr::render(&dom).contains("Metadata saved"));
+        },
+    )
+    .await;
+    assert_eq!(
+        requests.len(),
+        3,
+        "invalid and unchanged submissions must not save"
+    );
+    for request in &requests[1..] {
+        assert!(request.starts_with(
+            "PATCH /v1/admin/conventions/da41d46b-f1ca-4a76-a774-62c269d28731 HTTP/1.1\r\n"
+        ));
+        let (_, body) = request.split_once("\r\n\r\n").expect("HTTP body");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(body).expect("PATCH JSON"),
+            serde_json::json!({"name": "Saved event", "description_markdown": "# Updated description"})
+        );
+    }
+}
