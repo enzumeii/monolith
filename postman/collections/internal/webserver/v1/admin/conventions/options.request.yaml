@@ -1,0 +1,10 @@
+$kind: http-request
+description: "Admin capability options. 200 returns currencies with code and payment_methods; empty currencies disables creation. Unknown parameters/body 400; missing/invalid/expired credentials 401. No database or provider business calls."
+url: "{{server}}/v1/admin/conventions/options"
+method: GET
+order: 7500
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Options returned", () => { pm.response.to.have.status(200); pm.expect(pm.response.json().currencies).to.be.an("array"); });
+    language: text/javascript

@@ -1,0 +1,9 @@
+$kind: http-request
+description: "Private convention object HEAD via existing S3 operation; use synthetic owned IDs. HEAD returns image/png or image/jpeg and bounded content-length; GET returns original bytes. 404 absent; provider403/5xx. API validates metadata and full image decoding before public delivery."
+url: "{{s3_endpoint}}/reports/conventions/logos/{{convention_id}}/{{convention_logo_asset_id}}"
+method: HEAD
+order: 5000
+auth:
+  type: inherit
+  credentials:
+    id: 50da802f-f8d1-4fe8-8ac7-f8c61c3962ae

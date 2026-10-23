@@ -1,86 +1,8 @@
-@font-face {
-    font-family: "Josefin Sans";
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-    src: url("https://enzumeii.com/cdn/fonts/josefin_sans/josefinsans_n4.70f7efd699799949e6d9f99bc20843a2c86a2e0f.woff2") format("woff2");
-}
-
-@font-face {
-    font-family: "Josefin Sans";
-    font-style: normal;
-    font-weight: 700;
-    font-display: swap;
-    src: url("https://enzumeii.com/cdn/fonts/josefin_sans/josefinsans_n7.4edc746dce14b53e39df223fba72d5f37c3d525d.woff2") format("woff2");
-}
-
-:root {
-    color-scheme: light dark;
-    --bg: #fff8ea;
-    --panel: #fffdf6;
-    --panel-border: #e5b6a0;
-    --text: #c12521;
-    --muted: #99433a;
-    --primary: #ff984e;
-    --primary-hover: #ffd965;
-    --primary-text: #601a16;
-    --accent: #ffd965;
-    --heading: #e13e39;
-    --danger: #c12521;
-    --danger-hover: #861814;
-    --error-text: #861814;
-    --ghost-border: #c12521;
-    --hover-bg: rgba(255, 152, 78, 0.16);
-    --error-bg: #fff0e8;
-    --modal-overlay-bg: rgba(96, 26, 22, 0.55);
-    --table-heading-bg: rgba(255, 217, 101, 0.35);
-    --table-row-hover-bg: rgba(255, 152, 78, 0.08);
-}
-
-@media (prefers-color-scheme: dark) {
-    :root {
-        color-scheme: dark;
-        --bg: #1d2228;
-        --panel: #272d34;
-        --panel-border: #46505b;
-        --text: #edf2f6;
-        --muted: #b6c0ca;
-        --primary: #ff9d4d;
-        --primary-hover: #ffb86f;
-        --primary-text: #3c1c08;
-        --accent: #343b43;
-        --heading: #ff9d4d;
-        --danger: #bd3937;
-        --danger-hover: #ad302e;
-        --error-text: #ff938c;
-        --ghost-border: #ff9d4d;
-        --hover-bg: rgba(255, 157, 77, 0.18);
-        --error-bg: #3b2424;
-        --modal-overlay-bg: rgba(4, 8, 12, 0.72);
-        --table-heading-bg: rgba(255, 157, 77, 0.18);
-        --table-row-hover-bg: rgba(255, 157, 77, 0.1);
-    }
-}
-
-* {
-    box-sizing: border-box;
-}
-
-body {
-    margin: 0;
-    font-family: "Josefin Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-    line-height: 1.6;
-    letter-spacing: 0.025em;
-    background: var(--bg);
-    color: var(--text);
-}
-
-a {
-    color: inherit;
-    text-decoration: none;
-}
-
 /* ---- Top navigation ---- */
+button.logout {
+    border-color: var(--ghost-border);
+}
+
 .topbar {
     display: flex;
     align-items: center;
@@ -126,13 +48,6 @@ a {
     font-size: 0.9rem;
 }
 
-/* ---- Pages ---- */
-.page {
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 1.5rem 1.25rem;
-}
-
 .brand-link {
     display: inline-flex;
     align-items: center;
@@ -156,15 +71,6 @@ a {
     display: block;
     width: min(20rem, 75vw);
     height: auto;
-}
-
-.meta {
-    color: var(--muted);
-}
-
-.hint {
-    color: var(--muted);
-    font-size: 0.85rem;
 }
 
 /* ---- Login ---- */
@@ -193,99 +99,6 @@ a {
     margin: 0 0 0.75rem;
     font-size: 1.6rem;
     color: var(--heading);
-}
-
-/* ---- Panels & forms ---- */
-.panel {
-    background: var(--panel);
-    border: 1px solid var(--panel-border);
-    border-radius: 0;
-    padding: 1.25rem;
-    margin: 1rem 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    max-width: 420px;
-}
-
-label {
-    font-size: 0.85rem;
-    color: var(--muted);
-    margin-top: 0.5rem;
-}
-
-input,
-select {
-    background: var(--bg);
-    border: 1px solid var(--panel-border);
-    border-radius: 0;
-    color: var(--text);
-    padding: 0.5rem 0.65rem;
-    font: inherit;
-    font-size: 1rem;
-    min-height: 2.75rem;
-    width: 100%;
-}
-
-input:focus,
-select:focus {
-    outline: 2px solid var(--heading);
-    outline-offset: 2px;
-}
-
-/* ---- Buttons ---- */
-button {
-    cursor: pointer;
-    border-radius: 0;
-    border: 1px solid transparent;
-    padding: 0.5rem 0.9rem;
-    font: inherit;
-    font-size: 0.95rem;
-    line-height: 1.3;
-    min-height: 2.75rem;
-    transition: background-color 120ms ease, border-color 120ms ease;
-    background: none;
-    color: var(--text);
-}
-
-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-button.primary {
-    background: var(--primary);
-    color: var(--primary-text);
-    border-color: var(--primary);
-    font-weight: 700;
-    margin-top: 0.75rem;
-}
-
-button.primary:hover:not(:disabled) {
-    background: var(--primary-hover);
-    border-color: var(--primary-hover);
-}
-
-button.danger {
-    background: var(--danger);
-    color: #fff;
-}
-
-button.danger:hover:not(:disabled) {
-    background: var(--danger-hover);
-}
-
-button.ghost {
-    border-color: var(--ghost-border);
-    color: var(--text);
-}
-
-button.ghost:hover:not(:disabled) {
-    background: var(--hover-bg);
-}
-
-button.logout {
-    border-color: var(--ghost-border);
 }
 
 /* ---- Toolbar / table / pager ---- */
@@ -328,16 +141,6 @@ button.logout {
     align-items: center;
     gap: 0.75rem;
     margin-top: 1rem;
-}
-
-/* ---- Feedback ---- */
-.error {
-    color: var(--error-text);
-    background: var(--error-bg);
-    border: 1px solid var(--heading);
-    border-radius: 0;
-    padding: 0.5rem 0.7rem;
-    font-size: 0.88rem;
 }
 
 /* ---- Confirm dialog ---- */
@@ -394,12 +197,6 @@ button.logout:hover:not(:disabled) {
     background: var(--bg);
 }
 
-button:focus-visible,
-a:focus-visible {
-    outline: 2px solid var(--heading);
-    outline-offset: 3px;
-}
-
 .admins-table thead {
     background: var(--table-heading-bg);
 }
@@ -454,11 +251,6 @@ a:focus-visible {
     }
 }
 
-@media (prefers-reduced-motion: reduce) {
-    button {
-        transition: none;
-    }
-}
 
 .reports-page { max-width: 1440px; min-width: 0; }
 .orders-page { min-width: 0; }
@@ -475,7 +267,6 @@ a:focus-visible {
 .report-pager select { width: auto; }
 .report-skeleton { overflow: hidden; }
 .report-skeleton-row { height: 2.75rem; margin: 0.5rem 0; background: linear-gradient(90deg, var(--panel-border) 25%, var(--panel) 50%, var(--panel-border) 75%); background-size: 200% 100%; animation: report-shimmer 1.4s linear infinite; }
-.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 @keyframes report-shimmer { to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .report-skeleton-row { animation: none; } }
 

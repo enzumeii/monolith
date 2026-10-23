@@ -39,6 +39,8 @@ rand = "0.10.2"
 deunicode = "1.6.2"
 kakasi = "0.1.0"
 
+image = { version = "0.25.9", default-features = false, features = ["png", "jpeg"] }
+
 [dev-dependencies]
 zip = { version = "9.0", default-features = false, features = ["deflate"] }
 reqwest.workspace = true

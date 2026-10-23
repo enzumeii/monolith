@@ -1,3 +1,4 @@
+pub(crate) mod logo;
 pub(crate) mod money;
 use crate::{
     client::shopify::ShopifyClient,

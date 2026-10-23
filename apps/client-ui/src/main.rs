@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use ui::{COMMON_STYLESHEET, ErrorMessage, LoadingMessage};
 
 mod config;
 
@@ -10,6 +11,7 @@ fn main() {
 fn App() -> Element {
     let mut settings = use_resource(config::Settings::new);
     rsx! {
+        document::Stylesheet { href: COMMON_STYLESHEET }
         Configuration {
             state: settings.read().clone(),
             retry: move |()| { settings.restart(); },
@@ -22,10 +24,10 @@ fn Configuration(state: Option<Result<config::Settings, String>>, retry: EventHa
     match state {
         Some(Ok(settings)) => rsx! { Application { settings } },
         Some(Err(message)) => rsx! {
-            p { role: "alert", "{message}" }
+            ErrorMessage { message: Some(message) }
             button { onclick: move |_| retry.call(()), "Retry" }
         },
-        None => rsx! { p { "Loading configuration…" } },
+        None => rsx! { LoadingMessage { message: "Loading configuration…" } },
     }
 }
 

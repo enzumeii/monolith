@@ -8,6 +8,16 @@ use axum::Router;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
+            "/conventions/options",
+            axum::routing::get(crate::handlers::conventions::options),
+        )
+        .route(
+            "/conventions/{id}/logo",
+            axum::routing::put(crate::handlers::conventions::upload_logo).layer(
+                axum::extract::DefaultBodyLimit::max(crate::storage::convention_logo::MAX_BYTES),
+            ),
+        )
+        .route(
             "/conventions",
             axum::routing::get(crate::handlers::conventions::list)
                 .post(crate::handlers::conventions::create),

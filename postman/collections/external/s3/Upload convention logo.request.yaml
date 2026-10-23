@@ -1,0 +1,20 @@
+$kind: http-request
+description: "Private PNG upload via the same generic S3 PUT operation. Use owned synthetic IDs and the synthetic postman/fixtures/convention-logo.png. The application generates keys under conventions/logos/{convention_id}/{asset_id}; browser admins use the authenticated application endpoint instead. Success200; provider errors403/5xx."
+url: "{{s3_endpoint}}/reports/conventions/logos/{{convention_id}}/{{convention_logo_asset_id}}"
+method: PUT
+order: 4000
+auth:
+  type: inherit
+  credentials:
+    id: 50da802f-f8d1-4fe8-8ac7-f8c61c3962ae
+headers:
+  Content-Type: image/png
+body:
+  type: file
+  content:
+    src: postman/fixtures/convention-logo.png
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test("Stored", () => pm.response.to.have.status(200));
+    language: text/javascript

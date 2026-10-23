@@ -10,6 +10,7 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | API listener | TOML; platform `PORT` in container server mode | Container listener uses the platform port |
 | API browser | Required nonempty `browser.allowed_origins` and `browser.insecure_local` in TOML | CORS and cookie mutations share exact origin membership; HTTPS is allowed; explicit loopback HTTP requires insecure_local |
 | Database | `DATABASE_URL` from ignored `.env` or environment | Secret PostgreSQL connection URL |
+| Convention logos | Existing private S3 client and bucket; no public bucket policy | Bounded admin PNG/JPEG upload; database stores a durable `/api/v1/conventions/{id}/logo/{asset_id}` reference; public API serves only the current logo |
 | Report storage | Common/local/prod client.s3 TOML; S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY from private environment | Private reports bucket, region ap-southeast-1; independent of database credentials; local setup supplies synthetic missing/empty values. No signed URL persistence. |
 | Signing key | `JWT_SECRET` from ignored `.env` or environment | Hex-encoded random key of at least 32 bytes |
 | Shopify URL | `client.shopify.admin_api_url` in `services/api/application.toml` | Full `https://<shop>.myshopify.com/admin/api/2026-10/graphql.json`; local overlay does not replace it |
@@ -53,6 +54,7 @@ Run recipes from the package directory.
 | API | `just setup`, `just run`, `just test`, `just check`, `just fix`, `just db-down` |
 | Backoffice | `just setup`, `just serve`, `just build`, `just test`, `just check` |
 | Domain | `just setup`, `just test`, `just check`; library has no server |
+| Shared UI | `just check`, `just test`, `just test --coverage`; shared library with no server |
 | Report generator | `just check`, `just test`; shared library with no setup recipe or server |
 | Client UI | `just setup`, `just run`, `just test`, `just check`; existing CSR browser shell |
 | Workspace formatting | `cargo fmt --all -- --check` from the repository root |
@@ -208,7 +210,7 @@ Report queries require product, inventory, location and order access; reading un
 | Module `just test --coverage` | Native tests with an isolated report at repository `target/coverage/<crate>/lcov.info` |
 | API coverage | Includes TCP API child-process execution; graceful termination flushes profiles before bounded forced cleanup |
 | API test isolation | Optional E2E_COMPOSE_PROJECT, E2E_POSTGRES_PORT and E2E_DATABASE_URL allow independent worktrees; defaults remain e2e/5433; E2E_S3_PORT defaults5434 and dedicated synthetic E2E_S3_ACCESS_KEY_ID/E2E_S3_SECRET_ACCESS_KEY isolate storage credentials |
-| Coverage CI | The existing check job runs report-generator check/test and the four instrumented module suites sequentially, retains four scoped reports, and uploads them together once to Codecov |
+| Coverage CI | The existing check job runs report-generator check/test and the five instrumented module suites sequentially, retains five scoped reports, and uploads them together once to Codecov |
 | CODECOV_TOKEN | Add the Codecov repository upload token in GitHub Actions secrets; unavailable secrets skip upload with a visible notice and retain artifacts |
 | Root `just setup` / `just check` | Node 24+; setup installs the pinned Conventional Commits reference parser; check runs Node tests, actionlint 1.7.12 and shellcheck |
 | Coverage build directory | Local runs isolate builds per crate; CI sets CARGO_LLVM_COV_TARGET_DIR to target and reuses builds sequentially |

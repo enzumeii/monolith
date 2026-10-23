@@ -1633,3 +1633,6 @@ async fn conventions_reject_extra_query_and_delete_payload_without_effects() {
         .unwrap();
     assert_eq!(response.status(), 204);
 }
+
+#[path = "conventions/logo.rs"]
+mod logo;

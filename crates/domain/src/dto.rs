@@ -2,10 +2,10 @@ pub mod common;
 pub use common::PatchField;
 pub mod conventions;
 pub use conventions::{
-    ConventionDTO, ConventionListResponse, ConventionPaymentMethod, ConventionVariantDTO,
-    ConventionVariantInput, ConventionVariantListResponse, ConventionVariantsResponse,
-    CreateConvention, ListConventionVariantsQuery, ListConventionsQuery, PatchConvention,
-    ReplaceConventionVariants,
+    ConventionCurrencyOption, ConventionDTO, ConventionListResponse, ConventionOptionsResponse,
+    ConventionPaymentMethod, ConventionVariantDTO, ConventionVariantInput,
+    ConventionVariantListResponse, ConventionVariantsResponse, CreateConvention,
+    ListConventionVariantsQuery, ListConventionsQuery, PatchConvention, ReplaceConventionVariants,
 };
 pub mod accounting;
 pub mod admin;

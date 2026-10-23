@@ -148,6 +148,11 @@ pub(crate) fn merge(
     value: PatchConvention,
     current: &Convention,
 ) -> Result<ConventionInput, AppError> {
+    let preserve_managed = value.logo_url.is_missing()
+        && current
+            .logo_url
+            .as_deref()
+            .is_some_and(|url| crate::storage::convention_logo::is_managed_url(current.id, url));
     let logo_url = match value.logo_url {
         PatchField::Missing => current.logo_url.clone(),
         PatchField::Clear => None,
@@ -157,7 +162,11 @@ pub(crate) fn merge(
     let mut merged = create(CreateConvention {
         slug: current.slug.clone(),
         name: field(value.name, current.name.clone())?,
-        logo_url,
+        logo_url: if preserve_managed {
+            None
+        } else {
+            logo_url.clone()
+        },
         country_code: field(value.country_code, current.country_code.clone())?,
         event_starts_on: field(value.event_starts_on, current.event_starts_on.to_string())?,
         event_ends_on: field(value.event_ends_on, current.event_ends_on.to_string())?,
@@ -168,6 +177,9 @@ pub(crate) fn merge(
         currency_code: current.currency_code.clone(),
         payment_methods: field(value.payment_methods, current.methods()?)?,
     })?;
+    if preserve_managed {
+        merged.logo_url = logo_url;
+    }
     merged.preorder_enabled = enabled;
     Ok(merged)
 }

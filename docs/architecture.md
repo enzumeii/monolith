@@ -12,6 +12,7 @@ flowchart LR
     API --> SERVICES["Services: use cases and transactions"]
     SERVICES --> REPO["Repositories: SQLx queries"]
     REPO --> DB[("PostgreSQL")]
+    PRESENTATION["Shared forms, styles and safe Markdown"] -.-> UI
     DOMAIN["Shared request/response DTOs"] -.-> UI
     DOMAIN -.-> API
     SERVICES --> SHOPIFY["ShopifyClient: one operation per call"]
@@ -26,6 +27,7 @@ flowchart LR
 | --- | --- | --- |
 | `services/api` | HTTP endpoints, authentication, authorization, persistence, outbound clients | Database objects, principals, JWT claims, and Shopify wire DTOs remain API-owned |
 | `crates/domain` | Shared request/response DTOs and wire enums, including `ErrorResponse` and common `PatchField<T>` used by cron and convention PATCH requests | No database models, SQLx, JWT claims, or transactions |
+| `crates/ui` | Shared form/error/loading components, CSS and sanitized Markdown preview | No routing, authentication, API calls or persistence |
 | `crates/report-generator` | Shared inventory/accounting table projections and CSV serialization for API scheduled reports and backoffice exports | Wire DTO inputs; no provider calls, persistence or browser download transport |
 | `apps/backoffice` | CSR browser pages and session coordination; static metadata in `vercel/` | Direct public API calls; API owns cookies and authorization |
 | `apps/client-ui` | Existing CSR browser shell; static metadata in `vercel/` | Owns `/user`; browser feature coverage remains limited |
@@ -63,7 +65,9 @@ AppState constructs optional outbound clients once and shares their HTTP pools. 
 | `src/export/{csv,xlsx,browser}.rs` | CSV encoding / XLSX encoding and row limits / browser download transport; feature-specific cells/archives remain page-owned |
 | `src/pagination.rs` | Shared cursor collection/history for Reports and Orders |
 | `src/session/` | Viewer state, response ownership, browser synchronization |
-| `src/route.rs`, `src/pages/`, `src/components/` | Navigation, pages, forms, confirmation, reusable UI |
+| `src/route.rs`, `src/pages/`, `src/components/` | Route mapping, owning features, confirmations and shared session-scoped draft navigation |
+| `src/pages/conventions/` | Convention metadata, catalogue selection, exact price drafts and independent logo uploads |
+| `crates/ui` | Presentation and safe Markdown shared by backoffice and client UI |
 | `src/tests/` | Configuration, HTTP boundary, and session tests |
 
 ## HTTP and authentication
@@ -282,3 +286,7 @@ flowchart LR
 | Tag edits | Shared order service reuses ListOrders (id filter, id/tags projection) before tagsAdd/tagsRemove; ASCII-case-insensitive workflow matching, stored spelling for removal, skip existing additions and no-op mutations; unrelated tags preserved |
 | Shopify projections | Fulfillment, shipping and reship DTOs live in models/shopify.rs alongside the existing provider models; fulfillment retains ShopifyId through validation, service and the fulfillment-order client call |
 | Mock declaration | Sum non-Tip item prices once, multiply by5, minimum100, independent of currency; stock items contribute price but not quantity; no price×quantity multiplication |
+
+## Convention administration
+
+[Convention administration and logo storage](conventions.md) describes saved and draft state, catalogue selection and durable private-S3 logo access.

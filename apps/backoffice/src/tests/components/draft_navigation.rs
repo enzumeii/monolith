@@ -214,3 +214,22 @@ fn confirmed_in_app_departure_releases_the_guard_before_history_reads() {
         assert!(!NAVIGATION.peek().dirty);
     });
 }
+
+#[test]
+fn convention_editor_identity_keeps_each_record_separate() {
+    let owner = Some((1, domain::AdminRole::Admin));
+    let source = Route::ConventionDetail { id: "first".into() };
+    let other = Route::ConventionDetail {
+        id: "second".into(),
+    };
+    let mut guard = DraftNavigation::default();
+    guard.observe(owner, source.clone(), true);
+    assert!(guard.navigate(owner, source.clone()).is_none());
+    assert_eq!(guard.navigate(owner, other.clone()), Some(source.clone()));
+    assert_eq!(guard.pending, Some(other));
+    guard.cancel();
+    assert_eq!(
+        guard.navigate(owner, Route::ConventionCreate {}),
+        Some(source)
+    );
+}

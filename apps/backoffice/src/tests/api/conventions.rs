@@ -1,0 +1,210 @@
+#![cfg(not(target_arch = "wasm32"))]
+use super::*;
+use crate::api::tests::{metadata_response, metadata_responses};
+use domain::dto::{ConventionPaymentMethod, ConventionVariantInput, PatchField};
+
+const ID: &str = "da41d46b-f1ca-4a76-a774-62c269d28731";
+const RECORD: &str = r##"{"id":"da41d46b-f1ca-4a76-a774-62c269d28731","slug":"event","name":"Event","logo_url":null,"country_code":"TH","event_starts_on":"2026-11-01","event_ends_on":"2026-11-02","description_markdown":"# Event","preorder_enabled":false,"currency_code":"THB","payment_methods":["stripe"],"created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-01T00:00:00Z"}"##;
+fn row(variant: usize) -> String {
+    format!(
+        r#"{{"id":"row{variant}","convention_id":"{ID}","shopify_product_id":"1","shopify_variant_id":"{variant}","final_price":"12.99","created_at":"now","updated_at":"now"}}"#
+    )
+}
+
+#[tokio::test]
+async fn complete_memberships_traverse_every_page_before_returning() {
+    let first = format!(
+        r#"{{"items":[{}],"page":1,"per_page":100,"has_next":true}}"#,
+        row(1)
+    );
+    let second = format!(
+        r#"{{"items":[{}],"page":2,"per_page":100,"has_next":false}}"#,
+        row(2)
+    );
+    let (result, requests) =
+        metadata_responses(&[(200, &first), (200, &second)], all_variants(ID)).await;
+    assert_eq!(result.expect("valid fixture value").len(), 2);
+    assert!(requests[0].starts_with(&format!(
+        "GET /v1/admin/conventions/{ID}/variants?page=1&per_page=100 HTTP/1.1"
+    )));
+    assert!(requests[1].starts_with(&format!(
+        "GET /v1/admin/conventions/{ID}/variants?page=2&per_page=100 HTTP/1.1"
+    )));
+    assert!(
+        requests
+            .iter()
+            .all(|value| value.contains("x-session-mode: cookie"))
+    );
+}
+#[tokio::test]
+async fn a_failed_or_invalid_later_page_never_exposes_a_partial_selection() {
+    let first = format!(
+        r#"{{"items":[{}],"page":1,"per_page":100,"has_next":true}}"#,
+        row(1)
+    );
+    let duplicate = format!(
+        r#"{{"items":[{}],"page":2,"per_page":100,"has_next":false}}"#,
+        row(1)
+    );
+    for (status, second) in [
+        (502, r#"{"error":"Shopify unavailable"}"#),
+        (200, duplicate.as_str()),
+        (
+            200,
+            r#"{"items":[],"page":2,"per_page":100,"has_next":true}"#,
+        ),
+    ] {
+        let (result, requests) =
+            metadata_responses(&[(200, &first), (status, second)], all_variants(ID)).await;
+        assert!(result.is_err());
+        assert_eq!(requests.len(), 2);
+    }
+}
+#[tokio::test]
+async fn crud_options_logo_and_exact_price_requests_use_the_existing_cookie_transport() {
+    let (result, request) = metadata_response(
+        200,
+        r#"{"currencies":[{"code":"THB","payment_methods":["stripe"]}]}"#,
+        options(),
+    )
+    .await;
+    assert_eq!(
+        result.expect("valid fixture value").currencies[0].code,
+        "THB"
+    );
+    assert!(request.starts_with("GET /v1/admin/conventions/options HTTP/1.1"));
+    let (result, request) = metadata_response(200, RECORD, get(ID)).await;
+    assert_eq!(result.expect("valid fixture value").id, ID);
+    assert!(request.contains("x-session-mode: cookie"));
+    let input = CreateConvention {
+        slug: "event".into(),
+        name: "Event".into(),
+        logo_url: None,
+        country_code: "TH".into(),
+        event_starts_on: "2026-11-01".into(),
+        event_ends_on: "2026-11-02".into(),
+        description_markdown: "# Event".into(),
+        currency_code: "THB".into(),
+        payment_methods: vec![ConventionPaymentMethod::Stripe],
+    };
+    let (result, request) = metadata_response(201, RECORD, create(input)).await;
+    result.expect("valid fixture value");
+    assert!(request.starts_with("POST /v1/admin/conventions HTTP/1.1"));
+    assert!(request.contains(r#""currency_code":"THB""#));
+    let (result, request) = metadata_response(
+        200,
+        RECORD,
+        update(
+            ID,
+            PatchConvention {
+                name: PatchField::Set("Changed".into()),
+                ..Default::default()
+            },
+        ),
+    )
+    .await;
+    result.expect("valid fixture value");
+    assert!(request.ends_with(r#"{"name":"Changed"}"#));
+    let bytes = b"\0PNG\r\nraw-bytes".to_vec();
+    let (result, request) =
+        metadata_response(200, RECORD, upload_logo(ID, "image/png", bytes.clone())).await;
+    result.expect("valid fixture value");
+    assert!(request.starts_with(&format!("PUT /v1/admin/conventions/{ID}/logo HTTP/1.1")));
+    assert!(request.contains("content-type: image/png"));
+    assert!(request.as_bytes().ends_with(&bytes));
+    assert!(!request.contains("multipart"));
+    let (result, request) = metadata_response(
+        200,
+        r#"{"items":[]}"#,
+        replace_variants(
+            ID,
+            ReplaceConventionVariants {
+                items: vec![ConventionVariantInput {
+                    shopify_product_id: "1".into(),
+                    shopify_variant_id: "2".into(),
+                    final_price: "12.990".into(),
+                }],
+            },
+        ),
+    )
+    .await;
+    result.expect("valid fixture value");
+    assert!(request.contains(r#""final_price":"12.990""#));
+    let (result, _) = metadata_response(
+        413,
+        r#"{"error":"Logo exceeds 2 MiB"}"#,
+        upload_logo(ID, "image/png", vec![0]),
+    )
+    .await;
+    assert_eq!(
+        result.expect_err("expected rejection").to_string(),
+        "Logo exceeds 2 MiB"
+    );
+}
+#[test]
+fn managed_logos_resolve_at_api_origin_and_arbitrary_relative_paths_are_rejected() {
+    let path = format!("/api/v1/conventions/{ID}/logo/{ID}");
+    assert_eq!(
+        logo_url(&path, "https://api.example.test/custom/v1").expect("valid fixture value"),
+        format!("https://api.example.test{path}")
+    );
+    for path in [
+        "//evil.test/logo",
+        "/reports/private",
+        "/api/v1/conventions/../logo/key",
+        "javascript:alert(1)",
+        "data:image/svg+xml,hi",
+        "https://user:pass@example.test/logo",
+    ] {
+        assert!(
+            logo_url(path, "https://api.example.test/v1").is_none(),
+            "{path}"
+        );
+    }
+}
+#[tokio::test]
+async fn unsafe_ids_are_rejected_before_transport() {
+    for id in ["../options", "id?x=1", "invalid"] {
+        assert_eq!(get(id).await.expect_err("expected rejection").status, 400);
+        assert_eq!(
+            variants(id, 1)
+                .await
+                .expect_err("expected rejection")
+                .status,
+            400
+        );
+        assert_eq!(
+            upload_logo(id, "image/png", vec![0])
+                .await
+                .expect_err("expected rejection")
+                .status,
+            400
+        );
+    }
+}
+
+#[tokio::test]
+async fn membership_pages_must_match_the_record_page_and_page_size() {
+    let wrong_record = format!(
+        r#"{{"items":[{}],"page":1,"per_page":100,"has_next":false}}"#,
+        row(1).replace(ID, "another-convention")
+    );
+    for body in [
+        wrong_record,
+        r#"{"items":[],"page":2,"per_page":100,"has_next":false}"#.into(),
+        r#"{"items":[],"page":1,"per_page":25,"has_next":false}"#.into(),
+    ] {
+        let (result, requests) = metadata_response(200, &body, all_variants(ID)).await;
+        assert_eq!(result.expect_err("expected rejection").status, 502);
+        assert_eq!(
+            requests
+                .lines()
+                .next()
+                .expect("valid fixture value")
+                .split_whitespace()
+                .next()
+                .expect("valid fixture value"),
+            "GET"
+        );
+    }
+}

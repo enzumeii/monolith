@@ -1,5 +1,5 @@
 const fs = require('node:fs');
-const modules = {api: 'services/api', backoffice: 'apps/backoffice', 'client-ui': 'apps/client-ui', domain: 'crates/domain'};
+const modules = {api: 'services/api', backoffice: 'apps/backoffice', 'client-ui': 'apps/client-ui', domain: 'crates/domain', ui: 'crates/ui'};
 
 function validateCoverage(text, crate) {
   if (!modules[crate] || !text.trim().endsWith('end_of_record')) throw new Error('Missing or incomplete LCOV report');

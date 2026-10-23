@@ -109,3 +109,13 @@ pub struct ConventionVariantListResponse {
 pub struct ConventionVariantsResponse {
     pub items: Vec<ConventionVariantDTO>,
 }
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct ConventionOptionsResponse {
+    pub currencies: Vec<ConventionCurrencyOption>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct ConventionCurrencyOption {
+    pub code: String,
+    pub payment_methods: Vec<ConventionPaymentMethod>,
+}

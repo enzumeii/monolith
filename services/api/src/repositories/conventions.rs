@@ -87,6 +87,14 @@ pub(crate) async fn replace(
     }
     variants(c, id).await
 }
+pub(crate) async fn update_logo(
+    c: &mut PgConnection,
+    id: Uuid,
+    url: &str,
+) -> Result<Option<Convention>, AppError> {
+    Ok(sqlx::query_as("UPDATE conventions SET logo_url=$2,updated_at=GREATEST(CURRENT_TIMESTAMP,updated_at+INTERVAL '1 microsecond') WHERE id=$1 RETURNING *")
+        .bind(id).bind(url).fetch_optional(c).await?)
+}
 fn conflict(error: sqlx::Error) -> AppError {
     if let sqlx::Error::Database(ref db) = error
         && db.is_unique_violation()

@@ -23,6 +23,7 @@ pub(crate) struct Data {
     pub failure: Option<(&'static str, &'static str)>,
     pub calls: Vec<String>,
     pub content_type: Option<String>,
+    pub content_length: Option<u64>,
     pub download_override: Option<Vec<u8>>,
     pub put_gate: Option<Arc<PutGate>>,
 }
@@ -108,9 +109,14 @@ async fn metadata(
     match data.objects.get(&key) {
         Some(bytes) => {
             let mut response = StatusCode::OK.into_response();
-            response
-                .headers_mut()
-                .insert("content-length", bytes.len().to_string().parse().unwrap());
+            response.headers_mut().insert(
+                "content-length",
+                data.content_length
+                    .unwrap_or(bytes.len() as u64)
+                    .to_string()
+                    .parse()
+                    .unwrap(),
+            );
             response.headers_mut().insert(
                 "content-type",
                 data.content_type
@@ -131,7 +137,10 @@ async fn upload(
     bytes: Bytes,
 ) -> axum::response::Response {
     authenticated(&headers);
-    assert_eq!(headers["content-type"], "text/csv; charset=utf-8");
+    assert!(matches!(
+        headers["content-type"].to_str().unwrap(),
+        "text/csv; charset=utf-8" | "image/png" | "image/jpeg"
+    ));
     if let Some(response) = failure(&shared, "upload").await {
         return response;
     }

@@ -74,6 +74,7 @@ jobs:
               - 'scripts/*vercel*'
             backoffice:
               - 'apps/backoffice/**'
+              - 'crates/ui/**'
               - 'crates/domain/**'
               - 'crates/report-generator/**'
               - 'Cargo.toml'
@@ -86,6 +87,7 @@ jobs:
               - 'scripts/*vercel*'
             client-ui:
               - 'apps/client-ui/**'
+              - 'crates/ui/**'
               - 'crates/domain/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -118,6 +120,9 @@ jobs:
         run: |
           just check
           just test
+      - name: Shared UI check
+        working-directory: crates/ui
+        run: just check
       - name: domain check
         working-directory: crates/domain
         run: just check
@@ -125,12 +130,12 @@ jobs:
         env:
           CARGO_LLVM_COV_TARGET_DIR: ${{ github.workspace }}/target
         run: |
-          for module in services/api apps/backoffice apps/client-ui crates/domain; do
+          for module in services/api apps/backoffice apps/client-ui crates/domain crates/ui; do
             just --justfile "$module/justfile" test --coverage
           done
       - name: Validate report paths and scope
         run: |
-          for crate in api backoffice client-ui domain; do
+          for crate in api backoffice client-ui domain ui; do
             node .github/scripts/coverage-report.cjs "$crate" "target/coverage/$crate/lcov.info"
           done
       - name: Retain coverage reports
@@ -155,7 +160,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: target/coverage/api/lcov.info,target/coverage/backoffice/lcov.info,target/coverage/client-ui/lcov.info,target/coverage/domain/lcov.info
+          files: target/coverage/api/lcov.info,target/coverage/backoffice/lcov.info,target/coverage/client-ui/lcov.info,target/coverage/domain/lcov.info,target/coverage/ui/lcov.info
           disable_search: true
           fail_ci_if_error: true
 

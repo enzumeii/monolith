@@ -8,6 +8,7 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
+ui = { path = "../../crates/ui" }
 report-generator = { path = "../../crates/report-generator" }
 dioxus = { version="0.7.10", features=["router"] }
 domain = { path="../../crates/domain" }
