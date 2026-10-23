@@ -86,7 +86,7 @@ pub(super) fn LogoPicker(
 
 #[derive(Clone, Default, PartialEq)]
 pub(super) struct Preview {
-    pub location: Option<String>,
+    revision: u64,
     url: Option<String>,
     expires_at: Option<String>,
     failed: bool,
@@ -94,11 +94,17 @@ pub(super) struct Preview {
 impl Preview {
     pub fn from_record(record: &ConventionDTO) -> Self {
         Self {
-            location: record.logo_url.clone(),
+            revision: 0,
             url: record.logo_preview_url.clone(),
             expires_at: record.logo_preview_url_expires_at.clone(),
             failed: false,
         }
+    }
+    pub fn replace(&mut self, record: &ConventionDTO) {
+        *self = Self {
+            revision: self.revision.wrapping_add(1),
+            ..Self::from_record(record)
+        };
     }
 }
 
@@ -114,26 +120,22 @@ pub(super) fn LogoPreview(mut preview: Signal<Preview>, id: String) -> Element {
         .and_then(api::conventions::logo_preview_url);
     let unavailable = current.failed || url.is_none() || current.expires_at.is_none();
     rsx! {
-        if current.location.is_none() { p { "No saved logo" } }
-        else {
-            if !unavailable { if let Some(url) = url { img { class: "convention-logo", src: url, alt: "Saved convention logo", onerror: move |_| preview.write().failed = true } } }
-            else { p { role: "status", "Preview unavailable or expired. Refresh logo preview." } }
-            if let Some(expiry) = current.expires_at { p { "Preview URL expires at {expiry}" } }
-            ErrorMessage { message: error() }
-            button { id: format!("convention-logo-refresh-{id}"), r#type: "button", class: "ghost", disabled: request.read().pending(), onclick: move |_| {
-                let Some(ticket) = request.write().begin() else { return; };
-                let location = preview.read().location.clone(); let request_owner = owner(); let id = id.clone(); error.set(None);
-                spawn(async move {
-                    let result = session::with_session(|| api::conventions::get(&id)).await;
-                    if owner() != request_owner || !request.write().finish(ticket) || preview.read().location != location { return; }
-                    match result {
-                        Ok(record) if record.logo_url == location => { preview.set(Preview::from_record(&record)); },
-                        Ok(_) => error.set(Some("The saved logo changed. Reload the saved convention when your drafts are ready.".into())),
-                        Err(value) => error.set(Some(value.to_string())),
-                    }
-                });
-            }, "Refresh logo preview" }
-        }
+        if !unavailable { if let Some(url) = url { img { class: "convention-logo", src: url, alt: "Saved convention logo", onerror: move |_| preview.write().failed = true } } }
+        else { p { role: "status", "No logo preview available. Refresh to check for a saved logo." } }
+        if let Some(expiry) = current.expires_at { p { "Preview URL expires at {expiry}" } }
+        ErrorMessage { message: error() }
+        button { id: format!("convention-logo-refresh-{id}"), r#type: "button", class: "ghost", disabled: request.read().pending(), onclick: move |_| {
+            let Some(ticket) = request.write().begin() else { return; };
+            let revision = preview.read().revision; let request_owner = owner(); let id = id.clone(); error.set(None);
+            spawn(async move {
+                let result = session::with_session(|| api::conventions::get(&id)).await;
+                if owner() != request_owner || !request.write().finish(ticket) || preview.read().revision != revision { return; }
+                match result {
+                    Ok(record) => preview.write().replace(&record),
+                    Err(value) => error.set(Some(value.to_string())),
+                }
+            });
+        }, "Refresh logo preview" }
     }
 }
 

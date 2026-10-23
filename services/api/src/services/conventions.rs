@@ -4,10 +4,10 @@ use crate::{
     client::{s3::S3Client, shopify::ShopifyClient},
     error::{AppError, upstream},
     models::{
+        CountryCode,
         conventions::{
             Convention, ConventionInput, ConventionVariant, SelectedVariant, VariantDisplay,
         },
-        country::CountryCode,
         shopify::{ProductStatus, ShopifyId},
     },
     repositories::conventions as repo,
@@ -60,7 +60,7 @@ pub(crate) fn options() -> domain::dto::ConventionOptionsResponse {
 }
 pub(crate) async fn list(
     pool: &PgPool,
-    s3: Option<&S3Client>,
+    s3: &S3Client,
     page: u32,
     per_page: u32,
     enabled: Option<bool>,
@@ -84,13 +84,10 @@ pub(crate) async fn get(pool: &PgPool, id: Uuid) -> Result<Convention, AppError>
 }
 pub(crate) async fn create(
     pool: &PgPool,
-    s3: Option<&S3Client>,
+    s3: &S3Client,
     input: &ConventionInput,
 ) -> Result<ConventionDTO, AppError> {
     if let Some(location) = &input.logo_url {
-        let s3 = s3.ok_or_else(|| {
-            AppError::new(StatusCode::SERVICE_UNAVAILABLE, "S3 client unavailable")
-        })?;
         logo::attach(s3, location, &input.slug).await?;
     }
     logo::project(repo::insert(pool, input).await?, s3).await
@@ -129,16 +126,13 @@ pub(crate) struct PreparedPatch {
 }
 pub(crate) async fn prepare_patch(
     pool: &PgPool,
-    s3: Option<&S3Client>,
+    s3: &S3Client,
     id: Uuid,
     patch: PatchConvention,
 ) -> Result<PreparedPatch, AppError> {
     let observed = get(pool, id).await?;
     let input = validate::merge(patch.clone(), &observed)?;
     if let PatchField::Set(location) = &patch.logo_url {
-        let s3 = s3.ok_or_else(|| {
-            AppError::new(StatusCode::SERVICE_UNAVAILABLE, "S3 client unavailable")
-        })?;
         logo::attach(s3, location, &observed.slug).await?;
     }
     let selection = inputs(repo::variants(pool, id).await?);
@@ -163,7 +157,7 @@ pub(crate) async fn prepare_patch(
 }
 pub(crate) async fn finish_patch(
     pool: &PgPool,
-    s3: Option<&S3Client>,
+    s3: &S3Client,
     prepared: PreparedPatch,
 ) -> Result<ConventionDTO, AppError> {
     let mut tx = pool.begin().await?;

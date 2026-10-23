@@ -15,7 +15,9 @@ async fn read(c: &TestClient, f: &TestFixture, id: &str) -> Value {
         .unwrap();
     assert_eq!(response.status(), 200);
     assert_eq!(response.headers()["cache-control"], "no-store");
-    body_json(response).await
+    let result = body_json(response).await;
+    assert!(result.get("logo_url").is_none());
+    result
 }
 async fn location(f: &TestFixture, id: &str) -> Option<String> {
     sqlx::query_scalar(
@@ -43,7 +45,7 @@ async fn logo_upload_before_create_signed_read_replace_preserve_and_clear() {
     value["logo_url"] = uploaded["location"].clone();
     let created = create(&c, &f, value).await;
     let id = created["id"].as_str().unwrap();
-    assert_eq!(created["logo_url"], uploaded["location"]);
+    assert!(created.get("logo_url").is_none());
     assert!(
         created["logo_preview_url"]
             .as_str()
@@ -82,7 +84,7 @@ async fn logo_upload_before_create_signed_read_replace_preserve_and_clear() {
             .unwrap()
             .iter()
             .any(|v| v["id"] == created["id"]
-                && v["logo_url"] == uploaded["location"]
+                && v.get("logo_url").is_none()
                 && v["logo_preview_url"].is_string())
     );
     assert_eq!(
@@ -119,7 +121,7 @@ async fn logo_upload_before_create_signed_read_replace_preserve_and_clear() {
         200,
     )
     .await;
-    assert_eq!(saved["logo_url"], uploaded["location"]);
+    assert!(saved.get("logo_url").is_none());
     assert_eq!(storage.data.lock().unwrap().calls, Vec::<String>::new());
     let replacement = stored(&c, &f, f.prefix()).await;
     assert_ne!(uploaded["location"], replacement["location"]);
@@ -149,11 +151,8 @@ async fn logo_upload_before_create_signed_read_replace_preserve_and_clear() {
         200,
     )
     .await;
-    for field in [
-        "logo_url",
-        "logo_preview_url",
-        "logo_preview_url_expires_at",
-    ] {
+    assert!(clear.get("logo_url").is_none());
+    for field in ["logo_preview_url", "logo_preview_url_expires_at"] {
         assert!(clear[field].is_null());
     }
     assert!(location(&f, id).await.is_none());
@@ -183,7 +182,7 @@ async fn existing_legacy_logo_survives_unrelated_patch_and_can_be_replaced_or_cl
     .await
     .unwrap();
     let loaded = read(&c, &f, id).await;
-    assert_eq!(loaded["logo_url"], legacy_url);
+    assert!(loaded.get("logo_url").is_none());
     assert!(
         loaded["logo_preview_url"].is_null() && loaded["logo_preview_url_expires_at"].is_null()
     );
@@ -197,7 +196,7 @@ async fn existing_legacy_logo_survives_unrelated_patch_and_can_be_replaced_or_cl
     )
     .await;
     assert_eq!(saved["name"], "Updated legacy fair");
-    assert_eq!(saved["logo_url"], legacy_url);
+    assert!(saved.get("logo_url").is_none());
     assert!(saved["logo_preview_url"].is_null() && saved["logo_preview_url_expires_at"].is_null());
     assert_eq!(location(&f, id).await.as_deref(), Some(legacy_url));
     mutate(
@@ -221,7 +220,7 @@ async fn existing_legacy_logo_survives_unrelated_patch_and_can_be_replaced_or_cl
         200,
     )
     .await;
-    assert_eq!(replaced["logo_url"], uploaded["location"]);
+    assert!(replaced.get("logo_url").is_none());
     assert!(replaced["logo_preview_url"].is_string());
     assert_eq!(
         location(&f, id).await.as_deref(),
@@ -418,7 +417,7 @@ async fn logo_attachment_provider_failures_and_invalid_objects_preserve_database
     }
 }
 #[tokio::test]
-async fn logo_optional_signer_degradation_and_attachment_database_failure_are_safe() {
+async fn logo_requires_s3_and_attachment_database_failure_is_safe() {
     let f = fixture().await;
     let storage = crate::s3_fixture::Fixture::new().await;
     storage.data.lock().unwrap().content_type = Some("image/png".into());
@@ -439,72 +438,46 @@ async fn logo_optional_signer_degradation_and_attachment_database_failure_are_sa
             ..Default::default()
         })
         .await;
-        let no_logo = create(
+        mutate(
             &unavailable,
             &f,
+            "POST",
+            URI,
             input(&format!("{}-no-logo-{disabled}", f.prefix())),
-        )
-        .await;
-        assert!(no_logo["logo_url"].is_null());
-        assert!(no_logo["logo_preview_url"].is_null());
-        let loaded = read(&unavailable, &f, id).await;
-        assert_eq!(loaded["logo_url"], uploaded["location"]);
-        assert!(loaded["logo_preview_url"].is_null());
-        assert!(loaded["logo_preview_url_expires_at"].is_null());
-        let saved = mutate(
-            &unavailable,
-            &f,
-            "PATCH",
-            &format!("{URI}/{id}"),
-            json!({"name":"Metadata survives"}),
-            200,
-        )
-        .await;
-        assert_eq!(saved["logo_url"], uploaded["location"]);
-        assert!(saved["logo_preview_url"].is_null());
-        assert!(saved["logo_preview_url_expires_at"].is_null());
-        let listing = unavailable
-            .send(authed("GET", URI, f.root_id(), AdminRole::Admin))
-            .await
-            .unwrap();
-        let listing = body_json(listing).await;
-        let listed = listing["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|item| item["id"] == created["id"])
-            .unwrap();
-        assert_eq!(listed["logo_url"], uploaded["location"]);
-        assert!(listed["logo_preview_url"].is_null());
-        assert!(listed["logo_preview_url_expires_at"].is_null());
-        let clear = mutate(
-            &unavailable,
-            &f,
-            "PATCH",
-            &format!("{URI}/{id}"),
-            json!({"logo_url":null}),
-            200,
-        )
-        .await;
-        assert!(clear["logo_url"].is_null());
-        mutate(
-            &c,
-            &f,
-            "PATCH",
-            &format!("{URI}/{id}"),
-            json!({"logo_url":uploaded["location"]}),
-            200,
-        )
-        .await;
-        mutate(
-            &unavailable,
-            &f,
-            "PATCH",
-            &format!("{URI}/{id}"),
-            json!({"logo_url":uploaded["location"]}),
             503,
         )
         .await;
+        for path in [URI.to_owned(), format!("{URI}/{id}")] {
+            let response = unavailable
+                .send(authed("GET", &path, f.root_id(), AdminRole::Admin))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 503);
+            assert_eq!(
+                body_json(response).await,
+                json!({"error":"S3 client unavailable"})
+            );
+        }
+        for changes in [
+            json!({"name":"Metadata unavailable"}),
+            json!({"logo_url":null}),
+            json!({"logo_url":uploaded["location"]}),
+        ] {
+            mutate(
+                &unavailable,
+                &f,
+                "PATCH",
+                &format!("{URI}/{id}"),
+                changes,
+                503,
+            )
+            .await;
+        }
+        assert_eq!(
+            location(&f, id).await.as_deref(),
+            uploaded["location"].as_str()
+        );
+        assert_eq!(read(&c, &f, id).await["name"], created["name"]);
     }
     let prefix = f.prefix();
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE FUNCTION {prefix}_logo_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id='{id}'::uuid THEN RAISE EXCEPTION 'owned logo write fault'; END IF; RETURN NEW; END $$; CREATE TRIGGER {prefix}_logo_fault BEFORE UPDATE ON conventions FOR EACH ROW EXECUTE FUNCTION {prefix}_logo_fault();"))).execute(&f.pool()).await.unwrap();

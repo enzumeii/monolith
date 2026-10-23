@@ -70,7 +70,6 @@ pub struct ConventionDTO {
     pub id: String,
     pub slug: String,
     pub name: String,
-    pub logo_url: Option<String>,
     pub logo_preview_url: Option<String>,
     pub logo_preview_url_expires_at: Option<String>,
     pub country_code: String,

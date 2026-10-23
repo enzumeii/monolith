@@ -86,7 +86,7 @@ mod mounted {
     const OPTIONS: &str =
         r#"{"countries":["TH","JP"],"currencies":[{"code":"THB","payment_methods":["stripe"]}]}"#;
     const UPLOADED: &str = r#"{"location":"conventions/event/key.png","url":"https://s3.test/key.png?signature=one","expires_at":"2026-11-01T00:05:00Z"}"#;
-    const CREATED: &str = r##"{"id":"da41d46b-f1ca-4a76-a774-62c269d28731","slug":"event","name":"Event","logo_url":"conventions/event/key.png","logo_preview_url":"https://s3.test/key.png?signature=one","logo_preview_url_expires_at":"2026-11-01T00:05:00Z","country_code":"TH","event_starts_on":"2026-11-01","event_ends_on":"2026-11-02","description_markdown":"# Event","preorder_enabled":false,"currency_code":"THB","payment_methods":["stripe"],"created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-01T00:00:00Z"}"##;
+    const CREATED: &str = r##"{"id":"da41d46b-f1ca-4a76-a774-62c269d28731","slug":"event","name":"Event","logo_preview_url":"https://s3.test/key.png?signature=one","logo_preview_url_expires_at":"2026-11-01T00:05:00Z","country_code":"TH","event_starts_on":"2026-11-01","event_ends_on":"2026-11-02","description_markdown":"# Event","preorder_enabled":false,"currency_code":"THB","payment_methods":["stripe"],"created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-01T00:00:00Z"}"##;
     fn app() -> Element {
         use_hook(|| provide_history_context(Rc::new(MemoryHistory::with_initial_path("/create"))));
         crate::components::draft_navigation::use_draft_history();

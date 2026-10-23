@@ -122,7 +122,7 @@ fn Editor(
             ErrorMessage { message: logo_error() }
             if let Some(message) = logo_notice() { p { role: "status", "{message}" } }
             div { class: "convention-actions",
-                button { r#type: "button", class: "primary", disabled: logo_request.read().pending() || (selection.file)().is_none(), onclick: move |_| {
+                button { id: "convention-logo-upload", r#type: "button", class: "primary", disabled: logo_request.read().pending() || (selection.file)().is_none(), onclick: move |_| {
                     if (selection.file)().is_none() { return; } let Some(ticket) = logo_request.write().begin() else { return; };
                     let id = upload_id.clone(); let slug = upload_slug.clone(); let request_owner = owner(); logo_error.set(None); logo_notice.set(None);
                     spawn(async move { let result = async {
@@ -132,11 +132,11 @@ fn Editor(
                             session::with_session(|| api::conventions::update(&id, PatchConvention { logo_url: PatchField::Set(location), ..Default::default() })).await
                         }.await;
                         if owner() != request_owner || !logo_request.write().finish(ticket) { return; }
-                        match result { Ok(record) => { logo.set(Preview::from_record(&record)); selection.reset(); logo_notice.set(Some("Logo uploaded and saved".into())); }, Err(error) => logo_error.set(Some(error.to_string())) }
+                        match result { Ok(record) => { logo.write().replace(&record); selection.reset(); logo_notice.set(Some("Logo uploaded and saved".into())); }, Err(error) => logo_error.set(Some(error.to_string())) }
                     });
                 }, if logo_request.read().pending() { "Processing logo…" } else { "Upload logo" } }
-                button { r#type: "button", class: "ghost", disabled: logo_request.read().pending() || (selection.file)().is_none(), onclick: move |_| { selection.reset(); logo_error.set(None); }, "Discard selected file" }
-                button { r#type: "button", class: "danger", disabled: logo_request.read().pending() || logo.read().location.is_none(), onclick: move |_| clear_confirmation.set(true), "Clear saved logo" }
+                button { id: "convention-logo-discard", r#type: "button", class: "ghost", disabled: logo_request.read().pending() || (selection.file)().is_none(), onclick: move |_| { selection.reset(); logo_error.set(None); }, "Discard selected file" }
+                button { id: "convention-logo-clear", r#type: "button", class: "danger", disabled: logo_request.read().pending(), onclick: move |_| clear_confirmation.set(true), "Clear saved logo" }
             }
         }
         super::catalogue::SelectionEditor { id: record.id, currency: record.currency_code, enabled: saved.read().enabled, on_dirty: move |value| selection_dirty.set(value) }
@@ -147,7 +147,7 @@ fn Editor(
             clear_confirmation.set(false); let Some(ticket) = logo_request.write().begin() else { return; }; let id = clear_id.clone(); let request_owner = owner(); logo_error.set(None); logo_notice.set(None);
             spawn(async move { let result = session::with_session(|| api::conventions::update(&id, PatchConvention { logo_url: PatchField::Clear, ..Default::default() })).await;
                 if owner() != request_owner || !logo_request.write().finish(ticket) { return; }
-                match result { Ok(record) => { logo.set(Preview::from_record(&record)); logo_notice.set(Some("Saved logo cleared".into())); }, Err(error) => logo_error.set(Some(error.to_string())) }
+                match result { Ok(record) => { logo.write().replace(&record); logo_notice.set(Some("Saved logo cleared".into())); }, Err(error) => logo_error.set(Some(error.to_string())) }
             });
         } }
     }

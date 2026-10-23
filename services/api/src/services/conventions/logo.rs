@@ -166,23 +166,15 @@ pub(crate) async fn validate(bytes: Vec<u8>, mime: &str) -> Result<Logo, AppErro
     .await
     .map_err(|source| AppError::from(anyhow::Error::new(source)))?
 }
-pub(crate) async fn project(
-    record: Convention,
-    s3: Option<&S3Client>,
-) -> Result<ConventionDTO, AppError> {
+pub(crate) async fn project(record: Convention, s3: &S3Client) -> Result<ConventionDTO, AppError> {
     let payment_methods = record.methods()?;
     let preview = if let Some(location) = &record.logo_url {
-        if let Some(s3) = s3 {
-            match preview(s3, location).await {
-                Ok(signed) => Some(signed),
-                Err(error) => {
-                    crate::error::log_background_error("Convention logo preview signing", &error);
-                    None
-                }
+        match preview(s3, location).await {
+            Ok(signed) => Some(signed),
+            Err(error) => {
+                crate::error::log_background_error("Convention logo preview signing", &error);
+                None
             }
-        } else {
-            tracing::warn!("Convention logo preview unavailable: S3 client unavailable");
-            None
         }
     } else {
         None
@@ -194,7 +186,6 @@ pub(crate) async fn project(
         id: record.id.to_string(),
         slug: record.slug,
         name: record.name,
-        logo_url: record.logo_url,
         logo_preview_url,
         logo_preview_url_expires_at,
         country_code: record.country_code,

@@ -802,3 +802,8 @@ Catalogue requests now use numeric `location_id`; the backend constructs the Sho
 This change adds shared link/button affordances, compact list logos, options-backed country/currency selects, automatic list navigation after successful creation, and an existing-dialog catalogue picker with a fixed configured numeric location, escaped product-type/title AND filters and compact product/variant thumbnails. Label/value hierarchy and green/red state cues are applied to convention controls.
 
 Verification is limited to formatting, scoped diff/import/contract review and independent static reviews under the approved no-test implementation-review plan. Regression sources and response/config fixtures are updated but tests, builds, lint, browser/Docker/provider execution and hosted-CI waiting are not run. No visual/runtime pass is claimed. Earlier verification results remain bound to their recorded historical source.
+
+
+### PR #58 required clients and preview response follow-up — 2026-10-24
+
+Convention services and projection now receive concrete S3 client references resolved at the HTTP boundary. Convention responses omit the stored `logo_url` and retain only signed preview URL/expiry; create/PATCH inputs and database persistence keep `logo_url`. The UI uses signed preview state without relying on the storage location and can clear a logo whose preview is unavailable. Current-head CI exposed a private CountryCode import; the fix uses the existing public re-export. Verification is limited to formatting and static source/diff review: tests, builds, lint, browser/provider execution and waiting for hosted CI remain waived by the user. Earlier execution results apply only to their recorded source.

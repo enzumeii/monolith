@@ -33,7 +33,6 @@ fn record() -> ConventionDTO {
         id: "da41d46b-f1ca-4a76-a774-62c269d28731".into(),
         slug: "event".into(),
         name: "Loaded event".into(),
-        logo_url: None,
         logo_preview_url: None,
         logo_preview_url_expires_at: None,
         country_code: "TH".into(),
@@ -132,7 +131,7 @@ async fn discarding_logo_replaces_native_input_and_same_file_is_ready_again() {
         });
         let initial = dom.rebuild_to_vec();
         let input = *listeners(&initial, "change").last().expect("file input");
-        let discard = listeners(&initial, "click")[1];
+        let discard = crate::test_events::element_id(&initial, "convention-logo-discard");
         form_event(
             &dom,
             listeners(&initial, "input")[0],
@@ -158,7 +157,7 @@ async fn discarding_logo_replaces_native_input_and_same_file_is_ready_again() {
 async fn failed_upload_keeps_candidate_and_success_resets_only_native_input() {
     let uploaded = RECORD.replace(
         "\"logo_preview_url\":null",
-        "\"logo_url\":\"conventions/event/key.png\",\"logo_preview_url\":\"https://s3.test/key.png?signature=one\",\"logo_preview_url_expires_at\":\"2026-11-01T00:05:00Z\"",
+        "\"logo_preview_url\":\"https://s3.test/key.png?signature=one\",\"logo_preview_url_expires_at\":\"2026-11-01T00:05:00Z\"",
     );
     let ((), requests) = crate::api::tests::metadata_responses(
         &[
@@ -182,7 +181,7 @@ async fn failed_upload_keeps_candidate_and_success_resets_only_native_input() {
             });
             let initial = dom.rebuild_to_vec();
             let input = *listeners(&initial, "change").last().expect("file input");
-            let upload = listeners(&initial, "click")[0];
+            let upload = crate::test_events::element_id(&initial, "convention-logo-upload");
             form_event(
                 &dom,
                 listeners(&initial, "input")[0],
@@ -231,10 +230,9 @@ async fn failed_upload_keeps_candidate_and_success_resets_only_native_input() {
 #[tokio::test]
 async fn refreshing_logo_preview_changes_only_url_and_expiry_and_failures_preserve_drafts() {
     let mut record: ConventionDTO = record();
-    record.logo_url = Some("conventions/event/key.png".into());
     record.logo_preview_url = Some("https://s3.test/key.png?signature=old".into());
     record.logo_preview_url_expires_at = Some("2026-11-01T00:05:00Z".into());
-    let response = RECORD.replace("\"logo_preview_url\":null", "\"logo_url\":\"conventions/event/key.png\",\"logo_preview_url\":\"https://s3.test/key.png?signature=new\",\"logo_preview_url_expires_at\":\"2026-11-01T00:10:00Z\"").replace("Loaded event", "Other admin saved name");
+    let response = RECORD.replace("\"logo_preview_url\":null", "\"logo_preview_url\":\"https://s3.test/key.png?signature=new\",\"logo_preview_url_expires_at\":\"2026-11-01T00:10:00Z\"").replace("Loaded event", "Other admin saved name");
     let ((), requests) = crate::api::tests::metadata_responses(
         &[
             (200, MEMBERSHIPS),
