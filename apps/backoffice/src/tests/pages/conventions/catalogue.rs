@@ -1,11 +1,5 @@
 use super::*;
 #[test]
-fn zero_stock_is_distinct_from_an_unloaded_inventory_level() {
-    assert_eq!(stock_label(Some(0)), "0");
-    assert_eq!(stock_label(None), "Missing or inactive inventory level");
-    assert_eq!(stock_label(Some(-2)), "-2");
-}
-#[test]
 fn provider_images_are_safe_https_urls_only() {
     assert!(safe_image_url("https://cdn.example.test/image.png"));
     for value in [
@@ -96,9 +90,6 @@ fn catalogue_retains_sku_and_uses_only_the_actual_safe_variant_image() {
             "never substitute the product image"
         );
     }
-    assert_eq!(selected_stock_label(None), "Not available");
-    assert_eq!(selected_stock_label(Some(0)), "0");
-    assert_eq!(selected_stock_label(Some(-2)), "-2");
     assert_eq!(
         detail_text(Some("  "), "SKU unavailable"),
         "SKU unavailable"
@@ -159,8 +150,8 @@ mod mounted {
         format!(r#"{{"items":[{row}],"page":1,"per_page":100,"has_next":false}}"#)
     }
     #[tokio::test]
-    async fn current_saved_selection_renders_persisted_identity_image_exact_price_and_unknown_stock_on_new_mount()
-     {
+    async fn current_saved_selection_renders_persisted_identity_image_and_exact_price_on_new_mount()
+    {
         let body = page(&saved(
             r#", "inventory_policy":"DENY", "product_title":"Fox shirt", "variant_title":"Blue / M", "sku":"FOX-B-M", "product_image":null, "variant_image":{"url":"https://cdn.test/blue.png"}"#,
         ));
@@ -176,7 +167,6 @@ mod mounted {
                 "https://cdn.test/blue.png",
                 r#"alt="Blue / M""#,
                 "12.990",
-                "Available stock: Not available",
             ] {
                 assert!(html.contains(expected), "missing {expected}: {html}");
             }
@@ -232,7 +222,6 @@ mod mounted {
                     "Blue / M",
                     "FOX-B-M",
                     "https://cdn.test/blue.png",
-                    "Available stock",
                 ] {
                     assert!(html.contains(expected), "missing {expected}: {html}");
                 }
@@ -280,8 +269,6 @@ mod mounted {
                     "FOX-B-M",
                     "https://cdn.test/blue.png",
                     "12.990",
-                    "Available stock: 0",
-                    "Last loaded at location 65761018027",
                 ] {
                     assert!(
                         html.contains(expected),
@@ -289,7 +276,9 @@ mod mounted {
                     );
                 }
                 assert!(!save_disabled(&dom));
-                let save = listeners(&initial, "click")[0];
+                assert!(html.contains("Source price: 18.50 THB"));
+                assert!(!html.contains("Available stock"));
+                let save = crate::test_events::element_id(&initial, "save-convention-variants");
                 form_event(&dom, save, "click", "");
                 settle(&mut dom).await;
                 assert!(dioxus_ssr::render(&dom).contains("Provider unavailable"));
@@ -304,8 +293,6 @@ mod mounted {
                     "FOX-B-M",
                     "https://cdn.test/blue.png",
                     "12.990",
-                    "Available stock: 0",
-                    "Last loaded at location 65761018027",
                 ] {
                     assert!(
                         html.contains(expected),
@@ -356,16 +343,15 @@ mod mounted {
                     "19.990",
                 );
                 settle(&mut dom).await;
-                form_event(&dom, listeners(&initial, "click")[0], "click", "");
+                form_event(
+                    &dom,
+                    crate::test_events::element_id(&initial, "save-convention-variants"),
+                    "click",
+                    "",
+                );
                 settle(&mut dom).await;
                 let html = dioxus_ssr::render(&dom);
-                for expected in [
-                    "SKU unavailable",
-                    "No variant image",
-                    "Available stock: Not available",
-                    "Blue / M",
-                    "12.990",
-                ] {
+                for expected in ["SKU unavailable", "No variant image", "Blue / M", "12.990"] {
                     assert!(html.contains(expected), "{html}");
                 }
                 assert!(!html.contains("OLD-SKU"));
@@ -388,7 +374,6 @@ mod mounted {
                 "Variant title unavailable",
                 "SKU unavailable",
                 "No variant image",
-                "Available stock: Not available",
                 "12.990",
             ] {
                 assert!(html.contains(expected), "{html}");

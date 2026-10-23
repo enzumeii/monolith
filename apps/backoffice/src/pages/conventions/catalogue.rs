@@ -38,7 +38,6 @@ struct SourceVariant {
     product_image: Option<(String, String)>,
     price: String,
     currency: String,
-    available: Option<i64>,
     eligible: bool,
 }
 #[derive(Clone, PartialEq)]
@@ -84,7 +83,6 @@ impl BrowsePage {
                     image,
                     price: variant.price.amount,
                     currency: variant.price.currency_code,
-                    available: variant.available_quantity,
                     eligible: variant.eligible,
                 });
             }
@@ -209,7 +207,7 @@ pub fn SelectionEditor(
             div { class: "convention-table-scroll",
                 table { class: "convention-table",
                     caption { class: "visually-hidden", "Selected variants and final prices" }
-                    thead { tr { th { "Variant" } th { "Variant image and stock" } th { "Final convention price" } th { "Action" } } }
+                    thead { tr { th { "Variant" } th { "Image" } th { "Final convention price" } th { "Action" } } }
                     tbody { for (row, detail) in rows { tr { key: "{row.shopify_variant_id}",
                         td {
                             VariantTitle { sku: detail.sku.clone(), product: detail.product_title.clone(), variant: detail.variant_title.clone() }
@@ -218,14 +216,13 @@ pub fn SelectionEditor(
                             if let Some((url, alt)) = detail.variant_image.filter(|(url, _)| safe_image_url(url)) {
                                 img { class: "convention-variant-image", src: url, alt, loading: "lazy" }
                             } else { p { "No variant image" } }
-                            p { "Available stock: {selected_stock_label(detail.available)}" }
-                            if let Some(location) = detail.stock_location {
-                                p { "Last loaded at location {location}" }
-                            }
                         }
                         td { label { class: "convention-label", r#for: "variant-price-{row.shopify_variant_id}", "Final price ({currency})" }
                             input { id: "variant-price-{row.shopify_variant_id}", r#type: "text", inputmode: "decimal", value: row.final_price.clone(), disabled: !current.loaded || saving.read().pending(),
                                 oninput: { let variant_id = row.shopify_variant_id.clone(); move |event| { if let Some(item) = selection.write().items.get_mut(&variant_id) { item.final_price = event.value(); } save_notice.set(None); } }
+                            }
+                            if let Some((amount, currency)) = &detail.source_price {
+                                small { class: "hint convention-source-price", "Source price: {amount} {currency}" }
                             }
                         }
                         td { button { r#type: "button", class: "ghost", disabled: !current.loaded || saving.read().pending(), onclick: { let variant_id = row.shopify_variant_id.clone(); move |_| { selection.write().items.remove(&variant_id); details.write().remove(&variant_id); save_notice.set(None); } }, "Remove" } }
@@ -235,7 +232,7 @@ pub fn SelectionEditor(
             if enabled && current.items.is_empty() { p { class: "error", "Disable preorders and save metadata before clearing all selected variants." } }
             ErrorMessage { message: save_error() }
             if let Some(message) = save_notice() { p { role: "status", "{message}" } }
-            button { r#type: "button", class: "primary", disabled: saving.read().pending() || memberships.pending() || !current.loaded || current == saved() || (enabled && current.items.is_empty()),
+            button { id: "save-convention-variants", r#type: "button", class: "primary", disabled: saving.read().pending() || memberships.pending() || !current.loaded || current == saved() || (enabled && current.items.is_empty()),
                 onclick: move |_| {
                     let snapshot = selection(); let input = match snapshot.request() { Ok(value) => value, Err(error) => { save_error.set(Some(error)); return; } };
                     let Some(ticket) = saving.write().begin() else { return; }; let id = save_id.clone(); let request_owner = owner(); save_error.set(None); save_notice.set(None);
@@ -248,7 +245,6 @@ pub fn SelectionEditor(
         }
         Popup { open: picker_open(), title: "Browse Shopify catalogue", class: "convention-catalogue-popup", on_close: move |()| picker_open.set(false),
             section { class: "convention-section", aria_label: "Shopify catalogue",
-                p { "Source prices and available stock are informational when loaded. Final convention prices are edited outside this catalogue and revalidated when saving." }
                 form { onsubmit: move |event| {
                     event.prevent_default();
                     if browse.pending() { return; }
@@ -276,7 +272,7 @@ pub fn SelectionEditor(
                     div { class: "convention-table-scroll",
                         table { class: "convention-table",
                             caption { "Shopify products and variants" }
-                            thead { tr { th { "Images" } th { "Product and variant" } th { "Source price and stock" } th { "Action" } } }
+                            thead { tr { th { "Images" } th { "Product and variant" } th { "Source price" } th { "Action" } } }
                             tbody { for source in page.items { tr { key: "{source.id}",
                                 td { div { class: "convention-result-images",
                                     CatalogueImage { image: source.product_image.clone(), label: "Product", fallback: "No product image" }
@@ -288,16 +284,12 @@ pub fn SelectionEditor(
                                 td {
                                     span { class: "convention-label", "Source price" }
                                     p { class: "convention-value", "{source.price} {source.currency}" }
-                                    span { class: "convention-label", "Available stock" }
-                                    p { class: "convention-value", "{stock_label(source.available)}" }
-                                    p { class: if source.eligible { "convention-status is-enabled" } else { "convention-status is-disabled" }, if source.eligible { "Eligible" } else { "Unavailable" } }
                                 }
                                 td { button { r#type: "button", class: "primary", disabled: !current.loaded || memberships.pending() || saving.read().pending() || !source.eligible || current.items.contains_key(&source.id) || current.items.len() >= 250,
                                     onclick: move |_| {
                                         if !selection.read().loaded || saving.read().pending() || !source.eligible || selection.read().items.contains_key(&source.id) || selection.read().items.len() >= 250 { return; }
                                         details.write().insert(source.id.clone(), VariantDetails {
-                                            product_title: Some(source.product_title.clone()), variant_title: Some(source.title.clone()), sku: source.sku.clone(), variant_image: source.image.clone(), available: source.available,
-                                            stock_location: submitted().map(|query| query.location),
+                                            product_title: Some(source.product_title.clone()), variant_title: Some(source.title.clone()), sku: source.sku.clone(), variant_image: source.image.clone(), source_price: Some((source.price.clone(), source.currency.clone())),
                                         }); selection.write().insert(source.product_id.clone(), source.id.clone()); save_notice.set(None);
                                     },
                                     if current.items.contains_key(&source.id) { "Already selected" } else { "Select variant" }
@@ -369,15 +361,6 @@ fn detail_text<'a>(value: Option<&'a str>, unavailable: &'a str) -> &'a str {
     value
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(unavailable)
-}
-fn selected_stock_label(available: Option<i64>) -> String {
-    available.map_or_else(|| "Not available".into(), |value| value.to_string())
-}
-fn stock_label(available: Option<i64>) -> String {
-    available.map_or_else(
-        || "Missing or inactive inventory level".into(),
-        |value| value.to_string(),
-    )
 }
 fn safe_image_url(value: &str) -> bool {
     reqwest::Url::parse(value).is_ok_and(|url| {

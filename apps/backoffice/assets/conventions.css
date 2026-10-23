@@ -85,3 +85,5 @@ dialog.popup.convention-catalogue-popup { width: 80vw; max-width: 80vw; height: 
 @media (max-width: 600px) { dialog.popup.convention-catalogue-popup { width: 95vw; max-width: 95vw; height: 90dvh; max-height: 90dvh; } }
 
 .convention-variant-title { margin: 0; color: var(--text); font-size: 1rem; }
+
+.convention-source-price { display: block; margin-top: .35rem; }

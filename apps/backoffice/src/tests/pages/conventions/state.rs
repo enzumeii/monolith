@@ -190,7 +190,7 @@ fn display_row() -> crate::api::conventions::SelectedVariant {
         sku: PatchField::Missing,
         _product_image: PatchField::Missing,
         variant_image: PatchField::Missing,
-        available_quantity: PatchField::Missing,
+        _available_quantity: PatchField::Missing,
     }
 }
 #[test]
@@ -203,8 +203,7 @@ fn selected_display_updates_preserve_prices_and_legacy_omissions_but_clear_expli
         variant_title: Some("Blue / M".into()),
         sku: Some("FOX-B-M".into()),
         variant_image: Some(("https://cdn.test/blue.png".into(), "Blue / M".into())),
-        available: Some(0),
-        stock_location: Some("123".into()),
+        source_price: Some(("18.50".into(), "THB".into())),
     };
     let mut details = BTreeMap::from([
         ("2".into(), observed.clone()),
@@ -223,32 +222,15 @@ fn selected_display_updates_preserve_prices_and_legacy_omissions_but_clear_expli
     let mut cleared = display_row();
     cleared.sku = PatchField::Clear;
     cleared.variant_image = PatchField::Clear;
-    cleared.available_quantity = PatchField::Clear;
     merge_saved_details(&mut details, &[cleared]);
     assert_eq!(details["2"].sku, None);
     assert_eq!(details["2"].variant_image, None);
-    assert_eq!(details["2"].available, None);
-    assert_eq!(
-        details["2"].stock_location, None,
-        "saved quantity has no invented location"
-    );
+    assert_eq!(details["2"].source_price, observed.source_price);
     assert_eq!(details["2"].variant_title.as_deref(), Some("Blue / M"));
     assert_eq!(
         selection.request().expect("valid fixture value").items[0].final_price,
         "12.990"
     );
-}
-
-#[test]
-fn saved_stock_preserves_zero_and_negative_values_without_inventing_a_location() {
-    for quantity in [-4, 0, 8] {
-        let mut row = display_row();
-        row.available_quantity = PatchField::Set(quantity);
-        let mut details = BTreeMap::new();
-        merge_saved_details(&mut details, &[row]);
-        assert_eq!(details["2"].available, Some(quantity));
-        assert_eq!(details["2"].stock_location, None);
-    }
 }
 
 #[test]

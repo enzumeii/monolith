@@ -196,7 +196,7 @@ async fn selected_variants_decode_enrichment_and_presence_on_get_and_put_without
     let rows = rows.expect("valid fixture value");
     assert_eq!(rows[0].variant_title, PatchField::Set("Blue / M".into()));
     assert_eq!(rows[0].sku, PatchField::Clear);
-    assert!(rows[0].available_quantity.is_missing());
+    assert!(rows[0]._available_quantity.is_missing());
     assert_eq!(rows[0].membership.id, "row2");
     assert_eq!(rows[0].membership.convention_id, ID);
     assert_eq!(rows[0].membership.shopify_product_id, "1");
@@ -243,7 +243,7 @@ async fn selected_variants_decode_enrichment_and_presence_on_get_and_put_without
         saved.membership.inventory_policy,
         Some(domain::dto::CatalogueInventoryPolicy::Deny)
     );
-    assert!(saved.available_quantity.is_missing());
+    assert!(saved._available_quantity.is_missing());
     assert!(request.ends_with(
         r#"{"items":[{"shopify_product_id":"1","shopify_variant_id":"2","final_price":"12.990"}]}"#
     ));
@@ -263,7 +263,7 @@ async fn selected_variants_decode_enrichment_and_presence_on_get_and_put_without
     assert!(row.membership.inventory_policy.is_none());
     assert!(row.sku.is_missing());
     assert!(row.variant_image.is_missing());
-    assert!(row.available_quantity.is_missing());
+    assert!(row._available_quantity.is_missing());
 }
 
 #[tokio::test]

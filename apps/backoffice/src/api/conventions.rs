@@ -21,8 +21,8 @@ pub struct SelectedVariant {
     pub _product_image: PatchField<CatalogueImage>,
     #[serde(default)]
     pub variant_image: PatchField<CatalogueImage>,
-    #[serde(default)]
-    pub available_quantity: PatchField<i64>,
+    #[serde(default, rename = "available_quantity")]
+    pub _available_quantity: PatchField<i64>,
 }
 #[derive(Debug, Deserialize)]
 pub struct SelectedVariantPage {

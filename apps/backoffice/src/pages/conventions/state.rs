@@ -237,8 +237,7 @@ pub struct VariantDetails {
     pub variant_title: Option<String>,
     pub sku: Option<String>,
     pub variant_image: Option<(String, String)>,
-    pub available: Option<i64>,
-    pub stock_location: Option<String>,
+    pub source_price: Option<(String, String)>,
 }
 impl VariantDetails {
     pub fn apply_saved(&mut self, row: &crate::api::conventions::SelectedVariant) {
@@ -258,10 +257,6 @@ impl VariantDetails {
                 .filter(|title| !title.trim().is_empty())
                 .unwrap_or("Variant image")
                 .clone_into(label);
-        }
-        if !row.available_quantity.is_missing() {
-            apply_patch(&mut self.available, &row.available_quantity);
-            self.stock_location = None;
         }
     }
 }
