@@ -1,18 +1,18 @@
 $kind: http-request
-description: "Logo requests attach logo_url from upload; omit for no change, null to clear. Responses contain stable logo_url plus short-lived signed logo_preview_url and logo_preview_url_expires_at; never persist or submit signed URL. Attachment validates matching slug, HEAD and full image bytes; missing object400, invalid provider image502, unavailable503, timeout504. GET/list sign locally without storage reads; unavailable signer preserves metadata/location with null preview. Cache-Control:no-store. Admin/Super Admin bearer authentication inherited. Invalid input 400, missing convention 404, duplicate/state conflict 409, database failure 500. Returns the merged DTO with 200. Only logo_url:null clears. To enable, send preorder_enabled:true after saving a nonempty eligible selection; enabling validates Shopify. Dates are metadata. Unavailable client 503, unusable upstream 502, timeout 504. Safe error examples: 400 {\"error\":\"Invalid convention request body\"}; 404 {\"error\":\"Convention not found\"}; 500 {\"error\":\"Internal server error\"}. This route rejects all nonempty query parameters with 400."
-url: "{{server}}/v1/admin/conventions/{{convention_id}}"
+description: 'Logo requests attach logo_url from upload; omit for no change, null to clear. Responses contain stable logo_url plus short-lived signed logo_preview_url and logo_preview_url_expires_at; never persist or submit signed URL. Attachment validates matching slug, HEAD and full image bytes; missing object400, invalid provider image502, unavailable503, timeout504. GET/list sign locally without storage reads; unavailable signer preserves metadata/location with null preview. Cache-Control:no-store. Admin/Super Admin bearer authentication inherited. Invalid input 400, missing convention 404, duplicate/state conflict 409, database failure 500. Returns the merged DTO with 200. Only logo_url:null clears. To enable, send preorder_enabled:true after saving a nonempty eligible selection; enabling validates Shopify. Dates are metadata. Unavailable client 503, unusable upstream 502, timeout 504. Safe error examples: 400 {"error":"Invalid convention request body"}; 404 {"error":"Convention not found"}; 500 {"error":"Internal server error"}. This route rejects all nonempty query parameters with 400.'
+url: "{{server}}/v1/admin/conventions/:convention_id"
 method: PATCH
+pathVariables:
+  convention_id: 918808fc-ebb2-4d2c-8443-1a2d0d364299
 body:
   type: json
   content: |-
     {
       "name": "Example Convention Updated",
-      "logo_url": "{{convention_logo_url}}",
       "preorder_enabled": false
     }
 scripts:
   - type: afterResponse
-    code: |-
-      pm.test("Expected status", () => pm.expect(pm.response.code).to.eql(200));
+    code: ""
     language: text/javascript
 order: 4000

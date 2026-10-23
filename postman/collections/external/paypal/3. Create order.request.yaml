@@ -10,29 +10,28 @@ body:
       "intent": "CAPTURE",
       "purchase_units": [
         {
-          "reference_id": "{{paypal_payment_id}}",
-          "custom_id": "{{paypal_reference}}",
+          "reference_id": "23421342134",
+          "custom_id": "123512352135",
           "amount": {
-            "currency_code": "{{paypal_currency}}",
-            "value": "{{paypal_amount}}"
+            "currency_code": "AUD",
+            "value": "12"
           },
           "payee": {
-            "merchant_id": "{{paypal_merchant_id}}"
+            "merchant_id": "123"
           }
         }
       ],
       "payment_source": {
         "paypal": {
           "experience_context": {
-            "return_url": "{{paypal_return_url}}",
-            "cancel_url": "{{paypal_cancel_url}}"
+            "return_url": "https://www.example.com",
+            "cancel_url": "https://www.example.com"
           }
         }
       }
     }
 headers:
-  Content-Type: application/json
-  PayPal-Request-Id: "{{paypal_create_request_id}}"
+  PayPal-Request-Id: 9acc40a2-f65f-4c04-a2a4-4f15f8501645
   Prefer: return=representation
 auth:
   type: inherit
@@ -40,5 +39,5 @@ auth:
     id: 5daed635-8af6-4e64-9242-a4be048bc73a
 scripts:
   - type: afterResponse
+    code: pm.test("Provider response contract", function () { pm.expect([200,201,202]).to.include(pm.response.code); pm.expect(pm.response.json().id).to.be.a("string"); });
     language: text/javascript
-    code: "pm.test(\"Provider response contract\", function () { pm.expect([200,201,202]).to.include(pm.response.code); pm.expect(pm.response.json().id).to.be.a(\"string\"); });"

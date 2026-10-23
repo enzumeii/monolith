@@ -3,33 +3,30 @@ description: Activate one variant inventory item at a location using item/locati
 url: "{{shopify}}/graphql.json"
 query: |
   mutation ActivateExistingInventory(
-    $inventoryItemId: ID!
-    $locationId: ID!
-    $idempotencyKey: String!
+  	$inventoryItemId: ID!
+  	$locationId: ID!
+  	$idempotencyKey: String!
   ) {
-    inventoryActivate(
-      inventoryItemId: $inventoryItemId
-      locationId: $locationId
-    ) @idempotent(key: $idempotencyKey) {
-      inventoryLevel {
-        id
-        isActive
-        quantities(names: ["available", "on_hand"]) {
-          name
-          quantity
-        }
-      }
-      userErrors {
-        field
-        message
-      }
-    }
+  	inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId) @idempotent(key: $idempotencyKey) {
+  		inventoryLevel {
+  			id
+  			isActive
+  			quantities(names: ["available", "on_hand"]) {
+  				name
+  				quantity
+  			}
+  		}
+  		userErrors {
+  			field
+  			message
+  		}
+  	}
   }
-variables: |
+variables: |-
   {
-    "inventoryItemId": "gid://shopify/InventoryItem/49697008189611",
-    "locationId": "gid://shopify/Location/90340917419",
-    "idempotencyKey": "e554f27d-d18f-4d6a-981e-f15b7aad81dc"
+  	"inventoryItemId": "gid://shopify/InventoryItem/49697008189611",
+  	"locationId": "gid://shopify/Location/90340917419",
+  	"idempotencyKey": "e554f27d-d18f-4d6a-981e-f15b7aad81dc"
   }
 settings: {}
 schema:

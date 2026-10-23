@@ -1,14 +1,2 @@
 name: Globals
-values:
-  - key: convention_slug
-    value: convention-example
-    enabled: true
-  - key: convention_logo_url
-    value: conventions/convention-example/00000000-0000-4000-8000-000000000001.png
-    enabled: true
-  - key: convention_logo_preview_url
-    value: ""
-    enabled: true
-  - key: convention_logo_preview_url_expires_at
-    value: ""
-    enabled: true
+values: []

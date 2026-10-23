@@ -1,9 +1,11 @@
 $kind: http-request
 description: Download private frozen CSV bytes using SigV4 GET. Success 200 exact bytes; absent object 404; rejected credentials 403. No report generation.
-url: "{{s3_endpoint}}/reports/:key"
+url: "{{s3_endpoint}}/:key"
 method: GET
 pathVariables:
-  key: test
+  - key: key
+    value: reports/conventions/ax-2026
+    description: ""
 order: 3000
 auth:
   type: inherit

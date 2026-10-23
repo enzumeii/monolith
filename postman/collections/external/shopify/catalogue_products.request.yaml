@@ -12,6 +12,7 @@ query: |
       nodes {
         id
         title
+  	  productType
         description
         featuredImage {
           url
@@ -62,8 +63,8 @@ query: |
   }
 variables: |
   {
-    "locationId": "gid://shopify/Location/123",
-    "search": "status:active AND tracks_inventory:true AND (collection_id:123 AND title:head*)",
+    "locationId": "gid://shopify/Location/65761018027",
+    "search": "status:active AND tracks_inventory:true AND produc_type:STICKER_SHEET",
     "after": null,
     "first": 25
   }

@@ -1,35 +1,35 @@
 $kind: graphql-request
-description: "Low-level Shopify tagsAdd/tagsRemove mutation. The application first reads current tags through ListOrders with includeTags=true, skips additions already present ignoring ASCII case, and removes matching stored spellings. Supply exact stored tags here for removal; this provider request does not perform the service orchestration. Unrelated tags are preserved."
+description: Low-level Shopify tagsAdd/tagsRemove mutation. The application first reads current tags through ListOrders with includeTags=true, skips additions already present ignoring ASCII case, and removes matching stored spellings. Supply exact stored tags here for removal; this provider request does not perform the service orchestration. Unrelated tags are preserved.
 url: "{{shopify}}/graphql.json"
 query: |
   mutation EditOrderTags($id: ID!, $tags: [String!]!, $add: Boolean!) {
-    tagsAdd(id: $id, tags: $tags) @include(if: $add) {
-      node {
-        id
-      }
-      userErrors {
-        field
-        message
-      }
-    }
-    tagsRemove(id: $id, tags: $tags) @skip(if: $add) {
-      node {
-        id
-      }
-      userErrors {
-        field
-        message
-      }
-    }
+  	tagsAdd(id: $id, tags: $tags) @include(if: $add) {
+  		node {
+  			id
+  		}
+  		userErrors {
+  			field
+  			message
+  		}
+  	}
+  	tagsRemove(id: $id, tags: $tags) @skip(if: $add) {
+  		node {
+  			id
+  		}
+  		userErrors {
+  			field
+  			message
+  		}
+  	}
   }
-variables: |
+variables: |-
   {
-    "id": "gid://shopify/Order/123",
-    "tags": [
-      "SHIPPING",
-      "FASTSHIP"
-    ],
-    "add": true
+  	"id": "gid://shopify/Order/123",
+  	"tags": [
+  		"SHIPPING",
+  		"FASTSHIP"
+  	],
+  	"add": true
   }
 settings: {}
 schema:
