@@ -468,3 +468,21 @@ async fn list_orders_explicitly_supplies_required_selection_flags() {
         json!({"first":1,"after":null,"search":"tag:shipping AND fulfillment_status:unfulfilled","includeContact":true,"includeTags":false})
     );
 }
+
+#[tokio::test]
+async fn location_lookup_rejects_missing_resource_and_mismatched_ids() {
+    for data in [
+        json!({}),
+        json!({"location":{}}),
+        json!({"location":{"id":"gid://shopify/Location/2"}}),
+    ] {
+        let f = Fixture::new(vec![Reply::json(json!({"data":data}))]).await;
+        assert!(
+            client(&f)
+                .location_exists(&id("Location", 1))
+                .await
+                .is_err()
+        );
+        assert_eq!(f.requests().len(), 1);
+    }
+}

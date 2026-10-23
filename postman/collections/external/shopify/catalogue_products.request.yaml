@@ -1,0 +1,76 @@
+$kind: graphql-request
+description: "Read one catalogue product page with up to 250 variants per product. Supply a Location GID and optional raw Shopify search. No cost scope is required. Inspect nested pageInfo: this API rejects overflow instead of returning a partial variant selection."
+url: "{{shopify}}/graphql.json"
+query: |
+  query CatalogueProducts(
+    $first: Int!
+    $locationId: ID!
+    $search: String
+    $after: String
+  ) {
+    products(first: $first, after: $after, query: $search) {
+      nodes {
+        id
+        title
+        status
+        description
+        featuredImage {
+          url
+          altText
+        }
+        variants(first: 250) {
+          nodes {
+            id
+            title
+            sku
+            image {
+              url
+              altText
+            }
+            selectedOptions {
+              name
+              value
+            }
+            inventoryPolicy
+            contextualPricing(context: { locationId: $locationId }) {
+              price {
+                amount
+                currencyCode
+              }
+            }
+            inventoryItem {
+              id
+              tracked
+              inventoryLevel(locationId: $locationId) {
+                id
+                isActive
+                quantities(names: ["available"]) {
+                  name
+                  quantity
+                }
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+variables: |
+  {
+    "locationId": "gid://shopify/Location/123",
+    "search": "collection_id:123 AND title:head*",
+    "after": null,
+    "first": 25
+  }
+settings: {}
+schema:
+  source: auto
+order: 2940

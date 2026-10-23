@@ -12,3 +12,5 @@ mod pagination;
 pub(super) mod common;
 
 pub(crate) mod cron;
+
+pub mod catalogue;

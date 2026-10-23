@@ -1,3 +1,4 @@
+use crate::common::client_with_wire_script as enable_wire_server;
 use crate::common::{
     assert_report_auth, assert_report_error, assert_report_unavailable, authed, body_json, client,
     client_with_unreachable_shopify, client_with_upstream, client_with_upstream_script, fixture,
@@ -896,76 +897,6 @@ async fn enable_inventory_mutation_dependency_failures_are_counted_and_do_not_st
             }
         }
     }
-}
-
-struct EnableWireServer {
-    task: tokio::task::JoinHandle<()>,
-    requests: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
-}
-impl Drop for EnableWireServer {
-    fn drop(&mut self) {
-        self.task.abort();
-    }
-}
-
-async fn enable_wire_server(
-    replies: Vec<Option<Value>>,
-) -> (crate::common::TestClient, EnableWireServer) {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-    let recorded = requests.clone();
-    let task = tokio::spawn(async move {
-        let mut replies = std::collections::VecDeque::from(replies);
-        loop {
-            let (mut stream, _) = listener.accept().await.unwrap();
-            let mut bytes = Vec::new();
-            let (header_end, length) = loop {
-                let mut buffer = [0_u8; 4096];
-                let count = stream.read(&mut buffer).await.unwrap();
-                assert!(count > 0);
-                bytes.extend_from_slice(&buffer[..count]);
-                if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
-                    let headers = String::from_utf8(bytes[..end].to_vec()).unwrap();
-                    assert!(headers.contains("x-shopify-access-token: e2e-fixture-token"));
-                    let length = headers
-                        .lines()
-                        .find_map(|line| {
-                            line.to_ascii_lowercase()
-                                .strip_prefix("content-length: ")
-                                .map(|n| n.parse::<usize>().unwrap())
-                        })
-                        .unwrap();
-                    break (end + 4, length);
-                }
-            };
-            while bytes.len() < header_end + length {
-                let mut buffer = [0_u8; 4096];
-                let count = stream.read(&mut buffer).await.unwrap();
-                assert!(count > 0);
-                bytes.extend_from_slice(&buffer[..count]);
-            }
-            recorded
-                .lock()
-                .unwrap()
-                .push(serde_json::from_slice(&bytes[header_end..header_end + length]).unwrap());
-            if let Some(reply) = replies
-                .pop_front()
-                .expect("unexpected extra Shopify request")
-            {
-                let body = reply.to_string();
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
-                    body.len()
-                );
-                stream.write_all(response.as_bytes()).await.unwrap();
-            }
-        }
-    });
-    let client =
-        crate::common::client_with_shopify(&format!("http://{address}/graphql.json")).await;
-    (client, EnableWireServer { task, requests })
 }
 
 #[tokio::test]

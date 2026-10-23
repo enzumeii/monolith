@@ -33,6 +33,12 @@ pub use inventories::{
 };
 pub use orders::{OrderReportQuery, OrderReportResponse};
 
+pub mod catalogue;
+pub use catalogue::{
+    CatalogueImage, CatalogueInventoryPolicy, CatalogueOption, CataloguePrice, CatalogueProduct,
+    CatalogueQuery, CatalogueResponse, CatalogueUnavailableReason, CatalogueVariant,
+};
+
 pub mod pagination;
 
 pub use pagination::PageInfo;
