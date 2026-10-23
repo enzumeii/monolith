@@ -213,11 +213,12 @@ async fn logo_projection_is_local_and_degrades_without_losing_stored_location() 
     .await
     .unwrap();
     assert_eq!(projected.logo_url.as_deref(), Some(key.as_str()));
+    let preview = reqwest::Url::parse(&projected.logo_preview_url.unwrap()).unwrap();
+    assert_eq!(preview.path(), format!("/{key}"));
     assert!(
-        projected
-            .logo_preview_url
-            .unwrap()
-            .contains("X-Amz-Signature=")
+        preview
+            .query_pairs()
+            .any(|(name, _)| name == "X-Amz-Signature")
     );
     assert!(
         chrono::DateTime::parse_from_rfc3339(&projected.logo_preview_url_expires_at.unwrap())

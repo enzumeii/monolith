@@ -49,6 +49,15 @@ async fn lost_put_response_is_reconciled_without_reupload_and_recovery_uses_remo
             "metadata", "upload", "metadata", "download", "metadata", "download"
         ]
     );
+    assert!(
+        fixture
+            .data
+            .lock()
+            .unwrap()
+            .destinations
+            .iter()
+            .all(|(bucket, key)| bucket == "reports" && key == &entry.key)
+    );
     let json = serde_json::to_value(saved).unwrap();
     assert!(json.get("download_url").is_none());
 }
@@ -67,7 +76,7 @@ async fn confirmed_missing_corrupt_and_oversized_objects_fail_without_put() {
             .lock()
             .unwrap()
             .objects
-            .insert(entry.key.clone(), bytes);
+            .insert(("reports".into(), entry.key.clone()), bytes);
         assert!(
             obtain(&fixture.client, &entry, Some(b"original"))
                 .await
@@ -80,7 +89,7 @@ async fn confirmed_missing_corrupt_and_oversized_objects_fail_without_put() {
 async fn failed_upload_has_one_put_and_malformed_accepted_response_recovers_by_key() {
     let fixture = Fixture::new().await;
     let entry = entry();
-    fixture.data.lock().unwrap().fail_key = Some(entry.key.clone());
+    fixture.data.lock().unwrap().fail_key = Some(("reports".into(), entry.key.clone()));
     assert!(
         obtain(&fixture.client, &entry, Some(b"original"))
             .await
@@ -152,7 +161,7 @@ async fn metadata_and_download_must_both_match_the_frozen_file() {
         .lock()
         .unwrap()
         .objects
-        .insert(entry.key.clone(), b"original".to_vec());
+        .insert(("reports".into(), entry.key.clone()), b"original".to_vec());
     fixture.data.lock().unwrap().content_type = Some("text/plain".into());
     assert!(obtain(&fixture.client, &entry, None).await.is_err());
     assert_eq!(fixture.data.lock().unwrap().calls, ["metadata"]);
@@ -167,7 +176,7 @@ async fn metadata_and_download_must_both_match_the_frozen_file() {
     }
     assert_eq!(
         fixture.data.lock().unwrap().puts,
-        [] as [std::string::String; 0]
+        [] as [(String, String); 0]
     );
 }
 #[tokio::test]
@@ -182,7 +191,7 @@ async fn an_existing_receipt_never_authorizes_recreating_a_missing_object() {
     );
     assert_eq!(
         fixture.data.lock().unwrap().puts,
-        [] as [std::string::String; 0]
+        [] as [(String, String); 0]
     );
 }
 #[tokio::test]
@@ -206,7 +215,7 @@ async fn concurrent_upserts_only_replay_identical_frozen_bytes() {
         .unwrap();
     assert_eq!(fixture.data.lock().unwrap().puts.len(), 2);
     assert_eq!(
-        fixture.data.lock().unwrap().objects[&entry.key],
+        fixture.data.lock().unwrap().objects[&("reports".into(), entry.key.clone())],
         b"original"
     );
     fixture
@@ -214,7 +223,7 @@ async fn concurrent_upserts_only_replay_identical_frozen_bytes() {
         .lock()
         .unwrap()
         .objects
-        .insert(entry.key.clone(), b"changed!".to_vec());
+        .insert(("reports".into(), entry.key.clone()), b"changed!".to_vec());
     assert!(
         obtain(&fixture.client, &entry, Some(b"original"))
             .await

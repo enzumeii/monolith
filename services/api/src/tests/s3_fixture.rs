@@ -15,9 +15,10 @@ use std::{
 
 #[derive(Default)]
 pub(crate) struct Data {
-    pub objects: HashMap<String, Vec<u8>>,
-    pub puts: Vec<String>,
-    pub fail_key: Option<String>,
+    pub objects: HashMap<(String, String), Vec<u8>>,
+    pub puts: Vec<(String, String)>,
+    pub destinations: Vec<(String, String)>,
+    pub fail_key: Option<(String, String)>,
     pub lost_response: bool,
     pub malformed: bool,
     pub failure: Option<(&'static str, &'static str)>,
@@ -53,7 +54,7 @@ impl Fixture {
         let base = format!("http://{}", listener.local_addr().unwrap());
         let data = Arc::new(Mutex::new(Data::default()));
         let app = Router::new()
-            .route("/reports/{*key}", get(download).head(metadata).put(upload))
+            .route("/{bucket}/{*key}", get(download).head(metadata).put(upload))
             .with_state(data.clone());
         let task = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
@@ -98,10 +99,11 @@ fn authenticated(headers: &HeaderMap) {
 }
 async fn metadata(
     State(shared): State<Arc<Mutex<Data>>>,
-    Path(key): Path<String>,
+    Path((bucket, key)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> axum::response::Response {
     authenticated(&headers);
+    let key = object_identity(&shared, bucket, key);
     if let Some(response) = failure(&shared, "metadata").await {
         return response;
     }
@@ -121,7 +123,7 @@ async fn metadata(
                 "content-type",
                 data.content_type
                     .as_deref()
-                    .unwrap_or_else(|| object_mime(&key))
+                    .unwrap_or_else(|| object_mime(&key.1))
                     .parse()
                     .unwrap(),
             );
@@ -132,11 +134,12 @@ async fn metadata(
 }
 async fn upload(
     State(shared): State<Arc<Mutex<Data>>>,
-    Path(key): Path<String>,
+    Path((bucket, key)): Path<(String, String)>,
     headers: HeaderMap,
     bytes: Bytes,
 ) -> axum::response::Response {
     authenticated(&headers);
+    let key = object_identity(&shared, bucket, key);
     assert!(matches!(
         headers["content-type"].to_str().unwrap(),
         "text/csv; charset=utf-8" | "image/png" | "image/jpeg"
@@ -176,7 +179,7 @@ async fn upload(
 }
 async fn download(
     State(shared): State<Arc<Mutex<Data>>>,
-    Path(key): Path<String>,
+    Path((bucket, key)): Path<(String, String)>,
     Query(query): Query<HashMap<String, String>>,
     headers: HeaderMap,
 ) -> axum::response::Response {
@@ -199,6 +202,7 @@ async fn download(
     } else {
         authenticated(&headers);
     }
+    let key = object_identity(&shared, bucket, key);
     if let Some(response) = failure(&shared, "download").await {
         return response;
     }
@@ -209,13 +213,19 @@ async fn download(
                 "content-type",
                 data.content_type
                     .as_deref()
-                    .unwrap_or_else(|| object_mime(&key)),
+                    .unwrap_or_else(|| object_mime(&key.1)),
             )],
             data.download_override.as_ref().unwrap_or(bytes).clone(),
         )
             .into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }
+}
+fn object_identity(shared: &Arc<Mutex<Data>>, bucket: String, key: String) -> (String, String) {
+    assert!(matches!(bucket.as_str(), "reports" | "conventions"));
+    let identity = (bucket, key);
+    shared.lock().unwrap().destinations.push(identity.clone());
+    identity
 }
 fn object_mime(key: &str) -> &'static str {
     match std::path::Path::new(key)

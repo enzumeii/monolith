@@ -94,3 +94,45 @@ async fn jpeg_and_encoded_size_boundaries_preserve_original_bytes() {
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn upload_attachment_and_preview_use_the_explicit_location_bucket() {
+    let fixture = crate::s3_fixture::Fixture::new().await;
+    let bytes = png(1, 1);
+    let uploaded = upload(
+        &fixture.client,
+        "conventions/ax-2026",
+        validate(bytes.clone(), "image/png").await.unwrap(),
+    )
+    .await
+    .unwrap();
+    let (bucket, key) = uploaded.location.split_once('/').unwrap();
+    assert_eq!(bucket, "conventions");
+    assert!(key.starts_with("ax-2026/"));
+    let signed = reqwest::Url::parse(&uploaded.url).unwrap();
+    assert_eq!(signed.path(), format!("/{}", uploaded.location));
+    assert!(!signed.path().starts_with("/reports/"));
+    attach(&fixture.client, &uploaded.location, "ax-2026")
+        .await
+        .unwrap();
+    let preview = preview(&fixture.client, &uploaded.location).await.unwrap();
+    assert_eq!(
+        reqwest::Url::parse(&preview.url).unwrap().path(),
+        signed.path()
+    );
+    let response = reqwest::get(preview.url).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.bytes().await.unwrap().as_ref(), bytes);
+    let data = fixture.data.lock().unwrap();
+    let destination = (bucket.to_owned(), key.to_owned());
+    assert_eq!(data.puts, vec![destination.clone()]);
+    assert_eq!(data.objects.get(&destination), Some(&bytes));
+    assert_eq!(
+        data.destinations,
+        vec![(bucket.to_owned(), key.to_owned()); 4]
+    );
+    assert_eq!(
+        data.calls,
+        vec!["upload", "metadata", "download", "download"]
+    );
+}

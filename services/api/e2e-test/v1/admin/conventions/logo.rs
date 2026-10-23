@@ -55,6 +55,20 @@ async fn logo_upload_before_create_signed_read_replace_preserve_and_clear() {
         location(&f, id).await.as_deref(),
         uploaded["location"].as_str()
     );
+    let stored_location = uploaded["location"].as_str().unwrap();
+    let (bucket, key) = stored_location.split_once('/').unwrap();
+    assert_eq!(bucket, "conventions");
+    assert_eq!(
+        reqwest::Url::parse(created["logo_preview_url"].as_str().unwrap())
+            .unwrap()
+            .path(),
+        format!("/{stored_location}")
+    );
+    assert_eq!(
+        storage.data.lock().unwrap().destinations,
+        vec![(bucket.to_owned(), key.to_owned()); 3],
+        "upload PUT and attachment HEAD/GET must use the same explicit bucket and key"
+    );
     let calls = storage.data.lock().unwrap().calls.len();
     let loaded = read(&c, &f, id).await;
     let listing = c
@@ -79,6 +93,16 @@ async fn logo_upload_before_create_signed_read_replace_preserve_and_clear() {
     let bytes = reqwest::get(loaded["logo_preview_url"].as_str().unwrap())
         .await
         .unwrap();
+    assert_eq!(
+        reqwest::Url::parse(loaded["logo_preview_url"].as_str().unwrap())
+            .unwrap()
+            .path(),
+        format!("/{stored_location}")
+    );
+    assert_eq!(
+        storage.data.lock().unwrap().destinations.last(),
+        Some(&(bucket.to_owned(), key.to_owned()))
+    );
     assert_eq!(bytes.status(), 200);
     assert_eq!(bytes.headers()["content-type"], "image/png");
     assert_eq!(

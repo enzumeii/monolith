@@ -62,25 +62,35 @@ pub(crate) async fn upload(
     } else {
         "jpg"
     };
-    let key = format!("{directory}/{}.{extension}", Uuid::new_v4());
+    let location = format!("{directory}/{}.{extension}", Uuid::new_v4());
+    let (bucket, key) = location
+        .split_once('/')
+        .ok_or_else(|| invalid("Invalid upload location"))?;
     let signed = s3
-        .presign_image(&key, logo.content_type)
+        .presign_image(bucket, key, logo.content_type)
         .await
         .map_err(|error| upstream(error))?;
-    s3.put(&key, logo.content_type, logo.bytes)
+    s3.put(bucket, key, logo.content_type, logo.bytes)
         .await
         .map_err(|error| upstream(error))?;
     Ok(domain::dto::UploadedFileDTO {
-        location: key,
+        location,
         url: signed.url,
         expires_at: signed.expires_at.to_rfc3339(),
     })
 }
 
-pub(crate) async fn attach(s3: &S3Client, key: &str, slug: &str) -> Result<(), AppError> {
-    let mime = location(key, Some(slug))?;
+pub(crate) async fn attach(
+    s3: &S3Client,
+    stored_location: &str,
+    slug: &str,
+) -> Result<(), AppError> {
+    let mime = location(stored_location, Some(slug))?;
+    let (bucket, key) = stored_location
+        .split_once('/')
+        .ok_or_else(|| invalid("Invalid logo_url"))?;
     let metadata = s3
-        .metadata(key)
+        .metadata(bucket, key)
         .await
         .map_err(|error| upstream(error))?
         .ok_or_else(|| invalid("Logo object does not exist"))?;
@@ -88,7 +98,7 @@ pub(crate) async fn attach(s3: &S3Client, key: &str, slug: &str) -> Result<(), A
         return Err(bad_object());
     }
     let bytes = s3
-        .download(key, MAX_BYTES)
+        .download(bucket, key, MAX_BYTES)
         .await
         .map_err(|error| upstream(error))?;
     if bytes.len() as u64 != metadata.size {
@@ -201,10 +211,13 @@ pub(crate) async fn project(
 
 async fn preview(
     s3: &S3Client,
-    key: &str,
+    stored_location: &str,
 ) -> Result<crate::client::s3::PresignedDownload, AppError> {
-    let mime = location(key, None)?;
-    s3.presign_image(key, mime)
+    let mime = location(stored_location, None)?;
+    let (bucket, key) = stored_location
+        .split_once('/')
+        .ok_or_else(|| invalid("Invalid logo_url"))?;
+    s3.presign_image(bucket, key, mime)
         .await
         .map_err(|error| upstream(error))
 }

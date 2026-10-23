@@ -92,10 +92,18 @@ async fn files_png_jpeg_admin_roles_unique_keys_and_unsigned_image_reads() {
         assert!(expiry.timestamp() > chrono::Utc::now().timestamp());
         let url = reqwest::Url::parse(value["url"].as_str().unwrap()).unwrap();
         assert!(url.query_pairs().any(|(k, _)| k == "X-Amz-Signature"));
+        assert_eq!(url.path(), format!("/{key}"));
+        assert!(!url.path().starts_with("/reports/"));
         let downloaded = reqwest::get(url).await.unwrap();
         assert_eq!(downloaded.status(), 200);
         assert_eq!(downloaded.headers()["content-type"], mime);
         assert_eq!(downloaded.bytes().await.unwrap().as_ref(), bytes);
+        let (_, object_key) = key.split_once('/').unwrap();
+        let data = storage.data.lock().unwrap();
+        assert_eq!(data.destinations.len(), keys.len() * 2);
+        assert!(data.destinations.iter().rev().take(2).all(|destination| {
+            destination == &("conventions".to_owned(), object_key.to_owned())
+        }));
     }
     assert_eq!(storage.data.lock().unwrap().puts.len(), 2);
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM conventions WHERE slug=$1")

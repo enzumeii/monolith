@@ -1,5 +1,5 @@
 $kind: http-request
-description: "Admin/SuperAdmin raw image upload before convention creation. Client chooses folder conventions/<slug>; server generates a unique UUID filename. PNG/JPEG,1..2097152 bytes,up to4096x4096. 201 returns location (persist this), url and RFC3339 expires_at (transient rendering only). No convention mutation. Invalid query/path/type/image400; oversized413; authentication401; cookie Origin403; S3 unavailable503/rejected502/timeout504. Browser cookie mode requires configured Origin. Uploaded but unattached objects are not automatically collected."
+description: "Admin/SuperAdmin raw image upload before convention creation. Client supplies bucket and folder as conventions/<slug> (bucket conventions, key prefix <slug>); no configured report bucket is prepended; server generates a unique UUID filename. PNG/JPEG,1..2097152 bytes,up to4096x4096. 201 returns location (persist this), url and RFC3339 expires_at (transient rendering only). No convention mutation. Invalid query/path/type/image400; oversized413; authentication401; cookie Origin403; S3 unavailable503/rejected502/timeout504. Browser cookie mode requires configured Origin. Uploaded but unattached objects are not automatically collected."
 url: "{{server}}/v1/admin/files?location=conventions/{{convention_slug}}"
 method: POST
 order: 1000
