@@ -1,0 +1,17 @@
+$kind: http-request
+description: Read private object metadata using SigV4 HEAD. Success 200 preserves CSV content type and length; absent object 404; invalid credentials 403. No report generation.
+url: "{{s3_endpoint}}/reports/:key"
+method: HEAD
+pathVariables:
+  - key: key
+    value: test
+    description: ""
+order: 2000
+auth:
+  type: inherit
+  credentials:
+    id: 50da802f-f8d1-4fe8-8ac7-f8c61c3962ae
+scripts:
+  - type: afterResponse
+    code: ""
+    language: text/javascript

@@ -10,5 +10,11 @@ values:
     value: 'https://api-m.paypal.com'
   - key: stripe
     value: 'https://api.stripe.com/v1'
-  - key: blob_api
+  - key: s3_endpoint
+    value: 'https://jbcvsgdvhvzitweteqfo.storage.supabase.co/storage/v1/s3'
+  - key: s3_region
+    value: ap-southeast-1
+  - key: s3_access_key_id
+    value: ''
+  - key: s3_secret_access_key
     value: ''

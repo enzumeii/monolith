@@ -1,0 +1,25 @@
+$kind: http-request
+description: Request a short-lived private CSV download URL. Uses the collection bearer token or browser cookie. id must identify a saved report and filename must match its saved metadata; bucket, key and TTL are server-owned. 200 contains url and RFC3339 UTC expires_at with Cache-Control no-store. Expected failures include 400 invalid path, 401 credentials, 404 absent report/file/object, 502 storage response, 503 unavailable client, and 504 storage timeout. GET preserves existing safe-method browser origin behavior.
+url: "{{server}}/v1/admin/cron/reports/:id/files/:filename/download-url"
+method: GET
+pathVariables:
+  - key: id
+    value: 4c7256f4-a370-49e3-a3c0-424d5abdf80f
+    description: UUID from report history.
+  - key: filename
+    value: inventory.csv
+    description: Exact filename from the report files metadata.
+scripts:
+  - type: afterResponse
+    code: |-
+      if (pm.response.code === 200) {
+        pm.test("Private download URL contract", () => {
+          pm.response.to.have.header("Cache-Control", "no-store");
+          const body = pm.response.json();
+          pm.expect(Object.keys(body).sort()).to.eql(["expires_at", "url"]);
+          pm.expect(body.url).to.be.a("string");
+          pm.expect(Number.isNaN(Date.parse(body.expires_at))).to.eql(false);
+        });
+      }
+    language: text/javascript
+order: 9000

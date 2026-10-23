@@ -3,8 +3,14 @@ description: List independent report audits including generation and email failu
 url: "{{server}}/v1/admin/cron/reports?page=1&per_page=25"
 method: GET
 queryParams:
-  page: "1"
-  per_page: "25"
+  - key: page
+    value: "1"
+    disabled: false
+    description: ""
+  - key: per_page
+    value: "25"
+    disabled: false
+    description: ""
 scripts:
   - type: afterResponse
     code: ""

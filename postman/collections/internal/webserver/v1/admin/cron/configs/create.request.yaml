@@ -6,12 +6,12 @@ body:
   type: json
   content: |-
     {
-    	"name": "Monthly transaction report",
-    	"report_type": "TRANSACTION",
-    	"cron_expression": "0 9 1 * *",
-    	"receiver_email": "reports@example.com",
-    	"parameter": "PREVIOUS_MONTH",
-    	"enabled": false
+    	"name": "Monthly Inventory report",
+    	"report_type": "INVENTORY",
+    	"cron_expression": "* * * * *",
+    	"receiver_email": "wichayutdew@gmail.com",
+    	"parameter": "65761018027",
+    	"enabled": true
     }
 scripts:
   - type: afterResponse
