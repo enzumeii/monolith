@@ -11,9 +11,8 @@ use chrono::{DateTime, Utc};
 use serde_json::json;
 use std::{sync::Arc, time::Duration};
 
-fn config(f: &Fixture) -> PaypalConfig {
+pub(super) fn config(f: &Fixture) -> PaypalConfig {
     PaypalConfig {
-        payment: None,
         base_url: f.url.join("/").unwrap().to_string(),
         timeout_secs: 1,
         client_id: Some("fixture-id".into()),
@@ -26,7 +25,7 @@ fn dates() -> (DateTime<Utc>, DateTime<Utc>) {
         "2026-10-02T00:00:00Z".parse().unwrap(),
     )
 }
-fn token(value: &str) -> Reply {
+pub(super) fn token(value: &str) -> Reply {
     Reply::json(json!({"access_token":value,"token_type":"Bearer","expires_in":3600}))
 }
 fn page() -> Reply {

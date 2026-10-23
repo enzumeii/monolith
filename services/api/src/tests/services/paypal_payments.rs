@@ -1,319 +1,397 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
-use crate::client::tests::{Fixture, Reply};
-use serde_json::json;
-use sqlx::postgres::PgPoolOptions;
+use crate::{
+    client::tests::{Fixture, Reply},
+    config::PaypalConfig,
+};
+use axum::{http::Method, response::IntoResponse};
+use serde_json::{Value, json};
+
+fn expected(fixture: &Fixture) -> ExpectedPayment {
+    ExpectedPayment {
+        order_id: "ORDER".into(),
+        merchant_id: "MERCHANT".into(),
+        api_origin: fixture.url.origin().ascii_serialization(),
+        reference_id: "purchase-unit".into(),
+        custom_id: "draft-ref".into(),
+        amount: 1000,
+        currency: "USD".into(),
+    }
+}
+fn client(fixture: &Fixture) -> PaypalClient {
+    PaypalClient::new(&PaypalConfig {
+        base_url: fixture.url.join("/").unwrap().to_string(),
+        timeout_secs: 1,
+        client_id: Some("fixture-client".into()),
+        client_secret: Some("fixture-secret".into()),
+    })
+    .unwrap()
+}
+fn objects() -> Vec<Value> {
+    let capture = json!({"id":"CAPTURE","status":"COMPLETED","amount":{"currency_code":"USD","value":"10.00"},"final_capture":true,"payee":{"merchant_id":"MERCHANT"},"custom_id":"draft-ref","supplementary_data":{"related_ids":{"order_id":"ORDER","capture_id":"CAPTURE"}}});
+    vec![
+        json!({"access_token":"fixture-token","token_type":"Bearer","expires_in":3600}),
+        json!({"id":"ORDER","status":"COMPLETED","purchase_units":[{"reference_id":"purchase-unit","custom_id":"draft-ref","amount":{"currency_code":"USD","value":"10.00"},"payee":{"merchant_id":"MERCHANT"},"payments":{"captures":[capture.clone()]}}]}),
+        capture,
+    ]
+}
+async fn provider_fixture(objects: Vec<Value>) -> Fixture {
+    Fixture::new(objects.into_iter().map(Reply::json).collect()).await
+}
 
 #[tokio::test]
-async fn trusted_verifier_rechecks_provider_and_fails_closed_for_expectations_lease_and_pending() {
-    let VerifierFixture {
-        fixture,
-        config,
-        client,
-        pool,
-        id,
-        capture_id,
-    } = verifier_fixture().await;
-    let evidence = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        verify_completed_payment(
-            &pool,
-            &client,
-            &config,
-            true,
-            id,
-            ExpectedPayment {
-                reference: "trusted-ref",
-                amount: "12.34",
-                currency: "USD",
-            },
-        ),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(evidence.capture_id, capture_id);
-    reject_wrong_expectations(&pool, &client, &config, id).await;
-    let busy = Uuid::new_v4();
-    repository::claim_operation(
-        &pool,
-        id,
-        PaymentOperation::Reconcile,
-        busy,
-        Utc::now() + Duration::minutes(1),
-    )
-    .await
-    .unwrap();
-    assert!(
-        verify_completed_payment(
-            &pool,
-            &client,
-            &config,
-            true,
-            id,
-            ExpectedPayment {
-                reference: "trusted-ref",
-                amount: "12.34",
-                currency: "USD"
-            }
-        )
-        .await
-        .is_err()
-    );
-    assert_eq!(fixture.requests().len(), 3);
-    repository::finish_operation(&pool, id, busy, "COMPLETED", None)
+async fn verifies_authoritative_payment_with_gets_and_never_captures() {
+    let fixture = provider_fixture(objects()).await;
+    let outcome = verify_payment(&client(&fixture), &expected(&fixture))
         .await
         .unwrap();
-    assert!(
-        verify_completed_payment(
-            &pool,
-            &client,
-            &config,
-            true,
-            id,
-            ExpectedPayment {
-                reference: "trusted-ref",
-                amount: "12.34",
-                currency: "USD"
-            }
-        )
-        .await
-        .is_err()
+    assert_eq!(
+        outcome,
+        PaymentOutcome::VerifiedPaid(VerifiedPayment {
+            order_id: "ORDER".into(),
+            capture_id: "CAPTURE".into(),
+            merchant_id: "MERCHANT".into(),
+            api_origin: fixture.url.origin().ascii_serialization(),
+            reference_id: "purchase-unit".into(),
+            custom_id: "draft-ref".into(),
+            amount: 1000,
+            currency: "USD".into(),
+        })
     );
-    assert_eq!(fixture.requests().len(), 5);
-    let current = load(&pool, id).await.unwrap();
-    assert!(current.verified_at.is_some());
-    flag(&pool, &current, "REFUND_OR_REVERSAL_REVIEW")
-        .await
-        .unwrap();
-    assert!(
-        verify_completed_payment(
-            &pool,
-            &client,
-            &config,
-            true,
-            id,
-            ExpectedPayment {
-                reference: "trusted-ref",
-                amount: "12.34",
-                currency: "USD"
-            }
-        )
-        .await
-        .is_err()
+    assert_eq!(fixture.methods(), [Method::POST, Method::GET, Method::GET]);
+    assert_eq!(
+        fixture
+            .requests()
+            .iter()
+            .map(|request| request.0.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "/v1/oauth2/token",
+            "/v2/checkout/orders/ORDER",
+            "/v2/payments/captures/CAPTURE"
+        ]
     );
-    assert_eq!(fixture.requests().len(), 5);
-    cleanup_verifier(&pool, id).await;
+    assert!(
+        fixture.requests()[1..]
+            .iter()
+            .all(|request| request.2 == Value::Null)
+    );
 }
 
-async fn cleanup_verifier(pool: &PgPool, id: Uuid) {
-    sqlx::query("UPDATE paypal_payments SET verified_capture_id=NULL,verified_at=NULL,status='CREATING' WHERE id=$1").bind(id).execute(pool).await.unwrap();
-    sqlx::query("DELETE FROM paypal_payment_captures WHERE payment_id=$1")
-        .bind(id)
-        .execute(pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM paypal_payments WHERE id=$1")
-        .bind(id)
-        .execute(pool)
-        .await
-        .unwrap();
-    pool.close().await;
-}
-
-async fn reject_wrong_expectations(
-    pool: &PgPool,
-    client: &PaypalClient,
-    config: &PaypalConfig,
-    id: Uuid,
-) {
-    for (reference, amount, currency) in [
-        ("wrong", "12.34", "USD"),
-        ("trusted-ref", "12.35", "USD"),
-        ("trusted-ref", "12.34", "EUR"),
+#[tokio::test]
+async fn approved_and_other_uncaptured_orders_stay_unpaid_without_provider_mutation() {
+    for (status, terminal) in [
+        ("CREATED", false),
+        ("SAVED", false),
+        ("APPROVED", false),
+        ("PAYER_ACTION_REQUIRED", false),
+        ("VOIDED", true),
     ] {
-        assert!(
-            verify_completed_payment(
-                pool,
-                client,
-                config,
-                true,
-                id,
-                ExpectedPayment {
-                    reference,
-                    amount,
-                    currency
-                }
-            )
+        let mut replies = objects();
+        replies[1]["status"] = json!(status);
+        replies[1]["purchase_units"][0]["payments"] = Value::Null;
+        let fixture = provider_fixture(replies).await;
+        let outcome = verify_payment(&client(&fixture), &expected(&fixture))
             .await
-            .is_err()
+            .unwrap();
+        let want = if terminal {
+            PaymentOutcome::TerminalUnpaid {
+                order_id: "ORDER".into(),
+            }
+        } else {
+            PaymentOutcome::Pending {
+                order_id: "ORDER".into(),
+            }
+        };
+        assert_eq!(outcome, want, "{status}");
+        assert_eq!(fixture.methods(), [Method::POST, Method::GET]);
+    }
+}
+
+#[tokio::test]
+async fn independently_retrieved_pending_and_denied_captures_are_unpaid() {
+    for (status, terminal) in [
+        ("PENDING", false),
+        ("DENIED", true),
+        ("DECLINED", true),
+        ("FAILED", true),
+    ] {
+        let mut replies = objects();
+        replies[1]["purchase_units"][0]["payments"]["captures"][0]["status"] = json!(status);
+        replies[2]["status"] = json!(status);
+        let fixture = provider_fixture(replies).await;
+        let want = if terminal {
+            PaymentOutcome::TerminalUnpaid {
+                order_id: "ORDER".into(),
+            }
+        } else {
+            PaymentOutcome::Pending {
+                order_id: "ORDER".into(),
+            }
+        };
+        assert_eq!(
+            verify_payment(&client(&fixture), &expected(&fixture))
+                .await
+                .unwrap(),
+            want,
+            "{status}"
+        );
+        assert_eq!(fixture.methods(), [Method::POST, Method::GET, Method::GET]);
+    }
+}
+
+#[tokio::test]
+async fn order_and_purchase_unit_mismatches_fail_before_capture_retrieval() {
+    for (pointer, value) in [
+        ("/id", json!("OTHER")),
+        ("/id", json!("")),
+        ("/status", json!("FUTURE")),
+        ("/purchase_units", json!([])),
+        ("/purchase_units/0/reference_id", json!("other")),
+        ("/purchase_units/0/reference_id", Value::Null),
+        ("/purchase_units/0/custom_id", json!("other")),
+        ("/purchase_units/0/custom_id", Value::Null),
+        ("/purchase_units/0/payee", Value::Null),
+        ("/purchase_units/0/payee/merchant_id", json!("OTHER")),
+        ("/purchase_units/0/amount/value", json!("9.99")),
+        ("/purchase_units/0/amount/currency_code", json!("EUR")),
+        ("/purchase_units/0/payments", Value::Null),
+        ("/purchase_units/0/payments/captures/0/id", json!("")),
+    ] {
+        let mut replies = objects();
+        *replies[1].pointer_mut(pointer).unwrap() = value.clone();
+        let fixture = provider_fixture(replies).await;
+        assert!(
+            verify_payment(&client(&fixture), &expected(&fixture))
+                .await
+                .is_err(),
+            "{pointer}: {value}"
+        );
+        assert_eq!(fixture.requests().len(), 2, "{pointer}: {value}");
+    }
+    for pointer in ["/purchase_units", "/purchase_units/0/payments/captures"] {
+        let mut replies = objects();
+        let array = replies[1]
+            .pointer_mut(pointer)
+            .unwrap()
+            .as_array_mut()
+            .unwrap();
+        array.push(array[0].clone());
+        let fixture = provider_fixture(replies).await;
+        assert!(
+            verify_payment(&client(&fixture), &expected(&fixture))
+                .await
+                .is_err()
+        );
+        assert_eq!(fixture.requests().len(), 2);
+    }
+}
+
+#[tokio::test]
+async fn capture_evidence_rejects_mismatched_identity_money_status_and_nonfinal_payment() {
+    for index in [1, 2] {
+        for (pointer, value) in [
+            ("/id", json!("OTHER")),
+            ("/amount/value", json!("9.99")),
+            ("/amount/value", json!("1e1")),
+            ("/amount/currency_code", json!("EUR")),
+            ("/final_capture", json!(false)),
+            ("/final_capture", Value::Null),
+            ("/status", json!("PENDING")),
+            ("/status", json!("DENIED")),
+            ("/status", json!("REFUNDED")),
+            ("/status", json!("PARTIALLY_REFUNDED")),
+            ("/status", json!("REVERSED")),
+            ("/status", json!("FUTURE")),
+            ("/payee/merchant_id", json!("OTHER")),
+            ("/custom_id", json!("other")),
+            ("/supplementary_data/related_ids/order_id", json!("OTHER")),
+            ("/supplementary_data/related_ids/capture_id", json!("OTHER")),
+        ] {
+            let mut replies = objects();
+            let capture = if index == 1 {
+                &mut replies[1]["purchase_units"][0]["payments"]["captures"][0]
+            } else {
+                &mut replies[2]
+            };
+            *capture.pointer_mut(pointer).unwrap() = value.clone();
+            let fixture = provider_fixture(replies).await;
+            assert!(
+                verify_payment(&client(&fixture), &expected(&fixture))
+                    .await
+                    .is_err(),
+                "object {index} {pointer}: {value}"
+            );
+        }
+    }
+    for status in ["REFUNDED", "PARTIALLY_REFUNDED", "REVERSED", "FUTURE"] {
+        let mut replies = objects();
+        replies[1]["purchase_units"][0]["payments"]["captures"][0]["status"] = json!(status);
+        replies[2]["status"] = json!(status);
+        let fixture = provider_fixture(replies).await;
+        assert!(
+            verify_payment(&client(&fixture), &expected(&fixture))
+                .await
+                .is_err(),
+            "{status}"
         );
     }
 }
 
-struct VerifierFixture {
-    fixture: Fixture,
-    config: PaypalConfig,
-    client: PaypalClient,
-    pool: PgPool,
-    id: Uuid,
-    capture_id: String,
-}
-
-async fn verifier_fixture() -> VerifierFixture {
-    let id = Uuid::new_v4();
-    let merchant = format!("verifier-{id}");
-    let order_id = format!("ORDER-{id}");
-    let capture_id = format!("CAPTURE-{id}");
-    let capture = json!({"id":capture_id,"status":"COMPLETED","amount":{"currency_code":"USD","value":"12.34"},"final_capture":true,"supplementary_data":{"related_ids":{"order_id":order_id}}});
-    let order = json!({"id":order_id,"status":"COMPLETED","purchase_units":[{"reference_id":id.to_string(),"custom_id":"trusted-ref","amount":{"currency_code":"USD","value":"12.34"},"payee":{"merchant_id":merchant},"payments":{"captures":[capture]}}]});
-    let mut pending = capture.clone();
-    pending["status"] = json!("PENDING");
-    let fixture = Fixture::new(vec![
-        Reply::json(
-            json!({"access_token":"fixture-token","token_type":"Bearer","expires_in":3600}),
-        ),
-        Reply::json(order.clone()),
-        Reply::json(capture),
-        Reply::json(order),
-        Reply::json(pending),
-    ])
-    .await;
-    let config = PaypalConfig {
-        base_url: fixture.url.join("/").unwrap().to_string(),
-        timeout_secs: 1,
-        client_id: Some("fixture".into()),
-        client_secret: Some("fixture".into()),
-        payment: Some(PaypalPaymentConfig {
-            environment: PaypalEnvironment::Sandbox,
-            merchant_id: merchant.clone(),
-            webhook_id: "webhook".into(),
-            currencies: vec!["USD".into()],
-            return_url: "http://localhost/success".into(),
-            cancel_url: "http://localhost/cancel".into(),
-        }),
-    };
-    let client = PaypalClient::new(&config).unwrap();
-    let gateway = Gateway::new(&client, &config, true).unwrap();
-    let url = std::env::var("E2E_DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://e2e:e2e@127.0.0.1:5433/e2e".into());
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&url)
-        .await
-        .unwrap();
-    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-    let input = NewPaypalPayment {
-        id,
-        idempotency_key: Uuid::new_v4(),
-        capability_digest: [1; 32],
-        reference: "trusted-ref".into(),
-        amount: "12.34".into(),
-        currency: "USD".into(),
-        minor_units: 1234,
-        merchant_id: merchant,
-        environment: "sandbox".into(),
-        api_origin: gateway.origin.clone(),
-        create_request_id: Uuid::new_v4(),
-        capture_request_id: Uuid::new_v4(),
-    };
-    repository::create_or_get(&pool, &input).await.unwrap();
-    let token = Uuid::new_v4();
-    repository::claim_operation(
-        &pool,
-        id,
-        PaymentOperation::Create,
-        token,
-        Utc::now() + Duration::minutes(1),
-    )
-    .await
-    .unwrap();
-    repository::save_order(&pool, id, token, &order_id, None)
-        .await
-        .unwrap();
-    VerifierFixture {
-        fixture,
-        config,
-        client,
-        pool,
-        id,
-        capture_id,
+#[tokio::test]
+async fn absent_redundant_capture_identity_is_allowed_but_embedded_contradictions_still_fail() {
+    let mut replies = objects();
+    for index in [1, 2] {
+        let capture = if index == 1 {
+            &mut replies[1]["purchase_units"][0]["payments"]["captures"][0]
+        } else {
+            &mut replies[2]
+        };
+        for field in ["payee", "custom_id", "supplementary_data"] {
+            capture.as_object_mut().unwrap().remove(field);
+        }
+    }
+    let fixture = provider_fixture(replies).await;
+    assert!(matches!(
+        verify_payment(&client(&fixture), &expected(&fixture))
+            .await
+            .unwrap(),
+        PaymentOutcome::VerifiedPaid(_)
+    ));
+    for (pointer, value) in [
+        ("/payee/merchant_id", json!("WRONG")),
+        ("/custom_id", json!("wrong")),
+        ("/supplementary_data/related_ids/order_id", json!("WRONG")),
+        ("/supplementary_data/related_ids/capture_id", json!("WRONG")),
+    ] {
+        let mut replies = objects();
+        for field in ["payee", "custom_id", "supplementary_data"] {
+            replies[2].as_object_mut().unwrap().remove(field);
+        }
+        *replies[1]["purchase_units"][0]["payments"]["captures"][0]
+            .pointer_mut(pointer)
+            .unwrap() = value;
+        let fixture = provider_fixture(replies).await;
+        assert!(
+            verify_payment(&client(&fixture), &expected(&fixture))
+                .await
+                .is_err(),
+            "{pointer}"
+        );
     }
 }
 
 #[tokio::test]
-async fn gateway_binds_sandbox_fixture_permission_and_rejects_unsafe_destinations() {
-    let fixture = Fixture::new(vec![]).await;
-    let mut config = PaypalConfig {
-        base_url: fixture.url.join("/").unwrap().to_string(),
-        timeout_secs: 1,
-        client_id: Some("fixture".into()),
-        client_secret: Some("fixture".into()),
-        payment: Some(PaypalPaymentConfig {
-            environment: PaypalEnvironment::Sandbox,
-            merchant_id: "merchant".into(),
-            webhook_id: "webhook".into(),
-            currencies: vec!["USD".into()],
-            return_url: "http://localhost/success".into(),
-            cancel_url: "http://localhost/cancel".into(),
-        }),
-    };
-    let client = PaypalClient::new(&config).unwrap();
-    assert!(Gateway::new(&client, &config, true).is_ok());
-    assert!(Gateway::new(&client, &config, false).is_err());
-    config.payment.as_mut().unwrap().environment = PaypalEnvironment::Live;
-    assert!(Gateway::new(&client, &config, true).is_err());
-    config.payment.as_mut().unwrap().environment = PaypalEnvironment::Sandbox;
-    config.payment.as_mut().unwrap().return_url = "http://evil.example/return".into();
-    assert!(Gateway::new(&client, &config, true).is_err());
-    assert!(!expired(Some(Utc::now() - Duration::hours(5))));
-    assert!(expired(Some(Utc::now() - Duration::hours(6))));
-}
-
-#[test]
-fn terminal_capture_response_is_conflict_and_pending_is_accepted() {
-    assert!(capture_response_status("DENIED", false).is_err());
-    assert_eq!(
-        capture_response_status("PENDING", false).unwrap(),
-        StatusCode::ACCEPTED
-    );
-    assert_eq!(
-        capture_response_status("COMPLETED", true).unwrap(),
-        StatusCode::OK
-    );
+async fn completed_capture_never_proves_paid_for_incomplete_or_unknown_order() {
+    for status in ["APPROVED", "CREATED", "VOIDED", "FUTURE"] {
+        let mut replies = objects();
+        replies[1]["status"] = json!(status);
+        let fixture = provider_fixture(replies).await;
+        assert!(
+            verify_payment(&client(&fixture), &expected(&fixture))
+                .await
+                .is_err(),
+            "{status}"
+        );
+    }
 }
 
 #[tokio::test]
-async fn busy_claim_outcome_survives_concurrent_owner_releasing_lease() {
-    let VerifierFixture {
-        fixture,
-        config,
-        client,
-        pool,
-        id,
-        ..
-    } = verifier_fixture().await;
-    let owner = Uuid::new_v4();
-    repository::claim_operation(
-        &pool,
-        id,
-        PaymentOperation::Reconcile,
-        owner,
-        Utc::now() + Duration::minutes(1),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    let gateway = Gateway::new(&client, &config, true).unwrap();
-    let payment = load(&pool, id).await.unwrap();
-    let outcome = reconcile(&pool, &gateway, &payment, false, None)
-        .await
-        .unwrap();
-    repository::finish_operation(&pool, id, owner, "AWAITING_APPROVAL", None)
-        .await
-        .unwrap();
-    assert!(load(&pool, id).await.unwrap().lease_until.is_none());
-    assert_eq!(outcome, ReconciliationOutcome::Busy);
-    assert_eq!(fixture.requests(), []);
-    cleanup_verifier(&pool, id).await;
+async fn invalid_trusted_expectations_never_contact_provider() {
+    for field in [
+        "order_id",
+        "merchant_id",
+        "reference_id",
+        "custom_id",
+        "amount",
+        "currency",
+        "origin",
+        "origin_path",
+        "origin_userinfo",
+        "origin_query",
+        "origin_fragment",
+    ] {
+        let fixture = Fixture::new(vec![]).await;
+        let mut expected = expected(&fixture);
+        match field {
+            "order_id" => expected.order_id.clear(),
+            "merchant_id" => expected.merchant_id.clear(),
+            "reference_id" => expected.reference_id.clear(),
+            "custom_id" => expected.custom_id = "a\nb".into(),
+            "amount" => expected.amount = 0,
+            "currency" => expected.currency = "usd".into(),
+            "origin" => expected.api_origin = "https://api-m.paypal.com".into(),
+            "origin_path" => expected.api_origin.push_str("/v2"),
+            "origin_query" => expected.api_origin.push_str("?a=b"),
+            "origin_fragment" => expected.api_origin.push_str("#a"),
+            _ => expected.api_origin = expected.api_origin.replace("://", "://user@"),
+        }
+        let error = verify_payment(&client(&fixture), &expected)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.into_response().status(),
+            StatusCode::BAD_REQUEST,
+            "{field}"
+        );
+        assert!(fixture.requests().is_empty(), "{field}");
+    }
+}
+
+#[tokio::test]
+async fn upstream_failure_and_malformed_objects_are_safe_errors_at_each_retrieval() {
+    for index in 0..3 {
+        for reply in [
+            Reply::status(500),
+            Reply {
+                status: 200,
+                body: "malformed".into(),
+                headers: vec![],
+            },
+            Reply::json(json!({})),
+            Reply::json(Value::Null),
+        ] {
+            let mut replies = objects().into_iter().map(Reply::json).collect::<Vec<_>>();
+            replies[index] = reply;
+            let fixture = Fixture::new(replies).await;
+            let error = verify_payment(&client(&fixture), &expected(&fixture))
+                .await
+                .unwrap_err();
+            assert_eq!(fixture.requests().len(), index + 1);
+            let response = error.into_response();
+            assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+            let body = axum::body::to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap();
+            assert_eq!(
+                serde_json::from_slice::<Value>(&body).unwrap(),
+                json!({"error":"Upstream request failed"})
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn exact_integer_money_verifies_zero_decimal_and_large_minor_amounts() {
+    for (amount, currency, minor) in [
+        ("42", "JPY", 42),
+        ("7", "TWD", 7),
+        ("42", "HUF", 42),
+        ("90071992547409.91", "USD", 9_007_199_254_740_991),
+        ("92233720368547758.07", "USD", i64::MAX),
+    ] {
+        let mut replies = objects();
+        let money = json!({"value":amount,"currency_code":currency});
+        replies[1]["purchase_units"][0]["amount"] = money.clone();
+        replies[1]["purchase_units"][0]["payments"]["captures"][0]["amount"] = money.clone();
+        replies[2]["amount"] = money;
+        let fixture = provider_fixture(replies).await;
+        let mut expected = expected(&fixture);
+        expected.amount = minor;
+        expected.currency = currency.into();
+        assert!(matches!(
+            verify_payment(&client(&fixture), &expected).await.unwrap(),
+            PaymentOutcome::VerifiedPaid(_)
+        ));
+    }
 }

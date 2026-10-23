@@ -15,6 +15,8 @@ use serde::{Deserialize, de::DeserializeOwned};
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::Instant};
 
+pub mod webhook;
+
 pub struct PaypalClient {
     http: HttpClient,
     base_url: Url,
@@ -48,6 +50,10 @@ impl PaypalClient {
             client_secret,
             token: Mutex::new(None),
         })
+    }
+
+    pub(crate) fn api_origin(&self) -> String {
+        self.base_url.origin().ascii_serialization()
     }
 
     pub async fn get_transactions(

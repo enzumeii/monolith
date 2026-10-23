@@ -245,35 +245,35 @@ The nested250 bound is the agreed store workload, not a Shopify platform maximum
 | Shopify projections | Fulfillment, shipping and reship DTOs live in models/shopify.rs alongside the existing provider models; fulfillment retains ShopifyId through validation, service and the fulfillment-order client call |
 | Mock declaration | Sum non-Tip item prices once, multiply by5, minimum100, independent of currency; stock items contribute price but not quantity; no price×quantity multiplication |
 
-## Independent PayPal payments
+## PayPal payment provider boundary
 
-| Boundary | Current behavior |
+| Layer | Responsibility |
 | --- | --- |
-| `POST /api/v1/payments/paypal` | Guest caller supplies canonical capability, UUID idempotency key, opaque reference and exact decimal amount/currency. Only capability SHA256 is persisted; retries preserve provider request IDs. |
-| `POST /api/v1/payments/paypal/{id}/capture` | Same capability, empty body; retrieves stored order, captures approved order and verifies authoritative order/capture evidence. |
-| `GET /api/v1/payments/paypal/{id}` | Owned status and reconciliation; never initiates a capture. Approval, return navigation and pending capture do not prove payment. |
-| `POST /api/v1/webhooks/paypal` | Five transmission headers and full event; successful PayPal verification postback precedes durable deduplication and authoritative retrieval. |
-| Evidence | Exact amount/currency, merchant, correlated reference, linked order and single final completed capture. Incompatible evidence and duplicate successful references require review; evidence is retained. |
-| Recovery | Persisted operation leases, stable create/capture request IDs and retrieve-before-retry. Unresolved mutations older than six hours fail closed. |
-| Configuration | Optional `client.paypal.payment` policy in application TOML; credentials from environment. Existing reporting configuration remains independent. Missing gateway policy returns503. |
-| Future integration | An internal verifier accepts trusted expected reference/amount/currency from a future Shopify draft workflow. No conversion, fulfillment, refund or public expected-total endpoint is implemented. |
+| Shared PayPal client | One provider operation per call: create/get/capture Orders v2, get capture and verify webhook signature. Reuse pooled HTTP, OAuth caching and bounded transport retry behavior; create/capture request IDs stay caller-owned |
+| Trusted payment-result service | `paypal_payments::verify_payment` compares authoritative current order/capture evidence with trusted order ID, merchant, configured API origin, purchase-unit reference/custom correlation and positive integer minor-unit money. Return explicit pending/approved-unpaid, terminal-unpaid or verified-paid outcome |
+| Evidence | Require one intended purchase unit, a completed order and one linked final completed capture, independently retrieved with the same ID. Exact money/merchant/correlation and consistent optional identity fields are required; unknown, inconsistent, refunded or reversed evidence fails closed |
+| Authenticated events | Validate transmission headers and full envelope, require successful PayPal verification postback, then expose typed event identity. Authentication/event type does not establish payment success; event and polling consumers use current-resource verification |
+| Consumer boundary | Trusted callers own authorization, return destinations, durable create/capture IDs, retention-aware ambiguous-write recovery, replay handling and stored business state. This provider slice has no application payment routes, webhook ingestion, payment/event tables or fulfillment effects |
+| Configuration | Optional shared client uses TOML API origin/timeout and environment-supplied credentials. QA selects the Sandbox REST origin. Trusted expectations come from the checkout/draft owner, never browser/event/provider-copied totals |
+| Future Shopify integration | Consuming flow binds the verified result to its actual draft, enforces atomic completion uniqueness and owns persistence. No conversion, refund or fulfillment workflow is implemented here |
+
+Buyer approval alone does not collect a PayPal wallet payment. The caller explicitly captures an approved order with its stable request ID; verification remains read-only. [PayPal operations](development.md#paypal-orders) records caller inputs and manual verification limits.
 
 ```mermaid
 sequenceDiagram
-    participant Caller
-    participant API
-    participant DB as PostgreSQL
+    participant Consumer as Trusted consuming flow
+    participant Client as PayPal client
     participant PP as PayPal
-    Caller->>API: Create with capability, key, reference and exact money
-    API->>DB: Persist digest, immutable input and request IDs
-    API->>PP: Create CAPTURE order
-    API-->>Caller: Owned payment and approval URL
-    Caller->>PP: Approve on PayPal
-    Caller->>API: Capture owned payment with empty body
-    API->>PP: Retrieve order, capture if approved, retrieve order and capture
-    API->>DB: Store verified capture transactionally
-    API-->>Caller: Verified completed or unresolved state
-    PP->>API: Webhook with transmission headers
-    API->>PP: Verify signature postback then retrieve evidence
-    API->>DB: Deduplicate verified event and reconcile payment
+    participant Verifier as Payment verifier
+    Consumer->>Client: Create order with stable request ID
+    Client->>PP: Create CAPTURE order
+    PP-->>Consumer: Order and approval link
+    Consumer->>PP: Buyer approval
+    Consumer->>Client: Capture with stable request ID
+    Client->>PP: Capture approved order
+    Consumer->>Verifier: Trusted expected order, merchant, origin, money and correlation
+    Verifier->>Client: Retrieve current order and capture
+    Client->>PP: Read authoritative resources
+    Verifier-->>Consumer: Pending/unpaid or verified paid
+    Note over Consumer: Own authorization, replay handling, persistence and fulfillment
 ```

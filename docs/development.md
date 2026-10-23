@@ -37,7 +37,7 @@ Inherited environment variables keep dotenvy's normal precedence, including `RUN
 | Mode switch | Replace only imported fields with selected-item values or defaults | Clear missing optional provider fields; generate missing signing/cron defaults; preserve database, S3, sender, unrelated values and dotenv records |
 | Missing Bitwarden CLI | Apply the same preservation/switch policy using defaults | Optional providers may remain unconfigured; vault retrieval failures leave the file unchanged |
 
-QA mode alone does not establish payment readiness or select sandbox resources. Provider credentials select their account/environment; other provider URLs retain their configured behavior, including the common production PayPal URL. Keep credentials and private profiles out of tracked files. The runner retains ordinary inherited-environment precedence and uses the single `just run` command.
+QA mode alone does not establish payment readiness. QA overrides PayPal with `https://api-m.sandbox.paypal.com`; supply matching Sandbox credentials. Stripe retains its common URL and uses the selected credential to select its account/environment. Keep credentials and private profiles out of tracked files. The runner retains ordinary inherited-environment precedence and uses the single `just run` command.
 
 ```mermaid
 flowchart LR
@@ -128,6 +128,20 @@ The existing Stripe client exposes provider operations to trusted Rust callers. 
 For a sandbox exercise, prepare and run the backend with `just setup --qa` then `just run`. In the existing Stripe Postman requests, select the QA test key, retrieve current account and compare the expected merchant → create a test Session → open the returned Stripe-hosted URL and complete the payer flow using [Stripe test payment details](https://docs.stripe.com/testing) → retrieve Session, PaymentIntent and Charge → require `livemode=false`, exact expected minor-unit money and actual returned references, then invoke the existing Rust payment-result verifier from a trusted Rust caller. The backend has no payment initiation endpoint. These requests mutate the selected account when creating/expiring; do not run the external collection wholesale against a provider. Example IDs and bodies are synthetic and must be replaced with returned values. Local tests do not verify the actual Bitwarden item, Stripe-hosted payment flow, wallet availability or live acceptance.
 
 Provider references: [Session creation](https://docs.stripe.com/api/checkout/sessions/create), [Session retrieval](https://docs.stripe.com/api/checkout/sessions/retrieve), [PaymentIntent retrieval](https://docs.stripe.com/api/payment_intents/retrieve), [direct-account SDK operation](https://github.com/stripe/stripe-dotnet/blob/master/src/Stripe.net/Services/Accounts/AccountService.cs), [idempotency](https://docs.stripe.com/api/idempotent_requests).
+
+## PayPal Orders
+
+| Concern | Caller requirement |
+| --- | --- |
+| Configuration | Use the shared optional `PaypalClient` with TOML REST origin/timeout and environment credentials. `just setup --qa` selects the checked-in Sandbox origin; merchant, correlation and expected money are trusted consuming-flow inputs |
+| Provider operations | Existing external Postman requests create/get/capture an order, get a capture and verify a webhook signature. Replace synthetic values with returned provider IDs; use a stable caller-owned `PayPal-Request-Id` for each create/capture operation |
+| Approval and capture | Buyer approval is unpaid. The consuming flow explicitly captures an approved wallet order and owns retention-aware recovery if a write response is ambiguous; polling/webhooks alone do not collect the payment |
+| Result verification | Invoke the Rust `paypal_payments::verify_payment` contract with trusted order ID, merchant, configured origin, reference/custom correlation, positive minor-unit amount and currency. It only retrieves current resources and checks their exact identity/money |
+| Webhooks | Supply the exact complete event, five transmission headers and trusted webhook registration ID to the authenticated-event helper. A successful signature postback establishes event authenticity; consumers still verify current payment resources and own durable replay/state handling |
+| Application boundary | No public payment initiation/status/capture/webhook endpoints or PayPal ledger. Trusted checkout consumers own authorization, durable operation IDs, expected values, persistence, Shopify binding and atomic completion uniqueness |
+| Verification limits | Local controlled HTTP checks and collection lint do not establish provider acceptance. Historical Sandbox approval/capture receipts predate the stateless refactor; genuine signed-webhook acceptance remains unverified without an app webhook registration |
+
+Run only selected external requests with intended Sandbox credentials; creating/capturing mutates that account. Do not execute the external collection wholesale. Earlier local gateway/Sandbox results remain dated historical receipts in [verification](verification.md).
 
 ## Runtime, failures, and administration
 

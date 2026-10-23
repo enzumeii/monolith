@@ -79,7 +79,6 @@ pub struct PaymentCollection {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[expect(clippy::struct_field_names, reason = "PayPal wire schema field names")]
 pub struct Capture {
     pub id: String,
     pub status: CaptureStatus,
@@ -96,7 +95,6 @@ pub struct SupplementaryData {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[expect(clippy::struct_field_names, reason = "PayPal wire schema field names")]
 pub struct RelatedIds {
     pub order_id: Option<String>,
     pub capture_id: Option<String>,

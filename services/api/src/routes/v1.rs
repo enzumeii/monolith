@@ -1,16 +1,11 @@
 mod admin;
 mod admins;
 mod auth;
-mod payments;
-mod webhooks;
 use crate::{middleware, state::AppState};
 use axum::{Router, middleware as axum_middleware};
 
 pub fn router(state: &AppState) -> Router<AppState> {
-    let public_routes = Router::new()
-        .nest("/auth", auth::public_router())
-        .nest("/payments", payments::router())
-        .nest("/webhooks", webhooks::router());
+    let public_routes = Router::new().nest("/auth", auth::public_router());
 
     let super_admin_routes = Router::new()
         .nest("/admins", admins::super_admin_router())

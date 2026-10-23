@@ -2,7 +2,9 @@
 
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
 
-## ENZ-44 independent PayPal gateway — 2026-10-23
+## Historical ENZ-44 PayPal gateway — 2026-10-23
+
+These receipts describe the superseded database-backed gateway. The current provider slice removes its public routes, payment/event tables, capability policy and ingestion loop; these results do not verify the stateless refactor. Current refactor checks are recorded separately after execution.
 
 | Local evidence | Result |
 | --- | --- |
@@ -15,16 +17,16 @@ Results describe this revision's exercised scope, separately from [architecture]
 | Limits | No live PayPal Sandbox, real approval UI/signatures, Shopify draft conversion or browser journey. Provider evidence-field permutations are not exhaustive; detailed cases/limits are in ignored task artifacts. Parent full API checks and exact-head hosted CI remain separate evidence. |
 
 
-### ENZ-44 PayPal Sandbox QA continuation
+### Historical ENZ-44 PayPal Sandbox QA continuation
 
-This later real-Sandbox evidence supersedes the earlier no-Sandbox limit above. QA overrides the REST origin with `https://api-m.sandbox.paypal.com`; buyer approval uses `www.sandbox.paypal.com`. Existing ignored QA credentials were loaded by the ordinary settings reader.
+This later real-Sandbox evidence superseded the earlier no-Sandbox limit for the old gateway only. It confirms the approval/capture distinction, not acceptance of the current stateless provider slice. QA overrides the REST origin with `https://api-m.sandbox.paypal.com`; buyer approval uses `www.sandbox.paypal.com`. Existing ignored QA credentials were loaded by the ordinary settings reader.
 
 | Real Sandbox check | Observed result |
 | --- | --- |
 | Create, approval and capture | Application TCP create201; buyer approved the same USD1.00 order; capture200/COMPLETED; real capture lookup and trusted verification both confirm USD1.00/COMPLETED. |
 | Durable identity and ownership | Create replay200 reuses the order; capture replay200 reuses the same capture with one evidence record; wrong owner404; preapproval capture/trusted verification409; wrong expected amount409. |
 | Webhook limit | No webhooks registered. Deliberately malformed signature request returns provider400/application502 without storing an event; genuine signed verification/ingestion remains untested. |
-| QA configuration limit | Checked-in QA sets the API origin only. The smoke injected a temporary payment policy with the discovered merchant and a deliberately invalid webhook ID for negative tests; QA routes still require the complete merchant/webhook/currency/redirect policy. Buyer return-page UI was a test placeholder. |
+| QA configuration limit | Checked-in QA sets the API origin only. The smoke injected a temporary payment policy with the discovered merchant and a deliberately invalid webhook ID for negative tests; the old gateway required the complete merchant/webhook/currency/redirect policy, which has since been removed. Buyer return-page UI was a test placeholder. |
 | Cleanup and evidence | Temporary Rust source restored exactly; owned test processes and Compose containers/volumes/networks removed; plaintext capability/resume payloads deleted. Sanitized details: `.superpowers/sdd/2026-10-23-ENZ-44-paypal/sandbox-qa/report.md`. No production payment, Shopify write or publication. |
 
 ## ENZ-27 static services and cron implementations — 2026-10-22 / 23
