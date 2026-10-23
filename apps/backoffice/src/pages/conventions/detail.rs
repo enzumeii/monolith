@@ -126,7 +126,7 @@ fn Editor(record: ConventionDTO, options: Capabilities, on_reload: EventHandler<
                             let location = selection.upload(&slug).await?;
                             if owner() != request_owner { return Err(api::ApiError::new(reqwest::StatusCode::CONFLICT, "Session changed")); }
                             selection.staged.set(Some((slug, location.clone())));
-                            session::with_session(|| api::conventions::update(&id, PatchConvention { logo_location: PatchField::Set(location), ..Default::default() })).await
+                            session::with_session(|| api::conventions::update(&id, PatchConvention { logo_url: PatchField::Set(location), ..Default::default() })).await
                         }.await;
                         if owner() != request_owner || !logo_request.write().finish(ticket) { return; }
                         match result { Ok(record) => { logo.set(Preview::from_record(&record)); selection.reset(); logo_notice.set(Some("Logo uploaded and saved".into())); }, Err(error) => logo_error.set(Some(error.to_string())) }
@@ -142,7 +142,7 @@ fn Editor(record: ConventionDTO, options: Capabilities, on_reload: EventHandler<
         Confirm { open: reload_confirmation(), title: "Reload saved convention?", message: "Reloading replaces all unsaved metadata, prices and selected files with saved data.", confirm_label: "Reload convention", danger: dirty, on_cancel: move |()| reload_confirmation.set(false), on_confirm: move |()| { reload_confirmation.set(false); on_reload(()); } }
         Confirm { open: clear_confirmation(), title: "Clear saved logo?", message: "The current logo reference will be removed. Previously uploaded objects are retained in storage.", confirm_label: "Clear logo", danger: true, on_cancel: move |()| clear_confirmation.set(false), on_confirm: move |()| {
             clear_confirmation.set(false); let Some(ticket) = logo_request.write().begin() else { return; }; let id = clear_id.clone(); let request_owner = owner(); logo_error.set(None); logo_notice.set(None);
-            spawn(async move { let result = session::with_session(|| api::conventions::update(&id, PatchConvention { logo_location: PatchField::Clear, ..Default::default() })).await;
+            spawn(async move { let result = session::with_session(|| api::conventions::update(&id, PatchConvention { logo_url: PatchField::Clear, ..Default::default() })).await;
                 if owner() != request_owner || !logo_request.write().finish(ticket) { return; }
                 match result { Ok(record) => { logo.set(Preview::from_record(&record)); logo_notice.set(Some("Saved logo cleared".into())); }, Err(error) => logo_error.set(Some(error.to_string())) }
             });

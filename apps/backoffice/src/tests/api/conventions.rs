@@ -4,7 +4,7 @@ use crate::api::tests::{metadata_response, metadata_responses};
 use domain::dto::{ConventionPaymentMethod, ConventionVariantInput, PatchField};
 
 const ID: &str = "da41d46b-f1ca-4a76-a774-62c269d28731";
-const RECORD: &str = r##"{"id":"da41d46b-f1ca-4a76-a774-62c269d28731","slug":"event","name":"Event","logo_url":null,"country_code":"TH","event_starts_on":"2026-11-01","event_ends_on":"2026-11-02","description_markdown":"# Event","preorder_enabled":false,"currency_code":"THB","payment_methods":["stripe"],"created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-01T00:00:00Z"}"##;
+const RECORD: &str = r##"{"id":"da41d46b-f1ca-4a76-a774-62c269d28731","slug":"event","name":"Event","logo_preview_url":null,"country_code":"TH","event_starts_on":"2026-11-01","event_ends_on":"2026-11-02","description_markdown":"# Event","preorder_enabled":false,"currency_code":"THB","payment_methods":["stripe"],"created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-01T00:00:00Z"}"##;
 fn row(variant: usize) -> String {
     format!(
         r#"{{"id":"row{variant}","convention_id":"{ID}","shopify_product_id":"1","shopify_variant_id":"{variant}","final_price":"12.99","created_at":"now","updated_at":"now"}}"#
@@ -79,7 +79,7 @@ async fn crud_options_logo_and_exact_price_requests_use_the_existing_cookie_tran
     let input = CreateConvention {
         slug: "event".into(),
         name: "Event".into(),
-        logo_location: None,
+        logo_url: None,
         country_code: "TH".into(),
         event_starts_on: "2026-11-01".into(),
         event_ends_on: "2026-11-02".into(),
@@ -124,14 +124,14 @@ async fn crud_options_logo_and_exact_price_requests_use_the_existing_cookie_tran
     assert!(request.contains(r#""final_price":"12.990""#));
 }
 #[test]
-fn signed_logo_urls_allow_only_https_or_literal_local_http() {
+fn signed_logo_preview_urls_allow_only_https_or_literal_local_http() {
     for url in [
         "https://storage.test/image?signature=abc",
         "http://127.0.0.1:8080/image",
         "http://localhost/image",
         "http://[::1]/image",
     ] {
-        assert!(logo_url(url).is_some(), "{url}");
+        assert!(logo_preview_url(url).is_some(), "{url}");
     }
     for url in [
         "/api/v1/conventions/key/logo/key",
@@ -142,7 +142,7 @@ fn signed_logo_urls_allow_only_https_or_literal_local_http() {
         "https://storage.test/image#fragment",
         "//storage.test/image",
     ] {
-        assert!(logo_url(url).is_none(), "{url}");
+        assert!(logo_preview_url(url).is_none(), "{url}");
     }
 }
 #[tokio::test]

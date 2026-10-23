@@ -4,7 +4,7 @@ use dioxus::dioxus_core::{ElementId, Mutation, Mutations};
 use dioxus::history::{MemoryHistory, provide_history_context};
 use std::rc::Rc;
 
-const RECORD: &str = r##"{"id":"da41d46b-f1ca-4a76-a774-62c269d28731","slug":"event","name":"Loaded event","logo_url":null,"country_code":"TH","event_starts_on":"2026-11-01","event_ends_on":"2026-11-02","description_markdown":"# Event","preorder_enabled":false,"currency_code":"THB","payment_methods":["stripe"],"created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-01T00:00:00Z"}"##;
+const RECORD: &str = r##"{"id":"da41d46b-f1ca-4a76-a774-62c269d28731","slug":"event","name":"Loaded event","logo_preview_url":null,"country_code":"TH","event_starts_on":"2026-11-01","event_ends_on":"2026-11-02","description_markdown":"# Event","preorder_enabled":false,"currency_code":"THB","payment_methods":["stripe"],"created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-01T00:00:00Z"}"##;
 const MEMBERSHIPS: &str = r#"{"items":[],"page":1,"per_page":100,"has_next":false}"#;
 
 fn editor() -> Element {
@@ -33,9 +33,9 @@ fn record() -> ConventionDTO {
         id: "da41d46b-f1ca-4a76-a774-62c269d28731".into(),
         slug: "event".into(),
         name: "Loaded event".into(),
-        logo_location: None,
         logo_url: None,
-        logo_url_expires_at: None,
+        logo_preview_url: None,
+        logo_preview_url_expires_at: None,
         country_code: "TH".into(),
         event_starts_on: "2026-11-01".into(),
         event_ends_on: "2026-11-02".into(),
@@ -157,8 +157,8 @@ async fn discarding_logo_replaces_native_input_and_same_file_is_ready_again() {
 #[tokio::test]
 async fn failed_upload_keeps_candidate_and_success_resets_only_native_input() {
     let uploaded = RECORD.replace(
-        "\"logo_url\":null",
-        "\"logo_location\":\"conventions/event/key.png\",\"logo_url\":\"https://s3.test/key.png?signature=one\",\"logo_url_expires_at\":\"2026-11-01T00:05:00Z\"",
+        "\"logo_preview_url\":null",
+        "\"logo_url\":\"conventions/event/key.png\",\"logo_preview_url\":\"https://s3.test/key.png?signature=one\",\"logo_preview_url_expires_at\":\"2026-11-01T00:05:00Z\"",
     );
     let ((), requests) = crate::api::tests::metadata_responses(
         &[
@@ -224,17 +224,17 @@ async fn failed_upload_keeps_candidate_and_success_resets_only_native_input() {
     assert!(requests[2].ends_with("logo"));
     for request in &requests[3..] {
         assert!(request.starts_with("PATCH /v1/admin/conventions/"));
-        assert!(request.ends_with(r#"{"logo_location":"conventions/event/key.png"}"#));
+        assert!(request.ends_with(r#"{"logo_url":"conventions/event/key.png"}"#));
     }
 }
 
 #[tokio::test]
 async fn refreshing_logo_preview_changes_only_url_and_expiry_and_failures_preserve_drafts() {
     let mut record: ConventionDTO = record();
-    record.logo_location = Some("conventions/event/key.png".into());
-    record.logo_url = Some("https://s3.test/key.png?signature=old".into());
-    record.logo_url_expires_at = Some("2026-11-01T00:05:00Z".into());
-    let response = RECORD.replace("\"logo_url\":null", "\"logo_location\":\"conventions/event/key.png\",\"logo_url\":\"https://s3.test/key.png?signature=new\",\"logo_url_expires_at\":\"2026-11-01T00:10:00Z\"").replace("Loaded event", "Other admin saved name");
+    record.logo_url = Some("conventions/event/key.png".into());
+    record.logo_preview_url = Some("https://s3.test/key.png?signature=old".into());
+    record.logo_preview_url_expires_at = Some("2026-11-01T00:05:00Z".into());
+    let response = RECORD.replace("\"logo_preview_url\":null", "\"logo_url\":\"conventions/event/key.png\",\"logo_preview_url\":\"https://s3.test/key.png?signature=new\",\"logo_preview_url_expires_at\":\"2026-11-01T00:10:00Z\"").replace("Loaded event", "Other admin saved name");
     let ((), requests) = crate::api::tests::metadata_responses(
         &[
             (200, MEMBERSHIPS),

@@ -1,5 +1,5 @@
 $kind: http-request
-description: "Logo requests attach logo_location from upload; omit for no change, null to clear. Responses contain stable logo_location plus short-lived signed logo_url and logo_url_expires_at; never persist or submit signed URL. Attachment validates matching slug, HEAD and full image bytes; missing object400, invalid provider image502, unavailable503, timeout504. GET/list sign locally without storage reads; unavailable signer preserves metadata/location with null preview. Cache-Control:no-store. Admin/Super Admin bearer authentication inherited. Invalid input 400, missing convention 404, duplicate/state conflict 409, database failure 500. Creates metadata with 201 DTO and server-default preorder_enabled=false. Currency and payment methods are supplied by the user and saved per convention; intrinsic currency/provider precision restrictions apply. Slug/currency remain immutable. Save returned id as convention_id. Safe error examples: 400 {\"error\":\"Invalid convention request body\"}; 404 {\"error\":\"Convention not found\"}; 500 {\"error\":\"Internal server error\"}. Success example fields: {\"id\":\"00000000-0000-4000-8000-000000000001\",\"slug\":\"convention-example\",\"preorder_enabled\":false,\"currency_code\":\"THB\",\"payment_methods\":[\"stripe\",\"paypal\"]}. This route rejects all nonempty query parameters with 400."
+description: "Logo requests attach logo_url from upload; omit for no change, null to clear. Responses contain stable logo_url plus short-lived signed logo_preview_url and logo_preview_url_expires_at; never persist or submit signed URL. Attachment validates matching slug, HEAD and full image bytes; missing object400, invalid provider image502, unavailable503, timeout504. GET/list sign locally without storage reads; unavailable signer preserves metadata/location with null preview. Cache-Control:no-store. Admin/Super Admin bearer authentication inherited. Invalid input 400, missing convention 404, duplicate/state conflict 409, database failure 500. Creates metadata with 201 DTO and server-default preorder_enabled=false. Currency and payment methods are supplied by the user and saved per convention; intrinsic currency/provider precision restrictions apply. Slug/currency remain immutable. Save returned id as convention_id. Safe error examples: 400 {\"error\":\"Invalid convention request body\"}; 404 {\"error\":\"Convention not found\"}; 500 {\"error\":\"Internal server error\"}. Success example fields: {\"id\":\"00000000-0000-4000-8000-000000000001\",\"slug\":\"convention-example\",\"preorder_enabled\":false,\"currency_code\":\"THB\",\"payment_methods\":[\"stripe\",\"paypal\"]}. This route rejects all nonempty query parameters with 400."
 url: "{{server}}/v1/admin/conventions"
 method: POST
 body:
@@ -8,7 +8,7 @@ body:
     {
       "slug": "{{convention_slug}}",
       "name": "Example Convention",
-      "logo_location": "{{convention_logo_location}}",
+      "logo_url": "{{convention_logo_url}}",
       "country_code": "TH",
       "event_starts_on": "2028-02-29",
       "event_ends_on": "2028-03-01",

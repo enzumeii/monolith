@@ -24,7 +24,7 @@ pub(crate) async fn project(
     s3: Option<&S3Client>,
 ) -> Result<ConventionDTO, AppError> {
     let payment_methods = record.methods()?;
-    let preview = if let Some(location) = &record.logo_location {
+    let preview = if let Some(location) = &record.logo_url {
         if let Some(s3) = s3 {
             match storage::preview(s3, location).await {
                 Ok(signed) => Some(signed),
@@ -40,16 +40,16 @@ pub(crate) async fn project(
     } else {
         None
     };
-    let (logo_url, logo_url_expires_at) = preview.map_or((None, None), |p| {
+    let (logo_preview_url, logo_preview_url_expires_at) = preview.map_or((None, None), |p| {
         (Some(p.url), Some(p.expires_at.to_rfc3339()))
     });
     Ok(ConventionDTO {
         id: record.id.to_string(),
         slug: record.slug,
         name: record.name,
-        logo_location: record.logo_location,
-        logo_url,
-        logo_url_expires_at,
+        logo_url: record.logo_url,
+        logo_preview_url,
+        logo_preview_url_expires_at,
         country_code: record.country_code,
         event_starts_on: record.event_starts_on.to_string(),
         event_ends_on: record.event_ends_on.to_string(),

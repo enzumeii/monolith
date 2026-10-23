@@ -1,6 +1,6 @@
 $kind: http-request
-description: "Private S3 image operation for server-generated conventions/<slug>/<UUID>.png or .jpg location. Set convention_logo_location from authenticated upload response. Backend validates HEAD metadata and full GET image bytes before attaching to convention. PNG/JPEG Content-Type; missing404, provider403/5xx. Browser image rendering uses Read signed image without AWS credentials."
-url: "{{s3_endpoint}}/reports/{{convention_logo_location}}"
+description: "Private S3 image operation for server-generated conventions/<slug>/<UUID>.png or .jpg location. Set convention_logo_url from authenticated upload response. Backend validates HEAD metadata and full GET image bytes before attaching to convention. PNG/JPEG Content-Type; missing404, provider403/5xx. Browser image rendering uses Read signed image without AWS credentials."
+url: "{{s3_endpoint}}/reports/{{convention_logo_url}}"
 method: HEAD
 order: 5000
 auth:

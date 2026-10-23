@@ -189,7 +189,7 @@ fn projected_convention(location: Option<String>) -> Convention {
         id: Uuid::new_v4(),
         slug: "fair".into(),
         name: "Fair".into(),
-        logo_location: location,
+        logo_url: location,
         country_code: "TH".into(),
         event_starts_on: chrono::NaiveDate::from_ymd_opt(2028, 2, 29).unwrap(),
         event_ends_on: chrono::NaiveDate::from_ymd_opt(2028, 2, 29).unwrap(),
@@ -212,23 +212,31 @@ async fn logo_projection_is_local_and_degrades_without_losing_stored_location() 
     )
     .await
     .unwrap();
-    assert_eq!(projected.logo_location.as_deref(), Some(key.as_str()));
-    assert!(projected.logo_url.unwrap().contains("X-Amz-Signature="));
-    assert!(chrono::DateTime::parse_from_rfc3339(&projected.logo_url_expires_at.unwrap()).is_ok());
+    assert_eq!(projected.logo_url.as_deref(), Some(key.as_str()));
+    assert!(
+        projected
+            .logo_preview_url
+            .unwrap()
+            .contains("X-Amz-Signature=")
+    );
+    assert!(
+        chrono::DateTime::parse_from_rfc3339(&projected.logo_preview_url_expires_at.unwrap())
+            .is_ok()
+    );
     assert_eq!(fixture.data.lock().unwrap().calls, Vec::<String>::new());
     let unavailable = logo::project(projected_convention(Some(key.clone())), None)
         .await
         .unwrap();
-    assert_eq!(unavailable.logo_location, Some(key));
-    assert!(unavailable.logo_url.is_none());
-    assert!(unavailable.logo_url_expires_at.is_none());
+    assert_eq!(unavailable.logo_url, Some(key));
+    assert!(unavailable.logo_preview_url.is_none());
+    assert!(unavailable.logo_preview_url_expires_at.is_none());
     let empty = logo::project(projected_convention(None), None)
         .await
         .unwrap();
     assert!(
-        empty.logo_location.is_none()
-            && empty.logo_url.is_none()
-            && empty.logo_url_expires_at.is_none()
+        empty.logo_url.is_none()
+            && empty.logo_preview_url.is_none()
+            && empty.logo_preview_url_expires_at.is_none()
     );
     let invalid = logo::project(
         projected_convention(Some("reports/private.csv".into())),
@@ -236,7 +244,7 @@ async fn logo_projection_is_local_and_degrades_without_losing_stored_location() 
     )
     .await
     .unwrap();
-    assert!(invalid.logo_url.is_none() && invalid.logo_url_expires_at.is_none());
+    assert!(invalid.logo_preview_url.is_none() && invalid.logo_preview_url_expires_at.is_none());
 }
 
 #[test]
@@ -286,7 +294,7 @@ fn options_follow_intrinsic_currency_and_provider_policy_without_runtime_configu
 }
 
 #[tokio::test]
-async fn convention_logo_locations_reuse_the_published_logo_url_column() {
+async fn convention_logo_urls_reuse_the_published_logo_url_column() {
     let url = std::env::var("E2E_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://e2e:e2e@127.0.0.1:5433/e2e".into());
     let pool = sqlx::postgres::PgPoolOptions::new()
@@ -309,23 +317,25 @@ async fn convention_logo_locations_reuse_the_published_logo_url_column() {
     )
     .unwrap();
     let legacy_url = "https://legacy.example.test/convention.png";
-    input.logo_location = Some(legacy_url.into());
+    input.logo_url = Some(legacy_url.into());
     let inserted = repo::insert(&pool, &input).await.unwrap();
     let id = inserted.id;
-    assert_eq!(inserted.logo_location.as_deref(), Some(legacy_url));
+    assert_eq!(inserted.logo_url.as_deref(), Some(legacy_url));
     let fixture = crate::s3_fixture::Fixture::new().await;
     let projected = logo::project(inserted, Some(&fixture.client))
         .await
         .unwrap();
-    assert_eq!(projected.logo_location.as_deref(), Some(legacy_url));
-    assert!(projected.logo_url.is_none() && projected.logo_url_expires_at.is_none());
+    assert_eq!(projected.logo_url.as_deref(), Some(legacy_url));
+    assert!(
+        projected.logo_preview_url.is_none() && projected.logo_preview_url_expires_at.is_none()
+    );
     assert_eq!(fixture.data.lock().unwrap().calls, Vec::<String>::new());
     let mut connection = pool.acquire().await.unwrap();
     let locked = repo::lock(&mut connection, id).await.unwrap().unwrap();
-    assert_eq!(locked.logo_location.as_deref(), Some(legacy_url));
+    assert_eq!(locked.logo_url.as_deref(), Some(legacy_url));
     input.name = "Updated fair".into();
     let updated = repo::update(&mut connection, id, &input).await.unwrap();
-    assert_eq!(updated.logo_location.as_deref(), Some(legacy_url));
+    assert_eq!(updated.logo_url.as_deref(), Some(legacy_url));
     let retained: String = sqlx::query_scalar(
         "SELECT logo_url
          FROM conventions
@@ -337,9 +347,9 @@ async fn convention_logo_locations_reuse_the_published_logo_url_column() {
     .unwrap();
     assert_eq!(retained, legacy_url);
     let location = format!("conventions/{}/{}.png", input.slug, Uuid::new_v4());
-    input.logo_location = Some(location.clone());
+    input.logo_url = Some(location.clone());
     let saved = repo::update(&mut connection, id, &input).await.unwrap();
-    assert_eq!(saved.logo_location.as_deref(), Some(location.as_str()));
+    assert_eq!(saved.logo_url.as_deref(), Some(location.as_str()));
     let stored: String = sqlx::query_scalar(
         "SELECT logo_url
          FROM conventions
@@ -352,14 +362,21 @@ async fn convention_logo_locations_reuse_the_published_logo_url_column() {
     assert_eq!(stored, location);
     drop(connection);
     let found = repo::find(&pool, id).await.unwrap().unwrap();
-    assert_eq!(found.logo_location.as_deref(), Some(location.as_str()));
+    assert_eq!(found.logo_url.as_deref(), Some(location.as_str()));
     let listed = repo::list(&pool, 1, u32::MAX, None).await.unwrap();
-    assert!(listed.iter().any(
-        |record| record.id == id && record.logo_location.as_deref() == Some(location.as_str())
-    ));
+    assert!(
+        listed
+            .iter()
+            .any(|record| record.id == id && record.logo_url.as_deref() == Some(location.as_str()))
+    );
     let signed = logo::project(found, Some(&fixture.client)).await.unwrap();
-    assert!(signed.logo_url.unwrap().contains("X-Amz-Signature="));
-    assert!(signed.logo_url_expires_at.is_some());
+    assert!(
+        signed
+            .logo_preview_url
+            .unwrap()
+            .contains("X-Amz-Signature=")
+    );
+    assert!(signed.logo_preview_url_expires_at.is_some());
     assert_eq!(fixture.data.lock().unwrap().calls, Vec::<String>::new());
     sqlx::query("ROLLBACK").execute(&pool).await.unwrap();
     assert!(repo::find(&pool, id).await.unwrap().is_none());

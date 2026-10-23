@@ -72,7 +72,7 @@ mod mounted {
     use std::rc::Rc;
     const OPTIONS: &str = r#"{"currencies":[{"code":"THB","payment_methods":["stripe"]}]}"#;
     const UPLOADED: &str = r#"{"location":"conventions/event/key.png","url":"https://s3.test/key.png?signature=one","expires_at":"2026-11-01T00:05:00Z"}"#;
-    const CREATED: &str = r##"{"id":"da41d46b-f1ca-4a76-a774-62c269d28731","slug":"event","name":"Event","logo_location":"conventions/event/key.png","logo_url":"https://s3.test/key.png?signature=one","logo_url_expires_at":"2026-11-01T00:05:00Z","country_code":"TH","event_starts_on":"2026-11-01","event_ends_on":"2026-11-02","description_markdown":"# Event","preorder_enabled":false,"currency_code":"THB","payment_methods":["stripe"],"created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-01T00:00:00Z"}"##;
+    const CREATED: &str = r##"{"id":"da41d46b-f1ca-4a76-a774-62c269d28731","slug":"event","name":"Event","logo_url":"conventions/event/key.png","logo_preview_url":"https://s3.test/key.png?signature=one","logo_preview_url_expires_at":"2026-11-01T00:05:00Z","country_code":"TH","event_starts_on":"2026-11-01","event_ends_on":"2026-11-02","description_markdown":"# Event","preorder_enabled":false,"currency_code":"THB","payment_methods":["stripe"],"created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-01T00:00:00Z"}"##;
     fn app() -> Element {
         use_hook(|| provide_history_context(Rc::new(MemoryHistory::with_initial_path("/create"))));
         rsx! { Router::<TestRoute> {} }
@@ -178,10 +178,10 @@ mod mounted {
         assert!(requests[2].starts_with("POST /v1/admin/files?location=conventions%2Fevent "));
         for request in &requests[3..5] {
             assert!(request.starts_with("POST /v1/admin/conventions "));
-            assert!(request.contains(r#""logo_location":"conventions/event/key.png""#));
+            assert!(request.contains(r#""logo_url":"conventions/event/key.png""#));
             assert!(!request.contains("signature"));
         }
         assert!(requests[5].starts_with("POST /v1/admin/files?location=conventions%2Fevent-two "));
-        assert!(requests[6].contains(r#""logo_location":"conventions/event-two/key.png""#));
+        assert!(requests[6].contains(r#""logo_url":"conventions/event-two/key.png""#));
     }
 }

@@ -74,7 +74,7 @@ pub(crate) async fn create(
     s3: Option<&S3Client>,
     input: &ConventionInput,
 ) -> Result<ConventionDTO, AppError> {
-    if let Some(location) = &input.logo_location {
+    if let Some(location) = &input.logo_url {
         logo::attach(s3, location, &input.slug).await?;
     }
     logo::project(repo::insert(pool, input).await?, s3).await
@@ -119,7 +119,7 @@ pub(crate) async fn prepare_patch(
 ) -> Result<PreparedPatch, AppError> {
     let observed = get(pool, id).await?;
     let input = validate::merge(patch.clone(), &observed)?;
-    if let PatchField::Set(location) = &patch.logo_location {
+    if let PatchField::Set(location) = &patch.logo_url {
         logo::attach(s3, location, &observed.slug).await?;
     }
     let selection = inputs(repo::variants(pool, id).await?);

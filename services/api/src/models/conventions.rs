@@ -6,8 +6,7 @@ pub(crate) struct Convention {
     pub id: uuid::Uuid,
     pub slug: String,
     pub name: String,
-    #[sqlx(rename = "logo_url")]
-    pub logo_location: Option<String>,
+    pub logo_url: Option<String>,
     pub country_code: String,
     pub event_starts_on: NaiveDate,
     pub event_ends_on: NaiveDate,
@@ -38,7 +37,7 @@ pub(crate) struct ConventionVariant {
 pub(crate) struct ConventionInput {
     pub slug: String,
     pub name: String,
-    pub logo_location: Option<String>,
+    pub logo_url: Option<String>,
     pub country_code: String,
     pub event_starts_on: NaiveDate,
     pub event_ends_on: NaiveDate,

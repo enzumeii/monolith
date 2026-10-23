@@ -1,6 +1,6 @@
 $kind: http-request
 description: "Unauthenticated browser-equivalent GET using full signed URL from upload or convention GET. No inherited AWS or bearer authentication. 200 image/png or image/jpeg bytes; expired/tampered signature403; missing404. Refresh via convention GET to obtain a new URL; a previously issued URL can remain usable until expiry after clear/replacement."
-url: "{{convention_logo_url}}"
+url: "{{convention_logo_preview_url}}"
 method: GET
 order: 7000
 auth:

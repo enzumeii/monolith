@@ -94,9 +94,9 @@ pub(super) struct Preview {
 impl Preview {
     pub fn from_record(record: &ConventionDTO) -> Self {
         Self {
-            location: record.logo_location.clone(),
-            url: record.logo_url.clone(),
-            expires_at: record.logo_url_expires_at.clone(),
+            location: record.logo_url.clone(),
+            url: record.logo_preview_url.clone(),
+            expires_at: record.logo_preview_url_expires_at.clone(),
             failed: false,
         }
     }
@@ -108,7 +108,10 @@ pub(super) fn LogoPreview(mut preview: Signal<Preview>, id: String) -> Element {
     let mut request = use_signal(RequestState::default);
     let mut error = use_signal(|| None::<String>);
     let current = preview();
-    let url = current.url.as_deref().and_then(api::conventions::logo_url);
+    let url = current
+        .url
+        .as_deref()
+        .and_then(api::conventions::logo_preview_url);
     let unavailable = current.failed || url.is_none() || current.expires_at.is_none();
     rsx! {
         if current.location.is_none() { p { "No saved logo" } }
@@ -124,7 +127,7 @@ pub(super) fn LogoPreview(mut preview: Signal<Preview>, id: String) -> Element {
                     let result = session::with_session(|| api::conventions::get(&id)).await;
                     if owner() != request_owner || !request.write().finish(ticket) || preview.read().location != location { return; }
                     match result {
-                        Ok(record) if record.logo_location == location => { preview.set(Preview::from_record(&record)); },
+                        Ok(record) if record.logo_url == location => { preview.set(Preview::from_record(&record)); },
                         Ok(_) => error.set(Some("The saved logo changed. Reload the saved convention when your drafts are ready.".into())),
                         Err(value) => error.set(Some(value.to_string())),
                     }

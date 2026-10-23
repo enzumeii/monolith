@@ -35,7 +35,7 @@ fn patch_preserves_omitted_legacy_logos_and_validates_supplied_locations() {
         id: uuid::Uuid::new_v4(),
         slug: input.slug,
         name: input.name,
-        logo_location: Some(legacy_url.into()),
+        logo_url: Some(legacy_url.into()),
         country_code: input.country_code,
         event_starts_on: input.event_starts_on,
         event_ends_on: input.event_ends_on,
@@ -49,19 +49,19 @@ fn patch_preserves_omitted_legacy_logos_and_validates_supplied_locations() {
     let patch = serde_json::from_value(json!({"name":"Updated convention"})).unwrap();
     let merged = merge(patch, &current).unwrap();
     assert_eq!(merged.name, "Updated convention");
-    assert_eq!(merged.logo_location.as_deref(), Some(legacy_url));
-    let patch = serde_json::from_value(json!({"logo_location":null})).unwrap();
-    assert!(merge(patch, &current).unwrap().logo_location.is_none());
+    assert_eq!(merged.logo_url.as_deref(), Some(legacy_url));
+    let patch = serde_json::from_value(json!({"logo_url":null})).unwrap();
+    assert!(merge(patch, &current).unwrap().logo_url.is_none());
     let location = "conventions/country-test/550e8400-e29b-41d4-a716-446655440000.png";
-    let patch = serde_json::from_value(json!({"logo_location":location})).unwrap();
+    let patch = serde_json::from_value(json!({"logo_url":location})).unwrap();
     assert_eq!(
-        merge(patch, &current).unwrap().logo_location.as_deref(),
+        merge(patch, &current).unwrap().logo_url.as_deref(),
         Some(location)
     );
-    let patch = serde_json::from_value(json!({"logo_location":legacy_url})).unwrap();
+    let patch = serde_json::from_value(json!({"logo_url":legacy_url})).unwrap();
     assert!(patch_shape(&patch).is_err());
     assert!(merge(patch, &current).is_err());
     let mut new_convention = request("TH");
-    new_convention.logo_location = Some(legacy_url.into());
+    new_convention.logo_url = Some(legacy_url.into());
     assert!(create(new_convention).is_err());
 }

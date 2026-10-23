@@ -80,7 +80,7 @@ pub fn CreateEditor() -> Element {
                         let location = selection.upload(&input.slug).await?;
                         if owner() != request_owner { return Err(api::ApiError::new(reqwest::StatusCode::CONFLICT, "Session changed")); }
                         selection.staged.set(Some((input.slug.clone(), location.clone())));
-                        input.logo_location = Some(location);
+                        input.logo_url = Some(location);
                     }
                     session::with_session(|| api::conventions::create(input)).await
                 }.await;

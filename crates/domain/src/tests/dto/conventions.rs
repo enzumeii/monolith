@@ -3,17 +3,16 @@ use crate::dto::{PatchConvention, PatchCronConfiguration, PatchField};
 use serde_json::json;
 #[test]
 fn common_patch_field_retains_missing_set_and_null_on_both_contracts() {
-    let value: PatchConvention = serde_json::from_value(
-        json!({"logo_location":null,"name":"Updated","preorder_enabled":false}),
-    )
-    .unwrap();
-    assert_eq!(value.logo_location, PatchField::Clear);
+    let value: PatchConvention =
+        serde_json::from_value(json!({"logo_url":null,"name":"Updated","preorder_enabled":false}))
+            .unwrap();
+    assert_eq!(value.logo_url, PatchField::Clear);
     assert_eq!(value.name, PatchField::Set("Updated".into()));
     assert_eq!(value.country_code, PatchField::Missing);
     assert_eq!(value.preorder_enabled, PatchField::Set(false));
     assert_eq!(
         serde_json::to_value(value).unwrap(),
-        json!({"logo_location":null,"name":"Updated","preorder_enabled":false})
+        json!({"logo_url":null,"name":"Updated","preorder_enabled":false})
     );
     let cron: PatchCronConfiguration =
         serde_json::from_value(json!({"name":null,"enabled":false})).unwrap();
@@ -31,13 +30,13 @@ fn convention_dtos_reject_unknown_fields_and_json_number_prices() {
 fn logo_attachment_accepts_location_but_rejects_render_url() {
     assert!(
         serde_json::from_value::<PatchConvention>(
-            json!({"logo_location":"conventions/fair/550e8400-e29b-41d4-a716-446655440000.png"})
+            json!({"logo_url":"conventions/fair/550e8400-e29b-41d4-a716-446655440000.png"})
         )
         .is_ok()
     );
     assert!(
         serde_json::from_value::<PatchConvention>(
-            json!({"logo_url":"https://storage.test/signed"})
+            json!({"logo_preview_url":"https://storage.test/signed"})
         )
         .is_err()
     );

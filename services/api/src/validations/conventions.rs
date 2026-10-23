@@ -71,7 +71,7 @@ pub(crate) fn create(value: CreateConvention) -> Result<ConventionInput, AppErro
             "description_markdown must contain 1 to 20000 nonblank UTF-8 bytes without NUL",
         ));
     }
-    if let Some(url) = &value.logo_location {
+    if let Some(url) = &value.logo_url {
         logo(url)?;
     }
     crate::services::conventions::money::methods(&value.currency_code, &value.payment_methods)
@@ -79,7 +79,7 @@ pub(crate) fn create(value: CreateConvention) -> Result<ConventionInput, AppErro
     Ok(ConventionInput {
         slug: value.slug,
         name: super::cron::configs::validate_name(&value.name)?,
-        logo_location: value.logo_location,
+        logo_url: value.logo_url,
         country_code: country_code.into(),
         event_starts_on,
         event_ends_on,
@@ -92,7 +92,7 @@ pub(crate) fn create(value: CreateConvention) -> Result<ConventionInput, AppErro
 pub(crate) fn patch_shape(value: &PatchConvention) -> Result<(), AppError> {
     let fields = [
         value.name.is_missing(),
-        value.logo_location.is_missing(),
+        value.logo_url.is_missing(),
         value.country_code.is_missing(),
         value.event_starts_on.is_missing(),
         value.event_ends_on.is_missing(),
@@ -111,13 +111,13 @@ pub(crate) fn patch_shape(value: &PatchConvention) -> Result<(), AppError> {
         || matches!(value.payment_methods, PatchField::Clear)
         || matches!(value.preorder_enabled, PatchField::Clear);
     if clear {
-        return Err(invalid("Only logo_location may be cleared"));
+        return Err(invalid("Only logo_url may be cleared"));
     }
     // Validate supplied fields before any database read; date ordering is checked after merge.
     if let PatchField::Set(v) = &value.name {
         super::cron::configs::validate_name(v)?;
     }
-    if let PatchField::Set(v) = &value.logo_location {
+    if let PatchField::Set(v) = &value.logo_url {
         logo(v)?;
     }
     if let PatchField::Set(v) = &value.country_code
@@ -148,8 +148,8 @@ pub(crate) fn merge(
     value: PatchConvention,
     current: &Convention,
 ) -> Result<ConventionInput, AppError> {
-    let retain_logo = value.logo_location.is_missing();
-    let logo_location = match value.logo_location {
+    let retain_logo = value.logo_url.is_missing();
+    let logo_url = match value.logo_url {
         PatchField::Missing | PatchField::Clear => None,
         PatchField::Set(v) => Some(v),
     };
@@ -157,7 +157,7 @@ pub(crate) fn merge(
     let mut merged = create(CreateConvention {
         slug: current.slug.clone(),
         name: field(value.name, current.name.clone())?,
-        logo_location,
+        logo_url,
         country_code: field(value.country_code, current.country_code.clone())?,
         event_starts_on: field(value.event_starts_on, current.event_starts_on.to_string())?,
         event_ends_on: field(value.event_ends_on, current.event_ends_on.to_string())?,
@@ -169,7 +169,7 @@ pub(crate) fn merge(
         payment_methods: field(value.payment_methods, current.methods()?)?,
     })?;
     if retain_logo {
-        merged.logo_location.clone_from(&current.logo_location);
+        merged.logo_url.clone_from(&current.logo_url);
     }
     merged.preorder_enabled = enabled;
     Ok(merged)
@@ -251,7 +251,7 @@ fn field<T>(patch: PatchField<T>, current: T) -> Result<T, AppError> {
     match patch {
         PatchField::Missing => Ok(current),
         PatchField::Set(v) => Ok(v),
-        PatchField::Clear => Err(invalid("Only logo_location may be cleared")),
+        PatchField::Clear => Err(invalid("Only logo_url may be cleared")),
     }
 }
 

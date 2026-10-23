@@ -12,7 +12,7 @@ pub enum ConventionPaymentMethod {
 pub struct CreateConvention {
     pub slug: String,
     pub name: String,
-    pub logo_location: Option<String>,
+    pub logo_url: Option<String>,
     pub country_code: String,
     pub event_starts_on: String,
     pub event_ends_on: String,
@@ -26,7 +26,7 @@ pub struct PatchConvention {
     #[serde(skip_serializing_if = "PatchField::is_missing")]
     pub name: PatchField<String>,
     #[serde(skip_serializing_if = "PatchField::is_missing")]
-    pub logo_location: PatchField<String>,
+    pub logo_url: PatchField<String>,
     #[serde(skip_serializing_if = "PatchField::is_missing")]
     pub country_code: PatchField<String>,
     #[serde(skip_serializing_if = "PatchField::is_missing")]
@@ -70,9 +70,9 @@ pub struct ConventionDTO {
     pub id: String,
     pub slug: String,
     pub name: String,
-    pub logo_location: Option<String>,
     pub logo_url: Option<String>,
-    pub logo_url_expires_at: Option<String>,
+    pub logo_preview_url: Option<String>,
+    pub logo_preview_url_expires_at: Option<String>,
     pub country_code: String,
     pub event_starts_on: String,
     pub event_ends_on: String,

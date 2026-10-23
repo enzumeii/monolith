@@ -40,17 +40,17 @@ async fn logo_upload_before_create_signed_read_replace_preserve_and_clear() {
     .await;
     let uploaded = stored(&c, &f, f.prefix()).await;
     let mut value = input(f.prefix());
-    value["logo_location"] = uploaded["location"].clone();
+    value["logo_url"] = uploaded["location"].clone();
     let created = create(&c, &f, value).await;
     let id = created["id"].as_str().unwrap();
-    assert_eq!(created["logo_location"], uploaded["location"]);
+    assert_eq!(created["logo_url"], uploaded["location"]);
     assert!(
-        created["logo_url"]
+        created["logo_preview_url"]
             .as_str()
             .unwrap()
             .contains("X-Amz-Signature=")
     );
-    assert!(created["logo_url_expires_at"].is_string());
+    assert!(created["logo_preview_url_expires_at"].is_string());
     assert_eq!(
         location(&f, id).await.as_deref(),
         uploaded["location"].as_str()
@@ -68,15 +68,15 @@ async fn logo_upload_before_create_signed_read_replace_preserve_and_clear() {
             .unwrap()
             .iter()
             .any(|v| v["id"] == created["id"]
-                && v["logo_location"] == uploaded["location"]
-                && v["logo_url"].is_string())
+                && v["logo_url"] == uploaded["location"]
+                && v["logo_preview_url"].is_string())
     );
     assert_eq!(
         storage.data.lock().unwrap().calls.len(),
         calls,
         "projection must not HEAD/GET each logo"
     );
-    let bytes = reqwest::get(loaded["logo_url"].as_str().unwrap())
+    let bytes = reqwest::get(loaded["logo_preview_url"].as_str().unwrap())
         .await
         .unwrap();
     assert_eq!(bytes.status(), 200);
@@ -95,7 +95,7 @@ async fn logo_upload_before_create_signed_read_replace_preserve_and_clear() {
         200,
     )
     .await;
-    assert_eq!(saved["logo_location"], uploaded["location"]);
+    assert_eq!(saved["logo_url"], uploaded["location"]);
     assert_eq!(storage.data.lock().unwrap().calls, Vec::<String>::new());
     let replacement = stored(&c, &f, f.prefix()).await;
     assert_ne!(uploaded["location"], replacement["location"]);
@@ -104,13 +104,13 @@ async fn logo_upload_before_create_signed_read_replace_preserve_and_clear() {
         &f,
         "PATCH",
         &format!("{URI}/{id}"),
-        json!({"logo_location":replacement["location"]}),
+        json!({"logo_url":replacement["location"]}),
         200,
     )
     .await;
     // Previously issued signed URLs retain their documented lifetime after replacement.
     assert_eq!(
-        reqwest::get(loaded["logo_url"].as_str().unwrap())
+        reqwest::get(loaded["logo_preview_url"].as_str().unwrap())
             .await
             .unwrap()
             .status(),
@@ -121,11 +121,15 @@ async fn logo_upload_before_create_signed_read_replace_preserve_and_clear() {
         &f,
         "PATCH",
         &format!("{URI}/{id}"),
-        json!({"logo_location":null}),
+        json!({"logo_url":null}),
         200,
     )
     .await;
-    for field in ["logo_location", "logo_url", "logo_url_expires_at"] {
+    for field in [
+        "logo_url",
+        "logo_preview_url",
+        "logo_preview_url_expires_at",
+    ] {
         assert!(clear[field].is_null());
     }
     assert!(location(&f, id).await.is_none());
@@ -155,8 +159,10 @@ async fn existing_legacy_logo_survives_unrelated_patch_and_can_be_replaced_or_cl
     .await
     .unwrap();
     let loaded = read(&c, &f, id).await;
-    assert_eq!(loaded["logo_location"], legacy_url);
-    assert!(loaded["logo_url"].is_null() && loaded["logo_url_expires_at"].is_null());
+    assert_eq!(loaded["logo_url"], legacy_url);
+    assert!(
+        loaded["logo_preview_url"].is_null() && loaded["logo_preview_url_expires_at"].is_null()
+    );
     let saved = mutate(
         &c,
         &f,
@@ -167,15 +173,15 @@ async fn existing_legacy_logo_survives_unrelated_patch_and_can_be_replaced_or_cl
     )
     .await;
     assert_eq!(saved["name"], "Updated legacy fair");
-    assert_eq!(saved["logo_location"], legacy_url);
-    assert!(saved["logo_url"].is_null() && saved["logo_url_expires_at"].is_null());
+    assert_eq!(saved["logo_url"], legacy_url);
+    assert!(saved["logo_preview_url"].is_null() && saved["logo_preview_url_expires_at"].is_null());
     assert_eq!(location(&f, id).await.as_deref(), Some(legacy_url));
     mutate(
         &c,
         &f,
         "PATCH",
         &format!("{URI}/{id}"),
-        json!({"logo_location":legacy_url}),
+        json!({"logo_url":legacy_url}),
         400,
     )
     .await;
@@ -187,12 +193,12 @@ async fn existing_legacy_logo_survives_unrelated_patch_and_can_be_replaced_or_cl
         &f,
         "PATCH",
         &format!("{URI}/{id}"),
-        json!({"logo_location":uploaded["location"]}),
+        json!({"logo_url":uploaded["location"]}),
         200,
     )
     .await;
-    assert_eq!(replaced["logo_location"], uploaded["location"]);
-    assert!(replaced["logo_url"].is_string());
+    assert_eq!(replaced["logo_url"], uploaded["location"]);
+    assert!(replaced["logo_preview_url"].is_string());
     assert_eq!(
         location(&f, id).await.as_deref(),
         uploaded["location"].as_str()
@@ -202,7 +208,7 @@ async fn existing_legacy_logo_survives_unrelated_patch_and_can_be_replaced_or_cl
         &f,
         "PATCH",
         &format!("{URI}/{id}"),
-        json!({"logo_location":null}),
+        json!({"logo_url":null}),
         200,
     )
     .await;
@@ -227,14 +233,14 @@ async fn logo_attachment_location_validation_missing_and_unknown_legacy_url() {
         format!("conventions/{}/not-a-uuid.png", f.prefix()),
     ] {
         let mut data = input(&format!("{}-reject", f.prefix()));
-        data["logo_location"] = json!(value);
+        data["logo_url"] = json!(value);
         mutate(&c, &f, "POST", URI, data, 400).await;
         mutate(
             &c,
             &f,
             "PATCH",
             &format!("{URI}/{id}"),
-            json!({"logo_location":value}),
+            json!({"logo_url":value}),
             400,
         )
         .await;
@@ -246,7 +252,7 @@ async fn logo_attachment_location_validation_missing_and_unknown_legacy_url() {
         &f,
         "PATCH",
         &format!("{URI}/{id}"),
-        json!({"logo_location":missing}),
+        json!({"logo_url":missing}),
         400,
     )
     .await;
@@ -254,14 +260,14 @@ async fn logo_attachment_location_validation_missing_and_unknown_legacy_url() {
     assert!(location(&f, id).await.is_none());
     for value in [json!(null), json!("https://example.test/logo.png")] {
         let mut data = input(&format!("{}-legacy", f.prefix()));
-        data["logo_url"] = value.clone();
+        data["logo_preview_url"] = value.clone();
         mutate(&c, &f, "POST", URI, data, 400).await;
         mutate(
             &c,
             &f,
             "PATCH",
             &format!("{URI}/{id}"),
-            json!({"logo_url":value}),
+            json!({"logo_preview_url":value}),
             400,
         )
         .await;
@@ -321,7 +327,7 @@ async fn logo_attachment_provider_failures_and_invalid_objects_preserve_database
             &f,
             "PATCH",
             &format!("{URI}/{id}"),
-            json!({"logo_location":uploaded["location"]}),
+            json!({"logo_url":uploaded["location"]}),
             status,
         )
         .await;
@@ -365,7 +371,7 @@ async fn logo_attachment_provider_failures_and_invalid_objects_preserve_database
             &f,
             "PATCH",
             &format!("{URI}/{id}"),
-            json!({"logo_location":uploaded["location"]}),
+            json!({"logo_url":uploaded["location"]}),
             502,
         )
         .await;
@@ -380,7 +386,7 @@ async fn logo_attachment_provider_failures_and_invalid_objects_preserve_database
             &f,
             "PATCH",
             &format!("{URI}/{id}"),
-            json!({"logo_location":uploaded["location"]}),
+            json!({"logo_url":uploaded["location"]}),
             502,
         )
         .await;
@@ -399,7 +405,7 @@ async fn logo_optional_signer_degradation_and_attachment_database_failure_are_sa
     .await;
     let uploaded = stored(&c, &f, f.prefix()).await;
     let mut value = input(f.prefix());
-    value["logo_location"] = uploaded["location"].clone();
+    value["logo_url"] = uploaded["location"].clone();
     let created = create(&c, &f, value).await;
     let id = created["id"].as_str().unwrap();
     for (disabled, invalid) in [(true, false), (false, true)] {
@@ -415,12 +421,12 @@ async fn logo_optional_signer_degradation_and_attachment_database_failure_are_sa
             input(&format!("{}-no-logo-{disabled}", f.prefix())),
         )
         .await;
-        assert!(no_logo["logo_location"].is_null());
         assert!(no_logo["logo_url"].is_null());
+        assert!(no_logo["logo_preview_url"].is_null());
         let loaded = read(&unavailable, &f, id).await;
-        assert_eq!(loaded["logo_location"], uploaded["location"]);
-        assert!(loaded["logo_url"].is_null());
-        assert!(loaded["logo_url_expires_at"].is_null());
+        assert_eq!(loaded["logo_url"], uploaded["location"]);
+        assert!(loaded["logo_preview_url"].is_null());
+        assert!(loaded["logo_preview_url_expires_at"].is_null());
         let saved = mutate(
             &unavailable,
             &f,
@@ -430,9 +436,9 @@ async fn logo_optional_signer_degradation_and_attachment_database_failure_are_sa
             200,
         )
         .await;
-        assert_eq!(saved["logo_location"], uploaded["location"]);
-        assert!(saved["logo_url"].is_null());
-        assert!(saved["logo_url_expires_at"].is_null());
+        assert_eq!(saved["logo_url"], uploaded["location"]);
+        assert!(saved["logo_preview_url"].is_null());
+        assert!(saved["logo_preview_url_expires_at"].is_null());
         let listing = unavailable
             .send(authed("GET", URI, f.root_id(), AdminRole::Admin))
             .await
@@ -444,25 +450,25 @@ async fn logo_optional_signer_degradation_and_attachment_database_failure_are_sa
             .iter()
             .find(|item| item["id"] == created["id"])
             .unwrap();
-        assert_eq!(listed["logo_location"], uploaded["location"]);
-        assert!(listed["logo_url"].is_null());
-        assert!(listed["logo_url_expires_at"].is_null());
+        assert_eq!(listed["logo_url"], uploaded["location"]);
+        assert!(listed["logo_preview_url"].is_null());
+        assert!(listed["logo_preview_url_expires_at"].is_null());
         let clear = mutate(
             &unavailable,
             &f,
             "PATCH",
             &format!("{URI}/{id}"),
-            json!({"logo_location":null}),
+            json!({"logo_url":null}),
             200,
         )
         .await;
-        assert!(clear["logo_location"].is_null());
+        assert!(clear["logo_url"].is_null());
         mutate(
             &c,
             &f,
             "PATCH",
             &format!("{URI}/{id}"),
-            json!({"logo_location":uploaded["location"]}),
+            json!({"logo_url":uploaded["location"]}),
             200,
         )
         .await;
@@ -471,7 +477,7 @@ async fn logo_optional_signer_degradation_and_attachment_database_failure_are_sa
             &f,
             "PATCH",
             &format!("{URI}/{id}"),
-            json!({"logo_location":uploaded["location"]}),
+            json!({"logo_url":uploaded["location"]}),
             503,
         )
         .await;
@@ -484,7 +490,7 @@ async fn logo_optional_signer_degradation_and_attachment_database_failure_are_sa
             &format!("{URI}/{id}"),
             f.root_id(),
             AdminRole::Admin,
-            &json!({"logo_location":uploaded["location"]}),
+            &json!({"logo_url":uploaded["location"]}),
         ))
         .await
         .unwrap();
@@ -505,9 +511,9 @@ async fn logo_optional_signer_degradation_and_attachment_database_failure_are_sa
     );
     storage.data.lock().unwrap().objects.clear();
     let loaded = read(&c, &f, id).await;
-    assert!(loaded["logo_url"].is_string());
+    assert!(loaded["logo_preview_url"].is_string());
     assert_eq!(
-        reqwest::get(loaded["logo_url"].as_str().unwrap())
+        reqwest::get(loaded["logo_preview_url"].as_str().unwrap())
             .await
             .unwrap()
             .status(),
@@ -574,7 +580,7 @@ async fn logo_create_dependency_failure_never_inserts_record() {
     .await;
     let uploaded = stored(&c, &f, f.prefix()).await;
     let mut value = input(f.prefix());
-    value["logo_location"] = uploaded["location"].clone();
+    value["logo_url"] = uploaded["location"].clone();
     for (operation, fault, status) in [
         ("metadata", "forbidden", 502),
         ("metadata", "timeout", 504),

@@ -171,11 +171,11 @@ async fn conventions_lifecycle_exact_prices_replacement_and_cascade() {
         &f,
         "PATCH",
         &path,
-        json!({"logo_location":null,"name":"  Updated  "}),
+        json!({"logo_url":null,"name":"  Updated  "}),
         200,
     )
     .await;
-    assert!(cleared["logo_url"].is_null());
+    assert!(cleared["logo_preview_url"].is_null());
     assert_eq!(cleared["name"], "Updated");
     mutate(&c, &f, "PUT", &variants, json!({"items":[]}), 200).await;
     mutate(
@@ -305,11 +305,11 @@ async fn conventions_validation_families_reject_without_shopify_calls() {
         "https://example.test/".to_owned().as_str(),
     ] {
         if logo != "https://example.test/" {
-            cases.push(("logo_location", json!(logo)));
+            cases.push(("logo_url", json!(logo)));
         }
     }
     cases.push((
-        "logo_location",
+        "logo_url",
         json!(format!("https://example.test/{}", "x".repeat(2048))),
     ));
     for currency in ["thb", "XYZ", ""] {
@@ -1291,7 +1291,7 @@ async fn conventions_wrong_types_nulls_and_unknown_fields_never_reach_shopify() 
     for field in [
         "slug",
         "name",
-        "logo_location",
+        "logo_url",
         "country_code",
         "event_starts_on",
         "event_ends_on",

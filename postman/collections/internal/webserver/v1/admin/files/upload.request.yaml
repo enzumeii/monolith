@@ -15,5 +15,5 @@ scripts:
   - type: afterResponse
     code: |-
       pm.test("Image uploaded", () => { pm.response.to.have.status(201); pm.expect(pm.response.headers.get("Cache-Control")).to.eql("no-store"); });
-      if (pm.response.code === 201) { const image = pm.response.json(); pm.globals.set("convention_logo_location", image.location); pm.globals.set("convention_logo_url", image.url); pm.globals.set("convention_logo_url_expires_at", image.expires_at); }
+      if (pm.response.code === 201) { const image = pm.response.json(); pm.globals.set("convention_logo_url", image.location); pm.globals.set("convention_logo_preview_url", image.url); pm.globals.set("convention_logo_preview_url_expires_at", image.expires_at); }
     language: text/javascript

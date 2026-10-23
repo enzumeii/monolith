@@ -27,25 +27,25 @@ pub(crate) fn folder(value: &str) -> Result<&str, AppError> {
 pub(crate) fn location(value: &str, slug: Option<&str>) -> Result<&'static str, AppError> {
     let (directory, filename) = value
         .rsplit_once('/')
-        .ok_or_else(|| invalid("Invalid logo_location"))?;
+        .ok_or_else(|| invalid("Invalid logo_url"))?;
     let owner = folder(directory)?;
     if slug.is_some_and(|slug| slug != owner) {
         return Err(invalid("Logo location must belong to the convention slug"));
     }
     let (id, extension) = filename
         .rsplit_once('.')
-        .ok_or_else(|| invalid("Invalid logo_location"))?;
-    let asset: Uuid = id.parse().map_err(|_| invalid("Invalid logo_location"))?;
+        .ok_or_else(|| invalid("Invalid logo_url"))?;
+    let asset: Uuid = id.parse().map_err(|_| invalid("Invalid logo_url"))?;
     if asset.to_string() != id
         || asset.get_version_num() != 4
         || asset.get_variant() != uuid::Variant::RFC4122
     {
-        return Err(invalid("Invalid logo_location"));
+        return Err(invalid("Invalid logo_url"));
     }
     match extension {
         "png" => Ok("image/png"),
         "jpg" => Ok("image/jpeg"),
-        _ => Err(invalid("Invalid logo_location")),
+        _ => Err(invalid("Invalid logo_url")),
     }
 }
 

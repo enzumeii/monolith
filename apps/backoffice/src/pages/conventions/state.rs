@@ -87,7 +87,7 @@ impl Metadata {
         Ok(CreateConvention {
             slug: self.slug.clone(),
             name: self.name.trim().into(),
-            logo_location: None,
+            logo_url: None,
             country_code: self.country.clone(),
             event_starts_on: self.start.clone(),
             event_ends_on: self.end.clone(),

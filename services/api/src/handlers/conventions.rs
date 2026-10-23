@@ -39,7 +39,7 @@ pub async fn create(
 ) -> Result<impl axum::response::IntoResponse, AppError> {
     validate::no_query(uri.query())?;
     let input = validate::create(validate::body(body)?)?;
-    let s3 = if input.logo_location.is_some() {
+    let s3 = if input.logo_url.is_some() {
         Some(super::dependencies::s3_client(&state)?)
     } else {
         optional_s3(&state)
@@ -77,7 +77,7 @@ pub async fn patch(
     let id = validate::id(path)?;
     let changes = validate::body(body)?;
     validate::patch_shape(&changes)?;
-    let s3 = if matches!(changes.logo_location, domain::dto::PatchField::Set(_)) {
+    let s3 = if matches!(changes.logo_url, domain::dto::PatchField::Set(_)) {
         Some(super::dependencies::s3_client(&state)?)
     } else {
         optional_s3(&state)

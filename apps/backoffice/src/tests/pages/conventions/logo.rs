@@ -60,7 +60,7 @@ fn preview_app() -> Element {
 
 #[tokio::test]
 async fn refresh_response_for_previous_location_never_replaces_a_newly_attached_logo() {
-    let body = r##"{"id":"da41d46b-f1ca-4a76-a774-62c269d28731","slug":"event","name":"Event","logo_location":"conventions/event/old.png","logo_url":"https://s3.test/old.png?signature=refreshed","logo_url_expires_at":"2026-11-01T00:10:00Z","country_code":"TH","event_starts_on":"2026-11-01","event_ends_on":"2026-11-02","description_markdown":"# Event","preorder_enabled":false,"currency_code":"THB","payment_methods":["stripe"],"created_at":"now","updated_at":"now"}"##;
+    let body = r##"{"id":"da41d46b-f1ca-4a76-a774-62c269d28731","slug":"event","name":"Event","logo_url":"conventions/event/old.png","logo_preview_url":"https://s3.test/old.png?signature=refreshed","logo_preview_url_expires_at":"2026-11-01T00:10:00Z","country_code":"TH","event_starts_on":"2026-11-01","event_ends_on":"2026-11-02","description_markdown":"# Event","preorder_enabled":false,"currency_code":"THB","payment_methods":["stripe"],"created_at":"now","updated_at":"now"}"##;
     let ((), requests) = crate::api::tests::metadata_responses(&[(200, body)], async {
         dioxus::html::set_event_converter(Box::new(FormEventConverter));
         let captured = PreviewSignal::default();

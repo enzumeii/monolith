@@ -778,3 +778,8 @@ The preview at `http://localhost:8084/scheduled-reports` now uses the rebased sy
 | User-directed verification limit | User requested stopping tests and publishing the conflict resolution for implementation review. The full199-test TCP run was stopped (exit143), so it is not a full-suite pass. Current browser exercise and hosted CI completion were not required for this handoff |
 
 Source-bound logs and approval/amendment evidence remain ignored under `.superpowers/pr58-conflict-20261024/`. No live provider mutation or deployment was performed. Earlier verification sections describe their own historical source only.
+
+
+### Logo field naming follow-up — 2026-10-24
+
+The stored value is now named `logo_url` in SQL, Rust models, request/response DTOs and UI consumers. Responses expose signed previews as `logo_preview_url` with `logo_preview_url_expires_at`; Postman requests and fixtures use the same names. This follow-up preserves the existing migration, upload validation and missing/null behavior. Tests and builds were not run for this naming change at the user's request; earlier pass results apply to their recorded source.

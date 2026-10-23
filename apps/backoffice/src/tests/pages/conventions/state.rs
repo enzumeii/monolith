@@ -62,7 +62,7 @@ fn metadata_patch_omits_logo_and_immutable_fields() {
     let saved = form.clone();
     form.name = "Changed".into();
     let patch = form.patch(&saved).expect("changed metadata");
-    assert!(matches!(patch.logo_location, PatchField::Missing));
+    assert!(matches!(patch.logo_url, PatchField::Missing));
     assert!(form.create().is_ok());
     for slug in [
         "../event",
@@ -122,7 +122,7 @@ fn metadata_patch_only_emits_changed_fields_and_noop_cannot_save() {
     assert_eq!(patch.name, PatchField::Set("Changed".into()));
     assert!(patch.payment_methods.is_missing());
     assert!(patch.preorder_enabled.is_missing());
-    assert!(patch.logo_location.is_missing());
+    assert!(patch.logo_url.is_missing());
     assert!(!draft.requires_capabilities(&saved));
     draft = saved.clone();
     draft.enabled = false;

@@ -103,7 +103,7 @@ pub async fn replace_variants(
 ) -> ApiResult<SelectedVariants> {
     super::decode(child_request(Method::PUT, id, "variants")?.json(&input)).await
 }
-pub fn logo_url(value: &str) -> Option<String> {
+pub fn logo_preview_url(value: &str) -> Option<String> {
     let url = reqwest::Url::parse(value).ok()?;
     let authority = value
         .strip_prefix("http://")
