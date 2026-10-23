@@ -1,7 +1,7 @@
 use crate::{
     error::AppError,
     middleware::{cookies, token},
-    models::{AuthSource, AuthenticatedAdmin},
+    models::{AuthSource, AuthenticatedAdmin, Claims},
     services,
     state::AppState,
 };
@@ -29,6 +29,14 @@ pub async fn login(
     } else {
         Ok(Json(tokens).into_response())
     }
+}
+pub async fn session(Extension(claims): Extension<Claims>) -> Json<SessionResponse> {
+    Json(SessionResponse {
+        admin_id: claims.admin_id,
+        username: claims.username,
+        role: claims.role,
+        expires_at: claims.expiration,
+    })
 }
 pub async fn refresh(
     State(state): State<AppState>,

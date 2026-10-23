@@ -1,4 +1,4 @@
-//! POST /v1/auth/login · POST /v1/auth/refresh · POST /v1/auth/logout
+//! POST /v1/auth/login · GET /v1/auth/session · POST /v1/auth/refresh · POST /v1/auth/logout
 
 use super::super::common;
 use axum::body::Body;
@@ -75,6 +75,16 @@ async fn cookie_request_from_origin(
         )
         .await
         .unwrap()
+}
+
+async fn refresh_rows(db: &common::TestFixture) -> serde_json::Value {
+    sqlx::query_scalar(
+        "SELECT jsonb_agg(to_jsonb(refresh_tokens) ORDER BY id) FROM refresh_tokens WHERE admin_id=$1",
+    )
+    .bind(db.root_id())
+    .fetch_one(&db.pool())
+    .await
+    .unwrap()
 }
 
 #[tokio::test]
@@ -949,4 +959,212 @@ async fn cors_without_origin_has_no_allow_origin_header() {
             .headers()
             .contains_key("access-control-allow-origin")
     );
+}
+
+#[tokio::test]
+async fn session_repeated_cookie_reads_preserve_refresh_credentials() {
+    let db = common::fixture().await;
+    let login = cookie_login(&db.username("root"), "fixture-root-password").await;
+    let cookie = cookie_pair(&login);
+    let expected = common::body_json(login).await;
+    let before = refresh_rows(&db).await;
+    for _ in 0..3 {
+        let response = cookie_request("GET", "/api/v1/auth/session", &cookie).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        assert!(!response.headers().contains_key("set-cookie"));
+        let body = common::body_json(response).await;
+        assert_eq!(body, expected);
+        assert_eq!(body.as_object().unwrap().len(), 4);
+        assert!(body.get("access_token").is_none());
+        assert!(body.get("refresh_token").is_none());
+    }
+    let after = refresh_rows(&db).await;
+    assert_eq!(before, after);
+    assert_eq!(
+        cookie_request("POST", "/api/v1/auth/refresh", &cookie)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        cookie_request("POST", "/api/v1/auth/refresh", &cookie)
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn session_returns_bearer_claims_for_each_role_and_overrides_cookie() {
+    let db = common::fixture().await;
+    let cookie = cookie_pair(&cookie_login(&db.username("root"), "fixture-root-password").await);
+    for role in [AdminRole::Admin, AdminRole::SuperAdmin] {
+        let response = common::client()
+            .await
+            .send(
+                Request::builder()
+                    .uri("/api/v1/auth/session")
+                    .header("cookie", &cookie)
+                    .header(
+                        "authorization",
+                        format!("Bearer {}", common::jwt_for(db.root_id(), role)),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        assert!(!response.headers().contains_key("set-cookie"));
+        assert_eq!(
+            common::body_json(response).await,
+            serde_json::json!({
+                "admin_id": db.root_id(), "username": "fixture", "role": role, "expires_at": 4_102_444_800_u64
+            })
+        );
+    }
+    let response = common::client()
+        .await
+        .send(
+            Request::builder()
+                .uri("/api/v1/auth/session")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "GET does not require Origin or session mode"
+    );
+}
+
+#[tokio::test]
+async fn session_rejects_invalid_credentials_without_cookie_fallback_or_writes() {
+    let db = common::fixture().await;
+    let cookie = cookie_pair(&cookie_login(&db.username("root"), "fixture-root-password").await);
+    let before = refresh_rows(&db).await;
+    let wrong = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &serde_json::json!({"sub":db.root_id(),"username":"fixture","role":"SUPER_ADMIN","exp":4_102_444_800_u64}),
+        &jsonwebtoken::EncodingKey::from_secret(&[0; 32]),
+    ).unwrap();
+    let expired = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &serde_json::json!({"sub":db.root_id(),"username":"fixture","role":"SUPER_ADMIN","exp":1}),
+        &jsonwebtoken::EncodingKey::from_secret(&hex::decode(common::JWT_SECRET).unwrap()),
+    )
+    .unwrap();
+    let refresh = "a".repeat(64);
+    let access = cookie.split_once('=').unwrap().1.split_once('~').unwrap().0;
+    let empty_access_cookie = format!("backoffice_auth=~{refresh}");
+    let short_refresh_cookie = format!("backoffice_auth={access}~short");
+    let oversized_access = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &serde_json::json!({"sub":db.root_id(),"username":"a".repeat(3000),"role":"SUPER_ADMIN","exp":4_102_444_800_u64}),
+        &jsonwebtoken::EncodingKey::from_secret(&hex::decode(common::JWT_SECRET).unwrap()),
+    ).unwrap();
+    assert!(oversized_access.len() > 3500);
+    let wrong_cookie = format!("backoffice_auth={wrong}~{refresh}");
+    let expired_cookie = format!("backoffice_auth={expired}~{refresh}");
+    let malformed_jwt_cookie = format!("backoffice_auth=invalid~{refresh}");
+    let oversized_cookie = format!("backoffice_auth={oversized_access}~{refresh}");
+    let nonhex_cookie = format!("backoffice_auth={access}~{}", "z".repeat(64));
+    let wrong_bearer = format!("Bearer {wrong}");
+    let expired_bearer = format!("Bearer {expired}");
+    for (cookie_header, authorization) in [
+        (None, None),
+        (Some("backoffice_auth=malformed"), None),
+        (Some(empty_access_cookie.as_str()), None),
+        (Some(short_refresh_cookie.as_str()), None),
+        (Some(malformed_jwt_cookie.as_str()), None),
+        (Some(oversized_cookie.as_str()), None),
+        (Some(nonhex_cookie.as_str()), None),
+        (Some(wrong_cookie.as_str()), None),
+        (Some(expired_cookie.as_str()), None),
+        (None, Some("Basic malformed")),
+        (None, Some("Bearer ")),
+        (None, Some("Bearer invalid")),
+        (None, Some(wrong_bearer.as_str())),
+        (None, Some(expired_bearer.as_str())),
+        (Some(cookie.as_str()), Some("Basic malformed")),
+        (Some(cookie.as_str()), Some("Bearer ")),
+        (Some(cookie.as_str()), Some("Bearer invalid")),
+        (Some(cookie.as_str()), Some(wrong_bearer.as_str())),
+        (Some(cookie.as_str()), Some(expired_bearer.as_str())),
+    ] {
+        let mut request = Request::builder().uri("/api/v1/auth/session");
+        if let Some(cookie) = cookie_header {
+            request = request.header("cookie", cookie);
+        }
+        if let Some(bearer) = authorization {
+            request = request.header("authorization", bearer);
+        }
+        let response = common::client()
+            .await
+            .send(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.headers()["www-authenticate"], "Bearer");
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        assert!(!response.headers().contains_key("set-cookie"));
+        assert_eq!(
+            common::body_json(response).await,
+            serde_json::json!({"error":"Invalid or expired token"})
+        );
+    }
+    let response = common::client()
+        .await
+        .send(
+            Request::builder()
+                .uri("/api/v1/auth/session")
+                .header("cookie", &cookie)
+                .header("x-session-mode", "invalid")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    assert!(!response.headers().contains_key("set-cookie"));
+    assert_eq!(
+        common::body_json(response).await,
+        serde_json::json!({"error":"Invalid session mode"})
+    );
+    assert_eq!(before, refresh_rows(&db).await);
+    assert_eq!(
+        cookie_request("POST", "/api/v1/auth/refresh", &cookie)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn session_expired_access_can_refresh_then_read() {
+    let db = common::fixture().await;
+    let original = cookie_pair(&cookie_login(&db.username("root"), "fixture-root-password").await);
+    let (_, refresh) = original.split_once('~').unwrap();
+    let expired = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &serde_json::json!({"sub":db.root_id(),"username":db.username("root"),"role":"SUPER_ADMIN","exp":1}),
+        &jsonwebtoken::EncodingKey::from_secret(&hex::decode(common::JWT_SECRET).unwrap()),
+    ).unwrap();
+    let cookie = format!("backoffice_auth={expired}~{refresh}");
+    let rejected = cookie_request("GET", "/api/v1/auth/session", &cookie).await;
+    assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+    assert!(!rejected.headers().contains_key("set-cookie"));
+    let renewed = cookie_request("POST", "/api/v1/auth/refresh", &cookie).await;
+    assert_eq!(renewed.status(), StatusCode::OK);
+    let cookie = cookie_pair(&renewed);
+    let expected = common::body_json(renewed).await;
+    let restored = cookie_request("GET", "/api/v1/auth/session", &cookie).await;
+    assert_eq!(restored.status(), StatusCode::OK);
+    assert_eq!(common::body_json(restored).await, expected);
 }

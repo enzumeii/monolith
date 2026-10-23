@@ -105,43 +105,79 @@ pub(super) async fn metadata_response<T>(
     body: &str,
     operation: impl std::future::Future<Output = T>,
 ) -> (T, String) {
+    let (result, mut requests) = metadata_responses(&[(status, body)], operation).await;
+    assert_eq!(requests.len(), 1, "expected one metadata request");
+    (result, requests.remove(0))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) async fn metadata_responses<T>(
+    responses: &[(u16, &str)],
+    operation: impl std::future::Future<Output = T>,
+) -> (T, Vec<String>) {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+    listener
+        .set_nonblocking(true)
+        .expect("nonblocking listener");
     let base_url = format!("http://{}/v1/", listener.local_addr().expect("address"));
-    let body = body.to_owned();
+    let responses: Vec<_> = responses
+        .iter()
+        .map(|(status, body)| (*status, (*body).to_owned()))
+        .collect();
+    let (stop, stopped) = std::sync::mpsc::channel::<()>();
     let server = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().expect("connection");
-        stream
-            .set_read_timeout(Some(std::time::Duration::from_secs(5)))
-            .expect("timeout");
-        let mut bytes = Vec::new();
-        loop {
-            let mut chunk = [0; 4096];
-            let count = stream.read(&mut chunk).expect("request");
-            assert!(count > 0, "request was incomplete");
-            bytes.extend_from_slice(&chunk[..count]);
-            if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
-                let headers = String::from_utf8_lossy(&bytes[..end]);
-                let length = headers
-                    .lines()
-                    .find_map(|line| {
-                        let (name, value) = line.split_once(':')?;
-                        name.eq_ignore_ascii_case("content-length")
-                            .then(|| value.trim().parse::<usize>().expect("length"))
-                    })
-                    .unwrap_or(0);
-                if bytes.len() >= end + 4 + length {
-                    break;
+        let mut requests = Vec::new();
+        while matches!(
+            stopped.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ) {
+            let (mut stream, _) = match listener.accept() {
+                Ok(connection) => connection,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    continue;
+                }
+                Err(error) => panic!("accept: {error}"),
+            };
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .expect("timeout");
+            let mut bytes = Vec::new();
+            loop {
+                let mut chunk = [0; 4096];
+                let count = stream.read(&mut chunk).expect("request");
+                assert!(count > 0, "request was incomplete");
+                bytes.extend_from_slice(&chunk[..count]);
+                if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&bytes[..end]);
+                    let length = headers
+                        .lines()
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().expect("length"))
+                        })
+                        .unwrap_or(0);
+                    if bytes.len() >= end + 4 + length {
+                        break;
+                    }
                 }
             }
+            let (status, body) = responses
+                .get(requests.len())
+                .map_or((500, "unexpected request"), |(status, body)| {
+                    (*status, body.as_str())
+                });
+            requests.push(String::from_utf8(bytes).expect("UTF8 request"));
+            write!(
+                stream,
+                "HTTP/1.1 {status} Fixture\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .expect("response");
         }
-        write!(
-            stream,
-            "HTTP/1.1 {status} Fixture\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        )
-        .expect("response");
-        String::from_utf8(bytes).expect("UTF8 request")
+        requests
     });
     let dom = VirtualDom::new(|| rsx! {}).with_root_context(Settings {
         api: ApiConfig { base_url },
@@ -150,5 +186,6 @@ pub(super) async fn metadata_response<T>(
     let result =
         futures::future::poll_fn(|cx| dom.in_scope(ScopeId::ROOT, || operation.as_mut().poll(cx)))
             .await;
+    stop.send(()).expect("stop server");
     (result, server.join().expect("server"))
 }

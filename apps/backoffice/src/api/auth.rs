@@ -6,6 +6,9 @@ use reqwest::Method;
 pub async fn login(request: LoginRequest) -> ApiResult<Session> {
     super::decode(super::request(Method::POST, "/auth/login")?.json(&request)).await
 }
+pub async fn current_session() -> ApiResult<Session> {
+    super::decode(super::request(Method::GET, "/auth/session")?).await
+}
 pub async fn refresh_session() -> ApiResult<Session> {
     super::decode(super::request(Method::POST, "/auth/refresh")?).await
 }

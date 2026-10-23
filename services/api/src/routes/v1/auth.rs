@@ -1,5 +1,8 @@
 use crate::{handlers::auth, state::AppState};
-use axum::{Router, routing::post};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 
 pub fn public_router() -> Router<AppState> {
     Router::new()
@@ -8,5 +11,7 @@ pub fn public_router() -> Router<AppState> {
 }
 
 pub fn authed_router() -> Router<AppState> {
-    Router::new().route("/logout", post(auth::logout))
+    Router::new()
+        .route("/session", get(auth::session))
+        .route("/logout", post(auth::logout))
 }

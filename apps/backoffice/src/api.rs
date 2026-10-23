@@ -7,7 +7,7 @@ pub mod orders;
 pub mod report_results;
 pub mod reports;
 pub use admins::{create_admin, delete_admin, list_admins, update_admin};
-pub use auth::{login, logout, refresh_session};
+pub use auth::{current_session, login, logout, refresh_session};
 
 use domain::dto::ErrorResponse;
 use reqwest::{Method, RequestBuilder, Response, StatusCode};
@@ -95,4 +95,4 @@ impl std::fmt::Display for ApiError {
 
 #[cfg(test)]
 #[path = "tests/api.rs"]
-mod tests;
+pub(crate) mod tests;
