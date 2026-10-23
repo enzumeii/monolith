@@ -2,7 +2,5 @@
 implementation = "vercel"
 
 [browser]
-# Primary alias is filled at startup from Vercel deployment metadata.
-public_origin = ""
-additional_origins = ["https://convention.enzumeii.com"]
+allowed_origins = ["https://convention.enzumeii.com", "https://enzumeii.vercel.app"]
 insecure_local = false

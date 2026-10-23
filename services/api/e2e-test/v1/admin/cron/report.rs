@@ -1392,16 +1392,20 @@ async fn rustfs_private_network_acceptance() {
     assert_eq!(metadata.size, 8);
     assert_eq!(metadata.content_type, "text/csv; charset=utf-8");
     assert_eq!(client.download(&key, 8).await.unwrap(), b"original");
-    let signed = client
-        .presign_download(&key, "synthetic_report.csv", 1)
-        .await
-        .unwrap();
     let http = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap();
+    let signed = client
+        .presign_download(&key, "synthetic_report.csv", 60)
+        .await
+        .unwrap();
     let response = http.get(&signed.url).send().await.unwrap();
-    assert!(response.status().is_success());
+    assert!(
+        response.status().is_success(),
+        "signed download returned {}",
+        response.status()
+    );
     assert_eq!(
         response.headers()[reqwest::header::CONTENT_DISPOSITION],
         "attachment; filename=\"synthetic_report.csv\""
@@ -1413,9 +1417,13 @@ async fn rustfs_private_network_acceptance() {
         http.get(unsigned).send().await.unwrap().status(),
         reqwest::StatusCode::FORBIDDEN
     );
+    let short_lived = client
+        .presign_download(&key, "synthetic_report.csv", 1)
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     assert_eq!(
-        http.get(&signed.url).send().await.unwrap().status(),
+        http.get(&short_lived.url).send().await.unwrap().status(),
         reqwest::StatusCode::FORBIDDEN
     );
     client
