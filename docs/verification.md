@@ -952,7 +952,7 @@ Task-scoped logs and full approval/source evidence remain outside the checkout u
 
 | Scope | Evidence and limits |
 | --- | --- |
-| Integration | Main `9107c236` plus completed portal `0d007beb`; product-detail/cart routes and standalone checkout return/cancel routes preserved. ENZ-49 recovery runtime remains a separate stacked change |
+| Integration | Based on `feat/ENZ-38` at `0d007beb`, which already includes main `9107c236`; product-detail/cart routes and standalone checkout return/cancel routes preserved. CI accepts feature-branch PR targets for this checkout/recovery stack. ENZ-49 recovery runtime remains a separate stacked change |
 | API | Strict API check passed 34 setup tests, dprint, Rust formatting and native/E2E Clippy. Full owned Compose recipe passed 501 native tests and 252 real-TCP E2E tests, zero failures/ignored; owned verification dependencies removed |
 | Customer and shared checks | Client strict native/WASM lint and 66 native tests passed; final JavaScript bridge suite 20/20. Domain checks, 26 unit and 8 contract tests, shared UI native/WASM checks and 12 tests, backoffice native/WASM strict checks and workspace formatting passed |
 | Bundle and tooling | Final production client bundle rebuilt after cart-comparison correction. Root tooling passed 116 Node tests, actionlint, shellcheck, Bash syntax and pinned Vercel 65.1.0 service/schema validation; canonical/legacy products/cart/return/cancel reload tests pass |
