@@ -1,0 +1,9 @@
+$kind: http-request
+description: 'Anonymous customer endpoint; no bearer or browser session required. Native /v1 and hosted /api/v1 mounts are supported. Responses use Cache-Control: no-store. Disabled/missing conventions404; malformed requests400; unavailable provider503; unusable provider502; timeout504; database500 safe JSON. No stored S3 locations, costs, source prices, payment configuration or admin timestamps are exposed. Replace convention_slug with an enabled saved slug. Returns200 safe convention identity, logo preview/expiry, country/date/description/currency. Direct links depend only on preorder_enabled. Optional signed logo failure preserves metadata with null preview. Reject query/body400.'
+url: "{{server}}/v1/conventions/:convention_slug"
+method: GET
+auth:
+  type: noauth
+pathVariables:
+  convention_slug: example-convention
+order: 2000

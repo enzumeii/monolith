@@ -12,17 +12,26 @@ const { LocalFileSystemDetector, resolveAllConfiguredServicesV2 } = require_dist
 const resolved = await resolveAllConfiguredServicesV2(config.services, new LocalFileSystemDetector(process.cwd()));
 assert.deepEqual(resolved.errors, []);
 assert.deepEqual(Object.keys(config.services), ['backoffice', 'client-ui', 'api']);
-for (const [name, prefix] of [['backoffice', 'backoffice'], ['client-ui', 'user']]) {
+for (const [name, prefix] of [['backoffice', 'backoffice'], ['client-ui', 'root']]) {
   const buildCommand = `bash ../../../scripts/build-vercel-ui.sh ${name} ${prefix}`;
-  assert.deepEqual(config.services[name], {
+  const { routes, ...settings } = config.services[name];
+  assert.deepEqual(settings, {
     root: `apps/${name}/vercel`, installCommand: 'true', buildCommand, outputDirectory: 'public',
     devCommand: `node ../../../scripts/serve-vercel-ui.mjs ${name}`,
-    routes: [
-      { handle: 'filesystem' },
-      { src: `/${prefix}/assets/.*`, status: 404 },
-      { src: `/${prefix}(?:/.*)?`, dest: `/${prefix}/index.html` },
-    ],
   });
+  if (name === 'backoffice') {
+    assert.deepEqual(routes, [
+      { handle: 'filesystem' },
+      { src: '/backoffice/assets/.*', status: 404 },
+      { src: '/backoffice(?:/.*)?', dest: '/backoffice/index.html' },
+    ]);
+  } else {
+    assert.ok(routes.some(route => route.handle === 'filesystem'));
+    assert.ok(routes.some(route => route.src === '/assets/.*' && route.status === 404));
+    assert.ok(routes.some(route => route.src === '/' && route.dest === '/index.html'));
+    assert.equal(routes.filter(route => route.status === 308).length, 2);
+    assert.ok(routes.every(route => !route.dest || route.dest === '/index.html'));
+  }
   const metadata = JSON.parse(await readFile(`apps/${name}/vercel/package.json`, 'utf8'));
   assert.equal(metadata.private, true);
   assert.deepEqual(metadata.scripts, { build: buildCommand });
@@ -45,8 +54,7 @@ assert.deepEqual(config.rewrites, [
   { source: '/api/(.*)', destination: { service: 'api' } },
   { source: '/backoffice', destination: { service: 'backoffice' } },
   { source: '/backoffice/(.*)', destination: { service: 'backoffice' } },
-  { source: '/user', destination: { service: 'client-ui' } },
-  { source: '/user/(.*)', destination: { service: 'client-ui' } },
+  { source: '/(.*)', destination: { service: 'client-ui' } },
 ]);
 assert.deepEqual(config.crons, [{ path: '/_cron', schedule: '0 0 * * *' }]);
-console.log('Vercel 65.1.0 parsed two static services and one API container; public API, local SPA routes, zero bindings and daily cron match.');
+console.log('Vercel 65.1.0 parsed two static services and one API container; public API precedence, root portal, backoffice, zero bindings and daily cron match.');

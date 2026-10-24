@@ -18,7 +18,7 @@ check:
 # Build both static UI bundles and the API image locally (Rust, dx and Docker required).
 vercel-build:
     bash scripts/build-vercel-ui.sh backoffice backoffice
-    bash scripts/build-vercel-ui.sh client-ui user
+    bash scripts/build-vercel-ui.sh client-ui root
     bash scripts/build-vercel-containers.sh
 
 # Run all services on port 18027 using API .env and local TOML cron selection.

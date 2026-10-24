@@ -189,7 +189,7 @@ jobs:
         run: |
           export PATH="$PWD/.tools/vercel-dx/bin:$PATH"
           bash scripts/build-vercel-ui.sh backoffice backoffice
-          bash scripts/build-vercel-ui.sh client-ui user
+          bash scripts/build-vercel-ui.sh client-ui root
       - name: Build API container without cloud credentials
         uses: docker/build-push-action@v6
         with:

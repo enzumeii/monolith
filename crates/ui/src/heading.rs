@@ -27,3 +27,7 @@ pub fn Heading(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/heading.rs"]
+mod tests;

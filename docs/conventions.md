@@ -1,4 +1,20 @@
-# Convention administration and logo storage
+# Conventions and customer portal
+
+## Customer browsing and carts
+
+| Concern | Behavior |
+| --- | --- |
+| Entry routes | `/` lists enabled conventions whose event has not ended relative to the browser-local date; `/<slug>` browses that convention; `/<slug>/cart/<checkout-id>` edits its browser cart |
+| Ordering | Valid hosting IP-country wins over an explicit browser-locale region; otherwise date-only. Matching countries first, then event start ascending and stable slug/ID ties; ongoing events remain discoverable. Country changes no prices or permissions |
+| Public API | Anonymous `/api/v1/conventions`, `/api/v1/conventions/<slug>`, `/api/v1/conventions/<slug>/products` and `POST /api/v1/conventions/<slug>/quote`; native `/v1` aliases. Disabled/missing conventions expose no metadata or catalogue |
+| Catalogue | Complete saved selection, bounded by250 variants; one live Shopify nodes read supplies current descriptions, types, options, images and stock. Final price/currency come from the convention. Frontend search/type filters and12/24/48 product-card pages run locally |
+| Quantity | Positive quantities through999; active tracked DENY stock caps additions, while CONTINUE preserves out-of-stock ordering. Stock is total shared sellable stock, without a location guarantee or reservation |
+| Cart identity | Versioned browser storage is scoped to stable convention identity and a local draft UUID. It stores variant references, quantities and accepted display prices, never personal/payment data. Unknown checkout IDs cannot retrieve another draft |
+| Reconciliation | Cart opening/edits refresh catalogue and exact server quotes. Removed/unavailable/insufficient lines require adjustment; changed prices require acknowledgement. Pending or failed quotes never become confirmed current totals |
+| Failure handling | Malformed or unavailable storage has a recoverable in-memory fallback. API/provider failure remains an error rather than zero stock. Signed logo preview failures use placeholders |
+| Prices | Exact decimal strings and checked arithmetic; convention-inclusive line prices, one currency and zero shipping. Browser totals are not authority |
+| Boundaries | Browsing and cart edits create no order, checkout record, provider payment or stock hold. Payment and final reservation are later work |
+| Shared presentation | Customer pages use existing common theme, sanitized Markdown, forms/loading/errors and shared Heading. Routing owns navigation; pages/cart own feature state; API services own quote policy |
 
 ## Saved and draft state
 

@@ -258,6 +258,51 @@ impl ShopifyClient {
         data.fulfillment_create.into_id()
     }
 
+    pub(crate) async fn variant_nodes(
+        &self,
+        ids: &[ShopifyId],
+    ) -> Result<Vec<Option<crate::models::shopify::variant_nodes::LiveVariant>>, ClientError> {
+        use crate::models::shopify::variant_nodes::{VariantNode, VariantNodesData};
+        if ids.is_empty() || ids.len() > 250 {
+            return Err(ClientError::new(ClientErrorKind::InvalidInput(
+                "Expected 1 to 250 variant IDs",
+            )));
+        }
+        for id in ids {
+            id.number("ProductVariant")?;
+        }
+        let data: VariantNodesData = self
+            .execute(
+                "VariantNodes",
+                include_str!("shopify/variant_nodes.graphql"),
+                json!({"ids":ids}),
+            )
+            .await?;
+        if data.nodes.len() != ids.len() {
+            return Err(ClientError::new(ClientErrorKind::Protocol(
+                "Variant node count differs from request",
+            )));
+        }
+        data.nodes
+            .into_iter()
+            .zip(ids)
+            .map(|(node, expected)| {
+                let Some(VariantNode::ProductVariant(variant)) = node else {
+                    return Ok(None);
+                };
+                if variant.id != *expected
+                    || variant.id.number("ProductVariant").is_err()
+                    || variant.product.id.number("Product").is_err()
+                {
+                    return Err(ClientError::new(ClientErrorKind::Protocol(
+                        "Unexpected variant node identity",
+                    )));
+                }
+                Ok(Some(variant))
+            })
+            .collect()
+    }
+
     pub(crate) async fn convention_variant(
         &self,
         id: &ShopifyId,

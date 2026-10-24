@@ -51,6 +51,13 @@ pub use catalogue::{
     CatalogueQuery, CatalogueResponse, CatalogueVariant,
 };
 
+pub mod public_conventions;
+pub use public_conventions::{
+    ConventionQuote, ConventionQuoteLine, ListPublicConventionsQuery, PublicCatalogueResponse,
+    PublicConvention, PublicConventionListResponse, PublicProduct, PublicVariant,
+    QuoteConventionItem, QuoteConventionRequest,
+};
+
 pub mod pagination;
 
 pub use pagination::PageInfo;
@@ -70,3 +77,7 @@ mod convention_tests;
 #[cfg(test)]
 #[path = "tests/dto/files.rs"]
 mod file_tests;
+
+#[cfg(test)]
+#[path = "tests/dto/public_conventions.rs"]
+mod public_convention_tests;

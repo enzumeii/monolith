@@ -16,6 +16,8 @@ pub mod catalogue;
 pub mod conventions;
 pub mod files;
 
+pub(crate) mod public_conventions;
+
 #[cfg(test)]
 #[path = "tests/services/common.rs"]
 pub(super) mod common;
