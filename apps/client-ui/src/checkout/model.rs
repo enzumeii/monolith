@@ -186,7 +186,7 @@ pub fn redirect(
     if (!safe && !controlled_local)
         || !parsed.username().is_empty()
         || parsed.password().is_some()
-        || parsed.fragment().is_some()
+        || (parsed.fragment().is_some() && !(safe && provider == CheckoutProvider::Stripe))
     {
         return Err(
             "The shop returned an unsupported payment link. Check this checkout again.".into(),

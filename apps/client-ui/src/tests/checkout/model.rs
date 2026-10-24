@@ -186,7 +186,9 @@ fn provider_redirects_reject_lookalike_hosts_credentials_ports_and_nonactionable
         "https://checkout.stripe.com:9999/pay",
         "javascript:alert(1)",
         "https://www.paypal.com/pay",
-        "https://checkout.stripe.com/pay#fragment",
+        "https://checkout.stripe.com.evil.test/c/pay/cs_test_example#provider-data",
+        "https://user:password@checkout.stripe.com/c/pay/cs_test_example#provider-data",
+        "https://checkout.stripe.com:9999/c/pay/cs_test_example#provider-data",
     ] {
         result.next_action = Some(CheckoutNextAction::Redirect { url: url.into() });
         assert!(
@@ -210,6 +212,40 @@ fn provider_redirects_reject_lookalike_hosts_credentials_ports_and_nonactionable
     assert_eq!(
         redirect(&result, CheckoutProvider::Stripe, None).expect("valid checkout fixture"),
         None
+    );
+}
+
+#[test]
+fn stripe_hosted_checkout_preserves_its_provider_fragment() {
+    let url = "https://checkout.stripe.com/c/pay/cs_test_example#fidkdWxOYHwnPyd1blpxYHZxWjA0test%2Fencoded";
+    let mut result = response();
+    result.next_action = Some(CheckoutNextAction::Redirect { url: url.into() });
+    assert_eq!(
+        redirect(&result, CheckoutProvider::Stripe, None).expect("Stripe hosted checkout"),
+        Some(url.into())
+    );
+}
+
+#[test]
+fn fragments_remain_unsupported_for_paypal_and_controlled_local_redirects() {
+    let mut result = response();
+    for url in [
+        "https://www.paypal.com/checkoutnow?token=order#fragment",
+        "https://www.sandbox.paypal.com/checkoutnow?token=order#fragment",
+    ] {
+        result.next_action = Some(CheckoutNextAction::Redirect { url: url.into() });
+        assert!(redirect(&result, CheckoutProvider::Paypal, None).is_err());
+    }
+    result.next_action = Some(CheckoutNextAction::Redirect {
+        url: "https://localhost:18047/provider/stripe#fragment".into(),
+    });
+    assert!(
+        redirect(
+            &result,
+            CheckoutProvider::Stripe,
+            Some("https://localhost:18047")
+        )
+        .is_err()
     );
 }
 
