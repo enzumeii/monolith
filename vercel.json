@@ -6,7 +6,7 @@
   "services": {
     "backoffice": {
       "root": "apps/backoffice/vercel",
-      "installCommand": "true",
+      "installCommand": "npm ci --prefix ../../.. --include=dev --ignore-scripts --no-audit --no-fund",
       "buildCommand": "bash ../../../scripts/build-vercel-ui.sh backoffice backoffice",
       "outputDirectory": "public",
       "routes": [
@@ -26,7 +26,7 @@
     },
     "client-ui": {
       "root": "apps/client-ui/vercel",
-      "installCommand": "true",
+      "installCommand": "npm ci --prefix ../../.. --include=dev --ignore-scripts --no-audit --no-fund",
       "buildCommand": "bash ../../../scripts/build-vercel-ui.sh client-ui root",
       "outputDirectory": "public",
       "routes": [

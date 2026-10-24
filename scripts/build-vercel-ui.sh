@@ -26,7 +26,7 @@ restore_config() {
 trap restore_config EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-cp "$config" application.toml
+node "$root/scripts/compose-vercel-ui-config.mjs" "$backup" "$config" application.toml
 export CARGO_TARGET_DIR="$PWD/target/vercel"
 bundle="$CARGO_TARGET_DIR/dx/$package/release/web/public"
 rm -rf "${bundle%/public}"

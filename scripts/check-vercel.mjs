@@ -6,6 +6,7 @@ import { require_dist2 } from '../node_modules/vercel/dist/chunks/chunk-CVDK3IYT
 const config = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url)));
 const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
 assert.equal(packageJson.devDependencies.vercel, '65.1.0');
+assert.equal(packageJson.devDependencies['smol-toml'], '1.5.2');
 assert.equal(validateConfig(config), null, 'Pinned Vercel CLI configuration validation');
 assert.equal(config.git?.deploymentEnabled, false, 'Vercel Git deployments must remain disabled');
 const { LocalFileSystemDetector, resolveAllConfiguredServicesV2 } = require_dist2();
@@ -16,7 +17,7 @@ for (const [name, prefix] of [['backoffice', 'backoffice'], ['client-ui', 'root'
   const buildCommand = `bash ../../../scripts/build-vercel-ui.sh ${name} ${prefix}`;
   const { routes, ...settings } = config.services[name];
   assert.deepEqual(settings, {
-    root: `apps/${name}/vercel`, installCommand: 'true', buildCommand, outputDirectory: 'public',
+    root: `apps/${name}/vercel`, installCommand: 'npm ci --prefix ../../.. --include=dev --ignore-scripts --no-audit --no-fund', buildCommand, outputDirectory: 'public',
     devCommand: `node ../../../scripts/serve-vercel-ui.mjs ${name}`,
   });
   if (name === 'backoffice') {

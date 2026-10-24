@@ -183,6 +183,8 @@ jobs:
             .tools/vercel-dx
             apps/backoffice/target/vercel
             apps/client-ui/target/vercel
+      - name: Install pinned UI build dependencies
+        run: npm ci --include=dev --ignore-scripts --no-audit --no-fund
       - name: Install pinned native Dioxus CLI
         run: bash scripts/install-vercel-dx.sh
       - name: Build static CSR applications without cloud credentials
