@@ -37,7 +37,7 @@ async function server(t, service) {
 const checkout='89ed1bf5-9a6c-4a46-847d-e433c579db2d';
 test('root portal reloads canonical routes and serves only real assets',async t=>{
  const request=await server(t,'client-ui');
- for(const url of ['/', '/bangkok-2026', '/bangkok-2026/products/1', '/bangkok-2026/products/900719925474099312345',`/bangkok-2026/cart/${checkout}`,'/unknown-enabled-state']) {
+ for(const url of ['/', '/bangkok-2026', '/bangkok-2026/products/1', '/bangkok-2026/products/900719925474099312345',`/bangkok-2026/cart/${checkout}`,`/bangkok-2026/checkout/return?checkout_id=${checkout}`,`/bangkok-2026/checkout/cancel?checkout_id=${checkout}&token=synthetic`,'/unknown-enabled-state']) {
   const response=await request(url);
   assert.equal(response.status,200,url);
   assert.equal(await response.text(),'<html>client-ui</html>');
@@ -47,7 +47,7 @@ test('root portal reloads canonical routes and serves only real assets',async t=
   assert.equal(response.status,200,url);
   assert.doesNotMatch(await response.text(),/<html>/);
  }
- for(const url of ['/assets/missing.wasm','/missing.png','/bangkok/extra','/bangkok/products/bad','/bangkok/products/0','/bangkok/products/01','/bangkok/products/1/extra','/bangkok/cart/bad-id','/Uppercase','/bad--slug','/-bad','/bad-','/'+ 'a'.repeat(64),'/api','/v1','/healthz','/backoffice','/user/assets/missing.wasm','/api/v1/conventions','/_cron']) {
+ for(const url of ['/assets/missing.wasm','/missing.png','/bangkok/extra','/bangkok/checkout/invalid','/bangkok/checkout/return/extra','/bangkok/products/bad','/bangkok/products/0','/bangkok/products/01','/bangkok/products/1/extra','/bangkok/cart/bad-id','/Uppercase','/bad--slug','/-bad','/bad-','/'+ 'a'.repeat(64),'/api','/v1','/healthz','/backoffice','/user/assets/missing.wasm','/api/v1/conventions','/_cron']) {
   assert.equal((await request(url)).status,404,url);
  }
  assert.equal((await request('/',{method:'HEAD'})).status,200);
@@ -58,7 +58,7 @@ test('root portal reloads canonical routes and serves only real assets',async t=
 
 test('recognized legacy portal routes redirect once with query preserved',async t=>{
  const request=await server(t,'client-ui');
- for(const [url,target] of [['/user','/'],['/user/','/'],['/user/bangkok-2026','/bangkok-2026'],['/user/bangkok-2026/products/1','/bangkok-2026/products/1'],[`/user/bangkok-2026/cart/${checkout}`,`/bangkok-2026/cart/${checkout}`]]) {
+ for(const [url,target] of [['/user','/'],['/user/','/'],['/user/bangkok-2026','/bangkok-2026'],['/user/bangkok-2026/products/1','/bangkok-2026/products/1'],[`/user/bangkok-2026/cart/${checkout}`,`/bangkok-2026/cart/${checkout}`],['/user/bangkok-2026/checkout/return','/bangkok-2026/checkout/return'],['/user/bangkok-2026/checkout/cancel','/bangkok-2026/checkout/cancel']]) {
   const response=await request(`${url}?page=2&filter=a%20b`);
   assert.equal(response.status,308,url);
   assert.equal(response.headers.get('location'),`${target}?page=2&filter=a%20b`);

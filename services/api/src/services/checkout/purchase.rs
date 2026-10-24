@@ -249,11 +249,11 @@ pub(super) async fn recover(
         repo::save(pool, checkout, token).await?;
     }
     let draft = read(clients, checkout).await?;
-    validate_reservation(checkout, &draft)?;
-    if checkout.provider_resource_id.is_none() {
+    if checkout.payment_state == PaymentState::NotStarted {
+        validate_reservation(checkout, &draft)?;
         validate_payable(&draft)?;
+        checkout.reservation_expires_at = draft.reserve_inventory_until;
     }
-    checkout.reservation_expires_at = draft.reserve_inventory_until;
     checkout.draft_state = DraftState::Reserved;
     repo::save(pool, checkout, token).await
 }
@@ -443,15 +443,17 @@ fn prepare_items(
     let mut seen = BTreeSet::new();
     let mut total = 0i64;
     for input in &request.items {
-        let variant_id = Uuid::parse_str(&input.variant_id)
-            .map_err(|_| conflict("Invalid convention variant"))?;
+        let internal_id = Uuid::parse_str(&input.variant_id).ok();
+        let variant = selected
+            .iter()
+            .find(|variant| {
+                internal_id == Some(variant.id) || input.variant_id == variant.shopify_variant_id
+            })
+            .ok_or_else(|| conflict("Variant is not selected for this convention"))?;
+        let variant_id = variant.id;
         if !seen.insert(variant_id) || !(1..=999).contains(&input.quantity) {
             return Err(conflict("Invalid checkout item selection"));
         }
-        let variant = selected
-            .iter()
-            .find(|variant| variant.id == variant_id)
-            .ok_or_else(|| conflict("Variant is not selected for this convention"))?;
         let money = exact(0, currency)?;
         let canonical = super::super::conventions::money::validate(
             &variant.final_price,

@@ -12,6 +12,7 @@ pub struct ExpectedPayment {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PaymentOutcome {
+    RequiresAction,
     Pending,
     ExpiredUnpaid,
     VerifiedPaid(VerifiedPayment),

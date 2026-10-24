@@ -23,6 +23,7 @@ pub(crate) struct TestDocument {
     owner: dioxus::dioxus_core::internal::generational_box::Owner,
     pub replies: RefCell<VecDeque<serde_json::Value>>,
     pub scripts: RefCell<Vec<String>>,
+    pub sent: Rc<RefCell<Vec<serde_json::Value>>>,
 }
 impl TestDocument {
     pub fn new(replies: Vec<serde_json::Value>) -> Rc<Self> {
@@ -30,16 +31,26 @@ impl TestDocument {
             owner: dioxus::dioxus_core::internal::generational_box::Owner::default(),
             replies: RefCell::new(replies.into()),
             scripts: RefCell::new(vec![]),
+            sent: Rc::new(RefCell::new(vec![])),
         })
     }
 }
-struct Message(Option<serde_json::Value>);
+struct Message {
+    values: VecDeque<serde_json::Value>,
+    pending: bool,
+    sent: Rc<RefCell<Vec<serde_json::Value>>>,
+}
 impl Evaluator for Message {
-    fn send(&self, _: serde_json::Value) -> Result<(), EvalError> {
+    fn send(&self, value: serde_json::Value) -> Result<(), EvalError> {
+        self.sent.borrow_mut().push(value);
         Ok(())
     }
     fn poll_recv(&mut self, _: &mut Context<'_>) -> Poll<Result<serde_json::Value, EvalError>> {
-        Poll::Ready(self.0.take().ok_or(EvalError::Unsupported))
+        match self.values.pop_front() {
+            Some(value) => Poll::Ready(Ok(value)),
+            None if self.pending => Poll::Pending,
+            None => Poll::Ready(Err(EvalError::Unsupported)),
+        }
     }
     fn poll_join(&mut self, cx: &mut Context<'_>) -> Poll<Result<serde_json::Value, EvalError>> {
         self.poll_recv(cx)
@@ -48,10 +59,28 @@ impl Evaluator for Message {
 impl Document for TestDocument {
     fn eval(&self, script: String) -> Eval {
         self.scripts.borrow_mut().push(script);
-        Eval::new(
-            self.owner
-                .insert(Box::new(Message(self.replies.borrow_mut().pop_front()))),
-        )
+        let next = self.replies.borrow_mut().pop_front();
+        let pending = next
+            .as_ref()
+            .and_then(|value| value.get("__eval_pending"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let messages = if pending {
+            VecDeque::new()
+        } else if let Some(values) = next
+            .as_ref()
+            .and_then(|value| value.get("__eval_messages"))
+            .and_then(serde_json::Value::as_array)
+        {
+            values.clone().into()
+        } else {
+            next.into_iter().collect()
+        };
+        Eval::new(self.owner.insert(Box::new(Message {
+            values: messages,
+            pending,
+            sent: self.sent.clone(),
+        })))
     }
 }
 #[derive(Clone)]
@@ -61,6 +90,7 @@ pub(crate) enum Screen {
     Product(domain::dto::PublicCatalogueResponse, String),
     Cart(domain::dto::PublicCatalogueResponse, String),
     Provider(domain::dto::PublicCatalogueResponse),
+    Checkout(Cart, Option<domain::dto::ConventionQuote>),
 }
 #[derive(Clone)]
 pub(crate) struct Harness {
@@ -104,6 +134,10 @@ fn Content() -> Element {
         }
         Screen::Provider(catalogue) => {
             rsx! {crate::cart::CartProvider {catalogue,view:ConventionView::Catalogue}}
+        }
+        Screen::Checkout(snapshot, quote) => {
+            let busy = use_signal(|| false);
+            rsx! {crate::checkout::CheckoutControls {slug:"fair-a", snapshot, quote, busy}}
         }
         Screen::Route(_) => unreachable!(),
     }

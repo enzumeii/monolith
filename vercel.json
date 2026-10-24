@@ -38,7 +38,7 @@
           }
         },
         {
-          "src": "/user/((?!(?:api|v1|healthz|backoffice|user|assets)(?:/|$))(?=[^/]{1,63}(?:/|$))[a-z0-9]+(?:-[a-z0-9]+)*(?:/products/[1-9][0-9]*|/cart/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)",
+          "src": "/user/((?!(?:api|v1|healthz|backoffice|user|assets)(?:/|$))(?=[^/]{1,63}(?:/|$))[a-z0-9]+(?:-[a-z0-9]+)*(?:/(?:products/[1-9][0-9]*|cart/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|checkout/(?:return|cancel)))?)",
           "status": 308,
           "headers": {
             "Location": "/$1"
@@ -56,7 +56,7 @@
           "dest": "/index.html"
         },
         {
-          "src": "/(?!(?:api|v1|healthz|backoffice|user|assets)(?:/|$))(?=[^/]{1,63}(?:/|$))[a-z0-9]+(?:-[a-z0-9]+)*(?:/products/[1-9][0-9]*|/cart/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?",
+          "src": "/(?!(?:api|v1|healthz|backoffice|user|assets)(?:/|$))(?=[^/]{1,63}(?:/|$))[a-z0-9]+(?:-[a-z0-9]+)*(?:/(?:products/[1-9][0-9]*|cart/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|checkout/(?:return|cancel)))?",
           "dest": "/index.html"
         }
       ],

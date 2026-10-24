@@ -21,7 +21,10 @@ pub async fn verify_payment(
     let currency = expected.currency.to_ascii_lowercase();
     validate_session(&session, expected, &currency)?;
     match (&session.status, &session.payment_status) {
-        (CheckoutStatus::Open | CheckoutStatus::Complete, CheckoutPaymentStatus::Unpaid) => {
+        (CheckoutStatus::Open, CheckoutPaymentStatus::Unpaid) => {
+            return Ok(PaymentOutcome::RequiresAction);
+        }
+        (CheckoutStatus::Complete, CheckoutPaymentStatus::Unpaid) => {
             return Ok(PaymentOutcome::Pending);
         }
         (CheckoutStatus::Expired, CheckoutPaymentStatus::Unpaid) => {

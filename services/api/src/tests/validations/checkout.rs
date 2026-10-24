@@ -152,3 +152,21 @@ fn webhook_shape_checks_preserve_mixed_authentication_and_configuration_order() 
         "Missing or invalid webhook authentication header"
     );
 }
+
+#[test]
+fn checkout_accepts_public_variant_gid_and_rejects_malformed_or_other_resource_ids() {
+    let mut input = request();
+    input.items[0].variant_id = "gid://shopify/ProductVariant/2".into();
+    assert!(create(&input).is_ok());
+    for invalid in [
+        "gid://shopify/Product/2",
+        "gid://shopify/ProductVariant/0",
+        "gid://shopify/ProductVariant/02",
+        "gid://shopify/ProductVariant/-2",
+        "gid://shopify/ProductVariant/2?foo=bar",
+        "not-a-variant",
+    ] {
+        input.items[0].variant_id = invalid.into();
+        assert!(create(&input).is_err(), "{invalid}");
+    }
+}

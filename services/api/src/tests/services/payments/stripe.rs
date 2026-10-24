@@ -166,6 +166,8 @@ async fn pending_and_expired_unpaid_do_not_require_intent_or_charge() {
             .unwrap();
         let want = if expired {
             PaymentOutcome::ExpiredUnpaid
+        } else if status == "open" {
+            PaymentOutcome::RequiresAction
         } else {
             PaymentOutcome::Pending
         };
@@ -359,4 +361,23 @@ async fn provider_timeout_keeps_transport_source_and_origin_for_safe_http_mappin
         serde_json::from_slice::<Value>(&body).unwrap(),
         json!({"error":"Upstream request failed"})
     );
+}
+
+#[tokio::test]
+async fn open_and_completed_unpaid_sessions_have_distinct_advancement_outcomes() {
+    let mut outcomes = Vec::new();
+    for status in ["open", "complete"] {
+        let mut replies = objects();
+        replies[1]["status"] = json!(status);
+        replies[1]["payment_status"] = json!("unpaid");
+        replies[1]["payment_intent"] = Value::Null;
+        replies[1]["url"] = Value::Null;
+        let fixture = Fixture::new(replies.into_iter().map(Reply::json).collect()).await;
+        outcomes.push(
+            verify_payment(&client(&fixture), &expected())
+                .await
+                .unwrap(),
+        );
+    }
+    assert_ne!(outcomes[0], outcomes[1]);
 }

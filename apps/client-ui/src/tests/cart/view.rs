@@ -94,7 +94,12 @@ mod mounted {
                 click(&mut dom, "aria-label", "Remove Shirt / Blue / Large");
                 assert!(dioxus_ssr::render(&dom).contains("Your cart is empty"));
                 until(&mut dom, "USD 0.00").await;
-                assert!(!dioxus_ssr::render(&dom).contains("payment-button"));
+                assert_eq!(
+                    dioxus_ssr::render(&dom)
+                        .matches("checkout-payment-button")
+                        .count(),
+                    2
+                );
             },
         )
         .await;

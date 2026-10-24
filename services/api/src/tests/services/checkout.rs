@@ -240,3 +240,17 @@ fn reservation_deadline_response_is_stable_after_database_precision_roundtrip() 
         Some("2035-01-02T03:04:05.123456+00:00")
     );
 }
+
+#[test]
+fn uncertain_payment_requires_reconciliation_without_a_payment_action() {
+    let mut row = checkout();
+    row.payment_state = PaymentState::Uncertain;
+    assert_eq!(
+        response_status(&row, false),
+        CheckoutStatus::ReconciliationRequired
+    );
+    assert_eq!(
+        response_status(&row, true),
+        CheckoutStatus::ReconciliationRequired
+    );
+}

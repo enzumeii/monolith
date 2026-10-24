@@ -2,6 +2,7 @@ pub mod browser;
 mod model;
 mod view;
 
+pub(crate) use model::valid_checkout_id;
 pub use model::{Cart, reconciliation};
 pub use view::CartView;
 

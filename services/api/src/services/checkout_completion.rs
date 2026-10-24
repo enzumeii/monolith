@@ -75,7 +75,8 @@ where
                 .await
                 .map_err(|error| upstream(error))?
             {
-                stripe::payment::PaymentOutcome::Pending => {
+                stripe::payment::PaymentOutcome::RequiresAction
+                | stripe::payment::PaymentOutcome::Pending => {
                     return Ok(CompletionOutcome::Pending);
                 }
                 stripe::payment::PaymentOutcome::ExpiredUnpaid => {

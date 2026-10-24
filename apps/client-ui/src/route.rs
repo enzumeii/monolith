@@ -1,3 +1,4 @@
+use crate::checkout::{CheckoutCancelPage, CheckoutReturnPage};
 use crate::pages::{CartPage, CataloguePage, Directory, NotFound, PortalLayout, ProductPage};
 use dioxus::prelude::*;
 
@@ -12,6 +13,10 @@ pub enum Route {
     ProductPage { slug: String, product_id: String },
     #[route("/:slug/cart/:checkout_id")]
     CartPage { slug: String, checkout_id: String },
+    #[route("/:slug/checkout/return?:..query")]
+    CheckoutReturnPage { slug: String, query: String },
+    #[route("/:slug/checkout/cancel?:..query")]
+    CheckoutCancelPage { slug: String, query: String },
     #[route("/:..segments")]
     NotFound { segments: Vec<String> },
 }

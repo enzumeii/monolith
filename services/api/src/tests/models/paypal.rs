@@ -68,3 +68,23 @@ fn paypal_known_event_codes_round_trip() {
         assert_eq!(serde_json::to_value(event).unwrap(), json!(code));
     }
 }
+
+#[test]
+fn paypal_experience_omits_optional_shipping_and_encodes_pickup_policy() {
+    use crate::models::paypal::{ExperienceContext, ShippingPreference};
+    let mut context: ExperienceContext = serde_json::from_value(json!({
+        "return_url":"https://example.test/return", "cancel_url":"https://example.test/cancel"
+    }))
+    .unwrap();
+    assert!(
+        serde_json::to_value(&context)
+            .unwrap()
+            .get("shipping_preference")
+            .is_none()
+    );
+    context.shipping_preference = Some(ShippingPreference::NoShipping);
+    assert_eq!(
+        serde_json::to_value(&context).unwrap()["shipping_preference"],
+        "NO_SHIPPING"
+    );
+}

@@ -4,8 +4,8 @@ use crate::{
     client::{ClientError, ClientErrorKind, HttpClient},
     config::StripeConfig,
     models::stripe::{
-        Account, BalanceTransaction, Charge, CheckoutMode, CheckoutSession, CreateCheckoutSession,
-        PaymentIntent, Payout, Refund, StripePage,
+        Account, BalanceTransaction, Charge, CheckoutMode, CheckoutSession, CheckoutStatus,
+        CreateCheckoutSession, PaymentIntent, Payout, Refund, StripePage,
     },
 };
 use reqwest::{
@@ -189,7 +189,7 @@ impl StripeClient {
                     && url.username().is_empty()
                     && url.password().is_none()
             });
-        if !valid_url {
+        if !(valid_url || session.status == CheckoutStatus::Complete && session.url.is_none()) {
             return Err(ClientError::new(ClientErrorKind::Protocol(
                 "Checkout hosted URL is missing or invalid",
             )));
@@ -205,6 +205,10 @@ impl StripeClient {
     ) -> Result<T, ClientError> {
         let mut headers = self.headers.clone();
         headers.insert("idempotency-key", idempotency_header(key)?);
+        headers.insert(
+            "stripe-version",
+            HeaderValue::from_static("2026-08-26.dahlia"),
+        );
         self.http
             .request_form(Method::POST, url, headers, form)
             .await
