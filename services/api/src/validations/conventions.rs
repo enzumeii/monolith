@@ -74,8 +74,6 @@ pub(crate) fn create(value: CreateConvention) -> Result<ConventionInput, AppErro
     if let Some(url) = &value.logo_url {
         logo(url)?;
     }
-    crate::services::conventions::money::methods(&value.currency_code, &value.payment_methods)
-        .map_err(|_| invalid("Invalid currency or payment methods"))?;
     Ok(ConventionInput {
         slug: value.slug,
         name: super::cron::configs::validate_name(&value.name)?,
@@ -236,6 +234,28 @@ pub(crate) fn slug(v: &str) -> Result<(), AppError> {
     }
     Ok(())
 }
+pub(crate) fn logo_location(value: &str) -> Result<&'static str, AppError> {
+    let (directory, filename) = value
+        .rsplit_once('/')
+        .ok_or_else(|| invalid("Invalid logo_url"))?;
+    super::files::folder(directory)?;
+    let (id, extension) = filename
+        .rsplit_once('.')
+        .ok_or_else(|| invalid("Invalid logo_url"))?;
+    let asset: uuid::Uuid = id.parse().map_err(|_| invalid("Invalid logo_url"))?;
+    if asset.to_string() != id
+        || asset.get_version_num() != 4
+        || asset.get_variant() != uuid::Variant::RFC4122
+    {
+        return Err(invalid("Invalid logo_url"));
+    }
+    match extension {
+        "png" => Ok("image/png"),
+        "jpg" => Ok("image/jpeg"),
+        _ => Err(invalid("Invalid logo_url")),
+    }
+}
+
 fn date(v: &str) -> Result<NaiveDate, AppError> {
     let parsed = NaiveDate::parse_from_str(v, "%Y-%m-%d")
         .map_err(|_| invalid("Dates must use valid YYYY-MM-DD values"))?;
@@ -245,7 +265,7 @@ fn date(v: &str) -> Result<NaiveDate, AppError> {
     Ok(parsed)
 }
 fn logo(v: &str) -> Result<(), AppError> {
-    crate::services::conventions::logo::location(v, None).map(|_| ())
+    logo_location(v).map(|_| ())
 }
 fn field<T>(patch: PatchField<T>, current: T) -> Result<T, AppError> {
     match patch {

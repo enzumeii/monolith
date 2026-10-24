@@ -415,6 +415,39 @@ async fn logo_attachment_provider_failures_and_invalid_objects_preserve_database
     }
 }
 #[tokio::test]
+async fn create_rejects_invalid_payment_capabilities_before_resolving_s3() {
+    let f = fixture().await;
+    let unavailable = client_with_providers(ProviderConfig {
+        s3_disabled: true,
+        ..Default::default()
+    })
+    .await;
+    for (currency, methods) in [
+        ("ZZZ", json!(["stripe"])),
+        ("USD", json!(["promptpay"])),
+        ("THB", json!([])),
+        ("THB", json!(["stripe", "stripe"])),
+    ] {
+        let mut value = input(f.prefix());
+        value["currency_code"] = json!(currency);
+        value["payment_methods"] = methods;
+        let response = unavailable
+            .send(authed_json(
+                "POST",
+                URI,
+                f.root_id(),
+                AdminRole::Admin,
+                &value,
+            ))
+            .await
+            .unwrap();
+        crate::common::assert_report_error(response, 400, "Invalid currency or payment methods")
+            .await;
+    }
+    mutate(&unavailable, &f, "POST", URI, input(f.prefix()), 503).await;
+}
+
+#[tokio::test]
 async fn logo_requires_s3_and_attachment_database_failure_is_safe() {
     let f = fixture().await;
     let storage = crate::s3_fixture::Fixture::new().await;

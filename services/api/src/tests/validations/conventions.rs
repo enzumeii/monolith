@@ -65,3 +65,20 @@ fn patch_preserves_omitted_legacy_logos_and_validates_supplied_locations() {
     new_convention.logo_url = Some(legacy_url.into());
     assert!(create(new_convention).is_err());
 }
+
+#[test]
+fn logo_locations_are_canonical() {
+    let key = "conventions/fair/550e8400-e29b-41d4-a716-446655440000.png";
+    assert_eq!(logo_location(key).unwrap(), "image/png");
+    for bad in [
+        "reports/fair/a.png",
+        "conventions/fair/../a.png",
+        "conventions/fair/a.png",
+        "https://storage.test/a.png",
+        "conventions/fair/550e8400-e29b-41d4-a716-446655440000.svg",
+        "conventions/fair/550E8400-E29B-41D4-A716-446655440000.png",
+        "conventions/fair/550e8400-e29b-41d4-0716-446655440000.png",
+    ] {
+        assert!(logo_location(bad).is_err(), "{bad}");
+    }
+}

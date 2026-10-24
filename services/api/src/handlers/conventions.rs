@@ -39,7 +39,7 @@ pub async fn create(
     body: Result<Json<CreateConvention>, JsonRejection>,
 ) -> Result<(StatusCode, Json<ConventionDTO>), AppError> {
     validate::no_query(uri.query())?;
-    let input = validate::create(validate::body(body)?)?;
+    let input = service::prepare_create(validate::body(body)?)?;
     let s3 = super::dependencies::s3_client(&state)?;
     Ok((
         StatusCode::CREATED,

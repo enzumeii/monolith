@@ -16,7 +16,8 @@ use crate::{
 use axum::http::StatusCode;
 use domain::dto::{
     ConventionDTO, ConventionListResponse, ConventionPaymentMethod, ConventionVariantInput,
-    ConventionVariantListResponse, ConventionVariantsResponse, PatchConvention, PatchField,
+    ConventionVariantListResponse, ConventionVariantsResponse, CreateConvention, PatchConvention,
+    PatchField,
 };
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -82,6 +83,11 @@ pub(crate) async fn list(
 pub(crate) async fn get(pool: &PgPool, id: Uuid) -> Result<Convention, AppError> {
     repo::find(pool, id).await?.ok_or_else(missing)
 }
+pub(crate) fn prepare_create(value: CreateConvention) -> Result<ConventionInput, AppError> {
+    let input = validate::create(value)?;
+    methods(&input)?;
+    Ok(input)
+}
 pub(crate) async fn create(
     pool: &PgPool,
     s3: &S3Client,
@@ -132,6 +138,7 @@ pub(crate) async fn prepare_patch(
 ) -> Result<PreparedPatch, AppError> {
     let observed = get(pool, id).await?;
     let input = validate::merge(patch.clone(), &observed)?;
+    methods(&input)?;
     if let PatchField::Set(location) = &patch.logo_url {
         logo::attach(s3, location, &observed.slug).await?;
     }
@@ -165,6 +172,7 @@ pub(crate) async fn finish_patch(
         .await?
         .ok_or_else(missing)?;
     let input = validate::merge(prepared.patch.clone(), &current)?;
+    methods(&input)?;
     let selection = inputs(repo::variants(&mut *tx, prepared.id).await?);
     if matches!(prepared.patch.preorder_enabled, PatchField::Set(true)) {
         if !same_selection(&selection, &prepared.selection)
@@ -325,6 +333,10 @@ pub(crate) async fn delete(pool: &PgPool, id: Uuid) -> Result<(), AppError> {
     repo::delete(&mut tx, id).await?;
     tx.commit().await?;
     Ok(())
+}
+fn methods(input: &ConventionInput) -> Result<(), AppError> {
+    money::methods(&input.currency_code, &input.payment_methods)
+        .map_err(|_| validate::invalid("Invalid currency or payment methods"))
 }
 fn prices(
     items: &[ConventionVariantInput],

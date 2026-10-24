@@ -14,7 +14,9 @@ Read the root [AGENTS.md](../../../AGENTS.md), [architecture](../../../docs/arch
 | --- | --- |
 | Shared contracts | Domain dependencies and DTO consumers; persistence/claims stay API-owned |
 | Entry points | lib.rs declares/re-exports modules; main.rs owns startup and backoffice root components |
-| API layering | HTTP extraction in handlers; use cases/transactions in services; SQL in repositories |
+| API layering | HTTP extraction in handlers; use cases/transactions in services; SQL in repositories; apply [domain ownership](../monolith-domain-driven-design/SKILL.md) to connected helpers |
+| Request validation | Trace validator imports and calls, including indirect helpers: pure shape/parsing/content checks stay in validations; business services consume them and own eligibility/capability checks, including checks after merged updates |
+| Shared capabilities | Trace generic handlers and services into feature modules: a files upload uses the files service and injected S3 client, while convention-logo attachment/ownership stays convention-owned. Distinguish upload sequencing from SDK/network transport; preserve accepted namespaces during extraction |
 | Browser transport | Backoffice api.rs owns shared HTTP helpers; endpoint-owned api/ modules contain endpoint calls |
 | Auth middleware | cookies.rs owns transport/origin checks; token.rs owns bearer/JWT authentication and role checks; preserve explicit bearer precedence |
 | Refresh lifecycle | Independent login families, atomic consume/replacement, scoped logout, update/revocation transaction |

@@ -820,3 +820,18 @@ Convention services and projection now receive concrete S3 client references res
 | Bundle | Full backoffice just build passed, including WASM compilation, wasm-bindgen and asset bundling |
 | Static checks | Internal Postman lint passed41files with zero errors/warnings; changed JavaScript parsed in its async eval context, and scoped diff checks passed |
 | Unverified | No test suites, browser flows, real providers, database execution or current-head hosted CI completion were exercised |
+
+
+### PR #58 files and validator boundaries — 2026-10-24
+
+| Scope | Evidence and limits |
+| --- | --- |
+| Ownership | Generic upload orchestration moves to the files service; pure file/image/location validation has no service dependency. Convention services retain attachment ownership, preview projection and payment capability policy, including both PATCH merges |
+| API checks | API just check passed: 34 setup tests, dprint, Rust formatting and strict all-target/E2E Clippy |
+| API execution | Full API test recipe passed: 463 native tests and 200 real-TCP E2E tests, zero failures or ignored tests. New coverage preserves invalid payment capability errors before missing-S3 errors |
+| Bundle and examples | Full backoffice build passed; internal Postman lint passed 41 files with zero errors/warnings |
+| Agent guidance | Repository domain-driven-design and architecture-review skills clarify validators, shared upload orchestration, provider transport and convention attachment ownership. Structural/reference checks and fresh placement recognition passed; optional quick_validate.py could not run without PyYAML |
+| Review and isolation | Independent connected-code review found no outstanding code regression; its documentation scope correction was applied. Owned pr58-domain Compose containers, volume and network were removed |
+| Limits | No live providers, browser interaction or deployment exercised. Hosted CI is verified separately against the published commit; earlier verification sections remain bound to their historical source |
+
+Logs and review evidence are retained under ignored `.superpowers/pr58-domain-feedback/`.

@@ -11,7 +11,7 @@ pub fn router() -> Router<AppState> {
         .route(
             "/files",
             axum::routing::post(crate::handlers::files::upload).layer(
-                axum::extract::DefaultBodyLimit::max(crate::services::conventions::logo::MAX_BYTES),
+                axum::extract::DefaultBodyLimit::max(crate::validations::files::MAX_BYTES),
             ),
         )
         .nest("/conventions", conventions::router())

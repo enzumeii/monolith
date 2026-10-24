@@ -46,9 +46,10 @@ AppState constructs optional outbound clients once and shares their HTTP pools. 
 | `src/middleware/cookies.rs` | Cookie helpers, session transport, origin enforcement using BrowserConfig |
 | `src/middleware/token.rs` | JWT validation and role checks using the signing key and BrowserConfig |
 | `src/services/` / `src/repositories/` | Business use cases and transaction boundaries / SQL queries |
+| `services/files.rs` / `services/conventions/logo.rs` | Shared upload orchestration through the injected S3 client / Convention attachment ownership and signed preview projection; payment capability checks remain in the convention service |
 | `src/cron.rs` / `src/cron/` | Scheduler loop, dispatch, leases, technical retries, checkpoints and Blob publication; business report/configuration rules stay in services (see [scheduled reports](cron.md)) |
 | `src/models/` | Persistence/authentication models and API-owned Shopify contracts |
-| `src/validations/` / `src/utils/` | Input rules / Argon2 operations and native number parsing and multiplication |
+| `src/validations/` / `src/utils/` | Input rules; upload image/directory and convention logo location validators have no service dependencies / Argon2 operations and native number parsing and multiplication |
 | `src/error.rs` | Public and upstream error mapping, retained source diagnostics and centralized boundary logging |
 | `src/client.rs` | Generic HTTP/GraphQL request envelopes, decoding, failures, throttling backoff |
 | `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication and single-operation proxy methods / matching query documents |
