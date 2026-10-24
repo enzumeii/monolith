@@ -6,7 +6,7 @@ pub(crate) use model::valid_checkout_id;
 pub use model::{Cart, reconciliation};
 pub use view::CartView;
 
-use crate::pages::{ConventionContent, ConventionFrame};
+use crate::pages::{ConventionContent, ConventionFrame, ConventionView};
 use dioxus::prelude::*;
 use domain::dto::PublicCatalogueResponse;
 use std::collections::BTreeMap;
@@ -35,7 +35,7 @@ impl CartContext {
 }
 
 #[component]
-pub fn CartProvider(catalogue: PublicCatalogueResponse, checkout_id: Option<String>) -> Element {
+pub(crate) fn CartProvider(catalogue: PublicCatalogueResponse, view: ConventionView) -> Element {
     let convention_id = catalogue.convention.id.clone();
     let cache = use_context::<Signal<BTreeMap<String, browser::Restored>>>();
     let restored = use_resource(move || {
@@ -48,11 +48,7 @@ pub fn CartProvider(catalogue: PublicCatalogueResponse, checkout_id: Option<Stri
         }
     });
     let restored = restored.read().clone();
-    let back_to = checkout_id
-        .as_ref()
-        .map(|_| crate::route::Route::CataloguePage {
-            slug: catalogue.convention.slug.clone(),
-        });
+    let back_to = view.back_route(&catalogue.convention.slug);
     match restored {
         None => {
             rsx! { ConventionFrame { back_to, LoadingMessage { message: "Restoring your cart…" } } }
@@ -60,14 +56,14 @@ pub fn CartProvider(catalogue: PublicCatalogueResponse, checkout_id: Option<Stri
         Some(Err(message)) => {
             rsx! { ConventionFrame { back_to, ErrorMessage { message: Some(message) } } }
         }
-        Some(Ok(restored)) => rsx! { ReadyCart { catalogue, checkout_id, restored } },
+        Some(Ok(restored)) => rsx! { ReadyCart { catalogue, view, restored } },
     }
 }
 
 #[component]
 fn ReadyCart(
     catalogue: PublicCatalogueResponse,
-    checkout_id: Option<String>,
+    view: ConventionView,
     restored: browser::Restored,
 ) -> Element {
     let mut cache = use_context::<Signal<BTreeMap<String, browser::Restored>>>();
@@ -89,7 +85,7 @@ fn ReadyCart(
             }
         }
     });
-    rsx! { ConventionContent { catalogue, checkout_id, notice: notice.read().clone() } }
+    rsx! { ConventionContent { catalogue, view, notice: notice.read().clone() } }
 }
 
 #[cfg(test)]

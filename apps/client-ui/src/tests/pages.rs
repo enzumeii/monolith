@@ -87,6 +87,7 @@ impl Document for TestDocument {
 pub(crate) enum Screen {
     Route(String),
     Catalogue(domain::dto::PublicCatalogueResponse),
+    Product(domain::dto::PublicCatalogueResponse, String),
     Cart(domain::dto::PublicCatalogueResponse, String),
     Provider(domain::dto::PublicCatalogueResponse),
     Checkout(Cart, Option<domain::dto::ConventionQuote>),
@@ -125,11 +126,14 @@ fn root() -> Element {
 fn Content() -> Element {
     match use_context::<Harness>().screen {
         Screen::Catalogue(catalogue) => rsx! {catalogue::Catalogue {catalogue}},
+        Screen::Product(catalogue, product_id) => {
+            rsx! { ConventionContent { catalogue, view: ConventionView::Product { product_id }, notice: None } }
+        }
         Screen::Cart(catalogue, checkout_id) => {
             rsx! {crate::cart::CartView {catalogue,checkout_id}}
         }
         Screen::Provider(catalogue) => {
-            rsx! {crate::cart::CartProvider {catalogue,checkout_id:None}}
+            rsx! {crate::cart::CartProvider {catalogue,view:ConventionView::Catalogue}}
         }
         Screen::Checkout(snapshot, quote) => {
             let busy = use_signal(|| false);
@@ -228,7 +232,7 @@ async fn customer_routes_render_directory_resources_and_safe_convention_metadata
 }
 
 #[tokio::test]
-async fn catalogue_quantity_search_type_and_pagination_events_preserve_cart() {
+async fn catalogue_search_type_and_pagination_events_show_products() {
     let mut data = catalogue();
     data.products = (1..=26)
         .map(|n| {
@@ -246,7 +250,7 @@ async fn catalogue_quantity_search_type_and_pagination_events_preserve_cart() {
             p
         })
         .collect();
-    let (mut dom, captured) = mounted(
+    let (mut dom, _) = mounted(
         Screen::Catalogue(data),
         empty_cart(),
         TestDocument::new(vec![]),
@@ -265,38 +269,10 @@ async fn catalogue_quantity_search_type_and_pagination_events_preserve_cart() {
     assert!(dioxus_ssr::render(&dom).contains("13 products"));
     input(&mut dom, "product-search", "input", "Product 02");
     assert!(dioxus_ssr::render(&dom).contains("1 products"));
-    input(&mut dom, "quantity-2", "input", "bad");
-    click(
-        &mut dom,
-        "aria-label",
-        "Add Product 02 / Blue / Large to cart",
-    );
-    assert!(dioxus_ssr::render(&dom).contains("whole-number quantity"));
-    input(&mut dom, "quantity-2", "input", "2");
-    click(
-        &mut dom,
-        "aria-label",
-        "Add Product 02 / Blue / Large to cart",
-    );
-    dom.in_scope(ScopeId::ROOT, || {
-        assert_eq!(
-            captured
-                .get()
-                .expect("mounted cart context")
-                .cart
-                .peek()
-                .items[0]
-                .quantity,
-            2
-        );
-    });
-    input(&mut dom, "quantity-2", "input", "10");
-    click(
-        &mut dom,
-        "aria-label",
-        "Add Product 02 / Blue / Large to cart",
-    );
-    assert!(dioxus_ssr::render(&dom).contains("at most 10"));
+    let html = dioxus_ssr::render(&dom);
+    assert!(html.contains("View variants"));
+    assert!(!html.contains("Add to cart"));
+    assert!(!html.contains("quantity-"));
     input(&mut dom, "product-search", "input", "no match");
     assert!(dioxus_ssr::render(&dom).contains("No products match"));
 }
