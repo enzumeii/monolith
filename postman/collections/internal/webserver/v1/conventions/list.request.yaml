@@ -1,0 +1,12 @@
+$kind: http-request
+description: 'Anonymous customer endpoint; no bearer or browser session required. Native /v1 and hosted /api/v1 mounts are supported. Responses use Cache-Control: no-store. Disabled/missing conventions404; malformed requests400; unavailable provider503; unusable provider502; timeout504; database500 safe JSON. No stored S3 locations, costs, source prices, payment configuration or admin timestamps are exposed. Required browser-local today=YYYY-MM-DD; optional assigned locale_country, page>=1, per_page1..100. Valid x-vercel-ip-country wins; invalid/unknown metadata falls back to locale. Upcoming includes event_ends_on>=today. Country match then start date/slug/ID; fetch has_next pages. Returns200 {items,page,per_page,has_next,visitor_country}. Unknown query keys and GET bodies400.'
+url: "{{server}}/v1/conventions?today=2028-01-01&locale_country=TH&page=1&per_page=100"
+method: GET
+auth:
+  type: noauth
+queryParams:
+  today: "2028-01-01"
+  locale_country: TH
+  page: "1"
+  per_page: "100"
+order: 1000

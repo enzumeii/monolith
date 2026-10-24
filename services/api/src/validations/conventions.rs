@@ -256,7 +256,7 @@ pub(crate) fn logo_location(value: &str) -> Result<&'static str, AppError> {
     }
 }
 
-fn date(v: &str) -> Result<NaiveDate, AppError> {
+pub(crate) fn date(v: &str) -> Result<NaiveDate, AppError> {
     let parsed = NaiveDate::parse_from_str(v, "%Y-%m-%d")
         .map_err(|_| invalid("Dates must use valid YYYY-MM-DD values"))?;
     if parsed.format("%Y-%m-%d").to_string() != v || v.len() != 10 {

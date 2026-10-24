@@ -1,0 +1,32 @@
+query VariantNodes($ids: [ID!]!) {
+  nodes(ids: $ids) {
+    __typename
+    ... on ProductVariant {
+      id
+      title
+      sku
+      image {
+        url
+      }
+      selectedOptions {
+        name
+        value
+      }
+      inventoryPolicy
+      inventoryQuantity
+      inventoryItem {
+        tracked
+      }
+      product {
+        id
+        title
+        description
+        productType
+        featuredImage {
+          url
+        }
+        status
+      }
+    }
+  }
+}

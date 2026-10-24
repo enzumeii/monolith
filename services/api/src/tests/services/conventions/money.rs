@@ -79,3 +79,22 @@ fn currency_enum_preserves_existing_precision_and_provider_rules() {
     assert!(methods("THB", &[Promptpay]).is_ok());
     assert!(methods("AED", &[Paypal]).is_err());
 }
+
+#[test]
+fn quote_minor_units_format_zero_and_preserve_all_supported_precision_classes() {
+    for (code, input, units, canonical) in [
+        ("JPY", "12", 12, "12"),
+        ("THB", "12.99", 1299, "12.99"),
+        ("KWD", "1.234", 1234, "1.234"),
+        ("THB", "0001.2", 120, "1.20"),
+    ] {
+        assert_eq!(minor(input, code).unwrap(), units);
+        assert_eq!(amount(units, code).unwrap(), canonical);
+    }
+    assert_eq!(amount(0, "JPY").unwrap(), "0");
+    assert_eq!(amount(0, "THB").unwrap(), "0.00");
+    assert_eq!(amount(0, "KWD").unwrap(), "0.000");
+    assert!(amount(u64::MAX, "THB").is_err());
+    assert!(minor("92233720368547758.08", "THB").is_err());
+    assert!(amount(0, "XXX").is_err());
+}

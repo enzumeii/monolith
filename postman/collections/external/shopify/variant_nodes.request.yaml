@@ -1,0 +1,44 @@
+$kind: graphql-request
+description: 'Generic bounded read of 1..250 selected ProductVariant nodes in exact input order. Synthetic IDs must be replaced with store IDs. Null nodes mean deleted variants. Requires typed complete identities and a present nullable inventoryQuantity. Public services omit inactive/untracked selections before interpreting null stock; active tracked variants require an integer. No price or mutation fields. Missing/wrong/mismatched node data is an unusable upstream response. Used for public convention catalogue/quote; persisted convention membership and final prices remain authoritative.'
+url: "{{shopify}}/graphql.json"
+query: |
+  query VariantNodes($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      __typename
+      ... on ProductVariant {
+        id
+        title
+        sku
+        image {
+          url
+        }
+        selectedOptions {
+          name
+          value
+        }
+        inventoryPolicy
+        inventoryQuantity
+        inventoryItem {
+          tracked
+        }
+        product {
+          id
+          title
+          description
+          productType
+          featuredImage {
+            url
+          }
+          status
+        }
+      }
+    }
+  }
+variables: |-
+  {
+    "ids": ["gid://shopify/ProductVariant/2", "gid://shopify/ProductVariant/3"]
+  }
+settings: {}
+schema:
+  source: auto
+order: 2960

@@ -264,6 +264,30 @@ pub(crate) fn validate(
     Ok(canonical)
 }
 
+pub(crate) fn minor(value: &str, code: &str) -> Result<u64, InvalidMoney> {
+    canonical(value, code)?
+        .bytes()
+        .filter(|byte| *byte != b'.')
+        .try_fold(0_u64, |amount, byte| {
+            amount
+                .checked_mul(10)
+                .and_then(|amount| amount.checked_add(u64::from(byte - b'0')))
+                .ok_or(InvalidMoney)
+        })
+}
+
+pub(crate) fn amount(minor: u64, code: &str) -> Result<String, InvalidMoney> {
+    let precision = precision(code)?;
+    if minor > i64::MAX.cast_unsigned() {
+        return Err(InvalidMoney);
+    }
+    if precision == 0 {
+        return Ok(minor.to_string());
+    }
+    let scale = 10_u64.pow(u32::try_from(precision).map_err(|_| InvalidMoney)?);
+    Ok(format!("{}.{:0precision$}", minor / scale, minor % scale))
+}
+
 #[cfg(test)]
 #[path = "../../tests/services/conventions/money.rs"]
 mod tests;
