@@ -2,6 +2,6 @@
   "name": "monolith-client-ui-static",
   "private": true,
   "scripts": {
-    "build": "bash ../../../scripts/build-vercel-ui.sh client-ui user"
+    "build": "bash ../../../scripts/build-vercel-ui.sh client-ui root"
   }
 }
