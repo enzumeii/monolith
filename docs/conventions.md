@@ -30,7 +30,7 @@
 | Pending payment | Processing checks run at most 12 times, five seconds apart, then offer “Check status”. Missing/expired browser credentials or reconciliation-required state instruct the customer to keep their receipt and contact the shop before paying again |
 | Confirmation | Only verified `completed` displays congratulations and the actual Shopify `order.name`, such as `#1234`, verbatim. It asks the customer to check their confirmation email and show it at the convention. Shopify owns confirmation-email delivery |
 | Cart preservation | Cancelled, pending and failed attempts preserve the cart. Verified completion clears only the exact saved cart snapshot, preserving newer changes from another tab. Only authoritative unpaid status or a known initiation rejection permits another attempt |
-| Recovery follow-up | This checkout advances during create, customer verification and authenticated provider callbacks. ENZ-49 adds automatic recovery in a separate later change; no checkout recovery cron worker is included here |
+| Automatic recovery | Create, customer verification, authenticated callbacks and the checkout recovery worker share the same business advancement. VPS recovery runs independently of scheduled reports; Vercel uses the existing authenticated `/_cron` invocation. The worker retains the original payment identity, verifies current evidence and stops for operator review when safe continuation is unavailable. See [cron operations](cron.md#checkout-recovery) |
 
 Controlled tests do not establish actual wallet eligibility, live gateway acceptance, genuine webhook delivery or Shopify email delivery. Record verification results in [verification](verification.md).
 

@@ -1,4 +1,4 @@
-# Scheduled reports
+# Scheduled work
 
 ## Ownership and endpoints
 
@@ -10,7 +10,12 @@ flowchart TD
   H --> R["services/cron/report.rs"]
   TRIGGER["Vercel: daily authenticated GET /_cron"] --> VERCEL["VercelCron: bounded awaited tick"]
   VPS["VPS: periodic scheduler"] --> VPSCRON["VpsCron: normal tick"]
-  VERCEL --> W["Shared dispatch · leases · retries · executor"]
+  VERCEL --> REC["cron/checkout.rs<br/>bounded checkout recovery first"]
+  REC --> W["Report dispatch · leases · retries · executor"]
+  VPS --> REC
+  REC --> CHECKOUT["services/checkout.rs<br/>claimed business advancement"]
+  CHECKOUT --> CHECKOUTDB["repositories/checkout.rs<br/>checkouts · fenced persistence"]
+  CHECKOUT --> PAYMENTS["Shopify · Stripe · PayPal clients"]
   VPSCRON --> W
   W --> J["cron/job.rs<br/>claim · checkpoint · delivery"]
   W --> C
@@ -37,7 +42,7 @@ flowchart TD
 
 | Contract | Meaning |
 | --- | --- |
-| Invocation | Selected VPS or Vercel cron implementation shares one queue/executor. VPS polls every 10 seconds and retains hourly; Vercel has an authenticated daily UTC wake-up with 240-second budget and five-second retention reserve. Both evaluate stored Bangkok schedules. |
+| Invocation | Reports share their existing queue/executor across VPS and Vercel. VPS report polling is every 10 seconds; checkout recovery has an independent 60-second wake-up and auth retention runs hourly. Vercel uses one authenticated daily UTC wake-up with a 240-second budget and five-second retention reserve. Report schedules use Bangkok time; checkout eligibility uses UTC instants. |
 | Config parameter | Transaction recurrence policy, or decimal inventory location ID. |
 | Report parameters | Resolved Bangkok range, or inventory ID. Range text is converted to a half-open interval internally. |
 | Status | One PENDING/SUCCESS/FAILED value per job/audit. SUCCESS requires generation, email provider acceptance and publication. |
@@ -52,13 +57,88 @@ flowchart TD
 | Cron contract | Behavior |
 | --- | --- |
 | Configuration | One existing typed reader composes application.toml and the local/prod overlay with trusted metadata and secret overrides; local configuration can select either cron implementation, while production selects Vercel |
-| VPS lifecycle | Startup owns scheduler and independent retention task handles; shutdown stops and awaits both before closing the database |
-| Vercel lifecycle | No background loops; VercelCron awaits shared bounded invocation through Vercel-only `/_cron` |
-| Disabled scheduler | Skip report dispatch/drain; shared refresh-token retention continues |
+| VPS lifecycle | Startup owns independent report, checkout recovery and retention task handles. Graceful shutdown signals checkout cancellation, cancels its owned work and awaits all tasks before closing the database |
+| Vercel lifecycle | No background loops; Vercel-only `GET /_cron` awaits checkout recovery first, reports while work time remains, then refresh-token retention within its reserved time. Recovery workers are awaited before the response |
+| Disabled reports | `scheduler.enabled = false` skips report dispatch/drain. Checkout recovery still runs when `[checkout]` exists and `checkout_recovery.enabled = true`; refresh-token retention continues |
 | Settings | scheduler.implementation selects vps/vercel; poll_interval_secs, retention_interval_secs, invocation_budget_secs and retention_reserve_secs remain in the existing scheduler configuration; no extra application runtime/profile files |
 | Capacity | No new claims after deadline; owned async work is cancelled/joined. Partial provider acquisition is not resumable; repeated oversized jobs can exhaust attempts |
 
-## Database fields
+## Checkout recovery
+
+```mermaid
+flowchart TD
+  DUE["Oldest due checkout · initial 60-second grace"] --> CLAIM["Atomic SKIP LOCKED claim · renewable lease"]
+  CLAIM --> LIMIT{"Abandoned claim or failure cap?"}
+  LIMIT -->|"cap reached"| MANUAL["Manual review · no next due time"]
+  LIMIT -->|"abandoned"| BACKOFF["Count once · bounded backoff"]
+  LIMIT -->|"ready"| ADVANCE["Verify draft and payment evidence<br/>advance original attempt"]
+  ADVANCE -->|"pending or actionable"| OBSERVE["Reset failures · check after wake interval"]
+  ADVANCE -->|"transient read or uncertain result"| BACKOFF
+  ADVANCE -->|"conflicting evidence or unsafe mutation"| MANUAL
+  ADVANCE -->|"completed or terminal unpaid"| STOP["Clear recovery metadata · stop polling"]
+  BACKOFF --> DUE
+  OBSERVE --> DUE
+```
+
+| Concern | Contract |
+| --- | --- |
+| Ownership | `cron/checkout.rs` owns dispatch, deadlines, renewal, backoff and cancellation. The checkout service owns business advancement. The checkout repository owns SQL claims and persistence. Recovery uses existing `checkouts`; it creates no report job or separate payment queue |
+| Selection | Claim oldest `(next_recovery_at, id)` among due nonmanual, nonterminal rows with no live owner. `FOR UPDATE SKIP LOCKED` permits concurrent invocations without claiming the same row. New rows become due after 60 seconds |
+| Capacity | At most `batch_size` claim attempts per pass and `concurrency` active workers; no claims queued behind waiting tasks. The lane stops at the earlier of its own budget and the invocation work deadline |
+| Lease | Worker lease renews every third of `lease_secs`. Save, renewal, finish and release require the matching token and an unexpired lease checked after acquiring the row lock. Loss cancels business work. Already-transmitted writes remain uncertain and require reconciliation. Public create/verify/callback claims retain their ten-minute lease, so recovery can wait that long after a public request crashes |
+| Outcomes | A successful pending/actionable observation resets consecutive failures. Retry doubles from 60 seconds to at most 900 seconds. An abandoned expired claim counts once before backoff. Twelve consecutive failures stop automatic attempts by default; normal waiting does not consume this budget |
+| Manual state | Contradictory payment/order evidence, missing original purchase, ambiguous draft lookup, unsafe reservation or expired mutation window can require operator review. Read failures and missing completion readback retry within the failure budget. `recovery_manual` pauses the worker; it does not establish unpaid status |
+| Identity and mutation | Keep the original resource, key, return URLs and request fingerprint. Same-key gateway creation is bounded to 23 hours for Stripe and five hours for PayPal. PayPal capture requires approval, a safe hold and the original five-hour window. Never mint another payment key, reconstruct purchase details from hashes or repeat ambiguous Shopify completion |
+| Lost Shopify response | Recover a draft only through a unique exact-tag/evidence match. After an ambiguous completion, reconcile the linked draft/order without another completion mutation. Read known payment truth despite unsafe/expired holds; an already-linked paid Shopify order can reconcile after expiry |
+| Guest expiry | Internal recovery uses persisted trusted identity without a guest bearer or extending its lifetime. Public guest authentication remains unchanged. The worker does not create browser redirects or hydrate customer response details |
+| Terminal and later evidence | Completed or authoritative unpaid state clears retry/manual metadata and stops polling. Later authenticated advancement can supersede unpaid evidence; a save back to active state rearms recovery after 60 seconds with a fresh failure count |
+| Privacy | Recovery metadata contains due time, consecutive failure count, a safe typed code and a manual flag. Worker logs contain checkout UUID, provider, states and safe codes; no email, guest secrets, request/response payloads or raw provider errors |
+| HTTP outcome | `/_cron` returns 204 when work and retention finish, including a business retry/manual outcome saved durably. Checkout claim, persistence, lease or capacity failure returns safe 503 after the other invocation lanes and reserved retention are attempted. Existing report/retention errors retain their own mappings |
+| Deployment cadence | Checked-in Vercel Hobby cron remains daily. Frequent Vercel recovery requires an owner-configured authenticated external trigger of `/_cron`; this change does not configure that service or deploy it. VPS has its own configured wake interval |
+
+Non-sensitive values belong in the existing base `application.toml` and typed reader; secrets remain in the private environment.
+
+| `[checkout_recovery]` setting | Default | Valid range / behavior |
+| --- | --- | --- |
+| `enabled` | `true` | Effective only when `[checkout]` is configured; independent of `scheduler.enabled` |
+| `wake_secs` | `60` | 1–86400; VPS wake interval and delay after a successful observation |
+| `batch_size` | `10` | 1–100 claim attempts per pass |
+| `concurrency` | `2` | 1–32 and no greater than `batch_size` |
+| `budget_secs` | `60` | 1–240; also clamped by the shared invocation work deadline |
+| `lease_secs` | `90` | 1–86400; renewable worker ownership |
+| `retry_backoff_secs` | `60` | 1–86400; first retry delay |
+| `max_retry_backoff_secs` | `900` | At least `retry_backoff_secs`, at most 86400 |
+| `max_failures` | `12` | 1–100 consecutive failures; reaching the cap atomically marks manual review |
+
+Read-only inspection can identify due work and manual cases without reading purchase data or credentials:
+
+```sql
+SELECT id,
+       provider,
+       draft_state,
+       payment_state,
+       completion_state,
+       next_recovery_at,
+       recovery_failures,
+       recovery_code,
+       recovery_manual,
+       claim_expires_at
+FROM checkouts
+WHERE recovery_manual
+   OR next_recovery_at IS NOT NULL
+ORDER BY next_recovery_at NULLS FIRST, id;
+```
+
+| Operator observation | Next action |
+| --- | --- |
+| Due row has no live claim | Confirm the selected runtime, recovery enablement and recent authenticated trigger; inspect safe outcome codes |
+| `claim_abandoned` or transient failure | Check dependency availability and next due time; preserve the original checkout identity |
+| `attempts_exhausted`, evidence conflict or unsafe mutation | Compare authoritative provider and Shopify records for that checkout before a support decision; do not clear flags or replay a mutation blindly |
+| Customer has paid but browser credential expired | Recover through authenticated provider/Shopify evidence and support; never instruct another payment solely because public verification returns 401 |
+
+There is no automatic refund, operator reset endpoint or new administration UI. Verification results and actual provider-delivery limits belong in [verification](verification.md).
+
+## Report database fields
 
 ```mermaid
 erDiagram
