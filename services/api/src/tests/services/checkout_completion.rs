@@ -31,6 +31,7 @@ fn paid() -> Vec<Value> {
 }
 fn stripe_client(f: &Fixture) -> StripeClient {
     StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: f.url.join("/v1/").unwrap().to_string(),
         timeout_secs: 1,
         secret_key: Some("fixture".into()),

@@ -97,6 +97,7 @@ impl std::fmt::Debug for S3Config {
 #[derive(Deserialize, Clone)]
 pub struct StripeConfig {
     pub base_url: String,
+    pub checkout_api_version: String,
     pub timeout_secs: u64,
     pub secret_key: Option<String>,
 }
@@ -218,12 +219,15 @@ impl Settings {
         )
     }
 
-    fn load(mut builder: ConfigBuilder<DefaultState>, mode: &str) -> Result<Self, ConfigError> {
+    fn load(builder: ConfigBuilder<DefaultState>, mode: &str) -> Result<Self, ConfigError> {
         if !matches!(mode, "local" | "qa" | "prod") {
             return Err(ConfigError::Message(
                 "RUN_ENV must be local, qa or prod".into(),
             ));
         }
+        let file_settings = builder.build()?;
+        let checkout_configured = file_settings.get_table("checkout").is_ok();
+        let mut builder = Config::builder().add_source(file_settings);
         if mode == "prod" {
             builder = builder.set_override("browser.insecure_local", false)?;
         }
@@ -288,7 +292,8 @@ impl Settings {
             ("CHECKOUT_PAYPAL_WEBHOOK_ID", "paypal_webhook_id"),
             ("CHECKOUT_PAYPAL_MERCHANT_ID", "paypal_merchant_id"),
         ] {
-            if let Ok(value) = env::var(variable)
+            if checkout_configured
+                && let Ok(value) = env::var(variable)
                 && !value.is_empty()
             {
                 builder = builder.set_override(format!("checkout.{field}"), value)?;

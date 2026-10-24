@@ -193,6 +193,7 @@ async fn stripe_state_shares_client_and_preserves_optional_errors() {
     for key in [None, Some(""), Some("fixture")] {
         let mut s = settings(&json!(null));
         s.client.as_mut().unwrap().stripe = Some(crate::config::StripeConfig {
+            checkout_api_version: "2026-08-26.dahlia".into(),
             base_url: "https://api.stripe.com/v1/".into(),
             timeout_secs: 3,
             secret_key: key.map(str::to_owned),

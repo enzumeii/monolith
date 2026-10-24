@@ -4,3 +4,14 @@ implementation = "vercel"
 [browser]
 allowed_origins = ["https://convention.enzumeii.com", "https://enzumeii.vercel.app"]
 insecure_local = false
+
+[checkout]
+frontend_origin = "https://convention.enzumeii.com"
+return_path_template = "/{convention_slug}/checkout/return?checkout_id={checkout_id}"
+cancel_path_template = "/{convention_slug}/checkout/cancel?checkout_id={checkout_id}"
+shopify_location_id = "gid://shopify/Location/65761018027"
+reservation_secs = 3600
+guest_recovery_secs = 604800
+stripe_expected_account = "acct_1KGmtgFaTfIlKPqw"
+stripe_livemode = true
+paypal_api_origin = "https://api-m.paypal.com"

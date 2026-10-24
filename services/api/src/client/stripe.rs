@@ -19,6 +19,7 @@ pub struct StripeClient {
     http: HttpClient,
     base_url: Url,
     headers: HeaderMap,
+    checkout_api_version: HeaderValue,
 }
 
 impl StripeClient {
@@ -38,12 +39,24 @@ impl StripeClient {
         auth.set_sensitive(true);
         let base_url = Url::parse(&config.base_url)
             .map_err(|_| ClientError::new(ClientErrorKind::InvalidInput("invalid Stripe URL")))?;
+        if config.checkout_api_version.trim().is_empty() {
+            return Err(ClientError::new(ClientErrorKind::InvalidInput(
+                "Stripe checkout API version is missing",
+            )));
+        }
+        let checkout_api_version =
+            HeaderValue::from_str(&config.checkout_api_version).map_err(|_| {
+                ClientError::new(ClientErrorKind::InvalidInput(
+                    "invalid Stripe checkout API version",
+                ))
+            })?;
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, auth);
         Ok(Self {
             http: HttpClient::new(Duration::from_secs(config.timeout_secs))?,
             base_url,
             headers,
+            checkout_api_version,
         })
     }
 
@@ -205,10 +218,7 @@ impl StripeClient {
     ) -> Result<T, ClientError> {
         let mut headers = self.headers.clone();
         headers.insert("idempotency-key", idempotency_header(key)?);
-        headers.insert(
-            "stripe-version",
-            HeaderValue::from_static("2026-08-26.dahlia"),
-        );
+        headers.insert("stripe-version", self.checkout_api_version.clone());
         self.http
             .request_form(Method::POST, url, headers, form)
             .await

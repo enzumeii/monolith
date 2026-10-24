@@ -737,6 +737,7 @@ fn stripe_key_comes_from_central_configuration() {
     assert_eq!(stripe.secret_key.as_deref(), Some("sk_test_private"));
     assert_eq!(stripe.base_url, "https://api.stripe.com/v1/");
     assert_eq!(stripe.timeout_secs, 10);
+    assert_eq!(stripe.checkout_api_version, "2026-08-26.dahlia");
     assert!(!format!("{stripe:?}").contains("sk_test_private"));
 }
 
@@ -1200,6 +1201,7 @@ fn qa_startup_probe() {
     let stripe = client.stripe.unwrap();
     assert_eq!(stripe.base_url, "https://api.stripe.com/v1/");
     assert_eq!(stripe.timeout_secs, 10);
+    assert_eq!(stripe.checkout_api_version, "2026-08-26.dahlia");
     assert_eq!(stripe.secret_key, env::var("QA_EXPECTED_KEY").ok());
 }
 
@@ -1283,4 +1285,155 @@ fn ordinary_dotenv_selects_qa_with_inherited_precedence_and_required_overlay() {
     std::fs::remove_file(fixture.join("application.qa.toml")).unwrap();
     run("missing-overlay", Some("qa"), None, None);
     std::fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn checkout_overlays_are_complete_and_secrets_use_environment_overrides() {
+    for (mode, origin, livemode, paypal) in [
+        (
+            "qa",
+            "http://localhost:8085",
+            false,
+            "https://api-m.sandbox.paypal.com",
+        ),
+        (
+            "prod",
+            "https://convention.enzumeii.com",
+            true,
+            "https://api-m.paypal.com",
+        ),
+    ] {
+        let settings = temp_env::with_vars(
+            [
+                ("VERCEL_ENV", Some("production")),
+                (
+                    "CHECKOUT_STRIPE_WEBHOOK_SECRET",
+                    Some("synthetic-webhook-secret"),
+                ),
+                ("CHECKOUT_PAYPAL_WEBHOOK_ID", Some("synthetic-webhook-id")),
+                ("CHECKOUT_PAYPAL_MERCHANT_ID", Some("synthetic-merchant-id")),
+            ],
+            || {
+                Settings::load(
+                    settings_builder().add_source(File::with_name(&format!("application.{mode}"))),
+                    mode,
+                )
+            },
+        )
+        .unwrap();
+        let checkout = settings.checkout.unwrap();
+        assert_eq!(checkout.frontend_origin, origin);
+        assert_eq!(
+            checkout.shopify_location_id,
+            "gid://shopify/Location/65761018027"
+        );
+        assert_eq!(checkout.stripe_expected_account, "acct_1KGmtgFaTfIlKPqw");
+        assert_eq!(checkout.stripe_livemode, livemode);
+        assert_eq!(checkout.paypal_api_origin, paypal);
+        assert_eq!(checkout.reservation_secs, 3600);
+        assert_eq!(checkout.guest_recovery_secs, 604800);
+        assert_eq!(
+            checkout.return_path_template,
+            "/{convention_slug}/checkout/return?checkout_id={checkout_id}"
+        );
+        assert_eq!(
+            checkout.cancel_path_template,
+            "/{convention_slug}/checkout/cancel?checkout_id={checkout_id}"
+        );
+        assert_eq!(
+            checkout.stripe_webhook_secret.as_deref(),
+            Some("synthetic-webhook-secret")
+        );
+        assert_eq!(
+            checkout.paypal_webhook_id.as_deref(),
+            Some("synthetic-webhook-id")
+        );
+        assert_eq!(
+            checkout.paypal_merchant_id.as_deref(),
+            Some("synthetic-merchant-id")
+        );
+        assert!(!format!("{checkout:?}").contains("synthetic-"));
+        assert_eq!(
+            settings
+                .client
+                .unwrap()
+                .stripe
+                .unwrap()
+                .checkout_api_version,
+            "2026-08-26.dahlia"
+        );
+    }
+    assert!(
+        Settings::load(settings_builder(), "local")
+            .unwrap()
+            .checkout
+            .is_none()
+    );
+}
+
+#[test]
+fn stripe_checkout_version_is_required_file_configuration() {
+    let result = Config::builder()
+        .add_source(File::from_str(
+            "base_url = 'https://api.stripe.com/v1/'\ntimeout_secs = 10",
+            FileFormat::Toml,
+        ))
+        .build()
+        .unwrap()
+        .try_deserialize::<StripeConfig>();
+    assert!(result.is_err());
+}
+
+#[test]
+fn checkout_secrets_do_not_enable_absent_checkout_configuration() {
+    temp_env::with_vars(
+        [
+            ("VERCEL_ENV", None),
+            (
+                "CHECKOUT_STRIPE_WEBHOOK_SECRET",
+                Some("synthetic-webhook-secret"),
+            ),
+            ("CHECKOUT_PAYPAL_WEBHOOK_ID", Some("synthetic-webhook-id")),
+            ("CHECKOUT_PAYPAL_MERCHANT_ID", Some("synthetic-merchant-id")),
+        ],
+        || {
+            assert!(
+                Settings::load(settings_builder(), "local")
+                    .unwrap()
+                    .checkout
+                    .is_none()
+            );
+            let settings = Settings::load(
+                settings_builder().add_source(File::from_str(
+                    include_str!("../../application.qa.toml"),
+                    FileFormat::Toml,
+                )),
+                "local",
+            )
+            .unwrap();
+            let checkout = settings.checkout.unwrap();
+            assert_eq!(
+                checkout.stripe_webhook_secret.as_deref(),
+                Some("synthetic-webhook-secret")
+            );
+            assert_eq!(
+                checkout.paypal_webhook_id.as_deref(),
+                Some("synthetic-webhook-id")
+            );
+            assert_eq!(
+                checkout.paypal_merchant_id.as_deref(),
+                Some("synthetic-merchant-id")
+            );
+            assert!(
+                Settings::load(
+                    settings_builder().add_source(File::from_str(
+                        "[checkout]\nfrontend_origin = 'http://localhost:8085'",
+                        FileFormat::Toml,
+                    )),
+                    "local"
+                )
+                .is_err()
+            );
+        },
+    );
 }

@@ -679,7 +679,7 @@ fn write_api_configuration(
         .unwrap_or_default();
     let stripe = config
         .stripe_url
-        .map(|url| format!("\n[client.stripe]\nbase_url = {url:?}\ntimeout_secs = 3\nsecret_key = \"e2e-fixture-key\"\n"))
+        .map(|url| format!("\n[client.stripe]\ncheckout_api_version = \"2026-08-26.dahlia\"\nbase_url = {url:?}\ntimeout_secs = 3\nsecret_key = \"e2e-fixture-key\"\n"))
         .unwrap_or_default();
     let paypal = config
         .paypal_url

@@ -10,7 +10,6 @@ use crate::{
         paypal::{
             self, CreateOrderRequest, ExperienceContext, OrderIntent, OrderStatus, Payee,
             PaymentMoney, PaymentSource, PaypalPaymentSource, PurchaseUnitRequest,
-            ShippingPreference,
         },
         shopify::ShopifyId,
         stripe::{self, CheckoutMode, CreateCheckoutSession},
@@ -465,7 +464,7 @@ async fn initiate_paypal(
                         experience_context: ExperienceContext {
                             return_url: success,
                             cancel_url: cancel,
-                            shipping_preference: Some(ShippingPreference::NoShipping),
+                            shipping_preference: "NO_SHIPPING".into(),
                         },
                     },
                 }),

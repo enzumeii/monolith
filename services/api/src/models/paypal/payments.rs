@@ -51,16 +51,7 @@ pub struct PaypalPaymentSource {
 pub struct ExperienceContext {
     pub return_url: String,
     pub cancel_url: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub shipping_preference: Option<ShippingPreference>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum ShippingPreference {
-    GetFromFile,
-    NoShipping,
-    SetProvidedAddress,
+    pub shipping_preference: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -6,14 +6,14 @@ Run `../../init.sh` to install the CLI packages after installing Rust, Docker, a
 
 Optionally install [Bitwarden CLI](https://bitwarden.com/help/cli/) with `npm install -g @bitwarden/cli`, then run `bw login`. `just setup --local` reads same-named credential custom fields from item `87323839-368f-4288-a4a5-9b0320699892`; `just setup --qa` uses item `0a291e2c-4ae4-436d-8730-ddf301a544d7`; a locked vault prompts for your master password in your terminal. Keep passwords and session tokens in your terminal, never in chat or `.env`.
 
-Setup installs pinned dprint under `.tools/`, caches its plugins and writes the existing `.env` atomically with owner-only permissions. It sets `RUN_ENV` to the selected mode. Same-mode setup preserves nonempty values; switching modes replaces the imported credential allowlist from the selected item or defaults, while preserving database, S3, sender and unrelated values. The allowlist is `JWT_SECRET`, `CRON_SECRET`, `SHOPIFY_ACCESS_TOKEN`, `RESEND_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` and `STRIPE_SECRET_KEY`. Without Bitwarden CLI, the same preservation/switch policy uses generated signing/cron defaults and empty optional provider defaults. Vault failures leave `.env` unchanged. Keep real sender profiles and S3 credentials private.
+Setup installs pinned dprint under `.tools/`, caches its plugins and writes ignored `.env` atomically with owner-only permissions. It selects `RUN_ENV` and imports provider credentials plus the three `CHECKOUT_*` fields from the selected item. Same-mode setup preserves nonempty values; switching modes replaces imported fields. Without Bitwarden CLI, setup uses safe defaults; vault failures leave `.env` unchanged. See [configuration and imported fields](../../docs/development.md#configuration).
 
 ## Run locally
 
 - `just setup` or `just setup --local` installs formatter tooling and selects local credentials in `.env`.
 - `just setup --qa` selects QA credentials in the same `.env`.
 - `just run` reads `RUN_ENV` from the environment or `.env` and selects `application.local.toml` or the required `application.qa.toml`; absent `RUN_ENV` defaults to local. Exported variables take precedence over `.env`.
-- Local and QA start API at `localhost:3000`, local S3 at `localhost:3001` and allow browser origin `http://localhost:8084`. Stripe uses `https://api.stripe.com/v1/` in both modes; use the QA item's sandbox credential for test payments. See [sandbox exercise](../../docs/development.md#stripe-hosted-checkout). QA mode alone does not select a provider sandbox; the common PayPal URL remains production.
+- Local and QA start API at `localhost:3000`, local S3 at `localhost:3001` and allow backoffice `http://localhost:8084` and customer UI `http://localhost:8085`. QA enables checkout with Stripe test mode and PayPal Sandbox; matching credentials are required. See [checkout configuration](../../docs/development.md#checkout-configuration-values) and the [sandbox exercise](../../docs/development.md#stripe-hosted-checkout).
 - Edit the selected overlay's scheduler `implementation` (`vps` or `vercel`) to choose cron execution. `RUN_ENV=prod` reads `application.prod.toml`, which selects Vercel cron.
 
 ## Vercel cron timing

@@ -9,6 +9,7 @@ use crate::{
 use serde_json::json;
 fn client(f: &Fixture) -> StripeClient {
     StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: f.url.join("/v1/").unwrap().to_string(),
         timeout_secs: 1,
         secret_key: Some("sk_test_private".into()),
@@ -130,6 +131,7 @@ async fn failures_preserve_types_without_exposing_payloads() {
 #[test]
 fn validates_configuration_and_redacts_secret() {
     let mut cfg = StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: "https://api.stripe.com/v1/".into(),
         timeout_secs: 3,
         secret_key: Some("sk_test_private".into()),
@@ -156,10 +158,70 @@ fn validates_configuration_and_redacts_secret() {
     }
 }
 
+#[test]
+fn rejects_blank_and_invalid_checkout_version_headers() {
+    for version in [
+        "",
+        " ",
+        "\t",
+        "2026-08-26.dahlia\r\nx-injected: value",
+        "invalid\nvalue",
+        "invalid\0value",
+    ] {
+        let cfg = StripeConfig {
+            checkout_api_version: version.into(),
+            base_url: "https://api.stripe.com/v1/".into(),
+            timeout_secs: 1,
+            secret_key: Some("sk_test_private".into()),
+        };
+        let error = StripeClient::new(&cfg).err().unwrap();
+        assert!(matches!(
+            error.kind(),
+            crate::client::ClientErrorKind::InvalidInput(_)
+        ));
+    }
+}
+
+#[tokio::test]
+async fn configured_checkout_version_applies_to_creation_and_recovery_only() {
+    let mut request = checkout_request();
+    request.expires_at = Some(chrono::Utc::now().timestamp() + 3600);
+    let mut response = session_response();
+    response["expires_at"] = json!(request.expires_at);
+    let fixture = Fixture::new(vec![
+        Reply::json(response.clone()),
+        Reply::json(response),
+        Reply::json(json!({"id":"acct_fixture", "object":"account"})),
+        Reply::json(session_response()),
+        Reply::json(json!({"data":[],"has_more":false})),
+    ])
+    .await;
+    let c = StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-09-30.clover".into(),
+        base_url: fixture.url.join("/v1/").unwrap().to_string(),
+        timeout_secs: 1,
+        secret_key: Some("sk_test_private".into()),
+    })
+    .unwrap();
+    c.create_checkout_session(&request).await.unwrap();
+    c.recover_checkout_session(&request).await.unwrap();
+    c.get_account().await.unwrap();
+    c.get_checkout_session("cs_test_one").await.unwrap();
+    c.list_payouts(1, 2, None, 1, None).await.unwrap();
+    let requests = fixture.requests();
+    for request in &requests[..2] {
+        assert_eq!(request.1["stripe-version"], "2026-09-30.clover");
+    }
+    for request in &requests[2..] {
+        assert!(!request.1.contains_key("stripe-version"));
+    }
+}
+
 #[tokio::test]
 async fn stalled_stripe_connection_times_out() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let c = StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: format!("http://{}/v1/", listener.local_addr().unwrap()),
         timeout_secs: 1,
         secret_key: Some("fixture".into()),
@@ -222,6 +284,7 @@ async fn request_paths_preserve_base_with_or_without_trailing_slash() {
     for path in ["/v1", "/v1/"] {
         let fixture = Fixture::new(vec![Reply::json(json!({"data":[],"has_more":false})), Reply::json(json!({"id":"re_one","amount":1,"created":1,"currency":"usd","payment_intent":null,"reason":null}))]).await;
         let c = StripeClient::new(&StripeConfig {
+            checkout_api_version: "2026-08-26.dahlia".into(),
             base_url: fixture.url.join(path).unwrap().to_string(),
             timeout_secs: 1,
             secret_key: Some("fixture".into()),
@@ -416,6 +479,7 @@ async fn checkout_operations_reject_malformed_success_without_replay() {
 async fn checkout_mutation_timeouts_and_connection_failures_are_not_replayed() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let c = StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: format!("http://{}/v1/", listener.local_addr().unwrap()),
         timeout_secs: 1,
         secret_key: Some("fixture".into()),

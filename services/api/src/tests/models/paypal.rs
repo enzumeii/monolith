@@ -70,19 +70,19 @@ fn paypal_known_event_codes_round_trip() {
 }
 
 #[test]
-fn paypal_experience_omits_optional_shipping_and_encodes_pickup_policy() {
-    use crate::models::paypal::{ExperienceContext, ShippingPreference};
-    let mut context: ExperienceContext = serde_json::from_value(json!({
-        "return_url":"https://example.test/return", "cancel_url":"https://example.test/cancel"
-    }))
-    .unwrap();
+fn paypal_experience_requires_shipping_and_encodes_pickup_policy() {
+    use crate::models::paypal::ExperienceContext;
     assert!(
-        serde_json::to_value(&context)
-            .unwrap()
-            .get("shipping_preference")
-            .is_none()
+        serde_json::from_value::<ExperienceContext>(json!({
+            "return_url":"https://example.test/return", "cancel_url":"https://example.test/cancel"
+        }))
+        .is_err()
     );
-    context.shipping_preference = Some(ShippingPreference::NoShipping);
+    let context = ExperienceContext {
+        return_url: "https://example.test/return".into(),
+        cancel_url: "https://example.test/cancel".into(),
+        shipping_preference: "NO_SHIPPING".into(),
+    };
     assert_eq!(
         serde_json::to_value(&context).unwrap()["shipping_preference"],
         "NO_SHIPPING"

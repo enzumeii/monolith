@@ -32,6 +32,7 @@ fn objects() -> Vec<Value> {
 }
 fn client(fixture: &Fixture) -> StripeClient {
     StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: fixture.url.join("/v1/").unwrap().to_string(),
         timeout_secs: 1,
         secret_key: Some("sk_test_fixture".into()),
@@ -323,6 +324,7 @@ async fn invalid_trusted_expectations_fail_before_provider_calls() {
 async fn provider_timeout_keeps_transport_source_and_origin_for_safe_http_mapping() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let client = StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: format!("http://{}/v1/", listener.local_addr().unwrap()),
         timeout_secs: 1,
         secret_key: Some("sk_test_fixture".into()),

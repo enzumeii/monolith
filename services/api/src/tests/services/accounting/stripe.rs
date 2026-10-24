@@ -52,6 +52,7 @@ async fn card_payment_refunds_preserve_the_balance_payment_session_reference() {
     )])
     .await;
     let client = StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: fixture.url.to_string(),
         timeout_secs: 3,
         secret_key: Some("fixture-key".into()),
@@ -86,6 +87,7 @@ async fn unknown_stripe_balance_kind_is_skipped_without_fetching_its_source() {
     value["source"] = json!(null);
     let fixture = Fixture::new(vec![Reply::json(json!({"data":[value], "has_more":false}))]).await;
     let client = StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: fixture.url.to_string(),
         timeout_secs: 3,
         secret_key: Some("fixture-key".into()),

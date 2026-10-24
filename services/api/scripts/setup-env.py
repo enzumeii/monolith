@@ -17,6 +17,7 @@ ITEM_IDS = {'local': '87323839-368f-4288-a4a5-9b0320699892',
 KEYS = (
     'JWT_SECRET', 'CRON_SECRET', 'SHOPIFY_ACCESS_TOKEN', 'RESEND_API_KEY',
     'PAYPAL_CLIENT_ID', 'PAYPAL_CLIENT_SECRET', 'STRIPE_SECRET_KEY',
+    'CHECKOUT_STRIPE_WEBHOOK_SECRET', 'CHECKOUT_PAYPAL_WEBHOOK_ID', 'CHECKOUT_PAYPAL_MERCHANT_ID',
 )
 ASSIGNMENT = re.compile(r'^[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_.]*)[ \t]*=(.*)', re.S)
 EMPTY = re.compile(r'''^[ \t]*(?:""|'')?[ \t]*(?:#.*)?$''')
