@@ -10,6 +10,7 @@ use crate::{
 };
 use axum::response::IntoResponse;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
 fn expected() -> ExpectedPayment {
     ExpectedPayment {
@@ -47,13 +48,11 @@ async fn verifies_paid_from_authoritative_objects_and_returns_real_references() 
     assert_eq!(
         outcome,
         PaymentOutcome::VerifiedPaid(VerifiedPayment {
-            account_id: "acct_real".into(),
             session_id: "cs_test_real".into(),
             payment_intent_id: "pi_real".into(),
             charge_id: "ch_real".into(),
             amount: 1250,
             currency: "thb".into(),
-            livemode: false,
             refunded: false,
             amount_refunded: 0,
             disputed: false
@@ -142,7 +141,7 @@ async fn rejects_context_and_paid_object_mismatches_before_following_the_next_re
             error
                 .location()
                 .file()
-                .ends_with("client/stripe/payment.rs"),
+                .ends_with("services/payments/stripe.rs"),
             "object {index} field {field}: origin {}",
             error.location()
         );
@@ -166,13 +165,9 @@ async fn pending_and_expired_unpaid_do_not_require_intent_or_charge() {
             .await
             .unwrap();
         let want = if expired {
-            PaymentOutcome::ExpiredUnpaid {
-                session_id: "cs_test_real".into(),
-            }
+            PaymentOutcome::ExpiredUnpaid
         } else {
-            PaymentOutcome::Pending {
-                session_id: "cs_test_real".into(),
-            }
+            PaymentOutcome::Pending
         };
         assert_eq!(result, want);
         assert_eq!(fixture.requests().len(), 2);

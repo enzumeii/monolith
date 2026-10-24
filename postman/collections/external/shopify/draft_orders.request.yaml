@@ -1,0 +1,54 @@
+$kind: graphql-request
+description: "One Shopify draftOrders page filtered by caller-supplied query. Checkout recovery paginates all pages, then requires one exact checkout tag and accepted-evidence match; zero/multiple/incomplete results never authorize a new draft. Set after from pageInfo.endCursor until hasNextPage is false."
+url: "{{shopify}}/graphql.json"
+query: |
+  query DraftOrders($first: Int!, $after: String, $query: String) {
+    draftOrders(first: $first, after: $after, query: $query) {
+      nodes {
+        id
+        ready
+        status
+        tags
+        email
+        reserveInventoryUntil
+        lineItems(first: 100) {
+          nodes {
+            quantity
+            variant {
+              id
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+        order {
+          id
+        }
+        totalPriceSet {
+          presentmentMoney {
+            amount
+            currencyCode
+          }
+        }
+        paymentTerms {
+          id
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+variables: |
+  {
+    "first": 250,
+    "after": null,
+    "query": "tag:'checkout:00000000-0000-4000-8000-000000000001'"
+  }
+settings: {}
+schema:
+  source: auto
+order: 3650

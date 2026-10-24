@@ -1,0 +1,17 @@
+$kind: collection
+variables:
+  checkout_id: 00000000-0000-4000-8000-000000000048
+  checkout_convention_id: 00000000-0000-4000-8000-000000000001
+  checkout_variant_id: 00000000-0000-4000-8000-000000000002
+  checkout_provider: stripe
+  checkout_currency: USD
+  checkout_unit_price: "1000"
+  checkout_stripe_signature: ""
+  checkout_stripe_event_json: '{"id":"evt_synthetic","object":"event","type":"checkout.session.completed","livemode":false,"data":{"object":{"id":"cs_test_synthetic","object":"checkout.session","metadata":{"checkout_id":"00000000-0000-4000-8000-000000000048"}}}}'
+  checkout_paypal_event_json: '{"id":"WH-SYNTHETIC","event_type":"CHECKOUT.ORDER.APPROVED","resource":{"id":"ORDER-SYNTHETIC","custom_id":"00000000-0000-4000-8000-000000000048"}}'
+  checkout_paypal_auth_algo: SHA256withRSA
+  checkout_paypal_cert_url: https://api.paypal.com/v1/notifications/certs/SYNTHETIC
+  checkout_paypal_transmission_id: ""
+  checkout_paypal_transmission_sig: ""
+  checkout_paypal_transmission_time: ""
+order: 5000

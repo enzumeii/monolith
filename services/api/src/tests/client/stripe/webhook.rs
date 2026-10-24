@@ -1,4 +1,5 @@
 use super::*;
+use crate::models::stripe::webhook::EventType;
 
 const RAW: &[u8] = br#"{"id":"evt_test","type":"checkout.session.completed","livemode":false,"account":"acct_test","data":{"object":{"id":"cs_test","object":"checkout.session","payment_intent":"pi_test"}}}"#;
 // Independently generated with Python's standard-library HMAC-SHA256.
@@ -10,16 +11,10 @@ const NOW: i64 = 1_700_000_000;
 fn authenticates_independently_computed_signature() {
     let event =
         verify_event(RAW, &header(), SECRET, NOW, Duration::from_mins(5)).expect("valid event");
-    assert_eq!(event.id, "evt_test");
     assert_eq!(event.event_type, EventType::CheckoutSessionCompleted);
     assert!(!event.livemode);
     assert_eq!(event.account.as_deref(), Some("acct_test"));
-    assert_eq!(event.object.id, "cs_test");
-    assert_eq!(event.object.object_type, "checkout.session");
-    assert_eq!(
-        event.object.payment_intent.expect("reference").id(),
-        "pi_test"
-    );
+    assert_eq!(event.object_id, "cs_test");
 }
 
 #[test]
@@ -132,49 +127,6 @@ fn authentication_precedes_json_decoding() {
         ),
         Err(WebhookError::InvalidEvent)
     );
-}
-
-#[test]
-fn authenticated_incomplete_or_wrong_type_events_fail_closed() {
-    for payload in [
-        "{}",
-        r#"{"id":"evt_test","type":"checkout.session.completed","livemode":false,"data":{"object":{}}}"#,
-        r#"{"id":"","type":"checkout.session.completed","livemode":false,"data":{"object":{"id":"cs_x","object":"checkout.session"}}}"#,
-        r#"{"id":"evt_test","type":"","livemode":false,"data":{"object":{"id":"cs_x","object":"checkout.session"}}}"#,
-        r#"{"id":"evt_test","type":"checkout.session.completed","livemode":"false","data":{"object":{"id":"cs_x","object":"checkout.session"}}}"#,
-        r#"{"id":"evt_test","type":"checkout.session.completed","livemode":false,"data":{"object":{"id":"cs_x","object":"checkout.session","payment_intent":{}}}}"#,
-    ] {
-        assert_eq!(
-            verify_event(
-                payload.as_bytes(),
-                &sign(payload.as_bytes()),
-                SECRET,
-                NOW,
-                Duration::from_mins(5)
-            ),
-            Err(WebhookError::InvalidEvent)
-        );
-    }
-}
-
-#[test]
-fn preserves_unknown_event_identity_and_expanded_object_references() {
-    let payload = br#"{"id":"evt_future","type":"future.payment.signal","api_version":"2026-09-30.clover","livemode":true,"data":{"object":{"id":"obj_future","object":"future.object","payment_intent":{"id":"pi_expanded","object":"payment_intent"},"latest_charge":"ch_real"}}}"#;
-    let event = verify_event(payload, &sign(payload), SECRET, NOW, Duration::from_mins(5))
-        .expect("unknown event authenticates");
-    assert_eq!(
-        event.event_type,
-        EventType::Other("future.payment.signal".into())
-    );
-    assert_eq!(event.event_type.as_str(), "future.payment.signal");
-    assert_eq!(event.api_version.as_deref(), Some("2026-09-30.clover"));
-    assert_eq!(event.account, None);
-    assert!(event.livemode);
-    assert_eq!(
-        event.object.payment_intent.expect("expanded").id(),
-        "pi_expanded"
-    );
-    assert_eq!(event.object.latest_charge.expect("charge").id(), "ch_real");
 }
 
 #[test]

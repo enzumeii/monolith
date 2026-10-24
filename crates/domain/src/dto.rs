@@ -1,3 +1,4 @@
+pub mod checkout;
 pub mod files;
 pub use files::{UploadFileQuery, UploadedFileDTO};
 pub mod common;

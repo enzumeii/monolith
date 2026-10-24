@@ -703,3 +703,68 @@ async fn draft_creation_never_replays_graphql_or_invalid_payload_failures() {
         assert_eq!(f.requests().len(), 1);
     }
 }
+
+#[tokio::test]
+async fn draft_orders_reads_one_generic_page_with_full_purchase_evidence() {
+    let draft = json!({
+        "id":"gid://shopify/DraftOrder/42", "ready":true, "status":"OPEN", "order":null,
+        "tags":["checkout:test"], "email":"private@example.test", "paymentTerms":null,
+        "totalPriceSet":{"presentmentMoney":{"amount":"40.00","currencyCode":"SGD"}},
+        "reserveInventoryUntil":"2035-01-01T00:00:00Z",
+        "lineItems":{"nodes":[{"quantity":2,"variant":{"id":"gid://shopify/ProductVariant/7"}}],
+            "pageInfo":{"hasNextPage":false,"endCursor":null}}
+    });
+    let f = Fixture::new(vec![Reply::json(
+        json!({"data":{"draftOrders":page(vec![draft],Some("next"))}}),
+    )])
+    .await;
+    let result = client(&f)
+        .draft_orders(
+            PageRequest {
+                first: 250,
+                after: Some("previous".into()),
+            },
+            Some("tag:'checkout:test'"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.nodes[0].id.as_ref(), "gid://shopify/DraftOrder/42");
+    assert_eq!(
+        result.nodes[0].email.as_deref(),
+        Some("private@example.test")
+    );
+    assert_eq!(
+        result.nodes[0].line_items.as_ref().unwrap().nodes[0].quantity,
+        2
+    );
+    assert!(result.page_info.has_next_page);
+    let requests = f.requests();
+    assert_eq!(requests[0].2["operationName"], "DraftOrders");
+    assert_eq!(
+        requests[0].2["variables"],
+        json!({"first":250,"after":"previous","query":"tag:'checkout:test'"})
+    );
+}
+
+#[tokio::test]
+async fn draft_orders_rejects_incomplete_response_and_wrong_resource_identity() {
+    for value in [
+        json!({"data":{}}),
+        json!({"data":{"draftOrders":{"nodes":[],"pageInfo":{"hasNextPage":true}}}}),
+        json!({"data":{"draftOrders":page(vec![json!({"id":"gid://shopify/Order/42","ready":true,"status":"OPEN","order":null,"tags":[],"totalPriceSet":{"presentmentMoney":money()},"paymentTerms":null})],None)}}),
+    ] {
+        let f = Fixture::new(vec![Reply::json(value)]).await;
+        assert!(
+            client(&f)
+                .draft_orders(
+                    PageRequest {
+                        first: 250,
+                        after: None
+                    },
+                    None
+                )
+                .await
+                .is_err()
+        );
+    }
+}

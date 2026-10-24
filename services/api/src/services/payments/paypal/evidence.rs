@@ -1,4 +1,5 @@
-use super::{ExpectedPayment, money::exact_money};
+use super::ExpectedPayment;
+use crate::models::paypal::payment::exact_money;
 use crate::{
     client::{ClientError, ClientErrorKind},
     models::paypal::{Capture, Order, PaymentMoney},

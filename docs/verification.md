@@ -1,5 +1,96 @@
 # Verification
 
+## PR #66 service reviewability — integrated-main verification (2026-10-24)
+
+Approved plan version 2 integrates reviewed main `d677fc828e8fee810f79537895d170869e592a82` into pushed refactor `74c7784c464d661cd0a754283c2626857e3f15fa`. The ignored `complexity/base-refresh/source-freeze-tested.json` records 182 changed path states, unchanged through the complete recipe. Only this verification entry follows the run. Earlier verification sections retain their original source limits.
+
+| Check | Actual result |
+| --- | --- |
+| Integration | Six conflicts resolved: union checkout/files declarations, exact Shopify query-source parity, main Stripe fixtures plus checkout expiry, and preserved deletion of the unused expire request. Main validation/upload ownership and PR readability skill guidance retained |
+| Strict API | Exit 0: 34 setup-helper tests, dprint, Rust formatting, strict all-target and E2E Clippy. An extra invocation incorrectly requested a nonexistent integration feature and stopped before tests; corrected to the registered E2E target, exit 0 |
+| Full API recipe | Exit 0: 495 native tests (22.46s), 226 real-HTTP tests (820.71s), zero failed or ignored; real Compose PostgreSQL and controlled providers |
+| Domain and root | Domain formatting, strict Clippy, WASM check and tests pass (21 unit + 8 integration, zero failed/ignored). Root check passes all 111 tooling tests, workflow/shell lint and Vercel configuration checks. Initial root run lacked the pinned parser dependency; documented just setup installed it before the successful full rerun |
+| Independent integrated review | Both gateway paths and precise completion checkpoint traced from code. All 47 checked checkout-critical source/test paths match the refactor; 186 checked inherited UI/shared-UI/CI/scripts/Cargo/Compose paths match main. Original-draft readback and ReconcileOnly guard remain intact |
+| Skills | Fresh read-only focused scenarios on both merged skills cover pure formatting, uncertain capture, validation/upload boundaries, hidden helper decisions and avoiding cosmetic runtime layers. All pass; successful independent tracing is general, lost-response tracing applies to uncertain external effects. Earlier broader scenario results remain historical evidence |
+| Postman | Workspace lint: 87 entities, zero errors, one existing cron-preview FMT209 warning. Exact resolved Shopify query parity; no provider request execution |
+| Whitespace and cleanup | Diff versus reviewed main passes. Old-parent diff flags inherited Postman space-before-tab indentation; main content preserved. Owned enz48 containers/network and recorded PostgreSQL/S3 volumes removed; no shared data reset |
+| Evidence and limits | Ignored complexity/base-refresh/ retains approved plan, logs, hashes, independent review and cleanup audit. Bounded integration review does not replace full functional review of PR #58. No complete browser purchase, live provider mutation/callback/email, deployment or external exactly-once claim. Hosted new-source checks remain the delivery gate |
+
+## PR #66 service reviewability — local verification (2026-10-24)
+
+Results bind to approved service-reviewability plan version 1 atop `74b2bb83b1d3ea94d78b5047dde88233f4f32b5d`. The ignored `complexity/source-freeze-tested.json` records 40 changed/moved/deleted path states, unchanged through the full recipe. Subsequent documentation-only changes are this entry and conditional-scope refinements in the two skills; application code/test hashes remain identical. Focused skill scenarios and static checks were repeated after those refinements.
+
+| Check | Actual result |
+| --- | --- |
+| Strict API | Exit 0: 34 setup-helper tests, dprint, Rust formatting and strict all-target/E2E Clippy. Initial integration check stopped at model declaration formatting; corrected formatting and reran the complete recipe successfully |
+| Full API recipe | Exit 0: 478 native tests (22.37s) and 211 real-HTTP tests (799.93s), zero failed or ignored. Native database tests ran with owned Compose PostgreSQL ready |
+| Ownership | Payment contracts/value conversions moved to provider models; read-only payment decisions moved to services/payments. Webhook clients retain raw authentication/postback; notification services synchronously consume authenticated facts. Only checkout-specific dependency wrappers removed |
+| Preserved inputs and effects | Moved payment/money assertions retain behavior. Four additional native cases cover malformed/duplicate Stripe metadata, exact PayPal correlation fallback and typed PayPal notification selection. Full HTTP suite retains authentication/error order, irrelevant-event acknowledgment, ownership, precise money, stable keys/fingerprints, fenced writes and lost-response recovery |
+| Independent comprehension | A reviewer reconstructed Stripe, PayPal and lost draft/completion responses from code before reading the author plan/docs. Source-linked decisions, pre-effect checkpoints, original-resource lookup and no-blind-repeat guards are recorded in ignored complexity/independent-walkthrough.md. No introduced regression or unexplained helper hop found |
+| Skills | Only repository DDD and architecture-review skills changed. Five fresh baseline samples identified missing independent-comprehension acceptance. Five fresh samples per updated skill and separate deadline-pressure cases require code tracing rather than totals/file moves; pressure checks preserve callback timing and reject exactly-once claims from lease alone. One DDD sample lacked the optional old architecture control and was scored only for its loaded DDD guidance. Final conditional wording was tested with five fresh samples per skill plus pressure cases: external uncertain effects require recovery tracing; pure in-memory formatting does not. Frontmatter and all relative links pass direct checks |
+| Postman | Workspace lint: 84 entities, zero errors, one existing cron-preview FMT209 warning. Provider/internal HTTP contracts unchanged; no external collection executed |
+| Cleanup | Compose enz48, PostgreSQL15448/S315449, no dotenv discovery. Full recipe teardown plus independent audit confirms no owned containers/network/API processes; both recorded PostgreSQL/S3 volumes removed |
+| Evidence and limits | Ignored complexity/api-check-final.log, api-full.log, postman-lint.log, skill-tests.json, source hashes and cleanup-final.json retain results. Existing claim/recovery algorithm is unchanged: ten-minute token fencing protects database writes, not external exactly-once execution. No live provider payment/callback, merchant email, complete browser purchase or deployment claim. Hosted new-source checks are a separate delivery gate |
+
+## PR #66 verifier-output cleanup — local verification (2026-10-24)
+
+Results bind to approved review-plan version 4 atop `32f2685349b1c632cbf4e6e0ce601c8d6765e04e`. The ignored `source-freeze-v4-tested.json` records 18 changed source/test/documentation hashes, unchanged during the full recipe; this verification entry is the subsequent documentation addition.
+
+| Check | Actual result |
+| --- | --- |
+| Strict API | Exit 0: 34 setup-helper tests, dprint, Rust formatting and strict all-target/E2E Clippy |
+| Full API recipe | Exit 0: 474 native tests (22.91s) and 211 real-HTTP tests (802.83s), zero failed or ignored; native database tests ran against owned Compose PostgreSQL |
+| Verifier boundaries | Removed unused payment context copies, pending/unpaid ID payloads, redundant webhook outputs and event-ID forwarding ending in an ignored argument. All 27 functions in the six payment/webhook/evidence/money modules remain used; PayPal evidence/money modules are unchanged. The unused Shopify Nodes Default impl is removed |
+| Input regressions | Signed Stripe tests reject missing/malformed event IDs, non-string API versions and malformed nested references. PayPal tests reject invalid event IDs before postback and preserve capture/order contradiction checks. Expanded existing HTTP callback matrix rejects missing/malformed event IDs for both gateways and malformed Stripe API versions without advancement |
+| Preserved behavior | Full suite retains trusted account/environment/money/correlation checks, refund/dispute guards, raw authentication, callback/recovery/fenced-state behavior and separate payment/Shopify completion. Generic provider DTOs, protocol serialization and HTTP contracts remain intact |
+| Static review and Postman | Independent diff/consumer review finds no actionable regressions. Local workspace lint: 84 entities, zero errors and one existing cron-preview FMT209 warning. Initial top-level lint invocation was unsupported; corrected workspace lint exited 0. No provider collection was executed |
+| Isolation and cleanup | Compose enz48, PostgreSQL15448/S315449, no dotenv discovery. Full recipe tears down owned services; independent audit confirms recorded database/S3 volumes, network, containers and API processes are absent |
+| Evidence and limits | Ignored v4-api-check.log, v4-api-full.log, v4-postman-lint.log and v4-cleanup-final.json retain results. No live provider payment/callback, merchant email, browser purchase or deployment claim. New published-source CI remains a separate delivery check |
+
+## PR #66 checkout review comments — local verification (2026-10-24)
+
+Results bind to the approved review-plan version 2 and frozen source atop `239989608a418656437cbed0b08557a128f0be8a`. The ignored `.superpowers/review-comments/PR-66/source-freeze-full-tested.json` records all 33 changed implementation/test/documentation paths; hashes remained unchanged during the final full recipe. This verification entry is the only subsequent documentation addition.
+
+| Check | Actual result |
+| --- | --- |
+| Final API strict recipe | Exit 0: 34 setup-helper tests, dprint, Rust formatting and strict all-target/E2E Clippy |
+| Final full API recipe | Exit 0: 473 native tests (22.49s) and 211 real-HTTP tests (797.69s), zero failed or ignored. Native database tests ran with Compose PostgreSQL ready; the recipe completed owned teardown |
+| Focused checkout rerun | Exit 0: all 26 checkout TCP cases (106.68s), including Stripe/PayPal and post-mutation draft/payment ID-save failures. The subsequent full recipe includes all these cases |
+| Persistence and recovery | Fresh SQLx migrations create one checkout control/linkage table. Interruption-phase row assertions reject local email/items/purchase payloads and confirm removed item/event/rate tables. Draft recovery covers unique/zero/multiple/noisy/paginated/incomplete results, dependency failures, changed purchase evidence and required-tag subsets; ambiguous absence never creates another draft |
+| Payment and completion | Tests preserve exact money, ownership, price consent, last-unit contention, PayPal whole-unit currencies and six-digit response timestamp stability. Gateway retries compare the original key/body/frozen deadline; owned-row faults verify recovery after upstream creation but before ID persistence. Paid and uncertain Shopify completion remain separate; callbacks share fenced state and preserve raw authentication/irrelevant-event handling |
+| Initial failure and correction | First full run: 473 native passed; 205/210 TCP passed. Four failures shared a stale controlled draft-search page-size assertion (100 instead of 250); another retained the former 200 expectation for an invalid draft instead of the approved safe 409. Corrected fixtures/assertions without changing production code, then passed checkout and complete final recipes |
+| Postman/static review | Workspace lint: 84 entities, zero errors, one pre-existing cron-preview FMT209 warning. New DraftOrders query bytes and variable keys match the formatted source; exact-tag example uses the production quoting. Scoped whitespace checks and independent source review pass. No provider request collection was executed |
+| Journey artifact | Local journey HTML/Markdown updated for authoritative Shopify data, browser attempt credentials and the pre-draft recovery boundary. Desktop1440/mobile390 renders in light/dark have no page overflow; viewport screenshots inspected. These are documentation renders, not frontend purchase acceptance |
+| Isolation and cleanup | Compose `enz48`, PostgreSQL15448/S315449, synthetic credentials, no dotenv discovery. Final independent audit finds no owned containers, networks, volumes or API processes; both recorded database/S3 volume names are removed. The reused ENZ-48 checkout and unrelated work remain intact |
+| Evidence and limits | Ignored `api-check-final.log`, `checkout-final.log`, `api-full-final.log`, initial `api-full.log`, manifests and `cleanup-final.json` preserve actual results and source boundaries. No live Stripe/PayPal payment, merchant email delivery, production webhook registration, complete browser purchase or deployment was performed. Hosted results remain delivery-owned and must match the published source |
+
+## ENZ-48 durable guest checkout — local verification (2026-10-24)
+
+Final implementation source `08e98fec8a2bea2aca1ee4e59f798fc2590c2e9a` includes main `7a319c36f5b12b8e5def22b08743394947b1ceaf` and merged ENZ-35. The final checkout-only inventory-policy guard has separate regression evidence below; earlier full-suite results retain their original source boundary.
+
+| Check | Actual result |
+| --- | --- |
+| Full API regression before final dependency integration | Existing API `just test` passes 463 native and 204 real-TCP tests, zero failed/ignored; TCP phase 791.34s. This run precedes the final ENZ-35 catalogue revision and shared oversized-body error follow-up; it is not a claim that all 206 final TCP cases ran locally together |
+| Integrated strict/native checks | API check passes 34 setup-helper tests, dprint, Rust formatting and strict all-target/E2E Clippy. Integrated `5d5e473` passes 466 native API tests with Compose PostgreSQL ready, zero failed/ignored (22.60s). Strict API check is repeated successfully after the final checkout guard |
+| Integrated affected TCP modules | Ten catalogue cases pass (46.12s) and 25 convention cases pass (37.75s), zero failed/ignored. These modules are unchanged by the final checkout-only guard |
+| Final checkout TCP matrix | All 21 cases pass after the guard, zero failed/ignored (103.89s). Uses real API TCP, SQLx/PostgreSQL and controlled Shopify/Stripe/PayPal HTTP services; covers both gateways, request/authentication rules, exact money/reservation, early/duplicate callbacks, capture/completion faults, lost responses, restart/ownership, rate admission and last-unit contention |
+| Inventory integration regression | Initial integrated checkout run fails its existing CONTINUE-policy case because catalogue eligibility broadened. Checkout now explicitly requires DENY, tracking and sufficient available stock. The same unchanged regression passes in the final 21-case run; catalogue continues accepting both policies |
+| Recovery and body limits | Dedicated native regressions verify completion intent is saved immediately before the actual Shopify mutation and late Stripe idempotent recovery retains the original expiry. TCP regressions confirm unknown outcomes never blindly create replacements, paid state survives Shopify failures, and oversized create/verify/webhook requests return shared safe JSON errors |
+| Shared contracts | Domain check passes native strict lint and `wasm32-unknown-unknown` compilation; 18 unit and eight contract tests pass on the integrated DTOs. The final checkout-only guard does not change domain code |
+| Postman / scope | Final workspace lint scans 84 entities with zero errors and one existing cron-preview FMT209 warning. Checkout requests and provider projections are synchronized. No collection-wide provider mutations were executed. Diff against main contains only checkout-related changes; ENZ-35 source worktree and existing migration remain untouched |
+| Isolation / cleanup | Owned Compose project `enz48`, PostgreSQL port 15448 and S3 port 15449; temporary synthetic API configuration and controlled providers. EXIT teardown removes owned services, volume and network. Independent final Docker and API-process audits are empty |
+| Limits | No live charge, genuine merchant webhook delivery, native Shopify email, frontend purchase/recovery acceptance, production routing or deployment is established. Frontend pages/storage are a future consumer contract. Publication and hosted CI results are recorded separately from this local evidence |
+
+### Hosted timestamp-precision follow-up
+
+[CI run 39995173768](https://github.com/enzumeii/monolith/actions/runs/39995173768) tests source `f8a09ddbfe682ad878ffa431bc7e485ae27530bb` through synthetic merge `c062407fbc8bfc15ef246d0c10e82d2933b59977`; both have tree `2c4cdd525c0c36f8140c23f39872c8e1a8abcd4b`. Build succeeds and all 466 native tests pass, but TCP finishes 204 passed / two failed. Both failures expose nanosecond initial reservation timestamps versus microsecond PostgreSQL recovery timestamps on Linux; payment identities, amounts, status and redirect actions match.
+
+| Follow-up | Actual result |
+| --- | --- |
+| Deterministic regression | A forced `.123456789` deadline versus its PostgreSQL-precision roundtrip fails before repair, including on macOS. Checkout response serialization now uses the existing Chrono microsecond truncation mechanism; initial and recovered deadline strings agree. Existing TCP equality assertions remain unchanged |
+| Final local checks | API strict check passes 34 setup tests, dprint, Rust formatting and both strict Clippy targets. All 467 native API tests pass (22.79s). All 21 checkout TCP cases pass (103.63s), zero failed/ignored; both gateways and restart/retry regressions included |
+| Source / limits | Follow-up changes only checkout response timestamp formatting and its native regression. Domain, catalogue and convention source remain unchanged from their successful checks above. Owned Compose teardown succeeds. The failed hosted run is retained as failure evidence; a later passing run must be confirmed on the updated published source |
+
 ## ENZ-35 PR #57 latest-main integration — local verification (2026-10-23)
 
 The integrated source merges review fixes `fb08fff6e635bbc2b19af78f71485ff966ae64a6` with main `7bd6c2e050f7991e9f6eeeeb5127c2483d79eeba`. Three additive conflicts retain both Shopify client operation groups, convention catalogue documentation and complete verification histories. PayPal crate visibility and fail-closed currency handling remain intact. Independent review identified and cleared one semantic interaction: the expanded currency enum must not silently widen draft-completion payment support.

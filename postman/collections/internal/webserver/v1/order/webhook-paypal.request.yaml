@@ -1,0 +1,18 @@
+$kind: http-request
+description: "No admin/guest bearer or Origin. Replace checkout_paypal_event_json with the EXACT complete received PayPal event; set all five checkout_paypal_* transmission variables from that delivery. API supplies CHECKOUT_PAYPAL_WEBHOOK_ID and performs provider verification postback; PayPal Sandbox registration/credentials/merchant must match. Synthetic default cannot authenticate and is not runnable as a successful signed callback. Postman cannot fabricate a genuine PayPal signature. 200 {\"received\":true}; 400 invalid event/authentication; 413 payload above 262144 bytes; 503 missing config/association/busy/retry; 502/504 verification/provider failure. Authenticated replay deduplicates only after advancement; PayPal wallet approval alone remains unpaid until capture and authoritative verification."
+url: "{{server}}/v1/order/webhook/paypal"
+method: POST
+order: 4000
+auth:
+  type: noauth
+headers:
+  Content-Type: "application/json"
+  PAYPAL-AUTH-ALGO: "{{checkout_paypal_auth_algo}}"
+  PAYPAL-CERT-URL: "{{checkout_paypal_cert_url}}"
+  PAYPAL-TRANSMISSION-ID: "{{checkout_paypal_transmission_id}}"
+  PAYPAL-TRANSMISSION-SIG: "{{checkout_paypal_transmission_sig}}"
+  PAYPAL-TRANSMISSION-TIME: "{{checkout_paypal_transmission_time}}"
+body:
+  type: json
+  content: |-
+    {{checkout_paypal_event_json}}
