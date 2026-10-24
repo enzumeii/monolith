@@ -643,3 +643,107 @@ async fn linked_completed_order_never_calls_before_completion_hook() {
     .unwrap();
     assert_eq!(operations(&shop), ["CheckoutDraft", "CheckoutOrder"]);
 }
+
+#[test]
+fn payment_references_fit_shopify_tags_without_losing_kind_or_id_binding() {
+    let boundary = "s".repeat(17);
+    assert_eq!(
+        reference("stripe:session", &boundary).unwrap(),
+        format!("payment:stripe:session:{boundary}")
+    );
+    let session_id = format!("cs_test_{}", "s".repeat(90));
+    let tag = reference("stripe:session", &session_id).unwrap();
+    assert_eq!(tag, "payment:XvGzmVJpPMv7bbJ-aojDbsffsYUoKToE");
+    assert_eq!(tag.len(), 40);
+    assert_eq!(reference("stripe:session", &session_id).unwrap(), tag);
+    assert_ne!(reference("stripe:intent", &session_id).unwrap(), tag);
+    assert_ne!(
+        reference("stripe:session", &format!("{session_id}x")).unwrap(),
+        tag
+    );
+    assert!(validate_references(std::slice::from_ref(&tag), std::slice::from_ref(&tag)).is_ok());
+    assert!(
+        validate_references(
+            &[reference("stripe:intent", &session_id).unwrap()],
+            &[reference("stripe:session", &session_id).unwrap()],
+        )
+        .is_err()
+    );
+    for id in [
+        String::new(),
+        "bad id".into(),
+        "bad:id".into(),
+        "bad,id".into(),
+        "bad\nid".into(),
+        "s".repeat(234),
+    ] {
+        assert!(reference("stripe:session", &id).is_err());
+    }
+}
+
+#[tokio::test]
+async fn real_length_stripe_references_reconcile_completed_order_without_completing_again() {
+    let session_id = format!("cs_test_{}", "s".repeat(90));
+    let intent_id = format!("pi_{}", "i".repeat(24));
+    let charge_id = format!("ch_{}", "c".repeat(24));
+    let mut payment = paid();
+    payment[1]["id"] = json!(session_id);
+    payment[1]["payment_intent"] = json!(intent_id);
+    payment[2]["id"] = json!(intent_id);
+    payment[2]["latest_charge"] = json!(charge_id);
+    payment[3]["id"] = json!(charge_id);
+    payment[3]["payment_intent"] = json!(intent_id);
+    let expected_tags: Vec<String> = [
+        "payment:XvGzmVJpPMv7bbJ-aojDbsffsYUoKToE",
+        "payment:2-Ef_Z49_CRUW64jCSl5pQ6TW-Qr5vXs",
+        "payment:ooiDKpiL97rsciUSdw0YAQXYcjotae4X",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    let mut expected = expected();
+    expected.session_id = session_id;
+    for mode in [
+        CompletionMode::CompleteIfOpen,
+        CompletionMode::ReconcileOnly,
+    ] {
+        let provider = Fixture::new(payment.iter().cloned().map(Reply::json).collect()).await;
+        let shop = Fixture::new(
+            [
+                draft(true),
+                order(vec![]),
+                tagged(),
+                order(expected_tags.clone()),
+            ]
+            .into_iter()
+            .map(Reply::json)
+            .collect(),
+        )
+        .await;
+        let outcome = complete_paid_draft(
+            &client(&shop),
+            &id("DraftOrder", 1),
+            PaymentContext::Stripe {
+                client: &stripe_client(&provider),
+                expected: &expected,
+            },
+            mode,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(outcome, CompletionOutcome::Completed { .. }));
+        assert_eq!(
+            operations(&shop),
+            [
+                "CheckoutDraft",
+                "CheckoutOrder",
+                "EditOrderTags",
+                "CheckoutOrder"
+            ]
+        );
+        assert_eq!(
+            shop.requests()[2].2["variables"]["tags"],
+            json!(expected_tags)
+        );
+    }
+}

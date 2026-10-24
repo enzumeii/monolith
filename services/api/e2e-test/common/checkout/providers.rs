@@ -335,6 +335,22 @@ async fn reply(
             "userErrors":[{"field":["tags"],"message":"Tag is too long (maximum is 40 characters)"}]}}}))
         .into_response();
     }
+    if operation == "EditOrderTags"
+        && body["variables"]["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tag| tag.as_str().unwrap().chars().count() > 40)
+    {
+        let mutation = if body["variables"]["add"] == true {
+            "tagsAdd"
+        } else {
+            "tagsRemove"
+        };
+        return axum::Json(json!({"data":{mutation:{"node":null,
+            "userErrors":[{"field":["tags"],"message":"Tag is too long (maximum is 40 characters)"}]}}}))
+        .into_response();
+    }
     let gate = state
         .lock()
         .unwrap()

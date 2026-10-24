@@ -17,6 +17,8 @@ use crate::{
         stripe,
     },
 };
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use sha2::{Digest, Sha256};
 
 /// The caller owns authorization, durable payment-to-draft association and serialization.
 pub enum PaymentContext<'a> {
@@ -233,6 +235,10 @@ fn reference(kind: &str, id: &str) -> Result<String, AppError> {
         || tag.chars().count() > 255
     {
         return Err(conflict("Invalid payment reference tag"));
+    }
+    if tag.chars().count() > 40 {
+        let digest = Sha256::digest(tag.as_bytes());
+        return Ok(format!("payment:{}", URL_SAFE_NO_PAD.encode(&digest[..24])));
     }
     Ok(tag)
 }
