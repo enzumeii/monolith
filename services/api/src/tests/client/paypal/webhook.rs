@@ -4,6 +4,7 @@ use crate::client::{
     ClientErrorKind,
     tests::{Fixture, Reply},
 };
+use crate::{client::ClientError, models::paypal::WebhookEventType};
 use serde_json::{Value, json};
 
 fn request(event_type: &str, resource: Value) -> VerifyWebhookSignatureRequest {
@@ -46,6 +47,7 @@ async fn successful_postback_returns_only_notification_identity() {
         VerifiedEvent {
             event_type: WebhookEventType::CaptureCompleted,
             order_id: Some("ORDER123".into()),
+            checkout_reference: None,
         }
     );
     let requests = f.requests();

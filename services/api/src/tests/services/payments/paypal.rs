@@ -328,7 +328,7 @@ async fn invalid_trusted_expectations_never_contact_provider() {
             error
                 .location()
                 .file()
-                .ends_with("client/paypal/payment.rs")
+                .ends_with("services/payments/paypal.rs")
         );
         assert!(fixture.requests().is_empty(), "{field}");
     }
@@ -415,7 +415,7 @@ async fn contradictory_provider_evidence_has_a_safe_protocol_error_and_original_
             error
                 .location()
                 .file()
-                .ends_with("client/paypal/payment/evidence.rs")
+                .ends_with("services/payments/paypal/evidence.rs")
         );
         assert!(!format!("{error:?}").contains("untrusted-provider-value"));
         assert!(std::error::Error::source(&error).is_none());

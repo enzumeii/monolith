@@ -1,6 +1,5 @@
 use crate::{
     config::CheckoutSettings, error::AppError, models::paypal::VerifyWebhookSignatureRequest,
-    services::checkout::notification::StripeAuthentication,
 };
 use axum::{
     body::Bytes,
@@ -11,6 +10,12 @@ use domain::dto::checkout::CreateCheckoutRequest;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use uuid::Uuid;
+
+#[derive(Clone, Copy)]
+pub(crate) struct StripeAuthentication<'a> {
+    pub signature: &'a str,
+    pub secret: &'a str,
+}
 
 pub(crate) fn credential(headers: &HeaderMap) -> Result<Vec<u8>, AppError> {
     let raw = headers

@@ -1,38 +1,13 @@
 mod evidence;
-pub(crate) mod money;
 
 use crate::{
     client::{ClientError, ClientErrorKind, paypal::PaypalClient},
-    models::paypal::{CaptureStatus, OrderStatus},
+    models::paypal::{
+        CaptureStatus, OrderStatus,
+        payment::{ExpectedPayment, PaymentOutcome, VerifiedPayment, currency_scale},
+    },
 };
 use reqwest::Url;
-
-/// Expectations supplied by the trusted checkout owner, independently of provider evidence.
-#[derive(Debug)]
-pub struct ExpectedPayment {
-    pub order_id: String,
-    pub merchant_id: String,
-    pub api_origin: String,
-    pub reference_id: String,
-    pub custom_id: String,
-    pub amount: i64,
-    pub currency: String,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum PaymentOutcome {
-    Pending,
-    TerminalUnpaid,
-    VerifiedPaid(VerifiedPayment),
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct VerifiedPayment {
-    pub order_id: String,
-    pub capture_id: String,
-    pub amount: i64,
-    pub currency: String,
-}
 
 /// Retrieves current provider evidence without capturing or mutating a payment.
 /// Refunded, reversed and unknown capture states fail verification; this result
@@ -92,7 +67,7 @@ fn validate_expected(client: &PaypalClient, expected: &ExpectedPayment) -> Resul
         || !valid_correlation(&expected.reference_id)
         || !valid_correlation(&expected.custom_id)
         || expected.amount <= 0
-        || money::currency_scale(&expected.currency).is_none()
+        || currency_scale(&expected.currency).is_none()
         || origin.as_ref().is_none_or(|origin| {
             !matches!(origin.scheme(), "https" | "http")
                 || origin.host_str().is_none()
@@ -123,5 +98,5 @@ fn valid_correlation(value: &str) -> bool {
 }
 
 #[cfg(test)]
-#[path = "../../tests/client/paypal/payment.rs"]
+#[path = "../../tests/services/payments/paypal.rs"]
 mod tests;

@@ -1,4 +1,3 @@
-pub mod payment;
 pub mod webhook;
 
 use crate::{
@@ -264,10 +263,7 @@ impl StripeClient {
 }
 
 fn validate_id(id: &str) -> Result<(), ClientError> {
-    if id.is_empty()
-        || id.len() > 255
-        || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-    {
+    if !crate::models::stripe::valid_id(id) {
         return Err(ClientError::new(ClientErrorKind::InvalidInput(
             "invalid Stripe object ID",
         )));

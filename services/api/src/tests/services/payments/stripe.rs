@@ -10,6 +10,7 @@ use crate::{
 };
 use axum::response::IntoResponse;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
 fn expected() -> ExpectedPayment {
     ExpectedPayment {
@@ -140,7 +141,7 @@ async fn rejects_context_and_paid_object_mismatches_before_following_the_next_re
             error
                 .location()
                 .file()
-                .ends_with("client/stripe/payment.rs"),
+                .ends_with("services/payments/stripe.rs"),
             "object {index} field {field}: origin {}",
             error.location()
         );

@@ -1,5 +1,21 @@
 # Verification
 
+## PR #66 service reviewability — local verification (2026-10-24)
+
+Results bind to approved service-reviewability plan version 1 atop `74b2bb83b1d3ea94d78b5047dde88233f4f32b5d`. The ignored `complexity/source-freeze-tested.json` records 40 changed/moved/deleted path states, unchanged through the full recipe. Subsequent documentation-only changes are this entry and conditional-scope refinements in the two skills; application code/test hashes remain identical. Focused skill scenarios and static checks were repeated after those refinements.
+
+| Check | Actual result |
+| --- | --- |
+| Strict API | Exit 0: 34 setup-helper tests, dprint, Rust formatting and strict all-target/E2E Clippy. Initial integration check stopped at model declaration formatting; corrected formatting and reran the complete recipe successfully |
+| Full API recipe | Exit 0: 478 native tests (22.37s) and 211 real-HTTP tests (799.93s), zero failed or ignored. Native database tests ran with owned Compose PostgreSQL ready |
+| Ownership | Payment contracts/value conversions moved to provider models; read-only payment decisions moved to services/payments. Webhook clients retain raw authentication/postback; notification services synchronously consume authenticated facts. Only checkout-specific dependency wrappers removed |
+| Preserved inputs and effects | Moved payment/money assertions retain behavior. Four additional native cases cover malformed/duplicate Stripe metadata, exact PayPal correlation fallback and typed PayPal notification selection. Full HTTP suite retains authentication/error order, irrelevant-event acknowledgment, ownership, precise money, stable keys/fingerprints, fenced writes and lost-response recovery |
+| Independent comprehension | A reviewer reconstructed Stripe, PayPal and lost draft/completion responses from code before reading the author plan/docs. Source-linked decisions, pre-effect checkpoints, original-resource lookup and no-blind-repeat guards are recorded in ignored complexity/independent-walkthrough.md. No introduced regression or unexplained helper hop found |
+| Skills | Only repository DDD and architecture-review skills changed. Five fresh baseline samples identified missing independent-comprehension acceptance. Five fresh samples per updated skill and separate deadline-pressure cases require code tracing rather than totals/file moves; pressure checks preserve callback timing and reject exactly-once claims from lease alone. One DDD sample lacked the optional old architecture control and was scored only for its loaded DDD guidance. Final conditional wording was tested with five fresh samples per skill plus pressure cases: external uncertain effects require recovery tracing; pure in-memory formatting does not. Frontmatter and all relative links pass direct checks |
+| Postman | Workspace lint: 84 entities, zero errors, one existing cron-preview FMT209 warning. Provider/internal HTTP contracts unchanged; no external collection executed |
+| Cleanup | Compose enz48, PostgreSQL15448/S315449, no dotenv discovery. Full recipe teardown plus independent audit confirms no owned containers/network/API processes; both recorded PostgreSQL/S3 volumes removed |
+| Evidence and limits | Ignored complexity/api-check-final.log, api-full.log, postman-lint.log, skill-tests.json, source hashes and cleanup-final.json retain results. Existing claim/recovery algorithm is unchanged: ten-minute token fencing protects database writes, not external exactly-once execution. No live provider payment/callback, merchant email, complete browser purchase or deployment claim. Hosted new-source checks are a separate delivery gate |
+
 ## PR #66 verifier-output cleanup — local verification (2026-10-24)
 
 Results bind to approved review-plan version 4 atop `32f2685349b1c632cbf4e6e0ce601c8d6765e04e`. The ignored `source-freeze-v4-tested.json` records 18 changed source/test/documentation hashes, unchanged during the full recipe; this verification entry is the subsequent documentation addition.

@@ -14,6 +14,12 @@ Before placing new behavior, identify its owning capability and read the existin
 5. Reuse existing framework lifecycle and composition mechanisms. Do not add entities, aggregates, repositories, adapters or generic infrastructure solely to satisfy a DDD label. Add an abstraction only when an agreed requirement and actual consumers justify it.
 6. Before completion, trace imports and callers through the final diff. Verify each file still owns one cohesive responsibility, feature behavior has not leaked into routing or shared UI, and extraction preserves lifecycle and observable behavior. Record any necessary cross-boundary dependency or justified new module briefly in the existing plan or review notes; do not create another approval workflow.
 
+## Readable use cases
+
+Express the normal use case as ordered, named business steps. Keep the decisions, state transitions and external effects visible where the flow chooses them, including the durable checkpoint before an effect and the action after an uncertain response. Extract cohesive steps when their names and boundaries reduce the concepts a reader must hold at once. Judge clarity by the resulting flow; moving the same logic between files, adding forwarding wrappers or introducing generic layers alone does not make it easier to understand.
+
+Before completion, have an independent reader trace the successful path from the final code and locate its business decisions, state changes and external effects. For a use case that performs external effects whose outcomes can be uncertain, also require the reader to trace an uncertain-response path, identify its recovery action and explain the guard against an unsafe repeat. Use unclear steps or unexplained helper hops to guide simplification of the code; an author's walkthrough is supporting context, not evidence that the code is understandable.
+
 ## Layer responsibilities
 
 Apply these boundaries to every child module. Classify code by its behavior and dependencies, not by its filename or feature grouping.

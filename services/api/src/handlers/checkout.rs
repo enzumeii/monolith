@@ -1,5 +1,7 @@
 use crate::{
+    client::{paypal, stripe},
     error::AppError,
+    models::paypal::webhook::WebhookError as PaypalWebhookError,
     services::checkout::{self as service, notification},
     state::AppState,
     validations::checkout as validate,
@@ -11,10 +13,11 @@ use axum::{
         Path, State,
         rejection::{BytesRejection, JsonRejection},
     },
-    http::{HeaderMap, Uri},
+    http::{HeaderMap, StatusCode, Uri},
 };
 use domain::dto::checkout::{CheckoutProvider, CheckoutResponse, CreateCheckoutRequest};
 use serde_json::{Value, json};
+use std::time::Duration;
 
 pub(crate) async fn create(
     State(state): State<AppState>,
@@ -34,16 +37,27 @@ pub(crate) async fn create(
             super::dependencies::paypal_client(&state)?;
         }
     }
-    let clients = super::dependencies::checkout_clients(&state)?;
-    Ok(Json(
-        service::create(
-            &state.pool,
-            super::dependencies::checkout_settings(&state)?,
-            &clients,
-            &request,
-            &guest_hash,
+    let clients = service::CheckoutClients {
+        shopify: super::dependencies::shopify_client(&state)?,
+        stripe: state
+            .stripe
+            .as_ref()
+            .ok()
+            .and_then(|client| client.as_deref()),
+        paypal: state
+            .paypal
+            .as_ref()
+            .ok()
+            .and_then(|client| client.as_deref()),
+    };
+    let config = state.settings.checkout.as_ref().ok_or_else(|| {
+        AppError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Checkout configuration unavailable",
         )
-        .await?,
+    })?;
+    Ok(Json(
+        service::create(&state.pool, config, &clients, &request, &guest_hash).await?,
     ))
 }
 
@@ -63,15 +77,27 @@ pub(crate) async fn verify(
         ));
     }
     let id = validate::id(&checkout_id)?;
-    Ok(Json(
-        service::verify(
-            &state.pool,
-            super::dependencies::checkout_settings(&state)?,
-            &super::dependencies::checkout_clients(&state)?,
-            id,
-            &credential,
+    let config = state.settings.checkout.as_ref().ok_or_else(|| {
+        AppError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Checkout configuration unavailable",
         )
-        .await?,
+    })?;
+    let clients = service::CheckoutClients {
+        shopify: super::dependencies::shopify_client(&state)?,
+        stripe: state
+            .stripe
+            .as_ref()
+            .ok()
+            .and_then(|client| client.as_deref()),
+        paypal: state
+            .paypal
+            .as_ref()
+            .ok()
+            .and_then(|client| client.as_deref()),
+    };
+    Ok(Json(
+        service::verify(&state.pool, config, &clients, id, &credential).await?,
     ))
 }
 
@@ -84,26 +110,60 @@ pub(crate) async fn webhook(
 ) -> Result<Json<Value>, AppError> {
     validate::no_query(uri.query())?;
     let raw = validate::bytes(raw)?;
-    let config = super::dependencies::checkout_settings(&state)?;
+    let config = state.settings.checkout.as_ref().ok_or_else(|| {
+        AppError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Checkout configuration unavailable",
+        )
+    })?;
     let notification = match provider.as_str() {
-        "stripe" => notification::stripe(
-            config,
-            validate::stripe_authentication(config, &headers)?,
-            &raw,
-        )?,
+        "stripe" => {
+            let authentication = validate::stripe_authentication(config, &headers)?;
+            let event = stripe::webhook::verify_event(
+                &raw,
+                authentication.signature,
+                authentication.secret,
+                chrono::Utc::now().timestamp(),
+                Duration::from_secs(300),
+            )
+            .map_err(|_| validate::invalid("Invalid Stripe webhook authentication or event"))?;
+            notification::stripe(config, event)?
+        }
         "paypal" => {
             let request = validate::paypal_authentication(config, &headers, &raw)?;
-            notification::paypal(super::dependencies::paypal_client(&state)?, &request).await?
+            let event = paypal::webhook::verify_event(
+                super::dependencies::paypal_client(&state)?,
+                &request,
+            )
+            .await
+            .map_err(|error| match error {
+                PaypalWebhookError::Upstream(error) => crate::error::upstream(error),
+                _ => validate::invalid("Invalid PayPal webhook authentication or event"),
+            })?;
+            notification::paypal(event)
         }
         _ => return Err(validate::invalid("Unsupported webhook provider")),
     };
     let Some(notification) = notification else {
         return Ok(Json(json!({"received": true})));
     };
+    let clients = service::CheckoutClients {
+        shopify: super::dependencies::shopify_client(&state)?,
+        stripe: state
+            .stripe
+            .as_ref()
+            .ok()
+            .and_then(|client| client.as_deref()),
+        paypal: state
+            .paypal
+            .as_ref()
+            .ok()
+            .and_then(|client| client.as_deref()),
+    };
     service::webhook(
         &state.pool,
         config,
-        &super::dependencies::checkout_clients(&state)?,
+        &clients,
         notification.provider,
         notification.resource_id.as_deref(),
         notification.correlation_id,

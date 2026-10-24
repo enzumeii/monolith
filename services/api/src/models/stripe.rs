@@ -1,3 +1,5 @@
+pub mod payment;
+pub mod webhook;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -440,6 +442,14 @@ impl From<ChargeStatus> for String {
     fn from(value: ChargeStatus) -> Self {
         value.as_str().to_owned()
     }
+}
+
+pub(crate) fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 255
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 #[cfg(test)]

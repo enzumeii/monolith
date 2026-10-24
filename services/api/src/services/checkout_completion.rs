@@ -1,17 +1,20 @@
+use super::payments;
 use crate::{
     client::{
         ClientErrorKind,
-        paypal::{self, PaypalClient},
+        paypal::PaypalClient,
         shopify::{ShopifyClient, TagAction},
-        stripe::{self, StripeClient},
+        stripe::StripeClient,
     },
     error::{AppError, upstream},
     models::{
         checkout_completion::{ExactMoney, conflict, currency_precision},
+        paypal,
         shopify::{
             CompletionDraft, CompletionDraftStatus, CompletionFinancialStatus, CompletionOrder,
             Money, ShopifyId,
         },
+        stripe,
     },
 };
 
@@ -68,7 +71,7 @@ where
         .map_err(|error| upstream(error))?;
     let (money, references) = match payment {
         PaymentContext::Stripe { client, expected } => {
-            match stripe::payment::verify_payment(client, expected)
+            match payments::stripe::verify_payment(client, expected)
                 .await
                 .map_err(|error| upstream(error))?
             {
@@ -96,7 +99,7 @@ where
             }
         }
         PaymentContext::Paypal { client, expected } => {
-            match paypal::payment::verify_payment(client, expected)
+            match payments::paypal::verify_payment(client, expected)
                 .await
                 .map_err(|error| upstream(error))?
             {
@@ -206,7 +209,7 @@ fn exact_money(amount: i64, currency: &str) -> Result<ExactMoney, AppError> {
 }
 fn paypal_money(amount: i64, currency: &str) -> Result<ExactMoney, AppError> {
     let mut money = exact_money(amount, currency)?;
-    let provider_scale = paypal::payment::money::currency_scale(currency)
+    let provider_scale = paypal::payment::currency_scale(currency)
         .ok_or_else(|| conflict("Unsupported PayPal currency"))?;
     let provider_scale =
         u32::try_from(provider_scale).map_err(|_| conflict("Invalid PayPal currency precision"))?;

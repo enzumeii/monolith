@@ -1,21 +1,23 @@
 use super::{CheckoutClients, conflict, purchase, unavailable};
 use crate::{
-    client::{paypal, stripe},
-    error::upstream,
-    models::{
-        paypal::{
-            CreateOrderRequest, ExperienceContext, OrderIntent, OrderStatus, Payee, PaymentMoney,
-            PurchaseUnitRequest,
-        },
-        shopify::ShopifyId,
-        stripe::{CheckoutMode, CreateCheckoutSession},
-    },
-    services::checkout_completion::{self, CompletionMode, CompletionOutcome, PaymentContext},
-};
-use crate::{
     error::AppError,
     models::checkout::{Checkout, CompletionState, DraftState, PaymentState},
     repositories::checkout as repo,
+};
+use crate::{
+    error::upstream,
+    models::{
+        paypal::{
+            self, CreateOrderRequest, ExperienceContext, OrderIntent, OrderStatus, Payee,
+            PaymentMoney, PurchaseUnitRequest,
+        },
+        shopify::ShopifyId,
+        stripe::{self, CheckoutMode, CreateCheckoutSession},
+    },
+    services::{
+        checkout_completion::{self, CompletionMode, CompletionOutcome, PaymentContext},
+        payments,
+    },
 };
 use chrono::{Duration, Utc};
 use domain::dto::checkout::CheckoutMoney;
@@ -68,7 +70,7 @@ pub(super) async fn advance(
         checkout.gateway_request_fingerprint = Some(fingerprint);
         checkout.payment_state = PaymentState::Creating;
         repo::save(pool, checkout, token).await?;
-        initiate(clients, checkout, money, initiation).await?;
+        start_or_recover_payment(clients, checkout, money, initiation).await?;
         checkout.payment_state = PaymentState::RequiresAction;
         checkout.success_url = None;
         checkout.cancel_url = None;
@@ -76,9 +78,9 @@ pub(super) async fn advance(
         return Ok(());
     }
     if checkout.provider == "stripe" {
-        advance_stripe(pool, clients, checkout, money, token).await
+        reconcile_stripe_payment(pool, clients, checkout, money, token).await
     } else {
-        advance_paypal(pool, clients, checkout, money, token).await
+        reconcile_paypal_payment(pool, clients, checkout, money, token).await
     }
 }
 
@@ -102,7 +104,7 @@ pub(super) async fn bind_authenticated_resource(
             return Err(conflict("Stripe checkout resource is invalid"));
         }
         let client = clients.stripe.ok_or_else(unavailable)?;
-        stripe::payment::verify_payment(client, &stripe_expected(checkout, money)?)
+        payments::stripe::verify_payment(client, &stripe_expected(checkout, money)?)
             .await
             .map_err(|error| upstream(error))?;
         let session = client
@@ -112,7 +114,7 @@ pub(super) async fn bind_authenticated_resource(
         session.url.as_deref().map(redirect).transpose()?;
     } else {
         let client = clients.paypal.ok_or_else(unavailable)?;
-        paypal::payment::verify_payment(client, &paypal_expected(checkout, money)?)
+        payments::paypal::verify_payment(client, &paypal_expected(checkout, money)?)
             .await
             .map_err(|error| upstream(error))?;
         let order = client
@@ -134,7 +136,7 @@ pub(super) async fn bind_authenticated_resource(
 
 pub(super) fn paypal_amount(money: &CheckoutMoney) -> Result<String, AppError> {
     let minor = paypal_minor(money)?;
-    let precision = paypal::payment::money::currency_scale(&money.currency)
+    let precision = paypal::payment::currency_scale(&money.currency)
         .ok_or_else(|| conflict("Unsupported PayPal currency"))?;
     Ok(purchase::format_minor(
         minor,
@@ -178,7 +180,7 @@ pub(super) fn initiation_fingerprint(
     .to_vec())
 }
 
-async fn advance_stripe(
+async fn reconcile_stripe_payment(
     pool: &PgPool,
     clients: &CheckoutClients<'_>,
     checkout: &mut Checkout,
@@ -187,7 +189,7 @@ async fn advance_stripe(
 ) -> Result<(), AppError> {
     let client = clients.stripe.ok_or_else(unavailable)?;
     let expected = stripe_expected(checkout, money)?;
-    match stripe::payment::verify_payment(client, &expected)
+    match payments::stripe::verify_payment(client, &expected)
         .await
         .map_err(|error| upstream(error))?
     {
@@ -219,7 +221,7 @@ async fn advance_stripe(
     )
     .await
 }
-async fn advance_paypal(
+async fn reconcile_paypal_payment(
     pool: &PgPool,
     clients: &CheckoutClients<'_>,
     checkout: &mut Checkout,
@@ -228,7 +230,7 @@ async fn advance_paypal(
 ) -> Result<(), AppError> {
     let client = clients.paypal.ok_or_else(unavailable)?;
     let expected = paypal_expected(checkout, money)?;
-    let mut outcome = paypal::payment::verify_payment(client, &expected)
+    let mut outcome = payments::paypal::verify_payment(client, &expected)
         .await
         .map_err(|error| upstream(error))?;
     if matches!(outcome, paypal::payment::PaymentOutcome::Pending) {
@@ -254,7 +256,7 @@ async fn advance_paypal(
                 .capture_order(&expected.order_id, &format!("capture-{}", checkout.id))
                 .await
                 .map_err(|error| upstream(error))?;
-            outcome = paypal::payment::verify_payment(client, &expected)
+            outcome = payments::paypal::verify_payment(client, &expected)
                 .await
                 .map_err(|error| upstream(error))?;
         }
@@ -302,7 +304,7 @@ async fn pending(pool: &PgPool, checkout: &mut Checkout, token: Uuid) -> Result<
     Ok(())
 }
 
-async fn initiate(
+async fn start_or_recover_payment(
     clients: &CheckoutClients<'_>,
     checkout: &mut Checkout,
     money: &CheckoutMoney,
@@ -427,7 +429,7 @@ async fn initiate_paypal(
         amount: paypal_minor(money)?,
         currency: money.currency.clone(),
     };
-    paypal::payment::verify_payment(client, &expected)
+    payments::paypal::verify_payment(client, &expected)
         .await
         .map_err(|error| upstream(error))?;
     let link = order
@@ -606,7 +608,7 @@ fn paypal_expected(
 fn paypal_minor(money: &CheckoutMoney) -> Result<i64, AppError> {
     let currency = &money.currency;
     let canonical = purchase::exact(money.minor, currency)?.precision;
-    let provider = paypal::payment::money::currency_scale(currency)
+    let provider = paypal::payment::currency_scale(currency)
         .ok_or_else(|| conflict("Unsupported PayPal currency"))?;
     let places = usize::from(canonical)
         .checked_sub(provider)

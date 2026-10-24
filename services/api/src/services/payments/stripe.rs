@@ -1,43 +1,12 @@
 use crate::{
-    client::{
-        ClientError, ClientErrorKind,
-        stripe::{StripeClient, validate_id},
-    },
+    client::{ClientError, ClientErrorKind, stripe::StripeClient},
     models::stripe::{
-        ChargeStatus, CheckoutMode, CheckoutPaymentStatus, CheckoutStatus, PaymentIntentStatus,
-        StripeReference,
+        Account, Charge, ChargeStatus, CheckoutMode, CheckoutPaymentStatus, CheckoutSession,
+        CheckoutStatus, PaymentIntent, PaymentIntentStatus, StripeReference,
+        payment::{ExpectedPayment, PaymentOutcome, VerifiedPayment},
+        valid_id as valid_stripe_id,
     },
 };
-use std::collections::BTreeMap;
-
-#[derive(Debug)]
-pub struct ExpectedPayment {
-    pub session_id: String,
-    pub account_id: String,
-    pub livemode: bool,
-    pub amount: i64,
-    pub currency: String,
-    pub metadata: BTreeMap<String, String>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum PaymentOutcome {
-    Pending,
-    ExpiredUnpaid,
-    VerifiedPaid(VerifiedPayment),
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct VerifiedPayment {
-    pub session_id: String,
-    pub payment_intent_id: String,
-    pub charge_id: String,
-    pub amount: i64,
-    pub currency: String,
-    pub refunded: bool,
-    pub amount_refunded: i64,
-    pub disputed: bool,
-}
 
 /// Verifies the original successful payment. Refunds do not erase that success;
 /// callers must inspect refunds separately before deciding what remains payable.
@@ -47,21 +16,10 @@ pub async fn verify_payment(
 ) -> Result<PaymentOutcome, ClientError> {
     validate_expected(expected)?;
     let account = client.get_account().await?;
-    if account.id != expected.account_id || account.object != "account" {
-        return Err(verification_error());
-    }
+    validate_account(&account, expected)?;
     let session = client.get_checkout_session(&expected.session_id).await?;
     let currency = expected.currency.to_ascii_lowercase();
-    if session.id != expected.session_id
-        || session.object != "checkout.session"
-        || session.mode != CheckoutMode::Payment
-        || session.livemode != expected.livemode
-        || session.amount_total != Some(expected.amount)
-        || session.currency.as_deref() != Some(currency.as_str())
-        || session.metadata != expected.metadata
-    {
-        return Err(verification_error());
-    }
+    validate_session(&session, expected, &currency)?;
     match (&session.status, &session.payment_status) {
         (CheckoutStatus::Open | CheckoutStatus::Complete, CheckoutPaymentStatus::Unpaid) => {
             return Ok(PaymentOutcome::Pending);
@@ -79,17 +37,7 @@ pub async fn verify_payment(
         .filter(|id| valid_id(id, "pi_"))
         .ok_or_else(|| verification_error())?;
     let intent = client.get_payment_intent(intent_id).await?;
-    if intent.id != intent_id
-        || intent.object != "payment_intent"
-        || intent.status != PaymentIntentStatus::Succeeded
-        || intent.amount != expected.amount
-        || intent.amount_received != expected.amount
-        || intent.currency != currency
-        || intent.livemode != expected.livemode
-        || intent.metadata != expected.metadata
-    {
-        return Err(verification_error());
-    }
+    validate_intent(&intent, intent_id, expected, &currency)?;
     let charge_id = intent
         .latest_charge
         .as_ref()
@@ -97,19 +45,7 @@ pub async fn verify_payment(
         .filter(|id| valid_id(id, "ch_"))
         .ok_or_else(|| verification_error())?;
     let charge = client.get_charge(charge_id).await?;
-    if charge.id != charge_id
-        || charge.object.as_deref() != Some("charge")
-        || charge.status != Some(ChargeStatus::Succeeded)
-        || !charge.payment_status.paid
-        || !charge.payment_status.captured
-        || charge.payment_intent.as_deref() != Some(intent.id.as_str())
-        || charge.amount != Some(expected.amount)
-        || charge.amount_captured != expected.amount
-        || charge.currency != currency
-        || charge.livemode != Some(expected.livemode)
-    {
-        return Err(verification_error());
-    }
+    validate_charge(&charge, charge_id, &intent.id, expected, &currency)?;
     Ok(PaymentOutcome::VerifiedPaid(VerifiedPayment {
         session_id: session.id,
         payment_intent_id: intent.id,
@@ -148,8 +84,76 @@ fn validate_expected(expected: &ExpectedPayment) -> Result<(), ClientError> {
     Ok(())
 }
 
+fn validate_account(account: &Account, expected: &ExpectedPayment) -> Result<(), ClientError> {
+    if account.id != expected.account_id || account.object != "account" {
+        return Err(verification_error());
+    }
+    Ok(())
+}
+
+fn validate_session(
+    session: &CheckoutSession,
+    expected: &ExpectedPayment,
+    currency: &str,
+) -> Result<(), ClientError> {
+    if session.id != expected.session_id
+        || session.object != "checkout.session"
+        || session.mode != CheckoutMode::Payment
+        || session.livemode != expected.livemode
+        || session.amount_total != Some(expected.amount)
+        || session.currency.as_deref() != Some(currency)
+        || session.metadata != expected.metadata
+    {
+        return Err(verification_error());
+    }
+    Ok(())
+}
+
+fn validate_intent(
+    intent: &PaymentIntent,
+    intent_id: &str,
+    expected: &ExpectedPayment,
+    currency: &str,
+) -> Result<(), ClientError> {
+    if intent.id != intent_id
+        || intent.object != "payment_intent"
+        || intent.status != PaymentIntentStatus::Succeeded
+        || intent.amount != expected.amount
+        || intent.amount_received != expected.amount
+        || intent.currency != currency
+        || intent.livemode != expected.livemode
+        || intent.metadata != expected.metadata
+    {
+        return Err(verification_error());
+    }
+    Ok(())
+}
+
+fn validate_charge(
+    charge: &Charge,
+    charge_id: &str,
+    intent_id: &str,
+    expected: &ExpectedPayment,
+    currency: &str,
+) -> Result<(), ClientError> {
+    if charge.id != charge_id
+        || charge.object.as_deref() != Some("charge")
+        || charge.status != Some(ChargeStatus::Succeeded)
+        || !charge.payment_status.paid
+        || !charge.payment_status.captured
+        || charge.payment_intent.as_deref() != Some(intent_id)
+        || charge.amount != Some(expected.amount)
+        || charge.amount_captured != expected.amount
+        || charge.currency != currency
+        || charge.livemode != Some(expected.livemode)
+    {
+        return Err(verification_error());
+    }
+    Ok(())
+}
+
 fn valid_id(id: &str, prefix: &str) -> bool {
-    id.starts_with(prefix) && id.len() > prefix.len() && validate_id(id).is_ok()
+    id.starts_with(prefix) && id.len() > prefix.len() && valid_stripe_id(id)
 }
 
 #[track_caller]
@@ -158,5 +162,5 @@ fn verification_error() -> ClientError {
 }
 
 #[cfg(test)]
-#[path = "../../tests/client/stripe/payment.rs"]
+#[path = "../../tests/services/payments/stripe.rs"]
 mod tests;

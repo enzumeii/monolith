@@ -180,8 +180,8 @@ flowchart LR
 | Layer | Responsibility |
 | --- | --- |
 | Shared Stripe client | One pooled provider operation per call: create/retrieve hosted Checkout Session, retrieve PaymentIntent/current direct account, and existing Charge/accounting reads. Integer minor-unit money; mutation idempotency stays caller-owned |
-| `client::stripe::payment` | Compare authoritative current Session, PaymentIntent and Charge with trusted caller account/environment/money/correlation expectations; return explicit pending, expired/unpaid or verified paid outcome. No Shopify dependency |
-| `client::stripe::webhook` | Authenticate timestamp and exact signed bytes before typed decoding; validate event identity/version shape and object references; expose only event type, environment, account and resource ID without treating authentication as proof of paid |
+| Stripe payment models / `services::payments::stripe` | Compare authoritative current Session, PaymentIntent and Charge with trusted caller account/environment/money/correlation expectations; return explicit pending, expired/unpaid or verified paid outcome. No Shopify dependency |
+| `client::stripe::webhook` | Authenticate timestamp and exact signed bytes before model decoding. Provider webhook models own envelope/reference/event types and consumed correlation text; checkout notification services only apply account/environment and event-selection rules |
 | Consumer boundary | Trusted callers own return destinations, durable operation identities, refund policy, replay handling and stored business state. The provider layer has no persistence or Shopify effects; the durable guest checkout consumer owns its routes and state |
 
 [Stripe operations](development.md#stripe-hosted-checkout) describes privileged caller inputs, direct Postman requests and manual verification limits.
@@ -302,7 +302,7 @@ flowchart LR
 | Layer | Responsibility |
 | --- | --- |
 | Shared PayPal client | One provider operation per call: create/get/capture Orders v2, get capture and verify webhook signature. Reuse pooled HTTP, OAuth caching and bounded transport retry behavior; create/capture request IDs stay caller-owned |
-| `client::paypal::payment` | `verify_payment` compares authoritative current order/capture evidence with trusted order ID, merchant, configured API origin, purchase-unit reference/custom correlation and positive integer minor-unit money. Return explicit pending/approved-unpaid, terminal-unpaid or verified-paid outcome |
+| PayPal payment models / `services::payments::paypal` | `verify_payment` compares authoritative current order/capture evidence with trusted order ID, merchant, configured API origin, purchase-unit reference/custom correlation and positive integer minor-unit money. Return explicit pending/approved-unpaid, terminal-unpaid or verified-paid outcome |
 | Evidence | Require one intended purchase unit, a completed order and one linked final completed capture, independently retrieved with the same ID. Exact money/merchant/correlation and consistent optional identity fields are required; unknown, inconsistent, refunded or reversed evidence fails closed |
 | Currency precision | Reuse `CurrencyCode` variants with exact canonical input spelling. Preserve the supported zero/two-decimal currency set; unsupported, unknown and noncanonical codes fail verification |
 | Client errors | Invalid trusted expectations return `ClientErrorKind::InvalidInput`; inconsistent provider evidence returns `Protocol`. Upstream client failures retain their kind, source and original location. The checkout application service owns HTTP mapping and provider-independent orchestration |
@@ -318,7 +318,7 @@ sequenceDiagram
     participant Consumer as Trusted consuming flow
     participant Client as PayPal client
     participant PP as PayPal
-    participant Verifier as client::paypal::payment
+    participant Verifier as services::payments::paypal
     Consumer->>Client: Create order with stable request ID
     Client->>PP: Create CAPTURE order
     PP-->>Consumer: Order and approval link
@@ -426,5 +426,17 @@ Guest credentials are distinct from backoffice JWT/cookies. Recovery expiry limi
 | Draft mutation attempted, ID missing | Paginate Shopify drafts filtered by checkout tag; inspect exact tag and accepted evidence. Bind one unique match. Zero/multiple/incomplete results require reconciliation; never create a replacement draft from search absence |
 | Gateway create ambiguous | Rebuild from verified draft money, pinned account/environment, stored URLs and fixed reservation deadline. Require the original request fingerprint and derived idempotency key; mismatch stops instead of opening another payment |
 | Authoritative money unavailable | Return safe 409/503 for domain/busy cases or sanitized upstream failure, preserving the existing required-money DTO. Never manufacture zero totals |
+
+### Reading the checkout flow
+
+| Path | Named code sequence | Durable boundary / uncertain response |
+| --- | --- | --- |
+| Stripe | [create/verify](../services/api/src/services/checkout.rs) → [purchase reserve/read](../services/api/src/services/checkout/purchase.rs) → [start or reconcile payment](../services/api/src/services/checkout/provider.rs) → [account, Session, Intent, Charge verification](../services/api/src/services/payments/stripe.rs) → [paid draft completion](../services/api/src/services/checkout_completion.rs) | Creating and original request fingerprint precede Session creation. Paid state precedes eligible Shopify completion; refunded/disputed evidence stops completion |
+| PayPal | Same purchase steps → [payment reconciliation](../services/api/src/services/checkout/provider.rs) → [order/capture verification](../services/api/src/services/payments/paypal.rs) → paid draft completion | Approval remains unpaid. Processing and stable capture key precede capture; independently retrieved capture must match before paid state |
+| Lost draft/create response | [purchase recover](../services/api/src/services/checkout/purchase.rs) searches exact checkout tag and validates purchase/reservation evidence | Creating was saved before the call. Exactly one matching draft is required; zero/ambiguous matches cannot create a replacement |
+| Lost completion response | [provider complete](../services/api/src/services/checkout/provider.rs) and [completion service](../services/api/src/services/checkout_completion.rs) | Completing is saved by the existing callback immediately before the actual mutation. Uncertain attempts use ReconcileOnly and linked-order readback; they do not repeat completion blindly |
+| Webhook | [handler authentication](../services/api/src/handlers/checkout.rs) → [typed notification selection](../services/api/src/services/checkout/notification.rs) → same fenced advancement | Authenticity selects a checkout; current provider evidence establishes payment. Irrelevant authenticated events acknowledge before Shopify dependencies |
+
+The coordinator retains the existing claim/release and recovery machinery. The table is a source map; final review traces the actual code and its state/effect order. Services receive concrete dependencies, while handlers resolve checkout configuration and client references directly from AppState.
 
 The evidence projection verifies email, total/currency, variant/quantity pairs and required tags. It does not claim separate line-price, tax or shipping verification. Reservation deadlines are checked separately at database microsecond precision.

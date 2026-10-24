@@ -7,6 +7,7 @@ pub(crate) mod cron;
 
 pub mod inventories;
 pub mod orders;
+pub mod payments;
 
 mod pagination;
 

@@ -1,5 +1,5 @@
+use crate::models::stripe::webhook::{VerifiedEvent, WebhookError};
 use hmac::{Hmac, KeyInit, Mac};
-use serde::Deserialize;
 use sha2::Sha256;
 use std::time::Duration;
 
@@ -7,76 +7,6 @@ const MAX_BODY_BYTES: usize = 1_048_576;
 const MAX_HEADER_BYTES: usize = 16_384;
 const MAX_HEADER_PARTS: usize = 64;
 const MAX_TOLERANCE: Duration = Duration::from_mins(15);
-
-/// Authenticated snapshot event data; authentication alone never establishes payment success.
-#[derive(Debug, PartialEq, Eq)]
-pub struct VerifiedEvent {
-    pub event_type: EventType,
-    pub livemode: bool,
-    pub account: Option<String>,
-    pub object_id: String,
-}
-
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-#[serde(from = "String")]
-pub enum EventType {
-    CheckoutSessionCompleted,
-    CheckoutSessionExpired,
-    CheckoutSessionAsyncPaymentSucceeded,
-    CheckoutSessionAsyncPaymentFailed,
-    PaymentIntentSucceeded,
-    PaymentIntentPaymentFailed,
-    Other(String),
-}
-
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-struct EventObject {
-    id: String,
-    #[serde(rename = "object")]
-    object_type: String,
-    payment_intent: Option<EventReference>,
-    latest_charge: Option<EventReference>,
-}
-
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-#[serde(untagged)]
-enum EventReference {
-    Id(String),
-    Expanded { id: String },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum WebhookError {
-    #[error("invalid Stripe webhook verification configuration")]
-    InvalidConfiguration,
-    #[error("Stripe webhook input exceeds supported bounds")]
-    InputTooLarge,
-    #[error("invalid Stripe signature header")]
-    InvalidHeader,
-    #[error("Stripe webhook timestamp outside tolerance")]
-    TimestampOutsideTolerance,
-    #[error("invalid Stripe webhook signature")]
-    InvalidSignature,
-    #[error("invalid Stripe event data")]
-    InvalidEvent,
-}
-
-#[derive(Deserialize)]
-struct EventEnvelope {
-    id: String,
-    #[serde(rename = "type")]
-    event_type: EventType,
-    livemode: bool,
-    account: Option<String>,
-    #[serde(rename = "api_version")]
-    _api_version: Option<String>,
-    data: EventData,
-}
-
-#[derive(Deserialize)]
-struct EventData {
-    object: EventObject,
-}
 
 /// Verify exact raw bytes before decoding a Stripe snapshot event.
 ///
@@ -119,57 +49,7 @@ pub fn verify_event(
     if !valid {
         return Err(WebhookError::InvalidSignature);
     }
-    let event: EventEnvelope =
-        serde_json::from_slice(raw).map_err(|_| WebhookError::InvalidEvent)?;
-    validate_event(&event)?;
-    Ok(VerifiedEvent {
-        event_type: event.event_type,
-        livemode: event.livemode,
-        account: event.account,
-        object_id: event.data.object.id,
-    })
-}
-
-impl EventType {
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::CheckoutSessionCompleted => "checkout.session.completed",
-            Self::CheckoutSessionExpired => "checkout.session.expired",
-            Self::CheckoutSessionAsyncPaymentSucceeded => {
-                "checkout.session.async_payment_succeeded"
-            }
-            Self::CheckoutSessionAsyncPaymentFailed => "checkout.session.async_payment_failed",
-            Self::PaymentIntentSucceeded => "payment_intent.succeeded",
-            Self::PaymentIntentPaymentFailed => "payment_intent.payment_failed",
-            Self::Other(raw) => raw,
-        }
-    }
-}
-
-impl From<String> for EventType {
-    fn from(raw: String) -> Self {
-        match raw.as_str() {
-            "checkout.session.completed" => Self::CheckoutSessionCompleted,
-            "checkout.session.expired" => Self::CheckoutSessionExpired,
-            "checkout.session.async_payment_succeeded" => {
-                Self::CheckoutSessionAsyncPaymentSucceeded
-            }
-            "checkout.session.async_payment_failed" => Self::CheckoutSessionAsyncPaymentFailed,
-            "payment_intent.succeeded" => Self::PaymentIntentSucceeded,
-            "payment_intent.payment_failed" => Self::PaymentIntentPaymentFailed,
-            _ => Self::Other(raw),
-        }
-    }
-}
-
-impl EventReference {
-    #[must_use]
-    fn id(&self) -> &str {
-        match self {
-            Self::Id(id) | Self::Expanded { id } => id,
-        }
-    }
+    VerifiedEvent::decode(raw)
 }
 
 fn parse_header(header: &str) -> Result<(&str, i64, Vec<[u8; 32]>), WebhookError> {
@@ -209,32 +89,6 @@ fn parse_header(header: &str) -> Result<(&str, i64, Vec<[u8; 32]>), WebhookError
         return Err(WebhookError::InvalidHeader);
     }
     Ok((text, seconds, signatures))
-}
-
-fn validate_event(event: &EventEnvelope) -> Result<(), WebhookError> {
-    let object = &event.data.object;
-    if super::validate_id(&event.id).is_err()
-        || event.event_type.as_str().is_empty()
-        || event.event_type.as_str().len() > 255
-        || super::validate_id(&object.id).is_err()
-        || object.object_type.is_empty()
-        || object.object_type.len() > 255
-        || event
-            .account
-            .as_deref()
-            .is_some_and(|id| super::validate_id(id).is_err())
-        || object
-            .payment_intent
-            .as_ref()
-            .is_some_and(|reference| super::validate_id(reference.id()).is_err())
-        || object
-            .latest_charge
-            .as_ref()
-            .is_some_and(|reference| super::validate_id(reference.id()).is_err())
-    {
-        return Err(WebhookError::InvalidEvent);
-    }
-    Ok(())
 }
 
 #[cfg(test)]

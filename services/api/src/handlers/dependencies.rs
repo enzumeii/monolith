@@ -63,35 +63,6 @@ pub(super) fn paypal_client(
         .ok_or_else(|| AppError::new(StatusCode::SERVICE_UNAVAILABLE, "PayPal client unavailable"))
 }
 
-pub(super) fn checkout_settings(
-    state: &AppState,
-) -> Result<&crate::config::CheckoutSettings, AppError> {
-    state.settings.checkout.as_ref().ok_or_else(|| {
-        AppError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Checkout configuration unavailable",
-        )
-    })
-}
-
-pub(super) fn checkout_clients(
-    state: &AppState,
-) -> Result<crate::services::checkout::CheckoutClients<'_>, AppError> {
-    Ok(crate::services::checkout::CheckoutClients {
-        shopify: shopify_client(state)?,
-        stripe: state
-            .stripe
-            .as_ref()
-            .ok()
-            .and_then(|value| value.as_deref()),
-        paypal: state
-            .paypal
-            .as_ref()
-            .ok()
-            .and_then(|value| value.as_deref()),
-    })
-}
-
 #[cfg(test)]
 #[path = "../tests/handlers/dependencies.rs"]
 mod tests;
