@@ -324,6 +324,17 @@ async fn reply(
             .filter(|(name, _)| operation == *name || *name == provider_operation(path, &method))
             .map(|(_, fault)| fault.clone())
     };
+    if operation == "CreateDraftOrder"
+        && body["variables"]["input"]["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tag| tag.as_str().unwrap().chars().count() > 40)
+    {
+        return axum::Json(json!({"data":{"draftOrderCreate":{"draftOrder":null,
+            "userErrors":[{"field":["tags"],"message":"Tag is too long (maximum is 40 characters)"}]}}}))
+        .into_response();
+    }
     let gate = state
         .lock()
         .unwrap()
@@ -556,8 +567,16 @@ fn draft_search(scenario: &Scenario, body: &Value) -> Value {
         body["variables"]["query"]
             .as_str()
             .unwrap()
-            .starts_with("tag:'checkout:")
+            .starts_with("tag:'co:")
     );
+    if scenario.draft_input.is_object() {
+        let checkout = scenario
+            .tags
+            .iter()
+            .find_map(|tag| tag.as_str().filter(|tag| tag.starts_with("co:")))
+            .unwrap();
+        assert_eq!(body["variables"]["query"], format!("tag:'{checkout}'"));
+    }
     let later = body["variables"]["after"].as_str().is_some();
     if scenario.search_mode == "later_http" && later {
         // The HTTP failure is returned by reply before this projection is used.

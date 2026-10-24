@@ -74,11 +74,7 @@ pub(super) async fn prepare(
             currency: convention.currency_code,
         },
         items,
-        tags: vec![
-            format!("convention:{convention_id}"),
-            convention.name,
-            format!("checkout:{id}"),
-        ],
+        tags: purchase_tags(convention_id, &convention.name, id),
     };
     let lines = purchase
         .items
@@ -212,8 +208,13 @@ pub(super) async fn recover(
     token: Uuid,
 ) -> Result<(), AdvanceError> {
     if checkout.draft_id.is_none() {
-        let query = format!("tag:'checkout:{}'", checkout.id);
-        let expected_tag = format!("checkout:{}", checkout.id);
+        let expected_tag = recovery_tag(checkout).ok_or_else(|| {
+            super::recovery::manual(
+                conflict("Shopify draft correlation requires reconciliation"),
+                crate::models::checkout::RecoveryCode::DraftAmbiguous,
+            )
+        })?;
+        let query = format!("tag:'{expected_tag}'");
         let mut found = Vec::new();
         super::super::pagination::for_each_page(
             None,
@@ -402,6 +403,27 @@ pub(super) fn validate_reservation(
     Ok(())
 }
 
+fn purchase_tags(convention_id: Uuid, convention_name: &str, checkout_id: Uuid) -> Vec<String> {
+    vec![
+        format!("cv:{convention_id}"),
+        convention_name.chars().take(40).collect(),
+        format!("co:{checkout_id}"),
+    ]
+}
+
+fn recovery_tag(checkout: &Checkout) -> Option<String> {
+    ["co", "checkout"]
+        .into_iter()
+        .map(|prefix| format!("{prefix}:{}", checkout.id))
+        .find(|tag| {
+            let hash = Sha256::digest(tag.as_bytes());
+            checkout
+                .required_tag_hashes
+                .iter()
+                .any(|expected| hash.as_slice() == expected.as_slice())
+        })
+}
+
 fn provider_account(
     settings: &CheckoutSettings,
     clients: &CheckoutClients<'_>,
@@ -575,3 +597,7 @@ async fn validate_stock(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../../tests/services/checkout/purchase.rs"]
+mod tests;
