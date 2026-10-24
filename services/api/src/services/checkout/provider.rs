@@ -9,7 +9,8 @@ use crate::{
     models::{
         paypal::{
             self, CreateOrderRequest, ExperienceContext, OrderIntent, OrderStatus, Payee,
-            PaymentMoney, PurchaseUnitRequest,
+            PaymentMoney, PaymentSource, PaypalPaymentSource, PurchaseUnitRequest,
+            ShippingPreference,
         },
         shopify::ShopifyId,
         stripe::{self, CheckoutMode, CreateCheckoutSession},
@@ -32,13 +33,15 @@ pub(super) async fn advance(
     checkout: &mut Checkout,
     money: &CheckoutMoney,
     token: Uuid,
+    reservation_safe: bool,
 ) -> Result<(), AppError> {
     if checkout.provider_resource_id.is_none() {
-        if checkout
-            .reservation_expires_at
-            .is_none_or(|expiry| expiry <= Utc::now())
-        {
-            checkout.payment_state = PaymentState::Unpaid;
+        if !reservation_safe {
+            checkout.payment_state = if checkout.payment_state == PaymentState::NotStarted {
+                PaymentState::Unpaid
+            } else {
+                PaymentState::Uncertain
+            };
             return repo::save(pool, checkout, token).await;
         }
         let retention = if checkout.provider == "stripe" {
@@ -70,17 +73,22 @@ pub(super) async fn advance(
         checkout.gateway_request_fingerprint = Some(fingerprint);
         checkout.payment_state = PaymentState::Creating;
         repo::save(pool, checkout, token).await?;
-        start_or_recover_payment(clients, checkout, money, initiation).await?;
-        checkout.payment_state = PaymentState::RequiresAction;
+        let outcome = start_or_recover_payment(clients, checkout, money, initiation).await?;
+        checkout.payment_state = match outcome {
+            InitiationOutcome::RequiresAction => PaymentState::RequiresAction,
+            InitiationOutcome::Reconcile => PaymentState::Processing,
+        };
         checkout.success_url = None;
         checkout.cancel_url = None;
         repo::save(pool, checkout, token).await?;
-        return Ok(());
+        if outcome == InitiationOutcome::RequiresAction {
+            return Ok(());
+        }
     }
     if checkout.provider == "stripe" {
-        reconcile_stripe_payment(pool, clients, checkout, money, token).await
+        reconcile_stripe_payment(pool, clients, checkout, money, token, reservation_safe).await
     } else {
-        reconcile_paypal_payment(pool, clients, checkout, money, token).await
+        reconcile_paypal_payment(pool, clients, checkout, money, token, reservation_safe).await
     }
 }
 
@@ -92,8 +100,10 @@ pub(super) async fn bind_authenticated_resource(
     token: Uuid,
     resource: &str,
 ) -> Result<(), AppError> {
-    if checkout.payment_state != PaymentState::Creating
-        || checkout.draft_state != DraftState::Reserved
+    if !matches!(
+        checkout.payment_state,
+        PaymentState::Creating | PaymentState::Uncertain
+    ) || checkout.draft_state != DraftState::Reserved
         || checkout.provider_resource_id.is_some()
     {
         return Err(conflict("Payment initiation is not awaiting association"));
@@ -107,11 +117,6 @@ pub(super) async fn bind_authenticated_resource(
         payments::stripe::verify_payment(client, &stripe_expected(checkout, money)?)
             .await
             .map_err(|error| upstream(error))?;
-        let session = client
-            .get_checkout_session(resource)
-            .await
-            .map_err(|error| upstream(error))?;
-        session.url.as_deref().map(redirect).transpose()?;
     } else {
         let client = clients.paypal.ok_or_else(unavailable)?;
         payments::paypal::verify_payment(client, &paypal_expected(checkout, money)?)
@@ -186,15 +191,25 @@ async fn reconcile_stripe_payment(
     checkout: &mut Checkout,
     money: &CheckoutMoney,
     token: Uuid,
+    reservation_safe: bool,
 ) -> Result<(), AppError> {
     let client = clients.stripe.ok_or_else(unavailable)?;
     let expected = stripe_expected(checkout, money)?;
-    match payments::stripe::verify_payment(client, &expected)
+    let outcome = payments::stripe::verify_payment(client, &expected)
         .await
-        .map_err(|error| upstream(error))?
+        .map_err(|error| upstream(error))?;
+    if checkout.payment_state == PaymentState::Paid
+        && !matches!(&outcome, stripe::payment::PaymentOutcome::VerifiedPaid(_))
     {
+        checkout.completion_state = CompletionState::Uncertain;
+        return repo::save(pool, checkout, token).await;
+    }
+    match outcome {
+        stripe::payment::PaymentOutcome::RequiresAction => {
+            return pending(pool, checkout, token, reservation_safe).await;
+        }
         stripe::payment::PaymentOutcome::Pending => {
-            return pending(pool, checkout, token).await;
+            return pending(pool, checkout, token, false).await;
         }
         stripe::payment::PaymentOutcome::ExpiredUnpaid => {
             checkout.payment_state = PaymentState::Unpaid;
@@ -214,6 +229,7 @@ async fn reconcile_stripe_payment(
         clients,
         checkout,
         token,
+        reservation_safe,
         PaymentContext::Stripe {
             client,
             expected: &expected,
@@ -227,24 +243,35 @@ async fn reconcile_paypal_payment(
     checkout: &mut Checkout,
     money: &CheckoutMoney,
     token: Uuid,
+    reservation_safe: bool,
 ) -> Result<(), AppError> {
     let client = clients.paypal.ok_or_else(unavailable)?;
     let expected = paypal_expected(checkout, money)?;
     let mut outcome = payments::paypal::verify_payment(client, &expected)
         .await
         .map_err(|error| upstream(error))?;
+    if checkout.payment_state == PaymentState::Paid
+        && !matches!(&outcome, paypal::payment::PaymentOutcome::VerifiedPaid(_))
+    {
+        checkout.completion_state = CompletionState::Uncertain;
+        return repo::save(pool, checkout, token).await;
+    }
     if matches!(outcome, paypal::payment::PaymentOutcome::Pending) {
         let order = client
             .get_order(&expected.order_id)
             .await
             .map_err(|error| upstream(error))?;
         if order.status == OrderStatus::Approved {
-            if checkout
-                .reservation_expires_at
-                .is_none_or(|expiry| expiry <= Utc::now())
+            if !reservation_safe {
+                return pending(pool, checkout, token, false).await;
+            }
+            let current = purchase::read(clients, checkout).await?;
+            if purchase::validate_reservation(checkout, &current).is_err()
+                || checkout
+                    .reservation_expires_at
+                    .is_none_or(|expiry| expiry <= Utc::now())
             {
-                checkout.payment_state = PaymentState::Unpaid;
-                return repo::save(pool, checkout, token).await;
+                return pending(pool, checkout, token, false).await;
             }
             if Utc::now() >= checkout.created_at + Duration::hours(5) {
                 checkout.payment_state = PaymentState::Uncertain;
@@ -252,6 +279,12 @@ async fn reconcile_paypal_payment(
             }
             checkout.payment_state = PaymentState::Processing;
             repo::save(pool, checkout, token).await?;
+            if checkout
+                .reservation_expires_at
+                .is_none_or(|expiry| expiry <= Utc::now())
+            {
+                return Ok(());
+            }
             client
                 .capture_order(&expected.order_id, &format!("capture-{}", checkout.id))
                 .await
@@ -263,7 +296,9 @@ async fn reconcile_paypal_payment(
     }
     match outcome {
         paypal::payment::PaymentOutcome::Pending => {
-            return pending(pool, checkout, token).await;
+            let actionable =
+                reservation_safe && checkout.payment_state == PaymentState::RequiresAction;
+            return pending(pool, checkout, token, actionable).await;
         }
         paypal::payment::PaymentOutcome::TerminalUnpaid => {
             checkout.payment_state = PaymentState::Unpaid;
@@ -279,6 +314,7 @@ async fn reconcile_paypal_payment(
         clients,
         checkout,
         token,
+        reservation_safe,
         PaymentContext::Paypal {
             client,
             expected: &expected,
@@ -293,15 +329,24 @@ enum InitiationMode {
     Recover,
 }
 
-async fn pending(pool: &PgPool, checkout: &mut Checkout, token: Uuid) -> Result<(), AppError> {
-    if checkout
-        .reservation_expires_at
-        .is_none_or(|expiry| expiry <= Utc::now())
-    {
-        checkout.payment_state = PaymentState::Unpaid;
-        repo::save(pool, checkout, token).await?;
-    }
-    Ok(())
+#[derive(PartialEq, Eq)]
+enum InitiationOutcome {
+    RequiresAction,
+    Reconcile,
+}
+
+async fn pending(
+    pool: &PgPool,
+    checkout: &mut Checkout,
+    token: Uuid,
+    actionable: bool,
+) -> Result<(), AppError> {
+    checkout.payment_state = if actionable {
+        PaymentState::RequiresAction
+    } else {
+        PaymentState::Processing
+    };
+    repo::save(pool, checkout, token).await
 }
 
 async fn start_or_recover_payment(
@@ -309,7 +354,7 @@ async fn start_or_recover_payment(
     checkout: &mut Checkout,
     money: &CheckoutMoney,
     mode: InitiationMode,
-) -> Result<(), AppError> {
+) -> Result<InitiationOutcome, AppError> {
     let success = checkout
         .success_url
         .clone()
@@ -332,7 +377,7 @@ async fn initiate_stripe(
     mode: InitiationMode,
     success: String,
     cancel: String,
-) -> Result<(), AppError> {
+) -> Result<InitiationOutcome, AppError> {
     let client = clients.stripe.ok_or_else(unavailable)?;
     let expiry = checkout
         .reservation_expires_at
@@ -374,14 +419,18 @@ async fn initiate_stripe(
     {
         return Err(conflict("Stripe checkout does not match purchase"));
     }
-    redirect(
-        session
-            .url
-            .as_deref()
-            .ok_or_else(|| conflict("Stripe checkout URL is missing"))?,
-    )?;
+    if let Some(url) = session.url.as_deref() {
+        redirect(url)?;
+    }
+    let outcome = if session.status == stripe::CheckoutStatus::Open
+        && session.payment_status == stripe::CheckoutPaymentStatus::Unpaid
+    {
+        InitiationOutcome::RequiresAction
+    } else {
+        InitiationOutcome::Reconcile
+    };
     checkout.provider_resource_id = Some(session.id);
-    Ok(())
+    Ok(outcome)
 }
 
 async fn initiate_paypal(
@@ -390,7 +439,7 @@ async fn initiate_paypal(
     money: &CheckoutMoney,
     success: String,
     cancel: String,
-) -> Result<(), AppError> {
+) -> Result<InitiationOutcome, AppError> {
     let client = clients.paypal.ok_or_else(unavailable)?;
     if client.api_origin() != checkout.provider_environment {
         return Err(conflict("PayPal environment does not match checkout"));
@@ -411,11 +460,16 @@ async fn initiate_paypal(
                         merchant_id: checkout.provider_account_id.clone(),
                     },
                 }],
-                payment_source: None,
-                application_context: Some(ExperienceContext {
-                    return_url: success,
-                    cancel_url: cancel,
+                payment_source: Some(PaymentSource {
+                    paypal: PaypalPaymentSource {
+                        experience_context: ExperienceContext {
+                            return_url: success,
+                            cancel_url: cancel,
+                            shipping_preference: Some(ShippingPreference::NoShipping),
+                        },
+                    },
                 }),
+                application_context: None,
             },
         )
         .await
@@ -432,14 +486,22 @@ async fn initiate_paypal(
     payments::paypal::verify_payment(client, &expected)
         .await
         .map_err(|error| upstream(error))?;
-    let link = order
-        .links
-        .iter()
-        .find(|link| matches!(link.rel.as_str(), "approve" | "payer-action"))
-        .ok_or_else(|| conflict("PayPal approval URL is missing"))?;
-    redirect(&link.href)?;
+    let outcome = if matches!(
+        order.status,
+        OrderStatus::Created | OrderStatus::Saved | OrderStatus::PayerActionRequired
+    ) {
+        let link = order
+            .links
+            .iter()
+            .find(|link| matches!(link.rel.as_str(), "approve" | "payer-action"))
+            .ok_or_else(|| conflict("PayPal approval URL is missing"))?;
+        redirect(&link.href)?;
+        InitiationOutcome::RequiresAction
+    } else {
+        InitiationOutcome::Reconcile
+    };
     checkout.provider_resource_id = Some(order.id);
-    Ok(())
+    Ok(outcome)
 }
 
 async fn complete(
@@ -447,6 +509,7 @@ async fn complete(
     clients: &CheckoutClients<'_>,
     checkout: &mut Checkout,
     token: Uuid,
+    reservation_safe: bool,
     payment: PaymentContext<'_>,
 ) -> Result<(), AppError> {
     let draft = ShopifyId::new(
@@ -459,19 +522,12 @@ async fn complete(
     let mode = if matches!(
         checkout.completion_state,
         CompletionState::Completing | CompletionState::Uncertain
-    ) {
+    ) || !reservation_safe
+    {
         CompletionMode::ReconcileOnly
     } else {
         CompletionMode::CompleteIfOpen
     };
-    if checkout
-        .reservation_expires_at
-        .is_none_or(|expiry| expiry <= Utc::now())
-        && mode == CompletionMode::CompleteIfOpen
-    {
-        checkout.completion_state = CompletionState::Uncertain;
-        return repo::save(pool, checkout, token).await;
-    }
     let current = match clients.shopify.checkout_draft(&draft).await {
         Ok(Some(current)) => current,
         Ok(None) => return Ok(()),
@@ -496,6 +552,8 @@ async fn complete(
             payment,
             mode,
             move || async move {
+                let current = purchase::read(clients, checkout).await?;
+                purchase::validate_reservation(checkout, &current)?;
                 if checkout
                     .reservation_expires_at
                     .is_none_or(|expiry| expiry <= Utc::now())
@@ -504,6 +562,12 @@ async fn complete(
                 }
                 checkout.completion_state = CompletionState::Completing;
                 repo::save(pool, checkout, token).await?;
+                if checkout
+                    .reservation_expires_at
+                    .is_none_or(|expiry| expiry <= Utc::now())
+                {
+                    return Err(conflict("Checkout reservation expired before completion"));
+                }
                 *attempted = true;
                 Ok(())
             },

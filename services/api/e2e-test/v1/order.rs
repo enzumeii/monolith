@@ -1759,3 +1759,402 @@ async fn checkout_post_mutation_link_save_faults_recover_original_draft_and_gate
         }
     }
 }
+
+#[tokio::test]
+async fn checkout_completed_unpaid_stripe_session_has_no_redirect_then_completes() {
+    let fixture = fixture().await;
+    let upstream = Providers::start().await;
+    let client = configured(&upstream).await;
+    let input = purchase(&fixture, "stripe").await;
+    accepted(&client, &input).await;
+    upstream.stripe_processing();
+    let id = input["operation_id"].as_str().unwrap();
+    let response = client.send(verify(id, Some(SECRET))).await.unwrap();
+    let status = response.status();
+    let body = body_json(response).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["status"], "processing");
+    assert!(body["next_action"].is_null());
+    upstream.pay();
+    let response = client.send(verify(id, Some(SECRET))).await.unwrap();
+    assert_eq!(body_json(response).await["status"], "completed");
+    assert_eq!(upstream.payment_creates(), 1);
+}
+
+#[tokio::test]
+async fn checkout_lost_stripe_create_recovers_completed_sessions_without_url() {
+    let fixture = fixture().await;
+    for paid in [false, true] {
+        let upstream = Providers::start().await;
+        let client = configured(&upstream).await;
+        let input = purchase(&fixture, "stripe").await;
+        upstream.fault("/stripe/checkout/sessions", "lost");
+        assert_eq!(
+            client
+                .send(request(CHECKOUT, Some(SECRET), &input))
+                .await
+                .unwrap()
+                .status(),
+            502
+        );
+        upstream.clear_fault();
+        if paid {
+            upstream.pay();
+        } else {
+            upstream.stripe_processing();
+        }
+        let body = accepted(&client, &input).await;
+        assert_eq!(
+            body["status"],
+            if paid { "completed" } else { "processing" }
+        );
+        assert!(body["next_action"].is_null());
+        let calls = upstream.calls();
+        let creates: Vec<_> = calls
+            .iter()
+            .filter(|call| call["payment_create"] == true)
+            .collect();
+        assert_eq!(creates.len(), 2);
+        assert_eq!(creates[0]["body"], creates[1]["body"]);
+        assert_eq!(creates[0]["idempotency_key"], creates[1]["idempotency_key"]);
+        for call in creates {
+            assert_eq!(call["stripe_version"], "2026-08-26.dahlia");
+        }
+        assert_eq!(upstream.count("CreateDraftOrder"), 1);
+    }
+}
+
+#[tokio::test]
+async fn checkout_late_paid_truth_survives_missing_shortened_or_expired_reservation() {
+    let fixture = fixture().await;
+    for provider in ["stripe", "paypal"] {
+        for hold in ["missing", "shortened", "expired"] {
+            let upstream = Providers::start().await;
+            let client = configured(&upstream).await;
+            let input = purchase(&fixture, provider).await;
+            accepted(&client, &input).await;
+            if provider == "stripe" {
+                upstream.pay();
+            } else {
+                upstream.captured();
+            }
+            let id = input["operation_id"].as_str().unwrap();
+            match hold {
+                "missing" => upstream.reservation(false, true),
+                "shortened" => upstream.shorten_hold(),
+                _ => {
+                    sqlx::query(
+                        "UPDATE checkouts
+                     SET reservation_expires_at = NOW() - INTERVAL '1 second'
+                     WHERE id = $1",
+                    )
+                    .bind(Uuid::parse_str(id).unwrap())
+                    .execute(&fixture.pool())
+                    .await
+                    .unwrap();
+                }
+            }
+            let response = client.send(verify(id, Some(SECRET))).await.unwrap();
+            let status = response.status();
+            let body = body_json(response).await;
+            assert_eq!(status, 200, "{provider}/{hold}: {body}");
+            assert_eq!(
+                body["status"], "reconciliation_required",
+                "{provider}/{hold}: {body}"
+            );
+            assert!(body["next_action"].is_null());
+            let payment: String = sqlx::query_scalar(
+                "SELECT payment_state
+                 FROM checkouts
+                 WHERE id = $1",
+            )
+            .bind(Uuid::parse_str(id).unwrap())
+            .fetch_one(&fixture.pool())
+            .await
+            .unwrap();
+            assert_eq!(payment, "paid");
+            assert_eq!(upstream.count("CompleteCheckoutDraft"), 0);
+            upstream.complete();
+            let response = client.send(verify(id, Some(SECRET))).await.unwrap();
+            let body = body_json(response).await;
+            assert_eq!(body["status"], "completed", "{provider}/{hold}: {body}");
+            assert_eq!(body["order"]["name"], "#E2E-ORDER");
+            assert_eq!(upstream.count("CompleteCheckoutDraft"), 0);
+        }
+    }
+}
+
+#[tokio::test]
+async fn checkout_pending_after_unsafe_hold_never_becomes_unpaid_or_captures() {
+    let fixture = fixture().await;
+    for provider in ["stripe", "paypal"] {
+        for hold in ["missing", "expired"] {
+            let upstream = Providers::start().await;
+            let client = configured(&upstream).await;
+            let input = purchase(&fixture, provider).await;
+            accepted(&client, &input).await;
+            if provider == "paypal" {
+                upstream.pay();
+            }
+            let id = input["operation_id"].as_str().unwrap();
+            if hold == "missing" {
+                upstream.reservation(false, true);
+            } else {
+                sqlx::query(
+                    "UPDATE checkouts
+                     SET reservation_expires_at = NOW() - INTERVAL '1 second'
+                     WHERE id = $1",
+                )
+                .bind(Uuid::parse_str(id).unwrap())
+                .execute(&fixture.pool())
+                .await
+                .unwrap();
+            }
+            let response = client.send(verify(id, Some(SECRET))).await.unwrap();
+            let status = response.status();
+            let body = body_json(response).await;
+            assert_eq!(status, 200, "{provider}/{hold}: {body}");
+            assert!(
+                matches!(
+                    body["status"].as_str(),
+                    Some("processing" | "reconciliation_required")
+                ),
+                "{body}"
+            );
+            assert!(body["next_action"].is_null());
+            assert_eq!(upstream.count("CompleteCheckoutDraft"), 0);
+            assert!(!upstream.calls().iter().any(|call| {
+                call["path"]
+                    .as_str()
+                    .is_some_and(|path| path.ends_with("/capture"))
+            }));
+            assert_eq!(upstream.payment_creates(), 1);
+        }
+    }
+}
+
+#[tokio::test]
+async fn checkout_accepts_public_variant_gid_and_rejects_nonselected_and_alias_duplicates() {
+    let fixture = fixture().await;
+    for provider in ["stripe", "paypal"] {
+        let upstream = Providers::start().await;
+        let client = configured(&upstream).await;
+        let mut input = purchase(&fixture, provider).await;
+        let original = input["items"][0].clone();
+        input["items"][0]["variant_id"] = json!("gid://shopify/ProductVariant/2");
+        assert_eq!(accepted(&client, &input).await["status"], "requires_action");
+        let mut aliases = input.clone();
+        aliases["operation_id"] = json!(Uuid::new_v4());
+        aliases["items"].as_array_mut().unwrap().push(original);
+        assert_eq!(
+            client
+                .send(request(CHECKOUT, Some(SECRET), &aliases))
+                .await
+                .unwrap()
+                .status(),
+            409
+        );
+        for (variant, expected) in [
+            ("gid://shopify/ProductVariant/999", 409),
+            ("gid://shopify/ProductVariant/02", 400),
+            ("gid://shopify/Product/2", 400),
+        ] {
+            let mut invalid = input.clone();
+            invalid["operation_id"] = json!(Uuid::new_v4());
+            invalid["items"][0]["variant_id"] = json!(variant);
+            assert_eq!(
+                client
+                    .send(request(CHECKOUT, Some(SECRET), &invalid))
+                    .await
+                    .unwrap()
+                    .status(),
+                expected,
+                "{variant}"
+            );
+        }
+        assert_eq!(upstream.count("CreateDraftOrder"), 1);
+        assert_eq!(upstream.payment_creates(), 1);
+    }
+}
+
+#[tokio::test]
+async fn checkout_previously_verified_paid_is_not_downgraded_by_pending_provider_evidence() {
+    let fixture = fixture().await;
+    for provider in ["stripe", "paypal"] {
+        let upstream = Providers::start().await;
+        let client = configured(&upstream).await;
+        let input = purchase(&fixture, provider).await;
+        accepted(&client, &input).await;
+        upstream.pay();
+        upstream.fault("CompleteCheckoutDraft", "http");
+        let id = input["operation_id"].as_str().unwrap();
+        let response = client.send(verify(id, Some(SECRET))).await.unwrap();
+        assert_eq!(
+            body_json(response).await["status"],
+            "reconciliation_required"
+        );
+        let before = upstream.calls().len();
+        upstream.clear_fault();
+        upstream.pending();
+        let response = client.send(verify(id, Some(SECRET))).await.unwrap();
+        let body = body_json(response).await;
+        assert_eq!(body["status"], "reconciliation_required");
+        assert!(body["next_action"].is_null());
+        let payment: String = sqlx::query_scalar(
+            "SELECT payment_state
+             FROM checkouts
+             WHERE id = $1",
+        )
+        .bind(Uuid::parse_str(id).unwrap())
+        .fetch_one(&fixture.pool())
+        .await
+        .unwrap();
+        assert_eq!(payment, "paid");
+        assert!(!upstream.calls()[before..].iter().any(|call| {
+            call["path"]
+                .as_str()
+                .is_some_and(|path| path.ends_with("/capture"))
+        }));
+    }
+}
+
+#[tokio::test]
+async fn checkout_authenticated_stripe_binding_handles_completed_null_url_sessions() {
+    let fixture = fixture().await;
+    for paid in [false, true] {
+        let upstream = Providers::start().await;
+        let client = configured(&upstream).await;
+        let input = purchase(&fixture, "stripe").await;
+        upstream.fault("/stripe/checkout/sessions", "lost");
+        assert_eq!(
+            client
+                .send(request(CHECKOUT, Some(SECRET), &input))
+                .await
+                .unwrap()
+                .status(),
+            502
+        );
+        upstream.clear_fault();
+        if paid {
+            upstream.pay();
+        } else {
+            upstream.stripe_processing();
+        }
+        let id = input["operation_id"].as_str().unwrap();
+        let event = upstream.stripe_event(id, "evt_null_url_binding");
+        let response = client
+            .send(stripe_webhook(&event, chrono::Utc::now().timestamp()))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), if paid { 200 } else { 503 });
+        let response = client.send(verify(id, Some(SECRET))).await.unwrap();
+        let body = body_json(response).await;
+        assert_eq!(
+            body["status"],
+            if paid { "completed" } else { "processing" }
+        );
+        assert!(body["next_action"].is_null());
+        assert_eq!(upstream.payment_creates(), 1);
+    }
+}
+
+#[tokio::test]
+async fn checkout_late_authenticated_binding_preserves_paid_after_unknown_creation_expires() {
+    let fixture = fixture().await;
+    let upstream = Providers::start().await;
+    let client = configured(&upstream).await;
+    let input = purchase(&fixture, "stripe").await;
+    upstream.fault("/stripe/checkout/sessions", "lost");
+    assert_eq!(
+        client
+            .send(request(CHECKOUT, Some(SECRET), &input))
+            .await
+            .unwrap()
+            .status(),
+        502
+    );
+    upstream.clear_fault();
+    let id = input["operation_id"].as_str().unwrap();
+    sqlx::query(
+        "UPDATE checkouts
+         SET reservation_expires_at = NOW() - INTERVAL '1 second'
+         WHERE id = $1",
+    )
+    .bind(Uuid::parse_str(id).unwrap())
+    .execute(&fixture.pool())
+    .await
+    .unwrap();
+    let response = client.send(verify(id, Some(SECRET))).await.unwrap();
+    assert_eq!(
+        body_json(response).await["status"],
+        "reconciliation_required"
+    );
+    upstream.pay();
+    let event = upstream.stripe_event(id, "evt_late_binding");
+    let response = client
+        .send(stripe_webhook(&event, chrono::Utc::now().timestamp()))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 503);
+    let stored: (String, Option<String>) = sqlx::query_as(
+        "SELECT payment_state, provider_resource_id
+         FROM checkouts
+         WHERE id = $1",
+    )
+    .bind(Uuid::parse_str(id).unwrap())
+    .fetch_one(&fixture.pool())
+    .await
+    .unwrap();
+    assert_eq!(stored.0, "paid");
+    assert_eq!(stored.1.as_deref(), event["data"]["object"]["id"].as_str());
+    assert_eq!(upstream.payment_creates(), 1);
+    assert_eq!(upstream.count("CompleteCheckoutDraft"), 0);
+    upstream.complete();
+    let response = client
+        .send(stripe_webhook(&event, chrono::Utc::now().timestamp()))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let response = client.send(verify(id, Some(SECRET))).await.unwrap();
+    assert_eq!(body_json(response).await["status"], "completed");
+    assert_eq!(upstream.payment_creates(), 1);
+}
+
+#[tokio::test]
+async fn checkout_hold_expiring_during_final_read_prevents_completion_mutation() {
+    let fixture = fixture().await;
+    let upstream = Providers::start().await;
+    let client = configured(&upstream).await;
+    let input = purchase(&fixture, "stripe").await;
+    accepted(&client, &input).await;
+    upstream.pay();
+    let expiry = upstream.expire_during_completion_read();
+    let id = input["operation_id"].as_str().unwrap();
+    sqlx::query(
+        "UPDATE checkouts
+         SET reservation_expires_at = $2
+         WHERE id = $1",
+    )
+    .bind(Uuid::parse_str(id).unwrap())
+    .bind(expiry)
+    .execute(&fixture.pool())
+    .await
+    .unwrap();
+    let response = client.send(verify(id, Some(SECRET))).await.unwrap();
+    let status = response.status();
+    let body = body_json(response).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["status"], "reconciliation_required");
+    assert!(body["next_action"].is_null());
+    assert_eq!(upstream.count("CompleteCheckoutDraft"), 0);
+    let payment: String = sqlx::query_scalar(
+        "SELECT payment_state
+         FROM checkouts
+         WHERE id = $1",
+    )
+    .bind(Uuid::parse_str(id).unwrap())
+    .fetch_one(&fixture.pool())
+    .await
+    .unwrap();
+    assert_eq!(payment, "paid");
+}

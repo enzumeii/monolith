@@ -42,6 +42,7 @@ async fn lists_payout_pages_with_inclusive_filters_and_cursor() {
         assert_eq!(q["status"], "paid");
         assert_eq!(q["limit"], "100");
         assert_eq!(r.1["authorization"], "Bearer sk_test_private");
+        assert!(!r.1.contains_key("stripe-version"));
     }
     assert!(requests[1].0.contains("starting_after=po_one"));
     assert!(f.methods().iter().all(|m| m == reqwest::Method::GET));
@@ -265,6 +266,7 @@ async fn creates_card_checkout_with_exact_form_money_and_stable_key() {
     assert_eq!(requests[0].0, "/v1/checkout/sessions");
     assert_eq!(fixture.methods()[0], reqwest::Method::POST);
     assert_eq!(requests[0].1["idempotency-key"], "checkout_fixture_1");
+    assert_eq!(requests[0].1["stripe-version"], "2026-08-26.dahlia");
     assert_eq!(
         requests[0].1["content-type"],
         "application/x-www-form-urlencoded"
@@ -556,6 +558,7 @@ async fn checkout_recovery_replays_original_expiry_and_key_inside_thirty_minutes
     for received in requests {
         assert_eq!(received.0, "/v1/checkout/sessions");
         assert_eq!(received.1["idempotency-key"], request.idempotency_key);
+        assert_eq!(received.1["stripe-version"], "2026-08-26.dahlia");
     }
     let bodies = fixture.raw_bodies();
     assert_eq!(bodies[0], bodies[1]);
@@ -610,5 +613,29 @@ async fn checkout_recovery_rejects_a_different_response_expiry_without_replay() 
             crate::client::ClientErrorKind::Protocol(_)
         ));
         assert_eq!(fixture.requests().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn completed_sessions_bind_without_a_hosted_url_on_create_and_recovery() {
+    for recovery in [false, true] {
+        for payment_status in ["unpaid", "paid"] {
+            let mut request = checkout_request();
+            request.expires_at = Some(chrono::Utc::now().timestamp() + 3600);
+            let mut response = session_response();
+            response["status"] = json!("complete");
+            response["payment_status"] = json!(payment_status);
+            response["url"] = json!(null);
+            response["expires_at"] = json!(request.expires_at);
+            let fixture = Fixture::new(vec![Reply::json(response)]).await;
+            let client = client(&fixture);
+            let result = if recovery {
+                client.recover_checkout_session(&request).await
+            } else {
+                client.create_checkout_session(&request).await
+            };
+            assert_eq!(result.unwrap().id, "cs_test_one");
+            assert_eq!(fixture.requests().len(), 1);
+        }
     }
 }

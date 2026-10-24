@@ -3,6 +3,7 @@ use ui::{COMMON_STYLESHEET, ErrorMessage, LoadingMessage, SITE_LOGO};
 
 mod api;
 mod cart;
+mod checkout;
 mod config;
 mod pages;
 mod route;

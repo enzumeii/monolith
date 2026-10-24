@@ -27,6 +27,9 @@ struct Scenario {
     paypal_input: Value,
     id: String,
     paid: bool,
+    stripe_processing: bool,
+    shortened_hold: bool,
+    expiring_completion_read: Option<usize>,
     approved: bool,
     captured: bool,
     completed: bool,
@@ -82,6 +85,39 @@ impl Providers {
         let mut scenario = self.state.lock().unwrap();
         scenario.paid = true;
         scenario.approved = true;
+    }
+
+    pub fn pending(&self) {
+        let mut scenario = self.state.lock().unwrap();
+        scenario.paid = false;
+        scenario.approved = false;
+        scenario.captured = false;
+    }
+
+    pub fn stripe_processing(&self) {
+        self.state.lock().unwrap().stripe_processing = true;
+    }
+
+    pub fn captured(&self) {
+        let mut scenario = self.state.lock().unwrap();
+        scenario.approved = true;
+        scenario.captured = true;
+    }
+
+    pub fn complete(&self) {
+        self.state.lock().unwrap().completed = true;
+    }
+
+    pub fn expire_during_completion_read(&self) -> chrono::DateTime<chrono::Utc> {
+        let mut scenario = self.state.lock().unwrap();
+        let expiry = chrono::Utc::now() + chrono::Duration::seconds(1);
+        scenario.draft_input["reserveInventoryUntil"] = json!(expiry);
+        scenario.expiring_completion_read = Some(0);
+        expiry
+    }
+
+    pub fn shorten_hold(&self) {
+        self.state.lock().unwrap().shortened_hold = true;
     }
 
     pub fn fault(&self, operation: &str, failure: &str) {
@@ -180,6 +216,8 @@ impl Providers {
             } else {
                 &state.paypal_input["application_context"]
             };
+            assert_eq!(context["shipping_preference"], "NO_SHIPPING");
+            assert!(state.paypal_input["application_context"].is_null());
             (
                 context["return_url"].as_str().unwrap(),
                 context["cancel_url"].as_str().unwrap(),
@@ -236,6 +274,7 @@ async fn reply(
     let failure = {
         let mut scenario = state.lock().unwrap();
         scenario.calls.push(json!({"operation":operation,"path":path,"method":method.as_str(),"body":body,
+            "stripe_version":headers.get("stripe-version").and_then(|v|v.to_str().ok()),
             "idempotency_key":headers.get("idempotency-key").and_then(|v|v.to_str().ok()),
             "paypal_request_id":headers.get("paypal-request-id").and_then(|v|v.to_str().ok()),
             "payment_create":method == Method::POST && (path == "/stripe/checkout/sessions" || path == "/v2/checkout/orders")}));
@@ -245,6 +284,21 @@ async fn reply(
             .filter(|(name, _)| operation == *name || *name == provider_operation(path, &method))
             .map(|(_, fault)| fault.clone())
     };
+    let delay_hold_read = if operation == "CheckoutDraft" {
+        let mut scenario = state.lock().unwrap();
+        scenario
+            .expiring_completion_read
+            .as_mut()
+            .is_some_and(|count| {
+                *count += 1;
+                *count == 4
+            })
+    } else {
+        false
+    };
+    if delay_hold_read {
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
     let stock_barrier = if operation == "CatalogueProducts" {
         state.lock().unwrap().stock_barrier.clone()
     } else {
@@ -425,7 +479,9 @@ fn order_id(scenario: &Scenario) -> String {
 }
 
 fn draft(scenario: &Scenario) -> Value {
-    let reservation = if scenario.reservation_valid {
+    let reservation = if scenario.shortened_hold {
+        json!((chrono::Utc::now() + chrono::Duration::minutes(5)).to_rfc3339())
+    } else if scenario.reservation_valid {
         scenario.draft_input["reserveInventoryUntil"].clone()
     } else {
         Value::Null
@@ -497,10 +553,10 @@ fn draft_search(scenario: &Scenario, body: &Value) -> Value {
 
 fn stripe_session(scenario: &Scenario) -> Value {
     json!({"id":format!("cs_{}",scenario.id),"object":"checkout.session","mode":"payment",
-        "status":if scenario.paid {"complete"} else {"open"},"payment_status":if scenario.paid {"paid"} else {"unpaid"},
+        "status":if scenario.paid || scenario.stripe_processing {"complete"} else {"open"},"payment_status":if scenario.paid {"paid"} else {"unpaid"},
         "livemode":false,"amount_total":4000,"currency":"sgd","metadata":{"checkout_id":scenario.stripe_input["metadata[checkout_id]"]},
         "payment_intent":if scenario.paid {json!(format!("pi_{}",scenario.id))} else {Value::Null},
-        "url":"https://checkout.stripe.com/synthetic-session","expires_at":scenario.stripe_input["expires_at"].as_str().and_then(|v|v.parse::<i64>().ok())})
+        "url":if scenario.paid || scenario.stripe_processing {Value::Null} else {json!("https://checkout.stripe.com/synthetic-session")},"expires_at":scenario.stripe_input["expires_at"].as_str().and_then(|v|v.parse::<i64>().ok())})
 }
 
 fn paypal_order(scenario: &Scenario) -> Value {

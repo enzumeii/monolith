@@ -1,5 +1,7 @@
 use crate::{
-    config::CheckoutSettings, error::AppError, models::paypal::VerifyWebhookSignatureRequest,
+    config::CheckoutSettings,
+    error::AppError,
+    models::{paypal::VerifyWebhookSignatureRequest, shopify::ShopifyId},
 };
 use axum::{
     body::Bytes,
@@ -67,7 +69,17 @@ pub(crate) fn create(request: &CreateCheckoutRequest) -> Result<(), AppError> {
     }
     let mut variants = HashSet::new();
     for item in &request.items {
-        let variant = id(&item.variant_id)?;
+        let variant = if item.variant_id.starts_with("gid:") {
+            let variant = ShopifyId::new(&item.variant_id)
+                .and_then(|variant| variant.number("ProductVariant"))
+                .map_err(|_| invalid("Invalid checkout variant identifier"))?;
+            if item.variant_id != format!("gid://shopify/ProductVariant/{variant}") {
+                return Err(invalid("Invalid checkout variant identifier"));
+            }
+            item.variant_id.clone()
+        } else {
+            id(&item.variant_id)?.to_string()
+        };
         if !variants.insert(variant) {
             return Err(invalid("items must not contain duplicate variants"));
         }

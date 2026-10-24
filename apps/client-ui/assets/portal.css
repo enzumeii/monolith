@@ -54,3 +54,18 @@
     .portal-filters label { margin-bottom: -.5rem; }
     .portal-quantity { flex-wrap: wrap; }
 }
+
+.portal-cart-editor { border: 0; margin: 0; padding: 0; min-width: 0; }
+.checkout-controls { display: grid; gap: .8rem; margin-top: 1.5rem; max-width: 44rem; }
+.checkout-controls h3, .checkout-controls p { margin: 0; }
+.checkout-controls input { width: 100%; box-sizing: border-box; }
+.checkout-payment-button { display: flex; align-items: center; justify-content: center; gap: .8rem; min-height: 3.5rem; white-space: normal; text-align: center; line-height: 1.4; }
+.checkout-paypal { color: #003087; background: #ffc439; border-color: #ffc439; }
+.checkout-card { color: #171717; background: #fff; border: 1px solid #c4c4c4; }
+.checkout-payment-button:disabled { background: #d9d9d9; border-color: #d9d9d9; color: #646464; cursor: not-allowed; opacity: .7; }
+.checkout-wallet-marks { display: flex; flex-wrap: nowrap; align-items: center; gap: .4rem; flex-shrink: 0; }
+.checkout-paypal-mark { flex-shrink: 0; }
+.checkout-payment-button:disabled svg { filter: grayscale(1); }
+.checkout-status { max-width: 48rem; margin-block: 1rem; }
+.checkout-order-reference { font-size: 1.3rem; }
+@media (max-width: 520px) { .checkout-card { flex-direction: column; gap: .5rem; padding: .8rem; } }

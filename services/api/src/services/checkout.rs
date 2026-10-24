@@ -214,10 +214,19 @@ async fn advance(
         let draft = purchase::read(clients, &checkout).await?;
         let money = purchase::validate_purchase(&checkout, &draft)?;
         if checkout.completion_state != CompletionState::Completed {
-            if checkout.payment_state != PaymentState::Paid && draft.order.is_none() {
-                purchase::validate_reservation(&checkout, &draft)?;
-            }
-            provider::advance(pool, clients, &mut checkout, &money, token).await?;
+            let reservation_safe = purchase::validate_reservation(&checkout, &draft).is_ok()
+                && checkout
+                    .reservation_expires_at
+                    .is_some_and(|expiry| expiry > Utc::now());
+            provider::advance(
+                pool,
+                clients,
+                &mut checkout,
+                &money,
+                token,
+                reservation_safe,
+            )
+            .await?;
         }
         hydrate_response(clients, &checkout, false).await
     }
@@ -365,6 +374,7 @@ fn response_status(checkout: &Checkout, busy: bool) -> CheckoutStatus {
     if checkout.completion_state == CompletionState::Completed {
         CheckoutStatus::Completed
     } else if checkout.draft_state == DraftState::Uncertain
+        || checkout.payment_state == PaymentState::Uncertain
         || checkout.completion_state == CompletionState::Uncertain
         || (checkout.payment_state == PaymentState::Paid
             && checkout

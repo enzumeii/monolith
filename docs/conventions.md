@@ -4,7 +4,7 @@
 
 | Concern | Behavior |
 | --- | --- |
-| Entry routes | `/` lists enabled conventions whose event has not ended relative to the browser-local date; `/<slug>` browses that convention; `/<slug>/cart/<checkout-id>` edits its browser cart |
+| Entry routes | `/` lists enabled conventions whose event has not ended relative to the browser-local date; `/<slug>` browses that convention; `/<slug>/cart/<cart-id>` edits its browser cart. `/<slug>/checkout/return?checkout_id=…` and `/<slug>/checkout/cancel?checkout_id=…` recover a payment attempt |
 | Ordering | Valid hosting IP-country wins over an explicit browser-locale region; otherwise date-only. Matching countries first, then event start ascending and stable slug/ID ties; ongoing events remain discoverable. Country changes no prices or permissions |
 | Public API | Anonymous `/api/v1/conventions`, `/api/v1/conventions/<slug>`, `/api/v1/conventions/<slug>/products` and `POST /api/v1/conventions/<slug>/quote`; native `/v1` aliases. Disabled/missing conventions expose no metadata or catalogue |
 | Catalogue | Complete saved selection, bounded by250 variants; one live Shopify nodes read supplies current descriptions, types, options, images and stock. Final price/currency come from the convention. Frontend search/type filters and12/24/48 product-card pages run locally |
@@ -13,8 +13,24 @@
 | Reconciliation | Cart opening/edits refresh catalogue and exact server quotes. Removed/unavailable/insufficient lines require adjustment; changed prices require acknowledgement. Pending or failed quotes never become confirmed current totals |
 | Failure handling | Malformed or unavailable storage has a recoverable in-memory fallback. API/provider failure remains an error rather than zero stock. Signed logo preview failures use placeholders |
 | Prices | Exact decimal strings and checked arithmetic; convention-inclusive line prices, one currency and zero shipping. Browser totals are not authority |
-| Boundaries | Browsing and cart edits create no order, checkout record, provider payment or stock hold. Payment and final reservation are later work |
+| Boundaries | Browsing and cart edits create no order, checkout record, provider payment or stock hold. Payment initiation uses the accepted quote and confirmation email, then the backend validates and reserves a Shopify draft before opening the hosted gateway |
 | Shared presentation | Customer pages use existing common theme, sanitized Markdown, forms/loading/errors and shared Heading. Routing owns navigation; pages/cart own feature state; API services own quote policy |
+
+## Guest payment and confirmation
+
+| Concern | Behavior |
+| --- | --- |
+| Payment choices | “Pay with PayPal” includes its mark. “Pay with credit card, Google Pay or Apple Pay” includes card and wallet marks and uses Stripe-hosted Checkout. Wallet presentation depends on device and gateway eligibility |
+| Initiation | Both buttons remain visible and disabled for an empty cart. A valid confirmation email, accepted current quote and secure browser storage/ownership are required. Cart edits and repeat activation are disabled while preparing payment |
+| API | `POST /api/v1/order/checkout` creates or resumes one immutable attempt; `POST /api/v1/order/{checkout_id}/verify` checks it with the same guest bearer. Public Shopify ProductVariant GIDs are accepted, with legacy selection UUID support; the server resolves membership and rejects duplicate resolved variants |
+| Browser recovery | A Web Lock serializes ownership before generating and saving the operation UUID and guest capability. Separate localStorage records hold capability and cart snapshot; email and the exact create body stay in sessionStorage. The normal cart contains no contact or payment data. A lost response reuses the original attempt; ambiguous failures never authorize a fresh payment |
+| Gateway navigation | Follow only the API redirect action after validating its selected provider's HTTPS host. Return and cancel pages verify independently of catalogue availability. Leaving a gateway does not establish unpaid status; an approved PayPal payment may still be captured under the original instruction |
+| Pending payment | Processing checks run at most 12 times, five seconds apart, then offer “Check status”. Missing/expired browser credentials or reconciliation-required state instruct the customer to keep their receipt and contact the shop before paying again |
+| Confirmation | Only verified `completed` displays congratulations and the actual Shopify `order.name`, such as `#1234`, verbatim. It asks the customer to check their confirmation email and show it at the convention. Shopify owns confirmation-email delivery |
+| Cart preservation | Cancelled, pending and failed attempts preserve the cart. Verified completion clears only the exact saved cart snapshot, preserving newer changes from another tab. Only authoritative unpaid status or a known initiation rejection permits another attempt |
+| Recovery follow-up | This checkout advances during create, customer verification and authenticated provider callbacks. ENZ-49 adds automatic recovery in a separate later change; no checkout recovery cron worker is included here |
+
+Controlled tests do not establish actual wallet eligibility, live gateway acceptance, genuine webhook delivery or Shopify email delivery. Record verification results in [verification](verification.md).
 
 ## Saved and draft state
 

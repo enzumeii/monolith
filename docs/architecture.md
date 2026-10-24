@@ -265,7 +265,7 @@ flowchart LR
 | Manual enablement | Enabling requires nonempty eligible selections and supported currency/methods/prices; clearing an enabled convention is rejected until disabled. Event dates are metadata, without scheduling, lifecycle, version, readiness or display-order fields |
 | Display snapshots | Existing Shopify validation returns trusted product/variant titles, nullable SKU, product featured image URL, variant image URL and inventory policy. Saved images expose URLs only. Required saves write price and snapshot atomically; explicit nulls clear old metadata. Unchanged disabled saves retain the latest locked row snapshot and timestamps. GET uses PostgreSQL only, including during provider failure; rows with missing display data or policy remain nullable until required validation, without automatic backfill |
 | Router composition | Admin nests the relative convention child router under `/conventions`; canonical collection URL stays slashless with no trailing-slash redirect; outer `/v1` alias and middleware remain shared |
-| Future consumers | Current reads use the list service with its optional enabled filter and the UUID lookup; manual enable/disable remains on PATCH. Public catalogue APIs (ENZ-38), routing (ENZ-41) and quotes remain separate work. Guest checkout stores linkage and evidence hashes; Shopify retains the accepted draft purchase independently of current convention membership |
+| Public consumers | Public catalogue and quote services enforce manual enablement; customer routing and carts consume those APIs. Guest checkout stores linkage and evidence hashes; Shopify retains the accepted draft purchase independently of current convention membership |
 
 | Catalogue contract | Behavior |
 | --- | --- |
@@ -380,7 +380,7 @@ sequenceDiagram
 
 ## Guest checkout orchestration
 
-The public `/v1/order` routes (also `/api/v1/order`) combine the existing provider clients and stateless Shopify completion service. Client UI checkout/return pages are separate work.
+The public `/v1/order` routes (also `/api/v1/order`) combine the existing provider clients and stateless Shopify completion service. The customer cart initiates hosted payment; standalone return/cancel pages verify the original attempt without requiring the catalogue.
 
 ```mermaid
 sequenceDiagram
@@ -413,23 +413,34 @@ sequenceDiagram
 
 | Endpoint / owner | Data and behavior |
 | --- | --- |
-| `POST /order/checkout` | Random v4 `operation_id` (also checkout ID), convention UUID, email, selected provider, distinct convention-variant UUIDs, quantities, expected positive minor-unit prices and uppercase currency. Revalidate current convention, prices, eligibility and Shopify inventory. Checkout requires tracked inventory, DENY policy and sufficient available quantity at its configured location; catalogue browsing accepts both policies. Submitted prices are comparison guards; changed price requires refreshed consent |
+| `POST /order/checkout` | Random v4 `operation_id` (also checkout ID), convention UUID, email, selected provider, public Shopify ProductVariant GIDs or legacy selection UUIDs, quantities, expected positive minor-unit prices and uppercase currency. Resolve selected membership and reject duplicate resolved variants, including mixed identifiers. Revalidate current convention, prices, eligibility and Shopify inventory. Checkout requires tracked inventory, DENY policy and sufficient available quantity at its configured location; catalogue browsing accepts both policies. Submitted prices are comparison guards; changed price requires refreshed consent |
 | `POST /order/{checkout_id}/verify` | Same guest bearer, empty body, no query. Hydrate the accepted Shopify draft/provider bindings; no email or cart restoration response. Recover by the ID saved before sending when authoritative resources exist; pre-draft recovery has the boundary below |
 | `POST /order/webhook/{provider}` | Exact event bytes and Stripe signature or PayPal transmission headers; no admin JWT or Origin. Authenticate before association. Unsupported authenticated events are acknowledged without requiring Shopify; supported events use current provider truth and the checkout state/claim rather than a stored event receipt. Unfinished/busy advancement remains retryable |
 | Shared advancement | Database claim token serializes and fences state updates; persist external-write intent before upstream calls. Same guest and unchanged create payload resume one attempt; changed payload conflicts. Uncertain draft creation/completion requires reconciliation rather than blind replacement writes |
-| Payment / reservation | Draft reservation precedes payment creation; accepted draft evidence commits to email, variants/quantities and exact total/currency. Fresh reads must match this commitment and the required tag subset. Stripe expiry matches confirmed reservation. PayPal approval remains unpaid until capture. Paid evidence after expiry requires reconciliation; no automatic refund or stock oversell |
-| Completion | Existing completion service verifies provider truth and Shopify money/order/tag readback. Payment alone is not completed checkout. Replays read the real linked order; native Shopify completion remains the confirmation-email mechanism |
+| Payment / reservation | Draft reservation precedes payment creation; accepted draft evidence commits to email, variants/quantities and exact total/currency. Fresh reads must match this commitment and the required tag subset. Stripe create/recovery POSTs pin `2026-08-26.dahlia`; accounting reads keep their existing version behavior. A complete/unpaid Stripe Session with no URL stays processing. PayPal pickup requests use typed `NO_SHIPPING`; approval remains unpaid until capture |
+| Reservation expiry | Verify known provider truth before deciding mutation eligibility. A missing/shortened/expired hold does not establish unpaid status. Reconcile an already-linked paid Shopify order after expiry; block new capture/completion when reservation safety is unavailable. No automatic refund or stock oversell |
+| Completion | Existing completion service verifies provider truth and Shopify money/order/tag readback. Payment alone is not completed checkout. Replays read the real linked order; only completed returns its actual ID/name. Native Shopify completion remains the confirmation-email mechanism |
 
 | Location | Retained information |
 | --- | --- |
-| Browser cart storage (future UI) | Convention/variant IDs, quantities and displayed price/currency for shopping convenience; always revalidated. Keep cart separate from payment attempts |
-| Browser per-attempt `localStorage` (future UI) | Before first request: cryptographically random v4 UUID and independent random 32-byte secret encoded as 64 hex characters; convention slug, provider and local expiry for navigation/recovery. Send secret only in guest Bearer header; URL contains only checkout ID. Reloads, gateway navigation and tabs recover by attempt ID. Clear expired/finished credentials; never reuse for another attempt |
-| Browser memory only | Contact email/form state during entry. No durable email, provider secret, card data or authoritative paid flag. Lost guest storage prevents guest access; ID alone cannot restore PII |
+| Browser cart storage | Convention/variant IDs, quantities and displayed price/currency for shopping convenience; always revalidated. Cart identity is distinct from a payment operation ID; keep cart separate from payment attempts |
+| Browser per-attempt `localStorage` | Before first request: cryptographically random v4 UUID and independent random 32-byte secret encoded as 64 hex characters; convention slug, provider, cart snapshot and recovery state. A Web Lock owns initiation before identity generation and storage. Send secret only in guest Bearer header; URL contains only checkout ID. Reloads, gateway navigation and tabs recover the same attempt. Local status is not payment authority |
+| Browser `sessionStorage` | Exact original create body, including confirmation email, for identical same-attempt replay. Removed on completed/unpaid/rejected/expired disposition. No email in normal cart or localStorage; no provider secret or card data. Lost guest storage prevents guest access; ID alone cannot restore PII |
 | `checkouts` | SHA-256 hash of decoded guest-secret bytes, recovery expiry, fingerprint, convention linkage, trusted provider account/environment, draft/payment/order references, accepted-draft and required-tag hashes, frozen success/cancel URLs until gateway binding, gateway request fingerprint, reservation deadline, independent payment/draft/completion states and fenced claim. Create/capture keys derive from checkout ID; email/items/totals/redirect/order-name are not cached locally |
 | Shopify draft / order | Authoritative email, items and exact presentment money; confirmed reservation and real completion. Required checkout/convention tags bind identity; unrelated added tags remain accepted |
 | Gateway resources | Current redirect/approval URL and verified payment evidence. No local item, event-receipt or source-admission tables; removal of the SQL admission counter removes that checkout-only throttle |
 
-Guest credentials are distinct from backoffice JWT/cookies. Recovery expiry limits browser authorization; callbacks can finish independently. Same-origin scripts can read localStorage, so the eventual frontend must prevent XSS. These backend routes deliver no frontend storage implementation or browser acceptance proof.
+Guest credentials are distinct from backoffice JWT/cookies. Recovery expiry limits browser authorization; callbacks can finish independently. Same-origin scripts can read localStorage, so frontend script integrity remains a capability boundary. The UI permits a new attempt only after authoritative unpaid status or a known pre-payment rejection; ambiguous errors preserve the existing attempt. Verified completion clears only an unchanged matching cart snapshot. Actual browser/provider verification limits belong in [verification](verification.md).
+
+| Customer status | Presentation / action |
+| --- | --- |
+| `requires_action` | Continue the same payment through its validated hosted redirect |
+| `processing` | At most 12 checks five seconds apart, then manual status check; do not pay again |
+| `unpaid` | Preserve cart and allow returning to it for a new attempt |
+| `reconciliation_required` | Keep receipt and contact the shop; do not pay again |
+| `completed` | Congratulations, real Shopify display name verbatim, and instructions to check/show the confirmation email at the convention |
+
+Automatic checkout recovery is the separate ENZ-49 follow-up. This change advances through create, customer verify and authenticated webhooks; it does not add a cron worker, retry migration or scheduler changes.
 
 
 | Recovery boundary | Required behavior |

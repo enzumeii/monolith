@@ -1,4 +1,5 @@
 pub mod conventions;
+pub mod orders;
 
 use domain::dto::ErrorResponse;
 use reqwest::{Method, RequestBuilder, StatusCode};

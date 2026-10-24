@@ -14,6 +14,7 @@ struct CurrentCart {
 #[component]
 pub fn CartView(catalogue: PublicCatalogueResponse, checkout_id: String) -> Element {
     let mut context = use_context::<CartContext>();
+    let busy = use_signal(|| false);
     let slug = catalogue.convention.slug.clone();
     let currency = catalogue.convention.currency_code.clone();
     let mut current = use_resource(use_reactive(
@@ -108,14 +109,21 @@ pub fn CartView(catalogue: PublicCatalogueResponse, checkout_id: String) -> Elem
     let changed = lines.iter().any(|line| line.price_changed);
     let unresolved = changed || lines.iter().any(|line| line.issue.is_some());
     let current_products = products.clone();
+    let checkout_quote = fresh
+        .and_then(|value| value.quote.as_ref())
+        .and_then(|quote| quote.as_ref().ok())
+        .filter(|_| !unresolved)
+        .cloned();
     rsx! {
         Heading { title: "Your cart", level: HeadingLevel::Section }
-        p { class: "meta", "Review your selections. Payment will be available later." }
+        p { class: "meta", "Review your selections and current total before paying." }
         if lines.is_empty() { p { "Your cart is empty." } }
+        fieldset { class: "portal-cart-editor", disabled: *busy.read(),
         div { class: "portal-cart-lines",
             for line in lines {
                 CartLine { key: "{line.variant_id}", line, currency: currency.clone() }
             }
+        }
         }
         if !ready { LoadingMessage { message: "Checking current prices and availability…" } }
         if ready {
@@ -126,7 +134,7 @@ pub fn CartView(catalogue: PublicCatalogueResponse, checkout_id: String) -> Elem
             if let Some(value) = fresh {
                 if changed {
                     p { class: "portal-notice", role: "status", "Prices have changed since you added these items. Review and accept the current prices to update your total." }
-                    button { class: "primary", onclick: move |_| context.update(|cart| cart.accept_prices(&current_products)), "Accept updated prices" }
+                    button { class: "primary", disabled: *busy.read(), onclick: move |_| context.update(|cart| cart.accept_prices(&current_products)), "Accept updated prices" }
                 }
                 match value.quote.as_ref() {
                     Some(Ok(quote)) if !unresolved => rsx! { QuoteSummary { quote: quote.clone() } },
@@ -138,6 +146,7 @@ pub fn CartView(catalogue: PublicCatalogueResponse, checkout_id: String) -> Elem
                 }
             }
         }
+        crate::checkout::CheckoutControls { slug: catalogue.convention.slug.clone(), snapshot: cart, quote: checkout_quote, busy }
     }
 }
 
