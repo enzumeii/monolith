@@ -3,18 +3,19 @@ description: Authoritative Shopify draft/order read for stateless paid completio
 url: "{{shopify}}/graphql.json"
 query: |
   query CheckoutOrder($id: ID!) {
-  	order(id: $id) {
-  		id
-  		displayFinancialStatus
-  		cancelledAt
-  		tags
-  		totalPriceSet {
-  			presentmentMoney {
-  				amount
-  				currencyCode
-  			}
-  		}
-  	}
+    order(id: $id) {
+      id
+      name
+      displayFinancialStatus
+      cancelledAt
+      tags
+      totalPriceSet {
+        presentmentMoney {
+          amount
+          currencyCode
+        }
+      }
+    }
   }
 variables: |-
   {

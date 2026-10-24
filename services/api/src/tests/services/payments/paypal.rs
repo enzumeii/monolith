@@ -50,10 +50,6 @@ async fn verifies_authoritative_payment_with_gets_and_never_captures() {
         PaymentOutcome::VerifiedPaid(VerifiedPayment {
             order_id: "ORDER".into(),
             capture_id: "CAPTURE".into(),
-            merchant_id: "MERCHANT".into(),
-            api_origin: fixture.url.origin().ascii_serialization(),
-            reference_id: "purchase-unit".into(),
-            custom_id: "draft-ref".into(),
             amount: 1000,
             currency: "USD".into(),
         })
@@ -95,13 +91,9 @@ async fn approved_and_other_uncaptured_orders_stay_unpaid_without_provider_mutat
             .await
             .unwrap();
         let want = if terminal {
-            PaymentOutcome::TerminalUnpaid {
-                order_id: "ORDER".into(),
-            }
+            PaymentOutcome::TerminalUnpaid
         } else {
-            PaymentOutcome::Pending {
-                order_id: "ORDER".into(),
-            }
+            PaymentOutcome::Pending
         };
         assert_eq!(outcome, want, "{status}");
         assert_eq!(fixture.methods(), [Method::POST, Method::GET]);
@@ -121,13 +113,9 @@ async fn independently_retrieved_pending_and_denied_captures_are_unpaid() {
         replies[2]["status"] = json!(status);
         let fixture = provider_fixture(replies).await;
         let want = if terminal {
-            PaymentOutcome::TerminalUnpaid {
-                order_id: "ORDER".into(),
-            }
+            PaymentOutcome::TerminalUnpaid
         } else {
-            PaymentOutcome::Pending {
-                order_id: "ORDER".into(),
-            }
+            PaymentOutcome::Pending
         };
         assert_eq!(
             verify_payment(&client(&fixture), &expected(&fixture))
@@ -340,7 +328,7 @@ async fn invalid_trusted_expectations_never_contact_provider() {
             error
                 .location()
                 .file()
-                .ends_with("client/paypal/payment.rs")
+                .ends_with("services/payments/paypal.rs")
         );
         assert!(fixture.requests().is_empty(), "{field}");
     }
@@ -427,7 +415,7 @@ async fn contradictory_provider_evidence_has_a_safe_protocol_error_and_original_
             error
                 .location()
                 .file()
-                .ends_with("client/paypal/payment/evidence.rs")
+                .ends_with("services/payments/paypal/evidence.rs")
         );
         assert!(!format!("{error:?}").contains("untrusted-provider-value"));
         assert!(std::error::Error::source(&error).is_none());

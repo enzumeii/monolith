@@ -326,6 +326,26 @@ impl ShopifyClient {
         }
         Ok(data.product_variant)
     }
+    pub(crate) async fn draft_orders(
+        &self,
+        page: PageRequest,
+        query: Option<&str>,
+    ) -> Result<Connection<crate::models::shopify::CompletionDraft>, ClientError> {
+        page.validate()?;
+        let data: crate::models::shopify::DraftOrdersData = self
+            .execute(
+                "DraftOrders",
+                include_str!("shopify/draft_orders.graphql"),
+                json!({"first":page.first,"after":page.after,"query":query}),
+            )
+            .await?;
+        for draft in &data.draft_orders.nodes {
+            draft.id.require_kind("DraftOrder")?;
+        }
+        data.draft_orders.validate_after(page.after.as_deref())?;
+        Ok(data.draft_orders)
+    }
+
     pub(crate) async fn checkout_draft(
         &self,
         id: &ShopifyId,

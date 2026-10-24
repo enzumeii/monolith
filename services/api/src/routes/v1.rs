@@ -2,13 +2,15 @@ mod admin;
 mod admins;
 mod auth;
 mod conventions;
+mod order;
 use crate::{middleware, state::AppState};
 use axum::{Router, middleware as axum_middleware};
 
 pub fn router(state: &AppState) -> Router<AppState> {
     let public_routes = Router::new()
         .nest("/auth", auth::public_router())
-        .nest("/conventions", conventions::router());
+        .nest("/conventions", conventions::router())
+        .nest("/order", order::router());
 
     let super_admin_routes = Router::new()
         .nest("/admins", admins::super_admin_router())

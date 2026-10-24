@@ -82,7 +82,7 @@ fn unsupported_unknown_and_noncanonical_currencies_remain_protocol_errors() {
             error
                 .location()
                 .file()
-                .ends_with("client/paypal/payment/money.rs")
+                .ends_with("models/paypal/payment.rs")
         );
     }
 }

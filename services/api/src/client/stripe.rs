@@ -1,4 +1,3 @@
-pub mod payment;
 pub mod webhook;
 
 use crate::{
@@ -99,7 +98,36 @@ impl StripeClient {
         &self,
         input: &CreateCheckoutSession,
     ) -> Result<CheckoutSession, ClientError> {
-        validate_checkout(input)?;
+        self.checkout_session(input, false).await
+    }
+
+    pub async fn recover_checkout_session(
+        &self,
+        input: &CreateCheckoutSession,
+    ) -> Result<CheckoutSession, ClientError> {
+        self.checkout_session(input, true).await
+    }
+
+    pub async fn get_checkout_session(&self, id: &str) -> Result<CheckoutSession, ClientError> {
+        validate_id(id)?;
+        self.get(self.operation_url(&["checkout", "sessions", id])?)
+            .await
+    }
+
+    pub async fn get_payment_intent(&self, id: &str) -> Result<PaymentIntent, ClientError> {
+        self.get(self.resource_url("payment_intents", id)?).await
+    }
+
+    pub async fn get_account(&self) -> Result<Account, ClientError> {
+        self.get(self.operation_url(&["account"])?).await
+    }
+
+    async fn checkout_session(
+        &self,
+        input: &CreateCheckoutSession,
+        recovery: bool,
+    ) -> Result<CheckoutSession, ClientError> {
+        validate_checkout(input, recovery)?;
         let mut form = vec![
             ("mode".to_owned(), "payment".to_owned()),
             ("payment_method_types[0]".into(), "card".into()),
@@ -120,6 +148,9 @@ impl StripeClient {
             ("success_url".into(), input.success_url.clone()),
             ("cancel_url".into(), input.cancel_url.clone()),
         ];
+        if let Some(expires_at) = input.expires_at {
+            form.push(("expires_at".into(), expires_at.to_string()));
+        }
         for (key, value) in &input.metadata {
             form.push((format!("metadata[{key}]"), value.clone()));
             form.push((
@@ -140,6 +171,9 @@ impl StripeClient {
             || session.amount_total != Some(input.amount)
             || session.currency.as_deref() != Some(input.currency.to_ascii_lowercase().as_str())
             || session.metadata != input.metadata
+            || input
+                .expires_at
+                .is_some_and(|expiry| session.expires_at != Some(expiry))
         {
             return Err(ClientError::new(ClientErrorKind::Protocol(
                 "Checkout Session does not match creation request",
@@ -161,34 +195,6 @@ impl StripeClient {
             )));
         }
         Ok(session)
-    }
-
-    pub async fn get_checkout_session(&self, id: &str) -> Result<CheckoutSession, ClientError> {
-        validate_id(id)?;
-        self.get(self.operation_url(&["checkout", "sessions", id])?)
-            .await
-    }
-
-    pub async fn expire_checkout_session(
-        &self,
-        id: &str,
-        idempotency_key: &str,
-    ) -> Result<CheckoutSession, ClientError> {
-        validate_id(id)?;
-        self.post(
-            self.operation_url(&["checkout", "sessions", id, "expire"])?,
-            idempotency_key,
-            &[],
-        )
-        .await
-    }
-
-    pub async fn get_payment_intent(&self, id: &str) -> Result<PaymentIntent, ClientError> {
-        self.get(self.resource_url("payment_intents", id)?).await
-    }
-
-    pub async fn get_account(&self) -> Result<Account, ClientError> {
-        self.get(self.operation_url(&["account"])?).await
     }
 
     async fn post<T: DeserializeOwned>(
@@ -257,10 +263,7 @@ impl StripeClient {
 }
 
 fn validate_id(id: &str) -> Result<(), ClientError> {
-    if id.is_empty()
-        || id.len() > 255
-        || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-    {
+    if !crate::models::stripe::valid_id(id) {
         return Err(ClientError::new(ClientErrorKind::InvalidInput(
             "invalid Stripe object ID",
         )));
@@ -281,7 +284,7 @@ fn idempotency_header(key: &str) -> Result<HeaderValue, ClientError> {
     })
 }
 
-fn validate_checkout(input: &CreateCheckoutSession) -> Result<(), ClientError> {
+fn validate_checkout(input: &CreateCheckoutSession, recovery: bool) -> Result<(), ClientError> {
     if !(1..=99_999_999).contains(&input.amount) {
         return Err(ClientError::new(ClientErrorKind::InvalidInput(
             "Stripe amount must be a positive integer of at most eight digits",
@@ -295,6 +298,23 @@ fn validate_checkout(input: &CreateCheckoutSession) -> Result<(), ClientError> {
     if input.product_name.trim().is_empty() || input.product_name.len() > 250 {
         return Err(ClientError::new(ClientErrorKind::InvalidInput(
             "invalid Stripe product name",
+        )));
+    }
+    if let Some(expires_at) = input.expires_at {
+        let remaining = expires_at.saturating_sub(chrono::Utc::now().timestamp());
+        let minimum_remaining = if recovery { 1 } else { 1800 };
+        if !(minimum_remaining..=86_400).contains(&remaining) {
+            return Err(ClientError::new(ClientErrorKind::InvalidInput(
+                if recovery {
+                    "Stripe Checkout recovery requires an unexpired original expiry within 24 hours"
+                } else {
+                    "Stripe Checkout expiry must be between 30 minutes and 24 hours"
+                },
+            )));
+        }
+    } else if recovery {
+        return Err(ClientError::new(ClientErrorKind::InvalidInput(
+            "Stripe Checkout recovery requires the original expiry",
         )));
     }
     idempotency_header(&input.idempotency_key)?;

@@ -1,3 +1,5 @@
+pub mod payment;
+pub mod webhook;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -168,6 +170,7 @@ pub struct CreateCheckoutSession {
     pub success_url: String,
     pub cancel_url: String,
     pub idempotency_key: String,
+    pub expires_at: Option<i64>,
     pub metadata: BTreeMap<String, String>,
 }
 
@@ -184,6 +187,7 @@ pub struct CheckoutSession {
     pub metadata: BTreeMap<String, String>,
     pub payment_intent: Option<StripeReference<PaymentIntent>>,
     pub url: Option<String>,
+    pub expires_at: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -438,6 +442,14 @@ impl From<ChargeStatus> for String {
     fn from(value: ChargeStatus) -> Self {
         value.as_str().to_owned()
     }
+}
+
+pub(crate) fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 255
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 #[cfg(test)]

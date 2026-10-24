@@ -3,7 +3,34 @@ use crate::{
     models::CurrencyCode,
 };
 
-pub(super) fn exact_money(amount: &str, currency: &str) -> Result<i64, ClientError> {
+/// Expectations supplied by the trusted checkout owner, independently of provider evidence.
+#[derive(Debug)]
+pub struct ExpectedPayment {
+    pub order_id: String,
+    pub merchant_id: String,
+    pub api_origin: String,
+    pub reference_id: String,
+    pub custom_id: String,
+    pub amount: i64,
+    pub currency: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum PaymentOutcome {
+    Pending,
+    TerminalUnpaid,
+    VerifiedPaid(VerifiedPayment),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct VerifiedPayment {
+    pub order_id: String,
+    pub capture_id: String,
+    pub amount: i64,
+    pub currency: String,
+}
+
+pub(crate) fn exact_money(amount: &str, currency: &str) -> Result<i64, ClientError> {
     let scale = currency_scale(currency).ok_or_else(|| invalid_money())?;
     if amount.is_empty() || amount.len() > 32 {
         return Err(invalid_money());
@@ -81,5 +108,5 @@ fn invalid_money() -> ClientError {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/client/paypal/payment/money.rs"]
+#[path = "../../tests/models/paypal/payment.rs"]
 mod tests;

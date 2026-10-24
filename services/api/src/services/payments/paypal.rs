@@ -1,42 +1,13 @@
 mod evidence;
-pub(crate) mod money;
 
 use crate::{
     client::{ClientError, ClientErrorKind, paypal::PaypalClient},
-    models::paypal::{CaptureStatus, OrderStatus},
+    models::paypal::{
+        CaptureStatus, OrderStatus,
+        payment::{ExpectedPayment, PaymentOutcome, VerifiedPayment, currency_scale},
+    },
 };
 use reqwest::Url;
-
-/// Expectations supplied by the trusted checkout owner, independently of provider evidence.
-#[derive(Debug)]
-pub struct ExpectedPayment {
-    pub order_id: String,
-    pub merchant_id: String,
-    pub api_origin: String,
-    pub reference_id: String,
-    pub custom_id: String,
-    pub amount: i64,
-    pub currency: String,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum PaymentOutcome {
-    Pending { order_id: String },
-    TerminalUnpaid { order_id: String },
-    VerifiedPaid(VerifiedPayment),
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct VerifiedPayment {
-    pub order_id: String,
-    pub capture_id: String,
-    pub merchant_id: String,
-    pub api_origin: String,
-    pub reference_id: String,
-    pub custom_id: String,
-    pub amount: i64,
-    pub currency: String,
-}
 
 /// Retrieves current provider evidence without capturing or mutating a payment.
 /// Refunded, reversed and unknown capture states fail verification; this result
@@ -58,10 +29,8 @@ pub async fn verify_payment(
             OrderStatus::Created
             | OrderStatus::Saved
             | OrderStatus::Approved
-            | OrderStatus::PayerActionRequired => {
-                Ok(PaymentOutcome::Pending { order_id: order.id })
-            }
-            OrderStatus::Voided => Ok(PaymentOutcome::TerminalUnpaid { order_id: order.id }),
+            | OrderStatus::PayerActionRequired => Ok(PaymentOutcome::Pending),
+            OrderStatus::Voided => Ok(PaymentOutcome::TerminalUnpaid),
             _ => Err(evidence::mismatch()),
         };
     }
@@ -72,9 +41,9 @@ pub async fn verify_payment(
     let capture = client.get_capture(&embedded.id).await?;
     evidence::validate_capture_binding(expected, embedded, &capture)?;
     match capture.status {
-        CaptureStatus::Pending => Ok(PaymentOutcome::Pending { order_id: order.id }),
+        CaptureStatus::Pending => Ok(PaymentOutcome::Pending),
         CaptureStatus::Denied | CaptureStatus::Declined | CaptureStatus::Failed => {
-            Ok(PaymentOutcome::TerminalUnpaid { order_id: order.id })
+            Ok(PaymentOutcome::TerminalUnpaid)
         }
         CaptureStatus::Completed => {
             if embedded.final_capture != Some(true) || capture.final_capture != Some(true) {
@@ -83,10 +52,6 @@ pub async fn verify_payment(
             Ok(PaymentOutcome::VerifiedPaid(VerifiedPayment {
                 order_id: order.id,
                 capture_id: capture.id,
-                merchant_id: expected.merchant_id.clone(),
-                api_origin: client.api_origin(),
-                reference_id: expected.reference_id.clone(),
-                custom_id: expected.custom_id.clone(),
                 amount: expected.amount,
                 currency: expected.currency.clone(),
             }))
@@ -102,7 +67,7 @@ fn validate_expected(client: &PaypalClient, expected: &ExpectedPayment) -> Resul
         || !valid_correlation(&expected.reference_id)
         || !valid_correlation(&expected.custom_id)
         || expected.amount <= 0
-        || money::currency_scale(&expected.currency).is_none()
+        || currency_scale(&expected.currency).is_none()
         || origin.as_ref().is_none_or(|origin| {
             !matches!(origin.scheme(), "https" | "http")
                 || origin.host_str().is_none()
@@ -133,5 +98,5 @@ fn valid_correlation(value: &str) -> bool {
 }
 
 #[cfg(test)]
-#[path = "../../tests/client/paypal/payment.rs"]
+#[path = "../../tests/services/payments/paypal.rs"]
 mod tests;

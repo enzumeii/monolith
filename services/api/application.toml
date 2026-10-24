@@ -46,3 +46,17 @@ bucket = "reports"
 force_path_style = true
 timeout_secs = 10
 signed_url_ttl_secs = 300
+
+# Enable guest checkout by configuring this complete non-sensitive section.
+# Supply CHECKOUT_STRIPE_WEBHOOK_SECRET, CHECKOUT_PAYPAL_WEBHOOK_ID and
+# CHECKOUT_PAYPAL_MERCHANT_ID through the environment.
+# [checkout]
+# frontend_origin = "https://convention.enzumeii.com"
+# return_path_template = "/{convention_slug}/checkout/return?checkout_id={checkout_id}"
+# cancel_path_template = "/{convention_slug}/checkout/cancel?checkout_id={checkout_id}"
+# shopify_location_id = "gid://shopify/Location/CONFIGURE"
+# reservation_secs = 3600
+# guest_recovery_secs = 604800
+# stripe_expected_account = "acct_CONFIGURE"
+# stripe_livemode = true
+# paypal_api_origin = "https://api-m.paypal.com"

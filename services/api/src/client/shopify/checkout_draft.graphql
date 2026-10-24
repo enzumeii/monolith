@@ -4,6 +4,20 @@ query CheckoutDraft($id: ID!) {
     ready
     status
     tags
+    email
+    reserveInventoryUntil
+    lineItems(first: 100) {
+      nodes {
+        quantity
+        variant {
+          id
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
     order {
       id
     }

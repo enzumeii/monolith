@@ -1,0 +1,40 @@
+query DraftOrders($first: Int!, $after: String, $query: String) {
+  draftOrders(first: $first, after: $after, query: $query) {
+    nodes {
+      id
+      ready
+      status
+      tags
+      email
+      reserveInventoryUntil
+      lineItems(first: 100) {
+        nodes {
+          quantity
+          variant {
+            id
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+      order {
+        id
+      }
+      totalPriceSet {
+        presentmentMoney {
+          amount
+          currencyCode
+        }
+      }
+      paymentTerms {
+        id
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}

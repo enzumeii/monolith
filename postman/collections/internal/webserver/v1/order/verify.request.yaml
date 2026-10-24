@@ -1,0 +1,19 @@
+$kind: http-request
+description: "Hydrate accepted Shopify purchase details and same provider resource. ID plus secret cannot reconstruct a never-created draft; no authoritative money returns safe 409/503 instead of a fabricated 200 total. Set vault:checkout_guest_secret privately to a cryptographically random 32-byte secret encoded as 64 hex characters; do not use an admin access JWT. Save this secret and the random v4 checkout_id before create. The operation ID equals checkout ID. Synthetic IDs must be replaced with actual convention/variant UUIDs and an unused random operation UUID. Requests mutate the selected Shopify/payment account; use controlled fixtures or intended Sandbox only. Empty body and no query required. Use the saved checkout_id even if create response was lost. Stripe is independently verified; PayPal APPROVED may be captured with its stored stable key before verification. 200 response shape matches create; completed adds order:{id,name}; processing/unpaid/reconciliation_required is not confirmation. Safe 401 {\"error\":\"Checkout credential is invalid or expired\"}; 400 for any nonempty body/query; 503 dependency/configuration, 502/504 upstream. Poll with bounded backoff; retain same attempt instead of blindly creating another."
+url: "{{server}}/v1/order/{{checkout_id}}/verify"
+method: POST
+order: 2000
+auth:
+  type: bearer
+  credentials:
+    token: "{{vault:checkout_guest_secret}}"
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test("Checkout verification response", () => pm.response.to.have.status(200));
+      if (pm.response.code === 200) {
+        const result = pm.response.json();
+        pm.test("Contact remains private", () => pm.expect(result).not.to.have.property("email"));
+        if (result.status === "completed") { pm.test("Completed order", () => pm.expect(result.order).to.have.all.keys("id", "name")); }
+      }

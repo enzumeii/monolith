@@ -4,6 +4,7 @@ use crate::client::{
     ClientErrorKind,
     tests::{Fixture, Reply},
 };
+use crate::{client::ClientError, models::paypal::WebhookEventType};
 use serde_json::{Value, json};
 
 fn request(event_type: &str, resource: Value) -> VerifyWebhookSignatureRequest {
@@ -44,10 +45,9 @@ async fn successful_postback_returns_only_notification_identity() {
     assert_eq!(
         result,
         VerifiedEvent {
-            id: "EVENT123".into(),
             event_type: WebhookEventType::CaptureCompleted,
             order_id: Some("ORDER123".into()),
-            capture_id: Some("CAPTURE123".into()),
+            checkout_reference: None,
         }
     );
     let requests = f.requests();
@@ -93,53 +93,29 @@ async fn unknown_notifications_remain_typed_notifications() {
         WebhookEventType::Other("FUTURE.EVENT".into())
     );
     assert_eq!(result.order_id, None);
-    assert_eq!(result.capture_id, None);
 }
 
 #[tokio::test]
-async fn order_notifications_and_refunds_preserve_distinct_resource_identities() {
-    for (kind, resource, order, capture) in [
+async fn order_notifications_and_refunds_preserve_order_associations() {
+    for (kind, resource, order) in [
         (
             "CHECKOUT.ORDER.APPROVED",
             json!({"id":"ORDER123"}),
             Some("ORDER123"),
-            None,
         ),
         (
             "CHECKOUT.ORDER.COMPLETED",
             json!({"id":"ORDER123"}),
             Some("ORDER123"),
-            None,
         ),
-        (
-            "PAYMENT.CAPTURE.PENDING",
-            json!({"id":"CAPTURE123"}),
-            None,
-            Some("CAPTURE123"),
-        ),
-        (
-            "PAYMENT.CAPTURE.DENIED",
-            json!({"id":"CAPTURE123"}),
-            None,
-            Some("CAPTURE123"),
-        ),
-        (
-            "PAYMENT.CAPTURE.REVERSED",
-            json!({"id":"CAPTURE123"}),
-            None,
-            Some("CAPTURE123"),
-        ),
-        (
-            "PAYMENT.CAPTURE.REFUNDED",
-            json!({"id":"REFUND123"}),
-            None,
-            None,
-        ),
+        ("PAYMENT.CAPTURE.PENDING", json!({"id":"CAPTURE123"}), None),
+        ("PAYMENT.CAPTURE.DENIED", json!({"id":"CAPTURE123"}), None),
+        ("PAYMENT.CAPTURE.REVERSED", json!({"id":"CAPTURE123"}), None),
+        ("PAYMENT.CAPTURE.REFUNDED", json!({"id":"REFUND123"}), None),
         (
             "PAYMENT.CAPTURE.REFUNDED",
             json!({"id":"REFUND123", "supplementary_data":{"related_ids":{"capture_id":"CAPTURE123", "order_id":"ORDER123"}}}),
             Some("ORDER123"),
-            Some("CAPTURE123"),
         ),
     ] {
         let f = Fixture::new(vec![
@@ -152,7 +128,6 @@ async fn order_notifications_and_refunds_preserve_distinct_resource_identities()
             .await
             .unwrap();
         assert_eq!(result.order_id.as_deref(), order, "{kind}");
-        assert_eq!(result.capture_id.as_deref(), capture, "{kind}");
         assert_eq!(result.event_type.as_str(), kind);
         assert_eq!(f.requests().len(), 2);
     }
@@ -164,6 +139,11 @@ async fn malformed_envelopes_and_optional_references_fail_before_postback() {
     let client = PaypalClient::new(&super::super::tests::config(&f)).unwrap();
     for event in [
         Value::Null,
+        json!({"event_type":"PAYMENT.CAPTURE.COMPLETED", "resource":{"id":"CAPTURE123"}}),
+        json!({"id":null, "event_type":"PAYMENT.CAPTURE.COMPLETED", "resource":{"id":"CAPTURE123"}}),
+        json!({"id":7, "event_type":"PAYMENT.CAPTURE.COMPLETED", "resource":{"id":"CAPTURE123"}}),
+        json!({"id":"EVENT\n123", "event_type":"PAYMENT.CAPTURE.COMPLETED", "resource":{"id":"CAPTURE123"}}),
+        json!({"id":"x".repeat(256), "event_type":"PAYMENT.CAPTURE.COMPLETED", "resource":{"id":"CAPTURE123"}}),
         json!({"id":"EVENT123", "event_type":"PAYMENT.CAPTURE.COMPLETED"}),
         json!({"id":"EVENT123", "event_type":"PAYMENT.CAPTURE.COMPLETED", "resource":[]}),
         json!({"id":"", "event_type":"PAYMENT.CAPTURE.COMPLETED", "resource":{"id":"CAPTURE123"}}),

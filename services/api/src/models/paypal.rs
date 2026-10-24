@@ -1,4 +1,6 @@
+pub mod payment;
 mod payments;
+pub mod webhook;
 pub use payments::*;
 
 use super::CurrencyCode;
