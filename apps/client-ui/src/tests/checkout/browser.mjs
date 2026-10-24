@@ -86,6 +86,51 @@ for (const modified of [false,true]) {
     });
 }
 
+// Cart::save serializes struct declaration order; serde_json::json! sorts snapshot keys.
+for (const [ordering, snapshot] of [
+    ['cart fields', {checkout_id:'cart', convention_id:'event', items:cart.items, version:1}],
+    ['item fields', {...cart, items:[{accepted_unit_price:'12.30', quantity:1, variant_id:'variant'}]}],
+    ['cart and item fields', {checkout_id:'cart', convention_id:'event', items:[{accepted_unit_price:'12.30', quantity:1, variant_id:'variant'}], version:1}],
+]) {
+    test(`completion clears an unchanged cart when IPC reorders ${ordering}`, async () => {
+        const local = storage();
+        local.setItem('enzumeii.cart.v1.event', JSON.stringify(cart));
+        const run = begin({...input, snapshot}, local);
+        await run.boot;
+        run.finish('completed'); await run.done;
+        const saved = JSON.parse(local.getItem('enzumeii.cart.v1.event'));
+        assert.deepEqual(saved.items, []);
+        assert.notEqual(saved.checkout_id, 'cart');
+        assert.equal(run.messages[1].value, true);
+    });
+}
+
+test('completion preserves every meaningful cart edit and unrecognized schema field', async () => {
+    const second = {variant_id:'second', quantity:1, accepted_unit_price:'2.00'};
+    for (const [change, current, snapshot] of [
+        ['version', {...cart, version:2}, cart],
+        ['convention', {...cart, convention_id:'another'}, cart],
+        ['checkout identity', {...cart, checkout_id:'newer-cart'}, cart],
+        ['item identity', {...cart, items:[{...cart.items[0], variant_id:'another'}]}, cart],
+        ['quantity', {...cart, items:[{...cart.items[0], quantity:2}]}, cart],
+        ['price', {...cart, items:[{...cart.items[0], accepted_unit_price:'12.31'}]}, cart],
+        ['item order', {...cart, items:[second, ...cart.items]}, {...cart, items:[...cart.items, second]}],
+        ['unknown cart field', {...cart, extra:true}, cart],
+        ['unknown item field', {...cart, items:[{...cart.items[0], extra:true}]}, cart],
+        ['shared unknown cart field', {...cart, extra:true}, {...cart, extra:true}],
+        ['shared unknown item field', {...cart, items:[{...cart.items[0], extra:true}]}, {...cart, items:[{...cart.items[0], extra:true}]}],
+    ]) {
+        const local = storage();
+        const raw = JSON.stringify(current);
+        local.setItem('enzumeii.cart.v1.event', raw);
+        const run = begin({...input, snapshot}, local);
+        await run.boot;
+        run.finish('completed'); await run.done;
+        assert.equal(local.getItem('enzumeii.cart.v1.event'), raw, change);
+        assert.equal(run.messages[1].value, false, change);
+    }
+});
+
 test('cancel/reload preserves an ambiguous attempt and its exact original payload', async () => {
     const local = storage(); const session = storage(); const navigator = {locks:locks()};
     const first = begin(input,local,navigator,session); const boot = await first.boot;
