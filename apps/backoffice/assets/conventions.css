@@ -1,0 +1,82 @@
+.conventions-page { max-width: 1200px; margin: auto; }
+.convention-section { max-width: none; margin: 1.5rem 0; padding: 1.25rem; }
+.convention-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.convention-form-grid > div { min-width: 0; }
+.convention-actions { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; margin: 1rem 0; }
+.convention-checkbox { display: flex; align-items: center; gap: .5rem; margin: .75rem 0; }
+.convention-checkbox input { width: auto; margin: 0; }
+.convention-preview { padding: 1rem; border: 1px solid var(--panel-border); border-radius: .5rem; margin: 1rem 0; overflow-wrap: anywhere; }
+.convention-logo { display: block; width: 180px; max-height: 180px; object-fit: contain; margin: 1rem 0; }
+.convention-table { border-collapse: collapse; width: 100%; min-width: 640px; }
+.convention-table caption { text-align: left; font-weight: 600; margin: .75rem 0; }
+.convention-table th, .convention-table td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--panel-border); padding: .75rem; overflow-wrap: anywhere; }
+.convention-table input { min-width: 8rem; }
+.convention-table button { white-space: nowrap; }
+.convention-catalogue-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 1rem; margin: 1rem 0; }
+.convention-product { border: 1px solid var(--panel-border); border-radius: .5rem; padding: 1rem; min-width: 0; overflow-wrap: anywhere; }
+.convention-product img { width: 100%; height: 160px; object-fit: contain; }
+.conventions-page fieldset { border: 0; padding: 0; margin: .75rem 0; min-width: 0; }
+.conventions-page textarea { width: 100%; box-sizing: border-box; }
+@media (max-width: 600px) { .convention-section { padding: .75rem; } .convention-table th, .convention-table td { padding: .5rem; } }
+
+.convention-variant-image { display: block; width: 96px; height: 96px; max-width: 100%; object-fit: contain; }
+
+.conventions-page label, .conventions-page legend, .convention-label { color: var(--muted); font-size: .85rem; font-weight: 600; }
+.convention-value { color: var(--text); font-size: 1rem; font-weight: 700; }
+.conventions-page .convention-table th { color: var(--muted); font-size: .85rem; font-weight: 600; }
+.convention-actions button, .convention-actions .button-link { margin-top: 0; }
+.convention-status { display: inline-flex; align-items: center; gap: .4rem; padding: .2rem .65rem; border: 1px solid; border-radius: 1rem; font-size: .85rem; font-weight: 700; white-space: nowrap; }
+.convention-status.is-enabled { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
+.convention-status.is-disabled { background: var(--error-bg); color: var(--error-text); border-color: var(--heading); }
+.convention-thumbnail { display: block; width: 56px; height: 56px; max-width: 100%; object-fit: contain; }
+.convention-thumbnail-fallback, .convention-thumbnail-placeholder { display: flex; align-items: center; justify-content: center; width: 56px; min-height: 56px; font-size: .75rem; line-height: 1.2; color: var(--muted); }
+.convention-result-images { display: flex; align-items: flex-start; gap: .5rem; }
+.convention-result-images figure { margin: 0; }
+.convention-result-images figcaption { max-width: 64px; color: var(--muted); font-size: .75rem; line-height: 1.2; }
+.convention-result-images img { display: block; width: 56px; height: 56px; object-fit: contain; }
+.convention-result-title { margin: 0 0 .25rem; font-size: 1rem; font-weight: 700; }
+.convention-result-details { margin: .35rem 0; font-size: .9rem; }
+.convention-result-details .convention-label { display: block; }
+.convention-result-details .convention-value { font-size: .95rem; }
+
+.conventions-page input[type="file"]::file-selector-button { cursor: pointer; min-height: 2.75rem; margin-right: .75rem; padding: .5rem .9rem; border: 1px solid var(--primary); border-radius: 0; color: var(--primary-text); background: var(--primary); font: inherit; font-weight: 700; }
+.conventions-page input[type="file"]:disabled::file-selector-button { cursor: not-allowed; opacity: .5; }
+
+.convention-description-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: stretch; margin: 1rem 0; }
+.convention-description-editor, .convention-description-preview { display: flex; flex-direction: column; gap: .5rem; min-width: 0; }
+.convention-description-editor label, .convention-description-preview h3 { margin: 0; line-height: inherit; }
+.convention-description-editor textarea { flex: 1; min-height: 18rem; resize: vertical; }
+.convention-description-layout .convention-preview { flex: 1; min-width: 0; min-height: 18rem; margin: 0; }
+@media (max-width: 767px) { .convention-description-layout { grid-template-columns: minmax(0, 1fr); } }
+
+.convention-name-field { grid-column: 1 / -1; }
+@media (max-width: 600px) { .convention-form-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.convention-logo-file-box { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: center; padding: 1rem; border: 1px solid var(--panel-border); background: var(--bg); }
+.convention-logo-file-box > label, .convention-logo-file-box > p, .convention-logo-file-box > .convention-logo-candidate { grid-column: 1 / -1; margin: 0; }
+.convention-logo-file-box input[type="file"] { min-width: 0; border: 0; padding: 0; }
+.convention-logo-file-box .convention-file-discard { grid-column: 2; grid-row: 2; border-radius: 999px; }
+@media (max-width: 600px) {
+    .convention-logo-file-box { grid-template-columns: minmax(0, 1fr); }
+    .convention-logo-file-box .convention-file-discard { grid-column: 1; grid-row: auto; justify-self: start; }
+}
+
+.convention-row-actions { display: flex; justify-content: flex-end; gap: .5rem; flex-wrap: wrap; }
+.convention-list-table th:last-child { text-align: right; }
+
+.convention-logo-replace { display: inline-flex; flex-direction: column; align-items: center; gap: .5rem; align-self: start; max-width: 100%; border-radius: .5rem; }
+.convention-logo-replace .convention-logo { margin: 0; }
+.convention-logo-replace span { font-size: .85rem; }
+.convention-logo-candidate { min-width: 0; }
+.convention-logo-candidate p { margin: .5rem 0 0; overflow-wrap: anywhere; }
+.convention-delete-action .error { max-width: 24rem; margin-top: .5rem; }
+
+dialog.popup.convention-catalogue-popup { width: 80vw; max-width: 80vw; height: 80dvh; max-height: 80dvh; }
+.convention-catalogue-popup .convention-section { margin: 0; padding: 0; }
+.convention-catalogue-popup .convention-result-images img { width: clamp(96px, 10vw, 160px); height: clamp(96px, 10vw, 160px); }
+.convention-catalogue-popup .convention-result-images figcaption { max-width: 160px; }
+@media (max-width: 600px) { dialog.popup.convention-catalogue-popup { width: 95vw; max-width: 95vw; height: 90dvh; max-height: 90dvh; } }
+
+.convention-variant-title { margin: 0; color: var(--text); font-size: 1rem; }
+
+.convention-source-price { display: block; margin-top: .35rem; }

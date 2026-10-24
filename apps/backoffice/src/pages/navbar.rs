@@ -27,6 +27,7 @@ pub fn Navbar() -> Element {
                 if is_super {
                     Link { class: "tab", to: Route::Admins {}, "Admin List" }
                 }
+                Link { class: "tab", to: Route::Conventions { query: String::new() }, "Conventions" }
                 Link { class: "tab", to: Route::Reports {}, "Reports" }
                 Link { class: "tab", to: Route::Orders {}, "Orders" }
                 Link { class: "tab", to: Route::Triggers {}, "Triggers" }

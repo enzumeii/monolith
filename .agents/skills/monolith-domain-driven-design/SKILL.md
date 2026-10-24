@@ -28,10 +28,11 @@ Apply these boundaries to every child module. Classify code by its behavior and 
 
 | Layer | Owns | Keep elsewhere |
 | --- | --- | --- |
-| `services/` | Business rules, eligibility, calculations, business validation, business state transitions, and use-case orchestration | Scheduler engines, transport implementations, SQL, filesystem operations, and technical recovery machinery |
+| `services/` | Business rules, eligibility, calculations, business validation, business state transitions, and use-case orchestration through injected clients/repositories | Scheduler engines, transport implementations, SQL, direct filesystem operations, and technical recovery machinery |
 | `client/` | Proxies to external APIs/SDKs: provider operations, authentication, timeouts, protocol encoding/decoding, and transport errors | Report policy, business payload decisions, aggregation, and multi-provider workflows |
 | `repositories/` | Proxies to the database: queries, row mapping, persistence, and atomic database operations | HTTP handling, business policy, and background execution loops |
-| `route/`, handlers, endpoint validation | API endpoint wrappers: route mapping, extraction, request shape/type/required-field checks, authentication context, service invocation, and response/status mapping | Business eligibility, domain decisions, provider calls, and SQL |
+| `route/`, handlers | Route mapping, extraction, authentication context, service invocation, and response/status mapping | Business eligibility, domain decisions, provider calls, and SQL |
+| `validations/` | Pure request shape/type/required-field checks, canonical parsing, and bounded content decoding | Service imports/calls, business eligibility/capability checks, provider calls, and SQL |
 | `middleware/` | Cross-cutting request transport and authentication/authorization enforcement | Feature-specific business decisions |
 | Top-level cron/runtime or worker modules | Cron parsing, next-fire calculation, timers, task lifecycle, polling, dispatch, leases, technical retry/backoff, and recovery coordination | Report calculations, eligibility, and business period rules |
 | Storage/export components | File/Blob operations, paths, checksums, publication, and byte serialization such as CSV/ZIP/XLSX | Report eligibility, business calculations, and choice of report content |
@@ -42,7 +43,7 @@ Apply these boundaries to every child module. Classify code by its behavior and 
 
 Services contain only business logic, including the sequence of a business use case. They may call injected clients and repositories; the proxy implementations remain in their owning layers. Services choose business transaction boundaries and pass transaction context to repository operations; SQL and concrete database operations stay in repositories. Do not introduce interfaces or generic frameworks solely to satisfy this separation.
 
-Endpoint validation checks that an input can be interpreted. Services decide whether the interpreted operation is valid for the business. For example, parsing a date belongs at the endpoint boundary; deciding which reporting period is allowed belongs to the business service.
+Endpoint validation checks that an input can be interpreted. Services decide whether the interpreted operation is valid for the business. For example, parsing a date belongs at the endpoint boundary; deciding which reporting period is allowed belongs to the business service. When a service also needs a pure request parser, both callers reuse its validation owner; validators do not call a business service to reach that parser. Currency-dependent payment capabilities remain in the convention service, including revalidation after merging an update.
 
 For scheduled reports:
 
@@ -60,6 +61,10 @@ Reuse the repository's existing modules and names; add only the smallest missing
 
 | Responsibility | Owner |
 | --- | --- |
+| Generic file upload use case | `services/api/src/services/files.rs` orchestrates destination selection, UUID naming and injected S3 presign/put operations; the generic files handler calls this capability rather than a convention-logo service |
+| Upload request and image validation | `services/api/src/validations/files.rs` owns canonical upload-directory parsing and bounded image decoding; convention logo-location parsing belongs to `validations/conventions.rs`. Preserve the accepted namespace rather than widening it during extraction |
+| Convention logo association | `services/api/src/services/conventions/logo.rs` owns attachment eligibility, convention/slug ownership and preview projection; reuse shared file validation without moving convention policy into it |
+| S3 provider operations | `services/api/src/client/s3.rs` owns SDK calls, request encoding, network transport and timeouts. Upload use-case sequencing stays in the files service; it does not need a new top-level storage module |
 | Shopify operation methods | `services/api/src/client/shopify.rs`; supporting GraphQL documents in `client/shopify/`; services retain pagination and multi-call orchestration |
 | Carrier-specific label builders | The shipping-label feature and its focused children, rather than miscellaneous shared utils |
 | Static API templates | `services/api/assets/`, referenced by the owning feature |

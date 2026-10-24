@@ -12,7 +12,7 @@ pub fn Confirm(
     on_confirm: EventHandler<()>,
     on_cancel: EventHandler<()>,
 ) -> Element {
-    let (id, mounted) = super::popup::use_native_dialog(open);
+    let (id, mounted) = super::popup::use_native_dialog(open, false);
 
     rsx! {
         dialog {

@@ -36,7 +36,7 @@ fn ok(body: &str) -> Reply {
     }
 }
 #[tokio::test]
-async fn metadata_put_download_use_signed_requests_and_preserve_endpoint_key_bytes() {
+async fn metadata_put_download_use_explicit_bucket_and_preserve_endpoint_key_bytes() {
     let f = Fixture::new(vec![
         Reply::status(404),
         ok(""),
@@ -53,15 +53,23 @@ async fn metadata_put_download_use_signed_requests_and_preserve_endpoint_key_byt
     .await;
     let c = client(&f);
     let key = "inventory/a +%/ไทย.csv";
-    assert!(c.metadata(key).await.unwrap().is_none());
-    c.put(key, "text/csv; charset=utf-8", b"original".to_vec())
-        .await
-        .unwrap();
-    let object = c.metadata(key).await.unwrap().unwrap();
+    assert!(c.metadata("conventions", key).await.unwrap().is_none());
+    c.put(
+        "conventions",
+        key,
+        "text/csv; charset=utf-8",
+        b"original".to_vec(),
+    )
+    .await
+    .unwrap();
+    let object = c.metadata("conventions", key).await.unwrap().unwrap();
     assert_eq!(object.storage_key, key);
     assert_eq!(object.size, 8);
     assert_eq!(object.content_type, "text/csv; charset=utf-8");
-    assert_eq!(c.download(key, 8).await.unwrap(), b"original");
+    assert_eq!(
+        c.download("conventions", key, 8).await.unwrap(),
+        b"original"
+    );
     assert_eq!(c.bucket(), "reports");
     assert_eq!(f.raw_bodies()[1], b"original");
     assert_eq!(
@@ -76,7 +84,7 @@ async fn metadata_put_download_use_signed_requests_and_preserve_endpoint_key_byt
     for (uri, headers, _) in f.requests() {
         assert_eq!(
             uri.split('?').next().unwrap(),
-            "/graphql.json/reports/inventory/a%20%2B%25/%E0%B9%84%E0%B8%97%E0%B8%A2.csv"
+            "/graphql.json/conventions/inventory/a%20%2B%25/%E0%B9%84%E0%B8%97%E0%B8%A2.csv"
         );
         assert!(
             uri.split_once('?')
@@ -92,7 +100,7 @@ async fn metadata_put_download_use_signed_requests_and_preserve_endpoint_key_byt
 async fn presign_is_local_encodes_attachment_and_bounds_expiry() {
     let c = S3Client::new(&config("https://example.test/storage/v1/s3")).unwrap();
     let signed = c
-        .presign_download("a +%/ไทย.csv", "inventory_2026-10-23.csv", 300)
+        .presign_download("reports", "a +%/ไทย.csv", "inventory_2026-10-23.csv", 300)
         .await
         .unwrap();
     let url = reqwest::Url::parse(&signed.url).unwrap();
@@ -117,15 +125,23 @@ async fn presign_is_local_encodes_attachment_and_bounds_expiry() {
     maximum.signed_url_ttl_secs = 900;
     let maximum = S3Client::new(&maximum)
         .unwrap()
-        .presign_download("key.csv", "file.csv", 900)
+        .presign_download("reports", "key.csv", "file.csv", 900)
         .await
         .unwrap();
     assert!(maximum.url.contains("X-Amz-Expires=900"));
     for ttl in [0, 301, u32::MAX] {
-        assert!(c.presign_download("k", "a.csv", ttl).await.is_err());
+        assert!(
+            c.presign_download("reports", "k", "a.csv", ttl)
+                .await
+                .is_err()
+        );
     }
     for filename in ["a.txt", "../a.csv", "a\r\n.csv", "a\".csv", ""] {
-        assert!(c.presign_download("k", filename, 10).await.is_err());
+        assert!(
+            c.presign_download("reports", "k", filename, 10)
+                .await
+                .is_err()
+        );
     }
 }
 #[tokio::test]
@@ -136,11 +152,11 @@ async fn signing_time_and_expiry_stay_exact_across_a_second_boundary() {
     for nanos in [0, 999_999_999] {
         let start = std::time::UNIX_EPOCH + Duration::new(1_792_713_599, nanos);
         let signed = client
-            .presign_download_at("with +%/ไทย.csv", "report.csv", 300, start)
+            .presign_download_at("conventions", "with +%/ไทย.csv", "report.csv", 300, start)
             .await
             .unwrap();
         let url = reqwest::Url::parse(&signed.url).unwrap();
-        assert_eq!(url.host_str(), Some("reports.example.test"));
+        assert_eq!(url.host_str(), Some("conventions.example.test"));
         assert_eq!(
             url.path(),
             "/storage/v1/s3/with%20%2B%25/%E0%B9%84%E0%B8%97%E0%B8%A2.csv"
@@ -166,7 +182,7 @@ async fn signing_time_and_expiry_stay_exact_across_a_second_boundary() {
     config.endpoint = "http://127.0.0.1:65535/storage/v1/s3".into();
     let signed = S3Client::new(&config)
         .unwrap()
-        .presign_download("key.csv", "report.csv", 1)
+        .presign_download("reports", "key.csv", "report.csv", 1)
         .await
         .unwrap();
     assert_eq!(
@@ -226,7 +242,10 @@ async fn service_errors_and_redirects_never_retry_or_leak_authentication() {
         }])
         .await;
         let c = client(&f);
-        let error = c.put("a.csv", "text/csv", vec![1]).await.unwrap_err();
+        let error = c
+            .put("reports", "a.csv", "text/csv", vec![1])
+            .await
+            .unwrap_err();
         assert_eq!(f.requests().len(), 1);
         assert!(!format!("{error:?} {error}").contains("synthetic-secret-key"));
         assert!(std::error::Error::source(&error).is_some());
@@ -236,7 +255,11 @@ async fn service_errors_and_redirects_never_retry_or_leak_authentication() {
 async fn metadata_requires_usable_content_type_and_size() {
     let f = Fixture::new(vec![Reply::status(200)]).await;
     assert!(matches!(
-        client(&f).metadata("a.csv").await.unwrap_err().kind(),
+        client(&f)
+            .metadata("reports", "a.csv")
+            .await
+            .unwrap_err()
+            .kind(),
         ClientErrorKind::Protocol(_)
     ));
 }
@@ -244,7 +267,11 @@ async fn metadata_requires_usable_content_type_and_size() {
 async fn bounded_download_checks_declared_size_and_streamed_size() {
     let f = Fixture::new(vec![ok("12345")]).await;
     assert!(matches!(
-        client(&f).download("a.csv", 4).await.unwrap_err().kind(),
+        client(&f)
+            .download("reports", "a.csv", 4)
+            .await
+            .unwrap_err()
+            .kind(),
         ClientErrorKind::Protocol("S3 response exceeds expected size")
     ));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -258,7 +285,7 @@ async fn bounded_download_checks_declared_size_and_streamed_size() {
     assert!(matches!(
         S3Client::new(&config(&endpoint))
             .unwrap()
-            .download("a.csv", 4)
+            .download("reports", "a.csv", 4)
             .await
             .unwrap_err()
             .kind(),
@@ -289,7 +316,7 @@ async fn deadlines_cover_response_headers_and_body_without_replay() {
         let now = std::time::Instant::now();
         let error = S3Client::new(&config(&endpoint))
             .unwrap()
-            .download("a.csv", 5)
+            .download("reports", "a.csv", 5)
             .await
             .unwrap_err();
         assert!(crate::error::client_timeout(&error));
@@ -325,9 +352,83 @@ async fn ambiguous_put_disconnect_is_returned_without_hidden_replay() {
     assert!(
         S3Client::new(&config(&endpoint))
             .unwrap()
-            .put("a.csv", "text/csv", b"original".to_vec())
+            .put("reports", "a.csv", "text/csv", b"original".to_vec())
             .await
             .is_err()
     );
     assert!(server.await.unwrap().ends_with(b"original"));
+}
+
+#[tokio::test]
+async fn inline_image_signer_preserves_mime_and_configured_expiry_without_attachment() {
+    let c = S3Client::new(&config("https://example.test/storage/v1/s3")).unwrap();
+    let signed = c
+        .presign_image("conventions", "fair/a.png", "image/png")
+        .await
+        .unwrap();
+    let url = reqwest::Url::parse(&signed.url).unwrap();
+    assert_eq!(url.path(), "/storage/v1/s3/conventions/fair/a.png");
+    let q: std::collections::HashMap<_, _> = url.query_pairs().collect();
+    assert_eq!(q["response-content-type"], "image/png");
+    assert_eq!(q["response-content-disposition"], "inline");
+    assert_eq!(q["X-Amz-Expires"], "300");
+    assert!(c.presign_image("reports", "a", "text/csv").await.is_err());
+}
+
+#[tokio::test]
+async fn operation_buckets_use_the_same_validation_as_configuration() {
+    let c = S3Client::new(&config("http://127.0.0.1:65535")).unwrap();
+    for bucket in ["", "a", "Reports", "bad/bucket", "bad..bucket", "127.0.0.1"] {
+        assert!(matches!(
+            c.metadata(bucket, "a.png").await.unwrap_err().kind(),
+            ClientErrorKind::InvalidInput("invalid S3 bucket")
+        ));
+        assert!(matches!(
+            c.put(bucket, "a.png", "image/png", vec![1])
+                .await
+                .unwrap_err()
+                .kind(),
+            ClientErrorKind::InvalidInput("invalid S3 bucket")
+        ));
+        assert!(matches!(
+            c.download(bucket, "a.png", 1).await.unwrap_err().kind(),
+            ClientErrorKind::InvalidInput("invalid S3 bucket")
+        ));
+        assert!(
+            c.presign_download(bucket, "a.csv", "a.csv", 1)
+                .await
+                .is_err()
+        );
+        assert!(c.presign_image(bucket, "a.png", "image/png").await.is_err());
+    }
+}
+
+#[tokio::test]
+async fn explicit_buckets_keep_equal_object_keys_independent() {
+    let fixture = crate::s3_fixture::Fixture::new().await;
+    let c = &fixture.client;
+    for (bucket, bytes) in [
+        ("reports", b"report".to_vec()),
+        ("conventions", b"image".to_vec()),
+    ] {
+        c.put(bucket, "shared.png", "image/png", bytes.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            c.metadata(bucket, "shared.png")
+                .await
+                .unwrap()
+                .unwrap()
+                .size,
+            bytes.len() as u64
+        );
+    }
+    assert_eq!(
+        c.download("reports", "shared.png", 6).await.unwrap(),
+        b"report"
+    );
+    assert_eq!(
+        c.download("conventions", "shared.png", 5).await.unwrap(),
+        b"image"
+    );
 }

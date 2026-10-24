@@ -53,11 +53,13 @@ services:
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
-        bucket=$$(aws --endpoint-url http://local-s3:9000 s3api list-buckets --query 'Buckets[?Name==`reports`].Name | [0]' --output text)
-        if [ "$$bucket" = "None" ]; then
-          aws --endpoint-url http://local-s3:9000 s3api create-bucket --bucket reports --create-bucket-configuration LocationConstraint=ap-southeast-1
-        fi
-        aws --endpoint-url http://local-s3:9000 s3api head-bucket --bucket reports
+        for bucket in reports conventions; do
+          existing=$$(aws --endpoint-url http://local-s3:9000 s3api list-buckets --query "Buckets[?Name=='$$bucket'].Name | [0]" --output text)
+          if [ "$$existing" = "None" ]; then
+            aws --endpoint-url http://local-s3:9000 s3api create-bucket --bucket "$$bucket" --create-bucket-configuration LocationConstraint=ap-southeast-1
+          fi
+          aws --endpoint-url http://local-s3:9000 s3api head-bucket --bucket "$$bucket"
+        done
 
 volumes:
   local_s3_data:

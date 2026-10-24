@@ -330,6 +330,9 @@ async fn unmounting_pending_fulfillment_must_release_parent_overlay() {
     });
     let h = Harness::default();
     let settings = crate::config::Settings {
+        conventions: crate::config::ConventionsConfig {
+            catalogue_location_id: "65761018027".into(),
+        },
         api: crate::config::ApiConfig {
             base_url: format!("http://{address}/v1"),
         },

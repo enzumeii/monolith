@@ -1,15 +1,15 @@
 $kind: http-request
 description: "Captures the approved order; use only a controlled provider for automated tests. Required: paypal API base URL, paypal_order_id, durable paypal_capture_request_id distinct from create key; bearer uses local vault paypal_access_token. Success 201 (or 200 replay) returns order with capture evidence; pending does not prove payment. Failures 400/401/403/404/422/429/5xx."
-url: "{{paypal}}/v2/checkout/orders/{{paypal_order_id}}/capture"
+url: "{{paypal}}/v2/checkout/orders/:order_id/capture"
 method: POST
+pathVariables:
+  order_id: ""
 order: 5000
 body:
   type: json
-  content: |-
-    {}
+  content: "{}"
 headers:
-  Content-Type: application/json
-  PayPal-Request-Id: "{{paypal_capture_request_id}}"
+  PayPal-Request-Id: 9acc40a2-f65f-4c04-a2a4-4f15f8501645
   Prefer: return=representation
 auth:
   type: inherit
@@ -17,5 +17,5 @@ auth:
     id: 5daed635-8af6-4e64-9242-a4be048bc73a
 scripts:
   - type: afterResponse
+    code: pm.test("Provider response contract", function () { pm.expect([200,201,202]).to.include(pm.response.code); pm.expect(pm.response.json().id).to.be.a("string"); });
     language: text/javascript
-    code: "pm.test(\"Provider response contract\", function () { pm.expect([200,201,202]).to.include(pm.response.code); pm.expect(pm.response.json().id).to.be.a(\"string\"); });"

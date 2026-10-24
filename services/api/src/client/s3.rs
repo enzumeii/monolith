@@ -84,12 +84,17 @@ impl S3Client {
         &self.bucket
     }
 
-    pub async fn metadata(&self, key: &str) -> Result<Option<StorageObject>, ClientError> {
+    pub async fn metadata(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> Result<Option<StorageObject>, ClientError> {
+        validate_bucket(bucket)?;
         validate_key(key)?;
         let response = match self
             .inner
             .head_object()
-            .bucket(&self.bucket)
+            .bucket(bucket)
             .key(key)
             .send()
             .await
@@ -121,17 +126,19 @@ impl S3Client {
 
     pub async fn put(
         &self,
+        bucket: &str,
         key: &str,
         content_type: &str,
         bytes: Vec<u8>,
     ) -> Result<(), ClientError> {
+        validate_bucket(bucket)?;
         validate_key(key)?;
         if content_type.is_empty() || content_type.bytes().any(|byte| byte.is_ascii_control()) {
             return Err(invalid("invalid S3 content type"));
         }
         self.inner
             .put_object()
-            .bucket(&self.bucket)
+            .bucket(bucket)
             .key(key)
             .content_type(content_type)
             .body(ByteStream::from(bytes))
@@ -141,13 +148,19 @@ impl S3Client {
         Ok(())
     }
 
-    pub async fn download(&self, key: &str, max_bytes: usize) -> Result<Vec<u8>, ClientError> {
+    pub async fn download(
+        &self,
+        bucket: &str,
+        key: &str,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, ClientError> {
+        validate_bucket(bucket)?;
         validate_key(key)?;
         tokio::time::timeout(self.timeout, async {
             let response = self
                 .inner
                 .get_object()
-                .bucket(&self.bucket)
+                .bucket(bucket)
                 .key(key)
                 .send()
                 .await
@@ -184,21 +197,50 @@ impl S3Client {
 
     pub async fn presign_download(
         &self,
+        bucket: &str,
         key: &str,
         filename: &str,
         ttl_secs: u32,
     ) -> Result<PresignedDownload, ClientError> {
-        self.presign_download_at(key, filename, ttl_secs, std::time::SystemTime::now())
-            .await
+        self.presign_download_at(
+            bucket,
+            key,
+            filename,
+            ttl_secs,
+            std::time::SystemTime::now(),
+        )
+        .await
+    }
+
+    pub async fn presign_image(
+        &self,
+        bucket: &str,
+        key: &str,
+        content_type: &str,
+    ) -> Result<PresignedDownload, ClientError> {
+        if !matches!(content_type, "image/png" | "image/jpeg") {
+            return Err(invalid("invalid image content type"));
+        }
+        self.presign_at(
+            bucket,
+            key,
+            "inline",
+            Some(content_type),
+            self.signed_url_ttl_secs,
+            std::time::SystemTime::now(),
+        )
+        .await
     }
 
     async fn presign_download_at(
         &self,
+        bucket: &str,
         key: &str,
         filename: &str,
         ttl_secs: u32,
         signing_time: std::time::SystemTime,
     ) -> Result<PresignedDownload, ClientError> {
+        validate_bucket(bucket)?;
         validate_key(key)?;
         if ttl_secs == 0 || ttl_secs > self.signed_url_ttl_secs {
             return Err(invalid("invalid S3 signed URL lifetime"));
@@ -214,6 +256,31 @@ impl S3Client {
         {
             return Err(invalid("invalid CSV attachment filename"));
         }
+        self.presign_at(
+            bucket,
+            key,
+            &format!("attachment; filename=\"{filename}\""),
+            None,
+            ttl_secs,
+            signing_time,
+        )
+        .await
+    }
+
+    async fn presign_at(
+        &self,
+        bucket: &str,
+        key: &str,
+        disposition: &str,
+        content_type: Option<&str>,
+        ttl_secs: u32,
+        signing_time: std::time::SystemTime,
+    ) -> Result<PresignedDownload, ClientError> {
+        validate_bucket(bucket)?;
+        validate_key(key)?;
+        if ttl_secs == 0 || ttl_secs > self.signed_url_ttl_secs {
+            return Err(invalid("invalid S3 signed URL lifetime"));
+        }
         let presigning = PresigningConfig::builder()
             .start_time(signing_time)
             .expires_in(Duration::from_secs(u64::from(ttl_secs)))
@@ -222,9 +289,10 @@ impl S3Client {
         let request = self
             .inner
             .get_object()
-            .bucket(&self.bucket)
+            .bucket(bucket)
             .key(key)
-            .response_content_disposition(format!("attachment; filename=\"{filename}\""))
+            .response_content_disposition(disposition)
+            .set_response_content_type(content_type.map(str::to_owned))
             .presigned(presigning)
             .await
             .map_err(sdk_error)?;
@@ -234,11 +302,11 @@ impl S3Client {
         let prefix = expected.path().trim_end_matches('/').to_owned();
         let key = encode_key(key);
         if self.force_path_style || url.origin() == self.endpoint.origin() {
-            expected.set_path(&format!("{prefix}/{}/{key}", self.bucket));
+            expected.set_path(&format!("{prefix}/{bucket}/{key}"));
         } else {
             let host = format!(
                 "{}.{}",
-                self.bucket,
+                bucket,
                 expected
                     .host_str()
                     .ok_or_else(|| protocol("invalid S3 signed URL"))?
@@ -309,7 +377,10 @@ fn validate_config(config: &S3Config) -> Result<(), ClientError> {
     {
         return Err(invalid("invalid S3 region"));
     }
-    let bucket = &config.bucket;
+    validate_bucket(&config.bucket)
+}
+
+fn validate_bucket(bucket: &str) -> Result<(), ClientError> {
     if !(3..=63).contains(&bucket.len())
         || bucket.contains("..")
         || !bucket.as_bytes()[0].is_ascii_alphanumeric()

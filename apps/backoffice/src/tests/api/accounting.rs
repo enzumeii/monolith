@@ -4,6 +4,9 @@ use dioxus::prelude::*;
 #[test]
 fn report_uses_versioned_base_cookie_transport_and_encoded_offsets() {
     let dom = VirtualDom::new(|| rsx! {}).with_root_context(Settings {
+        conventions: crate::config::ConventionsConfig {
+            catalogue_location_id: "65761018027".into(),
+        },
         api: ApiConfig {
             base_url: "https://example.test/v1/".into(),
         },

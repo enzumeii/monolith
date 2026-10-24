@@ -171,14 +171,14 @@ async fn restore_session_from_cookie() -> api::ApiResult<Option<Session>> {
 
 async fn ensure_valid() -> api::ApiResult<()> {
     if SESSION
-        .read()
+        .peek()
         .as_ref()
         .is_some_and(|session| session.expires_at > now_unix() + 3)
     {
         return Ok(());
     }
     restore().await?;
-    if SESSION.read().is_none() {
+    if SESSION.peek().is_none() {
         return Err(api::ApiError::new(
             StatusCode::UNAUTHORIZED,
             "not signed in",

@@ -15,13 +15,11 @@ body:
       "webhook_id": "{{paypal_webhook_id}}",
       "webhook_event": {{paypal_webhook_event_json}}
     }
-headers:
-  Content-Type: application/json
 auth:
   type: inherit
   credentials:
     id: 5daed635-8af6-4e64-9242-a4be048bc73a
 scripts:
   - type: afterResponse
+    code: pm.test("Provider response contract", function () { pm.response.to.have.status(200); pm.expect(["SUCCESS","FAILURE"]).to.include(pm.response.json().verification_status); });
     language: text/javascript
-    code: "pm.test(\"Provider response contract\", function () { pm.response.to.have.status(200); pm.expect([\"SUCCESS\",\"FAILURE\"]).to.include(pm.response.json().verification_status); });"

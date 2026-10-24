@@ -5,8 +5,8 @@ use crate::common::{
 use domain::dto::AdminRole;
 use serde_json::{Value, json};
 
-const URI: &str = "/api/v1/admin/conventions/catalogue?location_id=gid://shopify/Location/1";
-const INVALID: &str = "Expected a Location GID, page_size between 1 and 250, and nonblank cursor/search up to 2048 bytes";
+const URI: &str = "/api/v1/admin/conventions/catalogue?location_id=1";
+const INVALID: &str = "Expected a positive numeric location id, page_size between 1 and 250, and nonblank cursor/search up to 2048 bytes";
 fn location() -> Value {
     json!({"location":{"id":"gid://shopify/Location/1"}})
 }
@@ -63,7 +63,7 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
         .send(authed(
             "GET",
             &format!(
-                "{URI}&search=collection_id%3A123%20OR%20title%3Ahead*&page_size=1&cursor=opaque"
+                "{URI}&search=product_type%3AT-Shirts%20OR%20title%3Ahead*&page_size=1&cursor=opaque"
             ),
             fixture.root_id(),
             AdminRole::Admin,
@@ -110,12 +110,13 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
     );
     let requests = upstream.requests();
     assert_eq!(requests.len(), 4);
+    assert_eq!(requests[0]["variables"]["id"], "gid://shopify/Location/1");
     let query = requests[1]["query"].as_str().unwrap();
     assert!(!query.contains("altText"));
     assert!(!query.lines().any(|line| line.trim() == "status"));
     assert_eq!(
         requests[1]["variables"],
-        json!({"locationId":"gid://shopify/Location/1","first":1,"after":"opaque","search":"status:active AND tracks_inventory:true AND (collection_id:123 OR title:head*)"})
+        json!({"locationId":"gid://shopify/Location/1","first":1,"after":"opaque","search":"status:active AND tracks_inventory:true AND (product_type:T-Shirts OR title:head*)"})
     );
     assert_eq!(
         requests[3]["variables"],
@@ -148,7 +149,16 @@ async fn catalogue_validation_authentication_and_unavailable_clients() {
     let mut invalid = vec!["/api/v1/admin/conventions/catalogue".to_owned()];
     for location in [
         "",
-        "1",
+        "0",
+        "000",
+        "-1",
+        "%2B1",
+        "1.5",
+        "abc",
+        "%201",
+        "1%20",
+        "18446744073709551616",
+        "gid://shopify/Location/1",
         "gid://shopify/Product/1",
         "gid://shopify/Location/0",
         "gid://shopify/Location/abc",
@@ -172,7 +182,7 @@ async fn catalogue_validation_authentication_and_unavailable_clients() {
         "search=%20",
         "search=a&search=b",
         "unexpected=x",
-        "location_id=gid://shopify/Location/2",
+        "location_id=2",
     ] {
         invalid.push(format!("{URI}&{query}"));
     }
@@ -424,7 +434,7 @@ async fn catalogue_accepts_maximum_boundaries_and_opaque_search_without_normaliz
     for (size, search, cursor) in [
         (250, boundary.as_str(), boundary.as_str()),
         (1, "title:head*", "null"),
-        (25, "collection_id:123", "abc"),
+        (25, "product_type:T-Shirts", "abc"),
         (25, multibyte.as_str(), "abc"),
     ] {
         let (client, upstream) =
@@ -432,7 +442,7 @@ async fn catalogue_accepts_maximum_boundaries_and_opaque_search_without_normaliz
         let query = reqwest::Url::parse_with_params(
             "http://example.test/api/v1/admin/conventions/catalogue",
             [
-                ("location_id", "gid://shopify/Location/1"),
+                ("location_id", "1"),
                 ("page_size", &size.to_string()),
                 ("search", search),
                 ("cursor", cursor),
@@ -511,7 +521,7 @@ async fn catalogue_old_path_is_absent() {
     assert_eq!(
         c.send(authed(
             "GET",
-            "/api/v1/admin/catalogue/products?location_id=gid://shopify/Location/1",
+            "/api/v1/admin/catalogue/products?location_id=1",
             f.root_id(),
             AdminRole::Admin
         ))

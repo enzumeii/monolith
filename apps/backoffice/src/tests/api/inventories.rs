@@ -5,6 +5,9 @@ use dioxus::prelude::*;
 fn enable_uses_location_path_and_existing_cookie_transport() {
     let dom = dioxus::prelude::VirtualDom::new(|| dioxus::prelude::rsx! {}).with_root_context(
         crate::config::Settings {
+            conventions: crate::config::ConventionsConfig {
+                catalogue_location_id: "65761018027".into(),
+            },
             api: crate::config::ApiConfig {
                 base_url: "https://api.example.test/v1/".into(),
             },

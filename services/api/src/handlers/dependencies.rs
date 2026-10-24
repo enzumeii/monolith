@@ -63,6 +63,18 @@ pub(super) fn paypal_client(
         .ok_or_else(|| AppError::new(StatusCode::SERVICE_UNAVAILABLE, "PayPal client unavailable"))
 }
 
+pub(super) fn s3_client(state: &AppState) -> Result<&crate::client::s3::S3Client, AppError> {
+    state
+        .s3
+        .as_ref()
+        .map_err(|error| {
+            AppError::new(StatusCode::SERVICE_UNAVAILABLE, "S3 client unavailable")
+                .with_source(error.clone())
+        })?
+        .as_deref()
+        .ok_or_else(|| AppError::new(StatusCode::SERVICE_UNAVAILABLE, "S3 client unavailable"))
+}
+
 #[cfg(test)]
 #[path = "../tests/handlers/dependencies.rs"]
 mod tests;

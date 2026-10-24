@@ -74,8 +74,6 @@ pub(crate) fn create(value: CreateConvention) -> Result<ConventionInput, AppErro
     if let Some(url) = &value.logo_url {
         logo(url)?;
     }
-    crate::services::conventions::money::methods(&value.currency_code, &value.payment_methods)
-        .map_err(|_| invalid("Invalid currency or payment methods"))?;
     Ok(ConventionInput {
         slug: value.slug,
         name: super::cron::configs::validate_name(&value.name)?,
@@ -148,9 +146,9 @@ pub(crate) fn merge(
     value: PatchConvention,
     current: &Convention,
 ) -> Result<ConventionInput, AppError> {
+    let retain_logo = value.logo_url.is_missing();
     let logo_url = match value.logo_url {
-        PatchField::Missing => current.logo_url.clone(),
-        PatchField::Clear => None,
+        PatchField::Missing | PatchField::Clear => None,
         PatchField::Set(v) => Some(v),
     };
     let enabled = field(value.preorder_enabled, current.preorder_enabled)?;
@@ -168,6 +166,9 @@ pub(crate) fn merge(
         currency_code: current.currency_code.clone(),
         payment_methods: field(value.payment_methods, current.methods()?)?,
     })?;
+    if retain_logo {
+        merged.logo_url.clone_from(&current.logo_url);
+    }
     merged.preorder_enabled = enabled;
     Ok(merged)
 }
@@ -210,7 +211,7 @@ pub(crate) fn variants(
 pub(crate) fn invalid(message: &'static str) -> AppError {
     AppError::new(StatusCode::BAD_REQUEST, message)
 }
-fn slug(v: &str) -> Result<(), AppError> {
+pub(crate) fn slug(v: &str) -> Result<(), AppError> {
     if !(1..=63).contains(&v.len())
         || !v.split('-').all(|part| {
             !part.is_empty()
@@ -233,6 +234,28 @@ fn slug(v: &str) -> Result<(), AppError> {
     }
     Ok(())
 }
+pub(crate) fn logo_location(value: &str) -> Result<&'static str, AppError> {
+    let (directory, filename) = value
+        .rsplit_once('/')
+        .ok_or_else(|| invalid("Invalid logo_url"))?;
+    super::files::folder(directory)?;
+    let (id, extension) = filename
+        .rsplit_once('.')
+        .ok_or_else(|| invalid("Invalid logo_url"))?;
+    let asset: uuid::Uuid = id.parse().map_err(|_| invalid("Invalid logo_url"))?;
+    if asset.to_string() != id
+        || asset.get_version_num() != 4
+        || asset.get_variant() != uuid::Variant::RFC4122
+    {
+        return Err(invalid("Invalid logo_url"));
+    }
+    match extension {
+        "png" => Ok("image/png"),
+        "jpg" => Ok("image/jpeg"),
+        _ => Err(invalid("Invalid logo_url")),
+    }
+}
+
 fn date(v: &str) -> Result<NaiveDate, AppError> {
     let parsed = NaiveDate::parse_from_str(v, "%Y-%m-%d")
         .map_err(|_| invalid("Dates must use valid YYYY-MM-DD values"))?;
@@ -242,22 +265,7 @@ fn date(v: &str) -> Result<NaiveDate, AppError> {
     Ok(parsed)
 }
 fn logo(v: &str) -> Result<(), AppError> {
-    let u =
-        reqwest::Url::parse(v).map_err(|_| invalid("logo_url must be an absolute HTTPS URL"))?;
-    if v.len() > 2048
-        || v.trim() != v
-        || v.chars().any(char::is_control)
-        || u.scheme() != "https"
-        || u.host_str().is_none()
-        || !u.username().is_empty()
-        || u.password().is_some()
-        || u.fragment().is_some()
-    {
-        return Err(invalid(
-            "logo_url must be HTTPS without credentials or fragment, up to 2048 bytes",
-        ));
-    }
-    Ok(())
+    logo_location(v).map(|_| ())
 }
 fn field<T>(patch: PatchField<T>, current: T) -> Result<T, AppError> {
     match patch {

@@ -1,5 +1,21 @@
 # Verification
 
+## PR #66 service reviewability — integrated-main verification (2026-10-24)
+
+Approved plan version 2 integrates reviewed main `d677fc828e8fee810f79537895d170869e592a82` into pushed refactor `74c7784c464d661cd0a754283c2626857e3f15fa`. The ignored `complexity/base-refresh/source-freeze-tested.json` records 182 changed path states, unchanged through the complete recipe. Only this verification entry follows the run. Earlier verification sections retain their original source limits.
+
+| Check | Actual result |
+| --- | --- |
+| Integration | Six conflicts resolved: union checkout/files declarations, exact Shopify query-source parity, main Stripe fixtures plus checkout expiry, and preserved deletion of the unused expire request. Main validation/upload ownership and PR readability skill guidance retained |
+| Strict API | Exit 0: 34 setup-helper tests, dprint, Rust formatting, strict all-target and E2E Clippy. An extra invocation incorrectly requested a nonexistent integration feature and stopped before tests; corrected to the registered E2E target, exit 0 |
+| Full API recipe | Exit 0: 495 native tests (22.46s), 226 real-HTTP tests (820.71s), zero failed or ignored; real Compose PostgreSQL and controlled providers |
+| Domain and root | Domain formatting, strict Clippy, WASM check and tests pass (21 unit + 8 integration, zero failed/ignored). Root check passes all 111 tooling tests, workflow/shell lint and Vercel configuration checks. Initial root run lacked the pinned parser dependency; documented just setup installed it before the successful full rerun |
+| Independent integrated review | Both gateway paths and precise completion checkpoint traced from code. All 47 checked checkout-critical source/test paths match the refactor; 186 checked inherited UI/shared-UI/CI/scripts/Cargo/Compose paths match main. Original-draft readback and ReconcileOnly guard remain intact |
+| Skills | Fresh read-only focused scenarios on both merged skills cover pure formatting, uncertain capture, validation/upload boundaries, hidden helper decisions and avoiding cosmetic runtime layers. All pass; successful independent tracing is general, lost-response tracing applies to uncertain external effects. Earlier broader scenario results remain historical evidence |
+| Postman | Workspace lint: 87 entities, zero errors, one existing cron-preview FMT209 warning. Exact resolved Shopify query parity; no provider request execution |
+| Whitespace and cleanup | Diff versus reviewed main passes. Old-parent diff flags inherited Postman space-before-tab indentation; main content preserved. Owned enz48 containers/network and recorded PostgreSQL/S3 volumes removed; no shared data reset |
+| Evidence and limits | Ignored complexity/base-refresh/ retains approved plan, logs, hashes, independent review and cleanup audit. Bounded integration review does not replace full functional review of PR #58. No complete browser purchase, live provider mutation/callback/email, deployment or external exactly-once claim. Hosted new-source checks remain the delivery gate |
+
 ## PR #66 service reviewability — local verification (2026-10-24)
 
 Results bind to approved service-reviewability plan version 1 atop `74b2bb83b1d3ea94d78b5047dde88233f4f32b5d`. The ignored `complexity/source-freeze-tested.json` records 40 changed/moved/deleted path states, unchanged through the full recipe. Subsequent documentation-only changes are this entry and conditional-scope refinements in the two skills; application code/test hashes remain identical. Focused skill scenarios and static checks were repeated after those refinements.
@@ -131,6 +147,90 @@ Historical results below apply to approved v4 commit `b2bf1d3c06b6076b320cd57314
 | Limits | Controlled Shopify TCP and real PostgreSQL/S3 dependencies only. No live merchant/browser/deployment run or extra local coverage run; fresh hosted CI remains delivery work |
 
 Results describe this revision's exercised scope, separately from [architecture](architecture.md) and [operations](development.md). They do not establish live Shopify behavior or production capacity.
+
+## ENZ-37 convention administration and logo uploads — local verification (2026-10-23)
+
+The feature is stacked above ENZ-35/36. The PR #58 follow-up verifies the revised logo contract; earlier feature results below are historical evidence. No live provider, production migration or deployment is asserted.
+
+### Latest-target PR #58 conflict resolution
+
+Integrated committed backend `78f1f43` into UI `467bdce`, preserving S3 logo handling/options and the backend's persisted variant display/inventory-policy snapshots. Both branches' contract/native/TCP test cases remain represented; catalogue rendering no longer expects the removed public product-status field.
+
+| Check | Result |
+| --- | --- |
+| API | Owning check passes: 34 setup tests, formatting and strict lint. Full isolated recipe passes 449 native and 197 real-TCP tests, zero failures/ignored; TCP runtime708.35s |
+| UI/shared contracts | Backoffice native/WASM check, 170 tests and web build pass; domain16 unit +8 contract tests and WASM check pass. Current GET/PUT response tests preserve metadata presence/null semantics, IDs, policy and exact prices |
+| Other merged consumers | Client-ui check/test8, report-generator native/WASM check/test7, root workflow/shell/Vercel checks and111 Node tests pass. Postman lint: zero errors and one existing unrelated cron preview warning |
+| Actual merged API browser | Catalogue search at location1 shows titles, SKU, actual loaded variant image and stock7/0; selections survive pages with exact overrides17.29/23.45. Controlled provider failure writes no rows and retains price/metadata drafts; retry persists both rows and leaves the independent metadata draft intact |
+| Actual persistence/reload | PostgreSQL rows contain corresponding titles, SKU, variant image URL, DENY policy and exact prices. Fresh browser reload with the controlled provider unavailable retains the metadata/images/prices, without loading catalogue results. No response proxy or metadata injection was used |
+| Layout | Desktop and375px screenshots inspected; actual images load and remain at most96×96. Narrow document360px fits viewport375px;640px table scrolls within302px container. Temporary viewport override reset |
+| Review/cleanup | Independent API/domain/docs and UI reviews report no actionable regressions. Temporary E2E registration restored byte-for-byte; owned API/upstream/UI processes and Compose containers/network/volume removed |
+
+Selected API responses still omit available quantity. In-session catalogue observations remain labeled by location; fresh saved rows truthfully show “Not available”. Older nullable display rows are not automatically backfilled. No live Shopify/S3/payment mutation occurred; only a public HTTPS synthetic image was read. Screenshots were inspected in browser output; no exported screenshot artifact is included. Source-bound logs, approval, manifests and controlled database evidence remain ignored under `.superpowers/pr58-conflict-20261023/`. Hosted publication/mergeability checks are recorded separately; local passes do not imply hosted CI success.
+
+### Variant viewer and pinned-base conflict resolution
+
+Merged committed backend `34e1e96` into UI `3e3db67`, preserving S3 logo locations, signed previews and attachment validation. Future backend metadata work and the later requested rebase remain excluded.
+
+| Check | Result |
+| --- | --- |
+| API | Owning check passes: 34 setup tests, formatting and strict Clippy. Full isolated database/HTTP recipe passes: 395 native tests and 192 real-TCP tests, zero failures/ignored; HTTP runtime 702.87s. Compose resources removed afterward |
+| Backoffice/contracts | Owning check/test pass: 170 backoffice, 14 domain unit and 8 contract tests, domain WASM check and strict native/WASM lint. Final web bundle builds successfully; client-ui check/test pass with 8 tests |
+| Static integration | Independent API, UI and combined-source reviews report no actionable regressions. Resolved index has no unmerged entries; root formatting and whitespace checks pass |
+| Real merged API browser | Synthetic login and convention; catalogue at location1 shows separate product/variant titles, SKU, loaded variant image and stock7/0. Select across pages, exact overrides17.29/23.45, controlled upstream save failure/retry, independent metadata draft retention and successful legacy-save detail retention pass. Editing unsubmitted location2 leaves observed stock labeled location1 |
+| Explicit future-response simulation | Controlled proxy injects optional fields only in GET/PUT responses. Fresh enriched load/save shows titles/SKU/image/stock7/0 and exact prices. Explicit null clears details even while catalogue data exists; controlled503 blocks selection editing/save until retry loads all rows. Response enrichment never appears in request payloads: only product ID, variant ID and final_price |
+| Layout/images | Desktop and375px screenshots inspected. Loaded HTTPS synthetic image has natural width72; selected thumbnails remain at most96×96. Narrow page has no horizontal document overflow (document360px within375px viewport); table640px scrolls inside302px container. Row actions remain on one line |
+| Postman | Workspace lint: zero errors, one existing unrelated cron preview query-parameter warning. Catalogue path and create/options descriptions match the merged API |
+| Cleanup | Temporary browser test registration restored byte-for-byte; owned API/upstream/UI/proxy processes and Compose containers/network/volume stopped. Other worktrees remain untouched |
+
+Current pinned backend responses omit saved display metadata and selected quantity. Fresh legacy reload therefore displays explicit unavailable placeholders while retaining exact prices. Enriched reload/quantity browser evidence above is a **controlled future contract simulation**, not proof of backend persistence. The planned PR #57 metadata fields do not yet include selected quantity; final backend contract and the queued rebase remain required. Stock is informational, with no automatic refresh or invented saved location. No live Shopify/S3 mutations occurred; the public synthetic HTTPS image was read only. Screenshots were inspected in browser output; no exported screenshot artifact is included.
+
+Source-bound logs, approval and response-simulation events are retained in ignored `.superpowers/variant-viewer-20261023/`. Hosted checks are recorded separately after publication; local passes do not imply hosted CI success.
+
+### PR #58 logo review follow-up
+
+| Check | Actual evidence |
+| --- | --- |
+| API complete recipes | Strict check passed (21 setup-helper tests, dprint, formatting, native/all-target/E2E Clippy). Full test passed: 360 native +191 real-TCP, zero failed/ignored; TCP701.52s. Owned PostgreSQL/RustFS services, network and volumes removed |
+| Backoffice | Strict native/WASM checks,14 domain +8 contract +161 backoffice tests, domain WASM compilation and final web build passed |
+| New endpoint and association | Seven upload and25 convention TCP cases pass. Actual RustFS accepts the returned signed image URL without Authorization and rejects query tampering403. Cases include body/path/auth boundaries, provider failures, complete image checks, location-only SQL, pre-insert/patch failure ordering and optional preview degradation |
+| Browser creation and rendering | Optional68-byte PNG uploaded before creation. SQL stores `conventions/<slug>/<UUID>.png`; signed S3 image renders with RFC3339 expiry. Returned signed GET is200/image/png and SHA256 `431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460`, identical to original and stored bytes |
+| Browser picker and retry | Same absolute file works after discard and upload/clear, without editor reload. Native input clears after discard/success; upload failure retains candidate. Attach failure after successful upload preserves the previous DB key; retry saves the staged location with unchanged PUT count |
+| Browser drafts and refresh | Unsaved name and13.99 price survive both resets, upload/attach failure and preview GET failure/recovery. Explicit refresh restores image/new expiry without replacing drafts. Both saved through real API/SQLx; SQL final price is exact13.99. Browser diagnostic query returned no warnings/errors |
+| Independent review | Backend/domain/E2E, frontend, and final cross-layer source reviews accepted with no actionable findings. Original native-picker regressions failed before the fix and pass after adapting to upload-plus-attach |
+| Postman |73 requests lint with zero errors and one existing unrelated cron-preview FMT209 warning. Shared runtime globals connect upload/location, create/PATCH and unauthenticated signed image GET; obsolete proxy requests removed |
+| Isolation and limits | Controlled Shopify/S3 plus owned PostgreSQL/RustFS only. Final source hashes unchanged after checks. Temporary browser module removed byte-identically, helper/server stopped, browser tab closed and Compose resources removed. Browser tests cover image-error refresh rather than a five-minute wall-clock expiry wait; SDK expiry/signature behavior has separate automated checks. No live provider/deployment claim |
+
+The revised contract stores locations and returns expiring previews. Old signed links may work until expiry; unreferenced private objects have no garbage collection in this scope. The approved stacked target remains `feat/ENZ-35`; GitHub CI only triggers main-target PRs, so local checks are not hosted CI evidence.
+
+### Original feature verification
+
+| Check | Actual evidence |
+| --- | --- |
+| API full recipe | 348 native + 185 real-TCP E2E passed, zero failed/ignored; TCP phase 699.37s. All nine new options/logo scenarios passed. Owned Compose PostgreSQL/S3 containers, network and S3 volume removed after the run |
+| API strict check | Existing check recipe passed: 21 setup-helper tests, dprint, Rust formatting, strict native/all-target/E2E Clippy |
+| Shared contracts | 20 domain unit/contract tests and database-free WASM check passed |
+| Shared UI / client | Shared UI 9 tests, native/WASM strict check; client 8 tests, native/WASM check and web build passed. Both app bundles include the shared stylesheet |
+| Backoffice | Native/WASM strict check, all 154 tests and web build passed after the browser corrections; the final CSS-only rebuild also passed |
+| Coverage | Scoped UI LCOV: 42/43 lines (97.67%); scoped backoffice LCOV: 2,143/3,522 lines (60.85%). Both module validators passed. These reports precede the narrow browser corrections. Native coverage excludes browser/WASM runtime |
+| Root tooling | Full existing just check passed: actionlint, shellcheck, Bash syntax, 111 Node tests and pinned Vercel config resolution. An initial existing two-second signal-fixture startup failure was rerun successfully; no unrelated test policy changed |
+| Endpoint contracts | Real API routing/middleware, SQLx/Compose PostgreSQL and controlled provider TCP cover options/auth/origin/validation, raw upload/full image validation, durable managed URL, current-reference access, bounded HEAD/GET, corrupt/missing data and S3/database failure ordering |
+| Postman | Changed convention and S3 request groups lint clean and use an actual tiny PNG fixture. Full internal collection lint exits 1 with the existing unmodified transactions FMT209 URL/query error (42 scanned; changed groups: 16 scanned, zero diagnostics); no cloud run uploaded |
+| Final backend integration | Combined code `7bd20ac` is based on ENZ-35/36 `2fb0874`, including its upstream Shopify client integration: strict API check, 80 client tests, 23 Shopify model tests, 9 catalogue TCP cases (44.90s) and 28 convention/logo TCP cases (42.64s) pass, zero failed/ignored. Owned Compose cleanup independently confirmed. Rebase leaves apps/shared-contract source byte-identical to the tested browser-fix commit |
+| Independent review | Shared UI, logo/API and whole feature source reviews completed. Session-refresh and metadata PATCH findings were corrected and tested. Fresh focused reviews also accepted the loading/currency/catalogue corrections. Reviews are source evidence, separate from runtime checks |
+
+| Browser check | Actual evidence |
+| --- | --- |
+| Browser creation / metadata | Real cookie sign-in, invalid date-range rejection, create, edit and saved reload passed. Immutable currency shows THB and slug is read-only; Markdown scripts remain escaped and unsafe links are removed |
+| Browser catalogue / prices | Numeric location + empty search, paging, source 19.99 THB, stock 7 versus 0, cross-page selection retention and truthful unloaded-source details passed. SQL persisted exact 12.99; forced Shopify failure retained draft 13.99 while SQL stayed 12.99; retry succeeded. Later saved 14.99 survives route reload. Explicit enable and disable passed |
+| Browser logo | Real file chooser selected the 68-byte PNG. Actual S3 object and unauthenticated API image bytes match SHA256 `431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460`; DB stores an API-relative current-logo URL. Image returns image/png, no-store and renders after reload. Failed S3 PUT retained previous image and selected file; retry, clear cancellation/confirmation and re-upload passed. Replaced URL returns 404 |
+| Drafts / accessibility | In-app and native Back cancellation preserve metadata, exact price and selected-file drafts. Confirmed discard leaves saved data unchanged. Cancel initially receives focus; Escape cancels and restores invoker focus. Showing/refocusing the browser preserved all three drafts; the mounted with_session regression separately verifies same-owner refresh retains pending work and account/role changes reset ownership |
+| Responsive / browser diagnostics | Desktop 1280 and phone 390 viewports inspected. Desktop panels use 1160px; phone document client/scroll width stays 375px with the 640px membership table inside a 317px scroll region. Temporary viewport/visibility overrides restored; no browser error/warning logs. Screenshots inspected in browser tool output; no exported screenshot artifacts claimed |
+| Browser recovery regressions | Actual mounted list/detail tests failed before changing resource subscription ordering, then passed for asynchronous success/failure. Explicit selected currency and catalogue GID/optional-search wire regressions now pass; accepted test sockets use blocking reads to avoid the observed WouldBlock race |
+| Manual isolation | Synthetic admin/conventions, real owned PostgreSQL and controlled Shopify/S3 HTTP only. Temporary test-module declaration removed; helper/server stopped and Compose containers/network/volume removed. No private environment settings or production providers used |
+
+The approved stacked PR targets `feat/ENZ-35`; current CI triggers only main-target PRs, so no hosted CI is claimed for that stacked review.
+
 
 ## PR57 review feedback — 2026-10-23
 
@@ -756,3 +856,73 @@ The preview at `http://localhost:8084/scheduled-reports` now uses the rebased sy
 | Provider and examples | Root Postman lint: 80 entities, zero errors, one existing cron FMT209 warning; both Shopify GraphQL operation bytes and variable keys match source |
 | Review regressions | URL-only images, supported active/tracked search with unchanged cursors, CONTINUE save/read/enable/reprice, exact 249-country enum acceptance and malformed-country rejection pass; original CREATE migration/UTC and pricing policy repairs preserved |
 | Isolation and limits | Compose `enz35` cleanup exit 0; no owned containers, volumes, networks or API processes remain. Full logs and frozen hashes are retained in ignored `.superpowers/review-comments/PR-57/2026-10-23/v7-*` artifacts. Hosted CI/coverage remains a separate delivered-source check; no live provider or deployment proof is asserted |
+
+
+## PR #58 main conflict resolution — 2026-10-24
+
+| Item | Result |
+| --- | --- |
+| Integration | Reconciled main `7a319c3` with `feat/ENZ-37`, preserving current catalogue filtering, CONTINUE policy, URL-only images, CountryCode and release behavior alongside convention administration |
+| Logo persistence | Reuses the existing database `logo_url` column for S3 object locations; published migration unchanged and no additional logo column or migration. Legacy HTTPS values survive unrelated edits without signed previews |
+| Completed local checks | API strict check, 34 setup tests and 454 native API tests passed. Unchanged UI source passed native/WASM checks, 173 backoffice tests and its build; domain18 unit/8 contract, other consumers/root and Postman checks passed |
+| Review | Independent combined/API/UI reviews found no outstanding actionable issues; legacy-logo PATCH regression corrected with native and HTTP coverage |
+| User-directed verification limit | User requested stopping tests and publishing the conflict resolution for implementation review. The full199-test TCP run was stopped (exit143), so it is not a full-suite pass. Current browser exercise and hosted CI completion were not required for this handoff |
+
+Source-bound logs and approval/amendment evidence remain ignored under `.superpowers/pr58-conflict-20261024/`. No live provider mutation or deployment was performed. Earlier verification sections describe their own historical source only.
+
+
+### Logo field naming follow-up — 2026-10-24
+
+The stored value is now named `logo_url` in SQL, Rust models, request/response DTOs and UI consumers. Responses expose signed previews as `logo_preview_url` with `logo_preview_url_expires_at`; Postman requests and fixtures use the same names. This follow-up preserves the existing migration, upload validation and missing/null behavior. Tests and builds were not run for this naming change at the user's request; earlier pass results apply to their recorded source.
+
+
+### PR #58 logo ownership review follow-up — 2026-10-24
+
+The convention logo service now owns the existing image/path validation, upload, attachment and preview orchestration. The one-feature `storage` namespace is removed, and existing unit tests move to the matching service test path. Attachment requires a concrete S3 client; optional preview signing and operations without a new logo preserve their prior behavior. Generic S3 operations remain in the existing client. This refactor receives formatting, import/call-site review and independent static review only; tests, builds, lint, browser execution and hosted-CI waiting are explicitly waived for implementation review.
+
+
+### Explicit upload destination and numeric catalogue location — 2026-10-24
+
+The upload location includes its bucket: `conventions/ax-2026` produces bucket `conventions` and object prefix `ax-2026`, with the same full bucket/key location persisted and used for attachment and preview. Report operations explicitly retain their configured bucket. Previously misplaced objects in `reports/conventions/...` are not copied or read through a fallback. Local S3 setup initializes both buckets.
+
+Catalogue requests now use numeric `location_id`; the backend constructs the Shopify Location GID. Existing example searches use `product_type` instead of collections. Raw search forwarding and provider GID inputs remain unchanged. Tests and builds are not run for these changes at the user's request; formatting and independent static review are the verification boundary.
+
+
+### Convention administration UI enhancements — 2026-10-24
+
+This change adds shared link/button affordances, compact list logos, options-backed country/currency selects, automatic list navigation after successful creation, and an existing-dialog catalogue picker with a fixed configured numeric location, escaped product-type/title AND filters and compact product/variant thumbnails. Label/value hierarchy and green/red state cues are applied to convention controls.
+
+Verification is limited to formatting, scoped diff/import/contract review and independent static reviews under the approved no-test implementation-review plan. Regression sources and response/config fixtures are updated but tests, builds, lint, browser/Docker/provider execution and hosted-CI waiting are not run. No visual/runtime pass is claimed. Earlier verification results remain bound to their recorded historical source.
+
+
+### PR #58 required clients and preview response follow-up — 2026-10-24
+
+Convention services and projection now receive concrete S3 client references resolved at the HTTP boundary. Convention responses omit the stored `logo_url` and retain only signed preview URL/expiry; create/PATCH inputs and database persistence keep `logo_url`. The UI uses signed preview state without relying on the storage location and can clear a logo whose preview is unavailable. Current-head CI exposed a private CountryCode import; the fix uses the existing public re-export. Verification is limited to formatting and static source/diff review: tests, builds, lint, browser/provider execution and waiting for hosted CI remain waived by the user. Earlier execution results apply only to their recorded source.
+
+
+### PR #58 deep review and shared presentation — 2026-10-24
+
+| Scope | Evidence and limits |
+| --- | --- |
+| Review | Three focused reviews covered API/contracts, convention state/lifecycle and shared presentation; integrated static review found no remaining actionable issue |
+| Fixes | Backoffice test targets now declare their JSON dev dependency; empty-logo pages stop polling. Shared heading wrapping handles long names. Stale cache-header assertions follow the intentional typed-JSON handler contract; Postman uploads use a committed PNG fixture and explicit Content-Type |
+| Reuse | Create/detail share the complete LogoPicker. Page/section headings share one layout, and all three convention tables use existing DataTable with preserved reporting defaults |
+| Compilation | Native all-target checks passed for backoffice, API, shared ui and client-ui; test targets compiled without executing tests |
+| Bundle | Full backoffice just build passed, including WASM compilation, wasm-bindgen and asset bundling |
+| Static checks | Internal Postman lint passed41files with zero errors/warnings; changed JavaScript parsed in its async eval context, and scoped diff checks passed |
+| Unverified | No test suites, browser flows, real providers, database execution or current-head hosted CI completion were exercised |
+
+
+### PR #58 files and validator boundaries — 2026-10-24
+
+| Scope | Evidence and limits |
+| --- | --- |
+| Ownership | Generic upload orchestration moves to the files service; pure file/image/location validation has no service dependency. Convention services retain attachment ownership, preview projection and payment capability policy, including both PATCH merges |
+| API checks | API just check passed: 34 setup tests, dprint, Rust formatting and strict all-target/E2E Clippy |
+| API execution | Full API test recipe passed: 463 native tests and 200 real-TCP E2E tests, zero failures or ignored tests. New coverage preserves invalid payment capability errors before missing-S3 errors |
+| Bundle and examples | Full backoffice build passed; internal Postman lint passed 41 files with zero errors/warnings |
+| Agent guidance | Repository domain-driven-design and architecture-review skills clarify validators, shared upload orchestration, provider transport and convention attachment ownership. Structural/reference checks and fresh placement recognition passed; optional quick_validate.py could not run without PyYAML |
+| Review and isolation | Independent connected-code review found no outstanding code regression; its documentation scope correction was applied. Owned pr58-domain Compose containers, volume and network were removed |
+| Limits | No live providers, browser interaction or deployment exercised. Hosted CI is verified separately against the published commit; earlier verification sections remain bound to their historical source |
+
+Logs and review evidence are retained under ignored `.superpowers/pr58-domain-feedback/`.

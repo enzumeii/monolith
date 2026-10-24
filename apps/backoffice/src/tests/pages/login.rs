@@ -9,8 +9,8 @@ fn sign_in_requires_both_credentials_and_tracks_cleared_inputs() {
     let mut dom = VirtualDom::new(Login);
     let initial = dom.rebuild_to_vec();
     let inputs = [
-        element_id(&initial, "login-username"),
-        element_id(&initial, "login-password"),
+        element_id(&dom, "login-username"),
+        element_id(&dom, "login-password"),
     ];
     let button = disabled_state(&initial)[0].0;
     assert_eq!(disabled_state(&initial), vec![(button, true)]);

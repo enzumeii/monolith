@@ -1,0 +1,99 @@
+use super::logo;
+use crate::{
+    api,
+    components::{
+        DataTable, ErrorMessage, Heading, TableData,
+        request_state::{RequestState, use_owner},
+    },
+    route::Route,
+    session,
+};
+use dioxus::prelude::*;
+use domain::dto::ListConventionsQuery;
+
+#[component]
+pub fn Conventions(query: String) -> Element {
+    let owner = use_owner();
+    let mut retry = use_signal(|| 0_u64);
+    let (page, enabled) = list_query(&query);
+    let response = use_resource(use_reactive((&query,), move |(query,)| {
+        let _ = owner();
+        let _ = retry();
+        let (page, preorder_enabled) = list_query(&query);
+        async move {
+            session::with_session(|| {
+                api::conventions::list(ListConventionsQuery {
+                    page: Some(page),
+                    per_page: Some(25),
+                    preorder_enabled,
+                })
+            })
+            .await
+        }
+    }));
+    let navigator = use_navigator();
+    let mut mutation = use_signal(RequestState::default);
+    use_effect(use_reactive((&query,), move |(_,)| {
+        mutation.write().edited();
+    }));
+    use_effect(move || {
+        let _ = owner();
+        mutation.write().edited();
+    });
+    rsx! {
+        document::Stylesheet { href: asset!("/assets/conventions.css") }
+        main { class: "page conventions-page",
+            Heading { title: "Conventions",
+                Link { to: Route::ConventionCreate {}, class: "button-link primary", "Create convention" }
+            }
+            if response.read().is_none() || response.pending() { p { role: "status", "Loading conventions…" } }
+            else if let Some(result) = response.read().as_ref() {
+                match result {
+                    Err(error) => rsx! { ErrorMessage { message: Some(error.to_string()) } button { class: "ghost", onclick: move |_| retry += 1, "Retry loading" } },
+                    Ok(value) => rsx! {
+                        if value.items.is_empty() { p { "No conventions match this filter." } }
+                        DataTable { table: TableData { headers: &["Logo", "Name", "Event dates", "Currency", "Preorders", "Actions"], rows: vec![] }, table_class: "convention-table", class: "convention-list-table", caption: "Saved conventions", caption_hidden: true, label: "Saved conventions",
+                                tbody { for item in &value.items { tr { key: "{item.id}",
+                                    td { logo::LogoThumbnail { key: "{item.id}:{item.logo_preview_url:?}", name: item.name.clone(), preview_url: item.logo_preview_url.clone(), expires_at: item.logo_preview_url_expires_at.clone() } }
+                                    td { class: "convention-value", "{item.name}" }
+                                    td { class: "convention-value", "{item.event_starts_on} – {item.event_ends_on}" } td { class: "convention-value", "{item.currency_code}" }
+                                    td { span { class: if item.preorder_enabled { "convention-status is-enabled" } else { "convention-status is-disabled" }, if item.preorder_enabled { "Enabled" } else { "Disabled" } } }
+                                    td { div { class: "convention-row-actions",
+                                        Link { to: Route::ConventionDetail { id: item.id.clone() }, class: "button-link ghost", aria_label: "Edit {item.name}", "Edit" }
+                                        super::delete::DeleteConvention { key: "{query}:{item.id}", id: item.id.clone(), name: item.name.clone(), request: mutation,
+                                            on_deleted: { let previous_page = page > 1 && value.items.len() == 1; move |()| { if previous_page { navigator.replace(Route::Conventions { query: page_query(page - 1, enabled) }); } else { retry += 1; } } }
+                                        }
+                                    } }
+                                } } }
+                        }
+                        nav { class: "convention-actions", aria_label: "Convention pages",
+                            if page > 1 { Link { to: Route::Conventions { query: page_query(page - 1, enabled) }, class: "button-link ghost", "Previous page" } }
+                            span { "Page {value.page}" }
+                            if value.has_next { Link { to: Route::Conventions { query: page_query(page + 1, enabled) }, class: "button-link ghost", "Next page" } }
+                        }
+                    },
+                }
+            }
+        }
+    }
+}
+fn list_query(query: &str) -> (u32, Option<bool>) {
+    let mut url = reqwest::Url::parse("https://backoffice.invalid/").expect("static URL");
+    url.set_query(Some(query.trim_start_matches('?')));
+    let mut page = 1;
+    let mut enabled = None;
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "page" => page = value.parse().ok().filter(|v| *v > 0).unwrap_or(1),
+            "preorder_enabled" => enabled = value.parse().ok(),
+            _ => {}
+        }
+    }
+    (page, enabled)
+}
+fn page_query(page: u32, enabled: Option<bool>) -> String {
+    enabled.map_or_else(
+        || format!("page={page}"),
+        |value| format!("page={page}&preorder_enabled={value}"),
+    )
+}

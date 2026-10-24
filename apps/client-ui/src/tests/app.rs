@@ -12,13 +12,16 @@ fn render(state: Option<Result<config::Settings, String>>) -> String {
 
 #[test]
 fn configuration_loading_is_visible() {
-    assert!(render(None).contains("Loading configuration"));
+    let html = render(None);
+    assert!(html.contains("Loading configuration"));
+    assert!(html.contains("role=\"status\""));
 }
 
 #[test]
 fn configuration_failure_exposes_alert_and_retry() {
     let html = render(Some(Err("Unable to load application.toml".into())));
     assert!(html.contains("role=\"alert\""));
+    assert!(html.contains("class=\"error\""));
     assert!(html.contains("Unable to load application.toml"));
     assert!(html.contains(">Retry</button>"));
     assert!(!html.contains("Client application"));

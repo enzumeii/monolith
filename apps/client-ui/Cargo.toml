@@ -8,6 +8,7 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
+ui = { path = "../../crates/ui" }
 dioxus = "0.7.10"
 reqwest.workspace = true
 serde.workspace = true

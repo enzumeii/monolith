@@ -15,6 +15,7 @@ fn App() -> Element {
     let mut settings = use_resource(config::Settings::new);
     rsx! {
         document::Link { rel: "icon", r#type: "image/png", href: SITE_LOGO }
+        document::Stylesheet { href: ui::COMMON_STYLESHEET }
         document::Stylesheet { href: asset!("/assets/main.css") }
         match settings.read().as_ref() {
             Some(Ok(settings)) => rsx! { Application { settings: settings.clone() } },

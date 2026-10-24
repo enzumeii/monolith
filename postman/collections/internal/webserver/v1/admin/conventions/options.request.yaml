@@ -1,0 +1,28 @@
+$kind: http-request
+description: "Admin country and intrinsic currency/payment options. 200 returns countries as sorted assigned ISO alpha-2 codes (for example JP, TH, US), plus supported currencies with code and payment_methods, derived from the existing currency precision and provider rules; no runtime currency allowlist is required. Unknown parameters/body 400; missing/invalid/expired credentials 401. No database or provider business calls."
+url: "{{server}}/v1/admin/conventions/options"
+method: GET
+order: 7500
+scripts:
+  - type: afterResponse
+    code: |-
+      const options = pm.response.json();
+      pm.test("Options returned", () => {
+        pm.response.to.have.status(200);
+        pm.expect(options.currencies).to.be.an("array");
+      });
+      pm.test("Country select has sorted assigned ISO codes", () => {
+        pm.expect(options.countries).to.be.an("array").with.lengthOf(249);
+        pm.expect(options.countries).to.eql([...options.countries].sort());
+        pm.expect(new Set(options.countries).size).to.eql(options.countries.length);
+        options.countries.forEach(code => pm.expect(code).to.match(/^[A-Z]{2}$/));
+        pm.expect(options.countries).to.include.members(["JP", "TH", "US"]);
+        pm.expect(options.countries).not.to.include("ZZ");
+      });
+      pm.test("Currency payment capabilities are preserved", () => {
+        const methods = code => options.currencies.find(currency => currency.code === code).payment_methods;
+        pm.expect(methods("THB")).to.eql(["stripe", "paypal", "promptpay"]);
+        pm.expect(methods("USD")).to.eql(["stripe", "paypal"]);
+        pm.expect(methods("KWD")).to.eql(["stripe"]);
+      });
+    language: text/javascript

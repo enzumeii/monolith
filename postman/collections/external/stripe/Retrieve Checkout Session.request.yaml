@@ -1,15 +1,15 @@
 $kind: http-request
-description: "Retrieve stripe_checkout_session_id copied from create, never fabricated. Optional expand[]=payment_intent.latest_charge returns expanded references; callers must also support string IDs and retrieve actual objects. 200 partial example: {\"id\":\"cs_test_synthetic\",\"object\":\"checkout.session\",\"mode\":\"payment\",\"status\":\"complete\",\"payment_status\":\"paid\",\"livemode\":false,\"amount_total\":1000,\"currency\":\"usd\",\"metadata\":{\"correlation_id\":\"synthetic-checkout-001\"},\"payment_intent\":\"pi_synthetic\"}. open/unpaid and expired/unpaid are valid results; complete alone and no_payment_required never establish paid. 404 unknown Session; 400 invalid expansion. Uses inherited vault:stripe_secret_key (test secret for manual sandbox use) and stripe base URL including /v1. No Stripe-Account or Stripe-Version header: direct account, account-default API version. Common failures: 401 authentication, 403 permissions, 429 rate limit or 5xx provider failure. Synthetic error: {\"error\":{\"type\":\"invalid_request_error\",\"code\":\"resource_missing\",\"message\":\"No such resource\"}}. Examples are partial synthetic objects, never evidence of a paid payment."
+description: 'Retrieve stripe_checkout_session_id copied from create, never fabricated. Optional expand[]=payment_intent.latest_charge returns expanded references; callers must also support string IDs and retrieve actual objects. 200 partial example: {"id":"cs_test_synthetic","object":"checkout.session","mode":"payment","status":"complete","payment_status":"paid","livemode":false,"amount_total":1000,"currency":"usd","metadata":{"correlation_id":"synthetic-checkout-001"},"payment_intent":"pi_synthetic"}. open/unpaid and expired/unpaid are valid results; complete alone and no_payment_required never establish paid. 404 unknown Session; 400 invalid expansion. Uses inherited vault:stripe_secret_key (test secret for manual sandbox use) and stripe base URL including /v1. No Stripe-Account or Stripe-Version header: direct account, account-default API version. Common failures: 401 authentication, 403 permissions, 429 rate limit or 5xx provider failure. Synthetic error: {"error":{"type":"invalid_request_error","code":"resource_missing","message":"No such resource"}}. Examples are partial synthetic objects, never evidence of a paid payment.'
 url: "{{stripe}}/checkout/sessions/:session_id?expand[]=payment_intent.latest_charge"
 method: GET
 order: 6000
 pathVariables:
   - key: session_id
     value: "{{stripe_checkout_session_id}}"
+    description: ""
 queryParams:
-  "expand[]": payment_intent.latest_charge
+  expand[]: payment_intent.latest_charge
 auth:
   type: inherit
   credentials:
     id: 44bc4504-b8a5-4b4d-b887-d7458a64aaf2
-examples: ./.resources/Retrieve Checkout Session.resources/examples

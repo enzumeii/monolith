@@ -2,70 +2,70 @@ $kind: graphql-request
 url: "{{shopify}}/graphql.json"
 query: |
   query ProductsWithVariants(
-    $first: Int!
-    $locationId: ID!
-    $search: String
-    $after: String
+  	$first: Int!
+  	$locationId: ID!
+  	$search: String
+  	$after: String
   ) {
-    products(
-      first: $first
-      after: $after
-      query: $search
-      sortKey: INVENTORY_TOTAL
-      reverse: true
-    ) {
-      nodes {
-        title
-        productType
-        variants(first: 250) {
-          nodes {
-            title
-            sku
-            contextualPricing(context: { locationId: $locationId }) {
-              price {
-                amount
-                currencyCode
-              }
-            }
-            inventoryItem {
-              unitCost {
-                amount
-                currencyCode
-              }
-              measurement {
-                weight {
-                  value
-                  unit
-                }
-              }
-              inventoryLevel(locationId: $locationId) {
-                id
-                isActive
-                quantities(names: ["on_hand"]) {
-                  name
-                  quantity
-                }
-              }
-            }
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
-        }
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-    }
+  	products(
+  		first: $first
+  		after: $after
+  		query: $search
+  		sortKey: INVENTORY_TOTAL
+  		reverse: true
+  	) {
+  		nodes {
+  			title
+  			productType
+  			variants(first: 250) {
+  				nodes {
+  					title
+  					sku
+  					contextualPricing(context: { locationId: $locationId }) {
+  						price {
+  							amount
+  							currencyCode
+  						}
+  					}
+  					inventoryItem {
+  						unitCost {
+  							amount
+  							currencyCode
+  						}
+  						measurement {
+  							weight {
+  								value
+  								unit
+  							}
+  						}
+  						inventoryLevel(locationId: $locationId) {
+  							id
+  							isActive
+  							quantities(names: ["on_hand"]) {
+  								name
+  								quantity
+  							}
+  						}
+  					}
+  				}
+  				pageInfo {
+  					hasNextPage
+  					endCursor
+  				}
+  			}
+  		}
+  		pageInfo {
+  			hasNextPage
+  			endCursor
+  		}
+  	}
   }
-variables: |
+variables: |-
   {
-    "locationId": "gid://shopify/Location/123",
-    "search": "status:active",
-    "after": null,
-    "first": 50
+  	"locationId": "gid://shopify/Location/123",
+  	"search": "status:active",
+  	"after": null,
+  	"first": 50
   }
 settings: {}
 schema:

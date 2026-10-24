@@ -70,7 +70,8 @@ pub struct ConventionDTO {
     pub id: String,
     pub slug: String,
     pub name: String,
-    pub logo_url: Option<String>,
+    pub logo_preview_url: Option<String>,
+    pub logo_preview_url_expires_at: Option<String>,
     pub country_code: String,
     pub event_starts_on: String,
     pub event_ends_on: String,
@@ -114,4 +115,15 @@ pub struct ConventionVariantListResponse {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ConventionVariantsResponse {
     pub items: Vec<ConventionVariantDTO>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct ConventionOptionsResponse {
+    pub countries: Vec<String>,
+    pub currencies: Vec<ConventionCurrencyOption>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct ConventionCurrencyOption {
+    pub code: String,
+    pub payment_methods: Vec<ConventionPaymentMethod>,
 }

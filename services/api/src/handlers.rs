@@ -4,6 +4,7 @@ pub mod auth;
 pub(crate) mod checkout;
 pub mod cron;
 mod dependencies;
+pub mod files;
 
 pub mod inventories;
 pub mod orders;

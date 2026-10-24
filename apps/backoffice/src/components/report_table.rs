@@ -12,11 +12,13 @@ pub fn DataTable(
     #[props(default = "Order report table".to_string())] label: String,
     #[props(default)] caption: String,
     #[props(default)] class: String,
+    #[props(default = "admins-table report-table".to_string())] table_class: String,
+    #[props(default)] caption_hidden: bool,
 ) -> Element {
     rsx! {
         div { class: "report-scroll", tabindex: "0", role: "region", aria_label: "{label}",
-            table { class: "admins-table report-table {class}",
-                if !caption.is_empty() { caption { "{caption}" } }
+            table { class: "{table_class} {class}",
+                if !caption.is_empty() { caption { class: if caption_hidden { "visually-hidden" } else { "" }, "{caption}" } }
                 thead { tr { for header in table.headers { th { "{header}" } } } }
                 if let Some(children) = children {
                     {children}

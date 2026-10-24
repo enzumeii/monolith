@@ -86,7 +86,7 @@ pub(crate) async fn download_url(
         return Err(crate::models::cron::saved_invalid());
     }
     let object = client
-        .metadata(&file.storage_key)
+        .metadata(client.bucket(), &file.storage_key)
         .await
         .map_err(|error| crate::error::upstream(error))?
         .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Report file not found"))?;
@@ -100,7 +100,7 @@ pub(crate) async fn download_url(
         ));
     }
     let download = client
-        .presign_download(&file.storage_key, &file.filename, ttl_secs)
+        .presign_download(client.bucket(), &file.storage_key, &file.filename, ttl_secs)
         .await
         .map_err(|error| crate::error::upstream(error))?;
     Ok(domain::dto::ReportDownloadUrlDTO {

@@ -34,7 +34,7 @@ pub(crate) async fn obtain(
         return Err(unavailable());
     }
     let object = if let Some(object) = client
-        .metadata(&entry.key)
+        .metadata(client.bucket(), &entry.key)
         .await
         .map_err(|e| crate::error::upstream(e))?
     {
@@ -49,11 +49,16 @@ pub(crate) async fn obtain(
                 )
             })?;
         let outcome = client
-            .put(&entry.key, &entry.content_type, bytes.to_vec())
+            .put(
+                client.bucket(),
+                &entry.key,
+                &entry.content_type,
+                bytes.to_vec(),
+            )
             .await;
         // An accepted PUT can lose its response. Reconcile by key without replaying the upload.
         let object = client
-            .metadata(&entry.key)
+            .metadata(client.bucket(), &entry.key)
             .await
             .map_err(|e| crate::error::upstream(e))?;
         match (object, outcome) {
@@ -69,7 +74,7 @@ pub(crate) async fn obtain(
         return Err(unavailable());
     }
     let bytes = client
-        .download(&entry.key, entry.size_bytes)
+        .download(client.bucket(), &entry.key, entry.size_bytes)
         .await
         .map_err(|e| crate::error::upstream(e))?;
     if bytes.len() != entry.size_bytes || digest(&bytes) != entry.sha256 {

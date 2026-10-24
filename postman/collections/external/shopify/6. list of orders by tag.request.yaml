@@ -2,61 +2,61 @@ $kind: graphql-request
 url: "{{shopify}}/graphql.json"
 query: |
   query OrdersByTag($first: Int!, $search: String!, $after: String) {
-    orders(
-      first: $first
-      after: $after
-      query: $search
-      sortKey: CREATED_AT
-      reverse: true
-    ) {
-      nodes {
-        lineItems(first: 250) {
-          nodes {
-            title
-            variantTitle
-            sku
-            quantity
-            originalUnitPriceSet {
-              shopMoney {
-                amount
-                currencyCode
-              }
-            }
-            product {
-              productType
-            }
-            variant {
-              inventoryItem {
-                unitCost {
-                  amount
-                  currencyCode
-                }
-                measurement {
-                  weight {
-                    value
-                    unit
-                  }
-                }
-              }
-            }
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
-          }
-        }
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-    }
+  	orders(
+  		first: $first
+  		after: $after
+  		query: $search
+  		sortKey: CREATED_AT
+  		reverse: true
+  	) {
+  		nodes {
+  			lineItems(first: 250) {
+  				nodes {
+  					title
+  					variantTitle
+  					sku
+  					quantity
+  					originalUnitPriceSet {
+  						shopMoney {
+  							amount
+  							currencyCode
+  						}
+  					}
+  					product {
+  						productType
+  					}
+  					variant {
+  						inventoryItem {
+  							unitCost {
+  								amount
+  								currencyCode
+  							}
+  							measurement {
+  								weight {
+  									value
+  									unit
+  								}
+  							}
+  						}
+  					}
+  				}
+  				pageInfo {
+  					hasNextPage
+  					endCursor
+  				}
+  			}
+  		}
+  		pageInfo {
+  			hasNextPage
+  			endCursor
+  		}
+  	}
   }
-variables: |
+variables: |-
   {
-    "search": "tag:\"SHIPPING\" AND tag:\"TEST\"",
-    "after": null,
-    "first": 250
+  	"search": "tag:\"SHIPPING\" AND tag:\"TEST\"",
+  	"after": null,
+  	"first": 250
   }
 settings: {}
 schema:

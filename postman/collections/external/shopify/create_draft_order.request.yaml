@@ -21,49 +21,49 @@ description: |
 url: "{{shopify}}/graphql.json"
 query: |
   mutation CreateDraftOrder($input: DraftOrderInput!) {
-    draftOrderCreate(input: $input) {
-      draftOrder {
-        id
-        name
-        email
-        phone
-        tags
-        reserveInventoryUntil
-      }
-      userErrors {
-        field
-        message
-      }
-    }
+  	draftOrderCreate(input: $input) {
+  		draftOrder {
+  			id
+  			name
+  			email
+  			phone
+  			tags
+  			reserveInventoryUntil
+  		}
+  		userErrors {
+  			field
+  			message
+  		}
+  	}
   }
-variables: |
+variables: |-
   {
-    "input": {
-      "email": "buyer@example.test",
-      "phone": "+66000000000",
-      "shippingAddress": {
-        "firstName": "Example",
-        "lastName": "Buyer",
-        "address1": "1 Example Road",
-        "city": "Bangkok",
-        "provinceCode": "TH-10",
-        "countryCode": "TH",
-        "zip": "10000"
-      },
-      "lineItems": [
-        {
-          "variantId": "gid://shopify/ProductVariant/123",
-          "quantity": 2
-        }
-      ],
-      "tags": [
-        "ENZ-42-TEST",
-        "RESERVED-CHECKOUT"
-      ],
-      "presentmentCurrencyCode": "THB",
-      "reserveInventoryUntil": "2099-01-01T00:00:00Z",
-      "sessionToken": "synthetic-session-token-42"
-    }
+  	"input": {
+  		"email": "buyer@example.test",
+  		"phone": "+66000000000",
+  		"shippingAddress": {
+  			"firstName": "Example",
+  			"lastName": "Buyer",
+  			"address1": "1 Example Road",
+  			"city": "Bangkok",
+  			"provinceCode": "TH-10",
+  			"countryCode": "TH",
+  			"zip": "10000"
+  		},
+  		"lineItems": [
+  			{
+  				"variantId": "gid://shopify/ProductVariant/123",
+  				"quantity": 2
+  			}
+  		],
+  		"tags": [
+  			"ENZ-42-TEST",
+  			"RESERVED-CHECKOUT"
+  		],
+  		"presentmentCurrencyCode": "THB",
+  		"reserveInventoryUntil": "2099-01-01T00:00:00Z",
+  		"sessionToken": "synthetic-session-token-42"
+  	}
   }
 settings: {}
 schema:

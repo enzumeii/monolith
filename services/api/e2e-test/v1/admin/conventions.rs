@@ -162,7 +162,7 @@ async fn conventions_lifecycle_exact_prices_replacement_and_cascade() {
         &f,
         "PATCH",
         &path,
-        json!({"preorder_enabled":false,"logo_url":"https://example.test/logo.png"}),
+        json!({"preorder_enabled":false}),
         200,
     )
     .await;
@@ -175,7 +175,7 @@ async fn conventions_lifecycle_exact_prices_replacement_and_cascade() {
         200,
     )
     .await;
-    assert!(cleared["logo_url"].is_null());
+    assert!(cleared["logo_preview_url"].is_null());
     assert_eq!(cleared["name"], "Updated");
     mutate(&c, &f, "PUT", &variants, json!({"items":[]}), 200).await;
     mutate(
@@ -1113,7 +1113,6 @@ async fn conventions_accept_boundaries_paginate_and_allow_both_admin_roles() {
         let mut value = input(&format!("{}-{index}", f.prefix()));
         value["name"] = json!("ก".repeat(120));
         value["description_markdown"] = json!("x".repeat(20000));
-        value["logo_url"] = json!(format!("https://example.test/{}", "x".repeat(2027)));
         let r = c
             .send(authed_json("POST", URI, f.root_id(), role, &value))
             .await
@@ -2110,7 +2109,6 @@ async fn conventions_unchecked_selection_retains_latest_locked_snapshot() {
     assert_eq!(upstream.requests().len(), 1);
     drop(pending_upstream);
 }
-
 #[tokio::test]
 async fn conventions_continue_policy_is_selectable_readable_and_enablable() {
     let f = fixture().await;
@@ -2169,3 +2167,6 @@ async fn conventions_continue_policy_is_selectable_readable_and_enablable() {
         assert!(!query.contains("altText"));
     }
 }
+
+#[path = "conventions/logo.rs"]
+mod logo;

@@ -12,6 +12,7 @@ flowchart LR
     API --> SERVICES["Services: use cases and transactions"]
     SERVICES --> REPO["Repositories: SQLx queries"]
     REPO --> DB[("PostgreSQL")]
+    PRESENTATION["Shared forms, styles and safe Markdown"] -.-> UI
     DOMAIN["Shared request/response DTOs"] -.-> UI
     DOMAIN -.-> API
     SERVICES --> SHOPIFY["ShopifyClient: one operation per call"]
@@ -26,6 +27,7 @@ flowchart LR
 | --- | --- | --- |
 | `services/api` | HTTP endpoints, authentication, authorization, persistence, outbound clients | Database objects, principals, JWT claims, and Shopify wire DTOs remain API-owned |
 | `crates/domain` | Shared request/response DTOs and wire enums, including `ErrorResponse` and common `PatchField<T>` used by cron and convention PATCH requests | No database models, SQLx, JWT claims, or transactions |
+| `crates/ui` | Shared form/error/loading components, CSS and sanitized Markdown preview | No routing, authentication, API calls or persistence |
 | `crates/report-generator` | Shared inventory/accounting table projections and CSV serialization for API scheduled reports and backoffice exports | Wire DTO inputs; no provider calls, persistence or browser download transport |
 | `apps/backoffice` | CSR browser pages and session coordination; static metadata in `vercel/` | Direct public API calls; API owns cookies and authorization |
 | `apps/client-ui` | Existing CSR browser shell; static metadata in `vercel/` | Owns `/user`; browser feature coverage remains limited |
@@ -44,9 +46,10 @@ AppState constructs optional outbound clients once and shares their HTTP pools. 
 | `src/middleware/cookies.rs` | Cookie helpers, session transport, origin enforcement using BrowserConfig |
 | `src/middleware/token.rs` | JWT validation and role checks using the signing key and BrowserConfig |
 | `src/services/` / `src/repositories/` | Business use cases and transaction boundaries / SQL queries |
+| `services/files.rs` / `services/conventions/logo.rs` | Shared upload orchestration through the injected S3 client / Convention attachment ownership and signed preview projection; payment capability checks remain in the convention service |
 | `src/cron.rs` / `src/cron/` | Scheduler loop, dispatch, leases, technical retries, checkpoints and Blob publication; business report/configuration rules stay in services (see [scheduled reports](cron.md)) |
 | `src/models/` | Persistence/authentication models and API-owned Shopify contracts |
-| `src/validations/` / `src/utils/` | Input rules / Argon2 operations and native number parsing and multiplication |
+| `src/validations/` / `src/utils/` | Input rules; upload image/directory and convention logo location validators have no service dependencies / Argon2 operations and native number parsing and multiplication |
 | `src/error.rs` | Public and upstream error mapping, retained source diagnostics and centralized boundary logging |
 | `src/client.rs` | Generic HTTP/GraphQL request envelopes, decoding, failures, throttling backoff |
 | `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication and single-operation proxy methods / matching query documents |
@@ -63,7 +66,10 @@ AppState constructs optional outbound clients once and shares their HTTP pools. 
 | `src/export/{csv,xlsx,browser}.rs` | CSV encoding / XLSX encoding and row limits / browser download transport; feature-specific cells/archives remain page-owned |
 | `src/pagination.rs` | Shared cursor collection/history for Reports and Orders |
 | `src/session/` | Viewer state, response ownership, browser synchronization |
-| `src/route.rs`, `src/pages/`, `src/components/` | Navigation, pages, forms, confirmation, reusable UI |
+| `src/route.rs`, `src/pages/`, `src/components/` | Route mapping, owning features, confirmations and shared session-scoped draft navigation |
+| `src/components/heading.rs`, `src/components/report_table.rs` | Stateless title/back/action layout and accessible rich-row tables; callers own routes, data, requests and feature styling |
+| `src/pages/conventions/` | Convention metadata, catalogue selection, exact price drafts and independent logo uploads |
+| `crates/ui` | Presentation and safe Markdown shared by backoffice and client UI |
 | `src/tests/` | Configuration, HTTP boundary, and session tests |
 
 ## HTTP and authentication
@@ -219,18 +225,20 @@ The nested250 bound is the agreed store workload, not a Shopify platform maximum
 
 ## Convention configuration and selection catalogue
 
-All eight operations use the existing ADMIN/SUPER_ADMIN protected group and browser cookie/origin rules. Paths below use `/api/v1/admin`; native `/v1/admin` aliases expose the same handlers.
+These operations use the existing ADMIN/SUPER_ADMIN protected group and browser cookie/origin rules. Paths below use `/api/v1/admin`; native `/v1/admin` aliases expose the same handlers.
 
 | Method and suffix | Contract |
 | --- | --- |
 | `GET /conventions` | Page/per-page list with optional `preorder_enabled` filter |
-| `POST /conventions` | Create immutable slug/currency and editable metadata/payment methods; server sets `preorder_enabled=false` |
+| `GET /conventions/options` | Supported currency/payment choices derived from intrinsic precision and provider policy |
+| `POST /files` | Upload a bounded PNG/JPEG to a requested convention slug folder; return a versioned object location and short-lived signed preview |
+| `POST /conventions` | Create immutable slug/currency, metadata/payment methods and an optional validated logo location; server sets `preorder_enabled=false` |
 | `GET /conventions/{id}` | Read one UUID-identified convention |
-| `PATCH /conventions/{id}` | Patch metadata, methods or manual enable flag; slug/currency are not writable |
+| `PATCH /conventions/{id}` | Patch metadata, logo location, methods or manual enable flag; slug/currency are not writable |
 | `DELETE /conventions/{id}` | Delete convention and cascade its current variant memberships |
 | `GET /conventions/{id}/variants` | Page/per-page current selections with exact `final_price` strings and persisted product/variant titles, SKU and representative images |
 | `PUT /conventions/{id}/variants` | Atomically replace all selections, at most 250 unique Shopify variant IDs |
-| `GET /conventions/catalogue` | One Shopify product page for a required location GID, active-product search guard and root cursor; return tracked variants with active inventory levels at the requested location |
+| `GET /conventions/catalogue` | One Shopify product page for a required positive numeric location ID (resolved to a Shopify Location GID by the backend), active-product search guard and root cursor; return tracked variants with active inventory levels at the requested location |
 
 ```mermaid
 flowchart LR
@@ -247,8 +255,8 @@ flowchart LR
 | Ownership / state | Current behavior |
 | --- | --- |
 | Shared DTOs | `domain::dto::conventions` owns wire contracts; `dto::common::PatchField` preserves missing/null/value semantics and the root `domain::dto::PatchField` export; cron uses the same type |
-| API persistence | `TIMESTAMPTZ` timestamps decode and serialize in UTC; event dates remain calendar dates. `conventions` stores UUID, unique slug, name/logo, country, event dates, description Markdown, manual enable flag, currency, payment methods and timestamps. `convention_variants` stores UUID, parent, Shopify product/variant GIDs, positive finite `NUMERIC` final price, nullable product/variant title, SKU, representative image URLs and DENY/CONTINUE inventory-policy snapshots, and timestamps; parent+variant is unique |
-| Migration | The unpublished convention migration creates five nullable display TEXT columns and nullable inventory_policy constrained to DENY/CONTINUE directly in `convention_variants`; no separate display-metadata migration or backfill is required |
+| API persistence | `TIMESTAMPTZ` timestamps decode and serialize in UTC; event dates remain calendar dates. `conventions` stores UUID, unique slug, name/logo location, country, event dates, description Markdown, manual enable flag, currency, payment methods and timestamps. `convention_variants` stores UUID, parent, Shopify product/variant GIDs, positive finite `NUMERIC` final price, nullable product/variant title, SKU, representative image URLs and DENY/CONTINUE inventory-policy snapshots, and timestamps; parent+variant is unique |
+| Migration | The published convention CREATE migration is preserved byte-for-byte. Its existing `logo_url` column stores S3 object locations; legacy HTTPS values remain stored and do not produce signed previews. No additional logo column or migration is required |
 | Country validation | API-owned CountryCode uses the existing assigned ISO alpha-2 set for create/PATCH, normalizes ASCII case and preserves string request/storage fields |
 | Immutable identity | API excludes slug/currency from PATCH; a database trigger also rejects changes. One convention has one user-supplied currency stored in the database; no currency allowlist configuration |
 | Price representation | Major-unit decimal strings such as `"12.99"` pass through exact decimal validation and PostgreSQL `NUMERIC`, without floating point. Responses use currency precision; positive amounts must fit signed 64-bit minor units and selected payment-method precision |
@@ -296,6 +304,10 @@ flowchart LR
 | Tag edits | Shared order service reuses ListOrders (id filter, id/tags projection) before tagsAdd/tagsRemove; ASCII-case-insensitive workflow matching, stored spelling for removal, skip existing additions and no-op mutations; unrelated tags preserved |
 | Shopify projections | Fulfillment, shipping and reship DTOs live in models/shopify.rs alongside the existing provider models; fulfillment retains ShopifyId through validation, service and the fulfillment-order client call |
 | Mock declaration | Sum non-Tip item prices once, multiply by5, minimum100, independent of currency; stock items contribute price but not quantity; no price×quantity multiplication |
+
+## Convention administration
+
+[Convention administration and logo storage](conventions.md) describes saved and draft state, catalogue selection and persistent S3 logo locations and short-lived signed preview access.
 
 ## PayPal payment provider boundary
 

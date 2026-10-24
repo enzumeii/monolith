@@ -3,23 +3,23 @@ description: "Converts this same draft to a paid order using Shopify native draf
 url: "{{shopify}}/graphql.json"
 query: |
   mutation CompleteCheckoutDraft($id: ID!, $paymentPending: Boolean!) {
-    draftOrderComplete(id: $id, paymentPending: $paymentPending) {
-      draftOrder {
-        id
-        order {
-          id
-        }
-      }
-      userErrors {
-        field
-        message
-      }
-    }
+  	draftOrderComplete(id: $id, paymentPending: $paymentPending) {
+  		draftOrder {
+  			id
+  			order {
+  				id
+  			}
+  		}
+  		userErrors {
+  			field
+  			message
+  		}
+  	}
   }
-variables: |
+variables: |-
   {
-    "id": "gid://shopify/DraftOrder/123",
-    "paymentPending": false
+  	"id": "gid://shopify/DraftOrder/123",
+  	"paymentPending": false
   }
 settings: {}
 schema:

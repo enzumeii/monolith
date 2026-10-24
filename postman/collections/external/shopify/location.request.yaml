@@ -2,13 +2,13 @@ $kind: graphql-request
 url: "{{shopify}}/graphql.json"
 query: |
   query Location($id: ID!) {
-    location(id: $id) {
-      id
-    }
+  	location(id: $id) {
+  		id
+  	}
   }
-variables: |
+variables: |-
   {
-    "id": "gid://shopify/Location/123"
+  	"id": "gid://shopify/Location/123"
   }
 settings: {}
 schema:
