@@ -17,6 +17,9 @@
 .portal-filters { display: grid; grid-template-columns: 1fr 2fr; gap: .75rem 1.25rem; align-items: center; }
 .portal-products { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1.25rem; }
 .portal-product { min-width: 0; }
+.portal-product-detail .portal-product-image { height: 320px; }
+.portal-product-variants { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 1.5rem; }
+.portal-product-variants .portal-variant { margin-top: 0; }
 .portal-product h3 { margin-top: .75rem; }
 .portal-product-image { width: 100%; height: 240px; object-fit: contain; }
 .portal-description { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -46,6 +49,7 @@
     .portal-brand-logo { width: 38px; height: 38px; }
     .portal-nav-actions { gap: .65rem; }
     .portal-nav-actions .button-link { padding: .4rem; font-size: .85rem; }
+    .portal-product-detail .portal-product-image { height: 240px; }
     .portal-page-size { width: 100%; justify-content: center; }
     .portal-pagination { gap: .75rem; }
     .portal-event { gap: .75rem; flex-direction: column; }

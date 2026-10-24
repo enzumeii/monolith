@@ -2,11 +2,11 @@
 
 use crate::{
     api::tests::{catalogue, convention, responses},
-    pages::tests::{CHECKOUT, Screen, TestDocument, click, empty_cart, input, mounted, until},
+    pages::tests::{CHECKOUT, Screen, TestDocument, empty_cart, mounted, until},
 };
 
 #[tokio::test]
-async fn restored_cart_badge_updates_after_adding_items_and_links_to_checkout() {
+async fn restored_catalogue_cart_badge_links_to_checkout_without_variant_controls() {
     let (mut dom, _) = mounted(
         Screen::Provider(catalogue()),
         empty_cart(),
@@ -23,14 +23,11 @@ async fn restored_cart_badge_updates_after_adding_items_and_links_to_checkout() 
     let html = until(&mut dom, "View cart (0 items)").await;
     assert!(!html.contains("All conventions"));
     assert!(html.contains(r#"alt="Enzumeii""#));
-    input(&mut dom, "quantity-1", "input", "2");
-    click(&mut dom, "aria-label", "Add Shirt / Blue / Large to cart");
-    let html = until(&mut dom, "View cart (2 items)").await;
     let navbar = html.split("</header>").next().expect("navbar markup");
     assert!(navbar.contains(&format!(r#"href="/fair-a/cart/{CHECKOUT}""#)));
     assert!(navbar.contains("portal-cart-count"));
-    assert!(navbar.contains(">2</span>"));
-    assert!(!html.contains("View cart (2)</a>"));
+    assert!(navbar.contains(">0</span>"));
+    assert!(!html.contains("Add to cart"));
 }
 
 #[tokio::test]

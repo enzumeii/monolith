@@ -3,12 +3,14 @@ mod convention;
 mod directory;
 mod filters;
 mod navbar;
+mod product;
 
 pub use catalogue::CataloguePage;
 pub use convention::CartPage;
-pub(crate) use convention::{ConventionContent, ConventionFrame};
+pub(crate) use convention::{ConventionContent, ConventionFrame, ConventionView};
 pub use directory::Directory;
 use navbar::PortalNavbar;
+pub use product::ProductPage;
 
 use crate::route::Route;
 use dioxus::prelude::*;

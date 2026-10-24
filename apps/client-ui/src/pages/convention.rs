@@ -8,16 +8,32 @@ use dioxus::prelude::*;
 use domain::dto::PublicCatalogueResponse;
 use ui::{ErrorMessage, LoadingMessage};
 
-#[component]
-pub fn CartPage(slug: String, checkout_id: String) -> Element {
-    rsx! { ConventionPage { key: "{slug}", slug, checkout_id: Some(checkout_id) } }
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum ConventionView {
+    Catalogue,
+    Product { product_id: String },
+    Cart { checkout_id: String },
+}
+
+impl ConventionView {
+    pub(crate) fn back_route(&self, slug: &str) -> Option<Route> {
+        match self {
+            Self::Catalogue => None,
+            Self::Product { .. } | Self::Cart { .. } => {
+                Some(Route::CataloguePage { slug: slug.into() })
+            }
+        }
+    }
 }
 
 #[component]
-pub fn ConventionPage(slug: String, checkout_id: Option<String>) -> Element {
-    let back_to = checkout_id
-        .as_ref()
-        .map(|_| Route::CataloguePage { slug: slug.clone() });
+pub fn CartPage(slug: String, checkout_id: String) -> Element {
+    rsx! { ConventionPage { key: "{slug}", slug, view: ConventionView::Cart { checkout_id } } }
+}
+
+#[component]
+pub(crate) fn ConventionPage(slug: String, view: ConventionView) -> Element {
+    let back_to = view.back_route(&slug);
     let mut catalogue = use_resource(move || {
         let slug = slug.clone();
         async move { api::conventions::catalogue(&slug).await }
@@ -34,7 +50,7 @@ pub fn ConventionPage(slug: String, checkout_id: Option<String>) -> Element {
             }
         },
         Some(Ok(catalogue)) => rsx! {
-            CartProvider { key: "{catalogue.convention.id}", catalogue, checkout_id }
+            CartProvider { key: "{catalogue.convention.id}", catalogue, view }
         },
     }
 }
@@ -61,16 +77,14 @@ pub(crate) fn ConventionFrame(
 #[component]
 pub(crate) fn ConventionContent(
     catalogue: PublicCatalogueResponse,
-    checkout_id: Option<String>,
+    view: ConventionView,
     notice: Option<String>,
 ) -> Element {
-    let back_to = checkout_id.as_ref().map(|_| Route::CataloguePage {
-        slug: catalogue.convention.slug.clone(),
-    });
+    let back_to = view.back_route(&catalogue.convention.slug);
     let context = use_context::<CartContext>();
     let cart = context.cart.read();
     let count: u32 = cart.items.iter().map(|item| item.quantity).sum();
-    let (destination, label) = if checkout_id.is_some() {
+    let (destination, label) = if matches!(view, ConventionView::Cart { .. }) {
         (
             Route::CataloguePage {
                 slug: catalogue.convention.slug.clone(),
@@ -100,10 +114,10 @@ pub(crate) fn ConventionContent(
             },
             ConventionHeader { convention: catalogue.convention.clone() }
             if let Some(message) = notice { p { class: "portal-notice", role: "status", "{message}" } }
-            if let Some(checkout_id) = checkout_id {
-                CartView { catalogue, checkout_id }
-            } else {
-                super::catalogue::Catalogue { catalogue }
+            match view {
+                ConventionView::Catalogue => rsx! { super::catalogue::Catalogue { catalogue } },
+                ConventionView::Product { product_id } => rsx! { super::product::ProductDetail { catalogue, product_id } },
+                ConventionView::Cart { checkout_id } => rsx! { CartView { catalogue, checkout_id } },
             }
         }
     }

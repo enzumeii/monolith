@@ -281,7 +281,7 @@ Report queries require product, inventory, location and order access; reading un
 | Postman examples | Internal `conventions/{list,create,get,patch,delete,list-variants,replace-variants}` and `conventions/catalogue/{products,continue}` use synthetic IDs/prices and workspace variables. External `catalogue_products` / `convention_variant` query text and variables match API documents; inherited credentials remain private |
 | Local checks | Use package `just check` / `just test` recipes and root `cargo fmt --all -- --check`. Local-only `/Users/wphongphanpa/.local/bin/postman workspace lint` validates the checked-in workspace; do not run synthetic mutation examples against production |
 | Isolation | Use an owned `CARGO_TARGET_DIR` per worktree. API full recipe accepts `E2E_COMPOSE_PROJECT`, `E2E_POSTGRES_PORT`, `E2E_S3_PORT` and `E2E_DATABASE_URL`; preserve its Compose cleanup. Controlled provider matrices may serialize behind the fixture advisory lock |
-| Current limit | Public convention pages/APIs (ENZ-38), routing (ENZ-41) and quotes remain separate work. Guest checkout retains linkage/evidence hashes; Shopify retains the accepted purchase |
+| Current limit | Public convention browsing, product detail and quotes use the anonymous APIs described in [conventions](conventions.md). The portal does not invoke payments; guest checkout retains linkage/evidence hashes while Shopify retains the accepted purchase |
 
 ## Inventory enablement
 
@@ -352,7 +352,7 @@ Titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/e
 | Service | Root / builder | Public paths |
 | --- | --- | --- |
 | `backoffice` | `apps/backoffice/vercel` / `@vercel/static-build` | `/backoffice`, `/backoffice/(.*)` |
-| `client-ui` | `apps/client-ui/vercel` / `@vercel/static-build` | `/`, `/<slug>`, `/<slug>/cart/<UUID>` and `/assets/*`; legacy `/user` redirects |
+| `client-ui` | `apps/client-ui/vercel` / `@vercel/static-build` | `/`, `/<slug>`, `/<slug>/products/<product-id>`, `/<slug>/cart/<UUID>` and `/assets/*`; legacy `/user` redirects |
 | `api` | `.` / `@vercel/container`; `Dockerfile.api.vercel` | `/api/(.*)` and exact `/_cron` |
 | Bindings | None | Browser requests use `/api/v1` directly |
 
