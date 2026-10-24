@@ -16,11 +16,11 @@ fn profile_requires_username_and_optional_password_confirmation() {
             expires_at: u64::MAX,
         });
     });
-    let initial = dom.rebuild_to_vec();
+    dom.rebuild_in_place();
     let inputs = [
-        element_id(&initial, "profile-username"),
-        element_id(&initial, "profile-password"),
-        element_id(&initial, "profile-confirm"),
+        element_id(&dom, "profile-username"),
+        element_id(&dom, "profile-password"),
+        element_id(&dom, "profile-confirm"),
     ];
     for _ in 0..5 {
         let _ = dom.wait_for_work().now_or_never();

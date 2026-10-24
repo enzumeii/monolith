@@ -2,6 +2,7 @@ const navigation = window.navigation;
 const supported = !!navigation?.currentEntry && typeof navigation.traverseTo === 'function';
 let dirty = false;
 let prefix = '';
+let protectedPath = '';
 let sourceKey = null;
 let restoring = null;
 let recoveryRequired = false;
@@ -48,7 +49,7 @@ function onPopState(event) {
         return;
     }
     const route = routeOf(entry.url);
-    if (route.split('?')[0] === '/scheduled-reports') {
+    if (route.split('?')[0] === protectedPath) {
         sourceKey = entry.key;
         return;
     }
@@ -64,6 +65,7 @@ try {
         switch (command.action) {
             case 'observe':
                 prefix = command.prefix || '';
+                protectedPath = command.protected_path || '';
                 dirty = command.dirty;
                 if (!restoring && !recoveryRequired) revision += 1;
                 if (dirty && supported && !restoring && !recoveryRequired) sourceKey = navigation.currentEntry.key;

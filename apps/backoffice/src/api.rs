@@ -1,7 +1,10 @@
 pub mod accounting;
 pub mod admins;
 pub mod auth;
+pub mod catalogue;
+pub mod conventions;
 pub mod cron_configurations;
+pub mod files;
 pub mod inventories;
 pub mod orders;
 pub mod report_results;
@@ -32,6 +35,14 @@ pub(crate) fn valid_location_id(id: &str) -> bool {
     !id.is_empty() && id.bytes().all(|c| c.is_ascii_digit()) && !id.bytes().all(|c| c == b'0')
 }
 
+pub(crate) fn valid_uuid_id(id: &str) -> bool {
+    id.len() == 36
+        && id.bytes().enumerate().all(|(index, value)| match index {
+            8 | 13 | 18 | 23 => value == b'-',
+            _ => value.is_ascii_hexdigit(),
+        })
+}
+
 impl std::error::Error for ApiError {}
 fn request(method: Method, path: &str) -> ApiResult<RequestBuilder> {
     let settings =
@@ -50,12 +61,7 @@ fn request(method: Method, path: &str) -> ApiResult<RequestBuilder> {
     Ok(request)
 }
 fn uuid_request(method: Method, path: &str, id: &str) -> ApiResult<RequestBuilder> {
-    let valid = id.len() == 36
-        && id.bytes().enumerate().all(|(index, value)| match index {
-            8 | 13 | 18 | 23 => value == b'-',
-            _ => value.is_ascii_hexdigit(),
-        });
-    if !valid {
+    if !valid_uuid_id(id) {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             "Enter a valid record ID",
@@ -63,6 +69,7 @@ fn uuid_request(method: Method, path: &str, id: &str) -> ApiResult<RequestBuilde
     }
     request(method, &format!("{path}/{id}"))
 }
+
 async fn send(request: RequestBuilder) -> ApiResult<Response> {
     let response = request
         .send()

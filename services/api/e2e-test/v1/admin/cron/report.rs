@@ -517,13 +517,13 @@ async fn cron_transaction_success_publishes_both_csvs_and_commits_mail_checkpoin
         let transaction_csv = data
             .objects
             .iter()
-            .find(|(key, _)| key.ends_with("/transactions.csv"))
+            .find(|((bucket, key), _)| bucket == "reports" && key.ends_with("/transactions.csv"))
             .unwrap()
             .1;
         let item_csv = data
             .objects
             .iter()
-            .find(|(key, _)| key.ends_with("/items.csv"))
+            .find(|((bucket, key), _)| bucket == "reports" && key.ends_with("/items.csv"))
             .unwrap()
             .1;
         let transaction_csv = String::from_utf8(transaction_csv.clone()).unwrap();
@@ -759,6 +759,7 @@ async fn seed(fixture: &TestFixture, client: &TestClient) -> Uuid {
         let file = download_receipt(id, name, bytes);
         client
             .put(
+                client.bucket(),
                 file["storage_key"].as_str().unwrap(),
                 "text/csv; charset=utf-8",
                 bytes.to_vec(),
@@ -1211,6 +1212,7 @@ async fn download_url_head_failures_metadata_and_local_configuration_are_distinc
         storage
             .client
             .put(
+                storage.client.bucket(),
                 original["storage_key"].as_str().unwrap(),
                 "text/csv; charset=utf-8",
                 if fault == "size" {
@@ -1383,21 +1385,39 @@ async fn rustfs_private_network_acceptance() {
     let api = crate::common::client().await;
     let client = crate::common::s3_client(api.storage_base());
     let key = format!("acceptance/{}/with spaces+%/ไทย.csv", uuid::Uuid::new_v4());
-    assert!(client.metadata(&key).await.unwrap().is_none());
+    assert!(
+        client
+            .metadata(client.bucket(), &key)
+            .await
+            .unwrap()
+            .is_none()
+    );
     client
-        .put(&key, "text/csv; charset=utf-8", b"original".to_vec())
+        .put(
+            client.bucket(),
+            &key,
+            "text/csv; charset=utf-8",
+            b"original".to_vec(),
+        )
         .await
         .unwrap();
-    let metadata = client.metadata(&key).await.unwrap().unwrap();
+    let metadata = client
+        .metadata(client.bucket(), &key)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(metadata.size, 8);
     assert_eq!(metadata.content_type, "text/csv; charset=utf-8");
-    assert_eq!(client.download(&key, 8).await.unwrap(), b"original");
+    assert_eq!(
+        client.download(client.bucket(), &key, 8).await.unwrap(),
+        b"original"
+    );
     let http = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap();
     let signed = client
-        .presign_download(&key, "synthetic_report.csv", 60)
+        .presign_download(client.bucket(), &key, "synthetic_report.csv", 60)
         .await
         .unwrap();
     let response = http.get(&signed.url).send().await.unwrap();
@@ -1418,7 +1438,7 @@ async fn rustfs_private_network_acceptance() {
         reqwest::StatusCode::FORBIDDEN
     );
     let short_lived = client
-        .presign_download(&key, "synthetic_report.csv", 1)
+        .presign_download(client.bucket(), &key, "synthetic_report.csv", 1)
         .await
         .unwrap();
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -1427,17 +1447,38 @@ async fn rustfs_private_network_acceptance() {
         reqwest::StatusCode::FORBIDDEN
     );
     client
-        .put(&key, "text/csv; charset=utf-8", b"replaced".to_vec())
+        .put(
+            client.bucket(),
+            &key,
+            "text/csv; charset=utf-8",
+            b"replaced".to_vec(),
+        )
         .await
         .unwrap();
-    assert_eq!(client.download(&key, 8).await.unwrap(), b"replaced");
+    assert_eq!(
+        client.download(client.bucket(), &key, 8).await.unwrap(),
+        b"replaced"
+    );
     let (a, b) = tokio::join!(
-        client.put(&key, "text/csv; charset=utf-8", b"frozen".to_vec()),
-        client.put(&key, "text/csv; charset=utf-8", b"frozen".to_vec())
+        client.put(
+            client.bucket(),
+            &key,
+            "text/csv; charset=utf-8",
+            b"frozen".to_vec()
+        ),
+        client.put(
+            client.bucket(),
+            &key,
+            "text/csv; charset=utf-8",
+            b"frozen".to_vec()
+        )
     );
     a.unwrap();
     b.unwrap();
-    assert_eq!(client.download(&key, 6).await.unwrap(), b"frozen");
+    assert_eq!(
+        client.download(client.bucket(), &key, 6).await.unwrap(),
+        b"frozen"
+    );
 }
 
 #[tokio::test]

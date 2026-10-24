@@ -1,3 +1,4 @@
+use super::inventories::parse_location_id;
 use crate::{
     error::AppError,
     models::shopify::{PageRequest, ShopifyId},
@@ -14,11 +15,11 @@ pub fn extract_catalogue_request(
     let invalid = || {
         AppError::new(
             StatusCode::BAD_REQUEST,
-            "Expected a Location GID, page_size between 1 and 250, and nonblank cursor/search up to 2048 bytes",
+            "Expected a positive numeric location id, page_size between 1 and 250, and nonblank cursor/search up to 2048 bytes",
         )
     };
     let Query(query) = query.map_err(|_| invalid())?;
-    let location = ShopifyId::new(query.location_id).map_err(|_| invalid())?;
+    let location = parse_location_id(&query.location_id).ok_or_else(invalid)?;
     location.number("Location").map_err(|_| invalid())?;
     for value in [&query.search, &query.cursor].into_iter().flatten() {
         if value.trim().is_empty() || value.len() > 2048 {
@@ -32,3 +33,7 @@ pub fn extract_catalogue_request(
     page.validate().map_err(|_| invalid())?;
     Ok((location, page, query.search))
 }
+
+#[cfg(test)]
+#[path = "../tests/validations/catalogue.rs"]
+mod tests;

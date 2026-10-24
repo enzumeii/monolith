@@ -1,8 +1,10 @@
+pub(crate) mod logo;
 pub(crate) mod money;
 use crate::{
-    client::shopify::ShopifyClient,
+    client::{s3::S3Client, shopify::ShopifyClient},
     error::{AppError, upstream},
     models::{
+        CountryCode,
         conventions::{
             Convention, ConventionInput, ConventionVariant, SelectedVariant, VariantDisplay,
         },
@@ -14,12 +16,52 @@ use crate::{
 use axum::http::StatusCode;
 use domain::dto::{
     ConventionDTO, ConventionListResponse, ConventionPaymentMethod, ConventionVariantInput,
-    ConventionVariantListResponse, ConventionVariantsResponse, PatchConvention, PatchField,
+    ConventionVariantListResponse, ConventionVariantsResponse, CreateConvention, PatchConvention,
+    PatchField,
 };
 use sqlx::PgPool;
 use uuid::Uuid;
+pub(crate) fn options() -> domain::dto::ConventionOptionsResponse {
+    let mut countries = Vec::new();
+    for first in b'A'..=b'Z' {
+        for second in b'A'..=b'Z' {
+            let code = String::from_utf8_lossy(&[first, second]).into_owned();
+            if !matches!(CountryCode::from(code.clone()), CountryCode::Other(_)) {
+                countries.push(code);
+            }
+        }
+    }
+    let mut currencies = Vec::new();
+    for first in b'A'..=b'Z' {
+        for second in b'A'..=b'Z' {
+            for third in b'A'..=b'Z' {
+                let code = String::from_utf8_lossy(&[first, second, third]).into_owned();
+                if money::precision(&code).is_err() {
+                    continue;
+                }
+                let payment_methods = [
+                    ConventionPaymentMethod::Stripe,
+                    ConventionPaymentMethod::Paypal,
+                    ConventionPaymentMethod::Promptpay,
+                ]
+                .into_iter()
+                .filter(|method| money::methods(&code, std::slice::from_ref(method)).is_ok())
+                .collect();
+                currencies.push(domain::dto::ConventionCurrencyOption {
+                    code,
+                    payment_methods,
+                });
+            }
+        }
+    }
+    domain::dto::ConventionOptionsResponse {
+        countries,
+        currencies,
+    }
+}
 pub(crate) async fn list(
     pool: &PgPool,
+    s3: &S3Client,
     page: u32,
     per_page: u32,
     enabled: Option<bool>,
@@ -27,11 +69,12 @@ pub(crate) async fn list(
     let mut records = repo::list(pool, page, per_page, enabled).await?;
     let has_next = records.len() > per_page as usize;
     records.truncate(per_page as usize);
+    let mut items = Vec::with_capacity(records.len());
+    for record in records {
+        items.push(logo::project(record, s3).await?);
+    }
     Ok(ConventionListResponse {
-        items: records
-            .into_iter()
-            .map(Convention::into_dto)
-            .collect::<Result<_, _>>()?,
+        items,
         page,
         per_page,
         has_next,
@@ -40,11 +83,20 @@ pub(crate) async fn list(
 pub(crate) async fn get(pool: &PgPool, id: Uuid) -> Result<Convention, AppError> {
     repo::find(pool, id).await?.ok_or_else(missing)
 }
+pub(crate) fn prepare_create(value: CreateConvention) -> Result<ConventionInput, AppError> {
+    let input = validate::create(value)?;
+    methods(&input)?;
+    Ok(input)
+}
 pub(crate) async fn create(
     pool: &PgPool,
+    s3: &S3Client,
     input: &ConventionInput,
 ) -> Result<ConventionDTO, AppError> {
-    repo::insert(pool, input).await?.into_dto()
+    if let Some(location) = &input.logo_url {
+        logo::attach(s3, location, &input.slug).await?;
+    }
+    logo::project(repo::insert(pool, input).await?, s3).await
 }
 pub(crate) async fn list_variants(
     pool: &PgPool,
@@ -80,11 +132,16 @@ pub(crate) struct PreparedPatch {
 }
 pub(crate) async fn prepare_patch(
     pool: &PgPool,
+    s3: &S3Client,
     id: Uuid,
     patch: PatchConvention,
 ) -> Result<PreparedPatch, AppError> {
     let observed = get(pool, id).await?;
     let input = validate::merge(patch.clone(), &observed)?;
+    methods(&input)?;
+    if let PatchField::Set(location) = &patch.logo_url {
+        logo::attach(s3, location, &observed.slug).await?;
+    }
     let selection = inputs(repo::variants(pool, id).await?);
     let enabling = matches!(patch.preorder_enabled, PatchField::Set(true));
     let changing_methods = !patch.payment_methods.is_missing();
@@ -107,6 +164,7 @@ pub(crate) async fn prepare_patch(
 }
 pub(crate) async fn finish_patch(
     pool: &PgPool,
+    s3: &S3Client,
     prepared: PreparedPatch,
 ) -> Result<ConventionDTO, AppError> {
     let mut tx = pool.begin().await?;
@@ -114,6 +172,7 @@ pub(crate) async fn finish_patch(
         .await?
         .ok_or_else(missing)?;
     let input = validate::merge(prepared.patch.clone(), &current)?;
+    methods(&input)?;
     let selection = inputs(repo::variants(&mut *tx, prepared.id).await?);
     if matches!(prepared.patch.preorder_enabled, PatchField::Set(true)) {
         if !same_selection(&selection, &prepared.selection)
@@ -135,7 +194,7 @@ pub(crate) async fn finish_patch(
     }
     let saved = repo::update(&mut tx, prepared.id, &input).await?;
     tx.commit().await?;
-    saved.into_dto()
+    logo::project(saved, s3).await
 }
 pub(crate) struct PreparedSave {
     id: Uuid,
@@ -274,6 +333,10 @@ pub(crate) async fn delete(pool: &PgPool, id: Uuid) -> Result<(), AppError> {
     repo::delete(&mut tx, id).await?;
     tx.commit().await?;
     Ok(())
+}
+fn methods(input: &ConventionInput) -> Result<(), AppError> {
+    money::methods(&input.currency_code, &input.payment_methods)
+        .map_err(|_| validate::invalid("Invalid currency or payment methods"))
 }
 fn prices(
     items: &[ConventionVariantInput],

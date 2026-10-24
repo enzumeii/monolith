@@ -1,0 +1,23 @@
+# List shared UI commands.
+default:
+    @just --list
+
+# Check formatting and strict native/WASM lint.
+check:
+    cargo fmt --check -p ui
+    cargo clippy --locked -p ui --all-targets -- -D warnings
+    cargo clippy --locked -p ui --target wasm32-unknown-unknown --all-targets -- -D warnings
+
+# Run shared UI tests; pass --coverage for target/coverage/ui/lcov.info.
+test coverage="":
+    bash ../../scripts/test-coverage.sh ui {{quote(coverage)}}
+
+# Run shared presentation and Markdown tests with optional coverage instrumentation.
+[private]
+_test:
+    cargo test --locked -p ui
+
+# Apply Rust formatting and lint fixes.
+fix:
+    cargo fmt -p ui
+    cargo clippy --locked -p ui --fix --allow-dirty --allow-staged -- -D warnings

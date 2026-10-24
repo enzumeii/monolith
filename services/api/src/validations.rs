@@ -1,5 +1,6 @@
 pub mod accounting;
 pub mod admin;
+pub mod files;
 
 pub mod cron;
 pub mod inventories;

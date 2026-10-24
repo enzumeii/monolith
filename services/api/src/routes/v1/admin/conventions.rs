@@ -8,6 +8,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(conventions::list).post(conventions::create))
         .route("/catalogue", get(catalogue::get))
+        .route("/options", get(conventions::options))
         .route(
             "/{id}",
             get(conventions::get)

@@ -85,7 +85,7 @@ fn populate(blob: &s3_fixture::Fixture, checkpoint: &ExecutionCheckpoint) {
             .lock()
             .unwrap()
             .objects
-            .insert(file.key.clone(), b"original".to_vec());
+            .insert(("reports".into(), file.key.clone()), b"original".to_vec());
     }
 }
 async fn mail(
@@ -101,11 +101,10 @@ async fn mail(
 #[tokio::test]
 async fn partial_two_file_recovery_keeps_available_receipt_and_never_generates_or_emails() {
     let (state, claim, blob, checkpoint) = fixture(true).await;
-    blob.data
-        .lock()
-        .unwrap()
-        .objects
-        .insert(checkpoint.files[0].key.clone(), b"original".to_vec());
+    blob.data.lock().unwrap().objects.insert(
+        ("reports".into(), checkpoint.files[0].key.clone()),
+        b"original".to_vec(),
+    );
     let failure = execute(&state, &claim).await.err().unwrap();
     assert!(failure.message.contains("publication"));
     assert!(
@@ -436,11 +435,10 @@ async fn generated_checkpoint_matches_database_timestamp_precision() {
 #[tokio::test]
 async fn later_file_receipt_survives_an_earlier_missing_file() {
     let (state, claim, s3, checkpoint) = fixture(true).await;
-    s3.data
-        .lock()
-        .unwrap()
-        .objects
-        .insert(checkpoint.files[1].key.clone(), b"original".to_vec());
+    s3.data.lock().unwrap().objects.insert(
+        ("reports".into(), checkpoint.files[1].key.clone()),
+        b"original".to_vec(),
+    );
     let failure = execute(&state, &claim).await.err().unwrap();
     assert!(failure.message.contains("publication"));
     let saved = audit(&state, claim.job.id).await;
@@ -454,7 +452,7 @@ async fn later_file_receipt_survives_an_earlier_missing_file() {
             .unwrap();
     assert_eq!(position, 1);
     assert_eq!(saved.generated_at, Some(checkpoint.generated_at));
-    assert_eq!(s3.data.lock().unwrap().puts, [] as [std::string::String; 0]);
+    assert_eq!(s3.data.lock().unwrap().puts, [] as [(String, String); 0]);
     state.pool.close().await;
 }
 
@@ -466,11 +464,10 @@ async fn corrupt_saved_object_blocks_mail_without_repairing_or_replacing_the_rec
         .await
         .unwrap();
     let before = audit(&state, claim.job.id).await.files;
-    s3.data
-        .lock()
-        .unwrap()
-        .objects
-        .insert(checkpoint.files[0].key.clone(), b"changed!".to_vec());
+    s3.data.lock().unwrap().objects.insert(
+        ("reports".into(), checkpoint.files[0].key.clone()),
+        b"changed!".to_vec(),
+    );
     let upstream = mail(&mut state, vec![]).await;
     let failure = execute(&state, &claim).await.err().unwrap();
     assert!(failure.message.contains("publication"));
@@ -483,7 +480,7 @@ async fn corrupt_saved_object_blocks_mail_without_repairing_or_replacing_the_rec
             serde_json::Value
         ); 0]
     );
-    assert_eq!(s3.data.lock().unwrap().puts, [] as [std::string::String; 0]);
+    assert_eq!(s3.data.lock().unwrap().puts, [] as [(String, String); 0]);
     state.pool.close().await;
 }
 

@@ -5,6 +5,9 @@ use dioxus::prelude::*;
 #[test]
 fn requests_use_the_loaded_public_api_base() {
     let dom = VirtualDom::new(|| rsx! {}).with_root_context(Settings {
+        conventions: crate::config::ConventionsConfig {
+            catalogue_location_id: "65761018027".into(),
+        },
         api: ApiConfig {
             base_url: "https://api.example.test/custom/v1/".into(),
         },
@@ -140,6 +143,7 @@ pub(crate) async fn metadata_responses<T>(
                 }
                 Err(error) => panic!("accept: {error}"),
             };
+            stream.set_nonblocking(false).expect("blocking stream");
             stream
                 .set_read_timeout(Some(std::time::Duration::from_secs(5)))
                 .expect("timeout");
@@ -180,6 +184,9 @@ pub(crate) async fn metadata_responses<T>(
         requests
     });
     let dom = VirtualDom::new(|| rsx! {}).with_root_context(Settings {
+        conventions: crate::config::ConventionsConfig {
+            catalogue_location_id: "65761018027".into(),
+        },
         api: ApiConfig { base_url },
     });
     let mut operation = std::pin::pin!(operation);

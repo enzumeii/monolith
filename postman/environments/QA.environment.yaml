@@ -1,0 +1,20 @@
+name: QA
+values:
+  - key: server
+    value: 'localhost:3000'
+  - key: shopify
+    value: 'https://enzumeii.myshopify.com/admin/api/2026-10'
+  - key: resend
+    value: 'https://api.resend.com'
+  - key: paypal
+    value: 'https://api-m.paypal.com'
+  - key: stripe
+    value: 'https://api.stripe.com/v1'
+  - key: s3_endpoint
+    value: 'http://localhost:3001'
+  - key: s3_region
+    value: ap-southeast-1
+  - key: s3_access_key_id
+    value: synthetic-local-access
+  - key: s3_secret_access_key
+    value: synthetic-local-secret

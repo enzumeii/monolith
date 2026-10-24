@@ -6,3 +6,5 @@ mod transactions;
 mod catalogue;
 
 mod conventions;
+
+mod files;

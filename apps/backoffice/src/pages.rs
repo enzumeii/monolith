@@ -26,3 +26,6 @@ mod scheduled_reports;
 pub use scheduled_reports::{
     ScheduledReportDetail, ScheduledReportHistory, ScheduledReports, use_scheduled_reports_history,
 };
+
+mod conventions;
+pub use conventions::{ConventionCreate, ConventionDetail, Conventions};

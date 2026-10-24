@@ -1,24 +1,24 @@
 $kind: graphql-request
-description: "Authoritative Shopify draft/order read for stateless paid completion; nullable resource is unavailable. Exact presentment total and actual order tags are authoritative; no local checkout ledger or metafield protocol."
+description: Authoritative Shopify draft/order read for stateless paid completion; nullable resource is unavailable. Exact presentment total and actual order tags are authoritative; no local checkout ledger or metafield protocol.
 url: "{{shopify}}/graphql.json"
 query: |
   query CheckoutOrder($id: ID!) {
-    order(id: $id) {
-      id
-      displayFinancialStatus
-      cancelledAt
-      tags
-      totalPriceSet {
-        presentmentMoney {
-          amount
-          currencyCode
-        }
-      }
-    }
+  	order(id: $id) {
+  		id
+  		displayFinancialStatus
+  		cancelledAt
+  		tags
+  		totalPriceSet {
+  			presentmentMoney {
+  				amount
+  				currencyCode
+  			}
+  		}
+  	}
   }
-variables: |
+variables: |-
   {
-    "id": "gid://shopify/Order/123"
+  	"id": "gid://shopify/Order/123"
   }
 settings: {}
 schema:

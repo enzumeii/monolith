@@ -12,6 +12,7 @@ mod pagination;
 pub mod catalogue;
 
 pub mod conventions;
+pub mod files;
 
 #[cfg(test)]
 #[path = "tests/services/common.rs"]

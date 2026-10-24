@@ -3,45 +3,45 @@ description: "Requires Shopify token in local vault. Sample variables match the 
 url: "{{shopify}}/graphql.json"
 query: |
   query ListOrders(
-    $first: Int!
-    $after: String
-    $search: String!
-    $includeContact: Boolean!
-    $includeTags: Boolean!
+  	$first: Int!
+  	$after: String
+  	$search: String!
+  	$includeContact: Boolean!
+  	$includeTags: Boolean!
   ) {
-    orders(
-      first: $first
-      after: $after
-      query: $search
-      sortKey: CREATED_AT
-      reverse: true
-    ) {
-      nodes {
-        id
-        number
-        tags @include(if: $includeTags)
-        customer @include(if: $includeContact) {
-          firstName
-          lastName
-        }
-        shippingAddress @include(if: $includeContact) {
-          countryCodeV2
-        }
-        email @include(if: $includeContact)
-      }
-      pageInfo {
-        hasNextPage
-        endCursor
-      }
-    }
+  	orders(
+  		first: $first
+  		after: $after
+  		query: $search
+  		sortKey: CREATED_AT
+  		reverse: true
+  	) {
+  		nodes {
+  			id
+  			number
+  			tags @include(if: $includeTags)
+  			customer @include(if: $includeContact) {
+  				firstName
+  				lastName
+  			}
+  			shippingAddress @include(if: $includeContact) {
+  				countryCodeV2
+  			}
+  			email @include(if: $includeContact)
+  		}
+  		pageInfo {
+  			hasNextPage
+  			endCursor
+  		}
+  	}
   }
-variables: |
+variables: |-
   {
-    "first": 1,
-    "after": null,
-    "search": "name:1085",
-    "includeContact": true,
-    "includeTags": false
+  	"first": 1,
+  	"after": null,
+  	"search": "name:1085",
+  	"includeContact": true,
+  	"includeTags": false
   }
 settings: {}
 schema:

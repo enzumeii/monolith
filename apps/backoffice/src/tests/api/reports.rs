@@ -3,6 +3,9 @@ use crate::config::{ApiConfig, Settings};
 use dioxus::prelude::*;
 fn configured<T>(call: impl FnOnce() -> T) -> T {
     let dom = VirtualDom::new(|| rsx! {}).with_root_context(Settings {
+        conventions: crate::config::ConventionsConfig {
+            catalogue_location_id: "65761018027".into(),
+        },
         api: ApiConfig {
             base_url: "https://example.test/v1/".into(),
         },

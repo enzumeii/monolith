@@ -1,6 +1,8 @@
 $kind: collection
+description: For logo uploads, logo_fixture_path defaults to the committed PNG relative to the repository root. Run local requests from the repository root, or override logo_fixture_path with the fixture path for your Postman working directory.
 variables:
-  convention_id: "00000000-0000-4000-8000-000000000001"
   inventories_cursor: ""
   order_cursor: ""
   server: ""
+  catalogue_cursor: ""
+  logo_fixture_path: postman/fixtures/convention-logo.png

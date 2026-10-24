@@ -1,15 +1,15 @@
 $kind: http-request
-description: "Retrieve stripe_payment_intent_id from the actual Session payment_intent reference. expand[]=latest_charge returns the Charge object; otherwise copy its actual ID into the existing Retrieve charge request. 200 partial example: {\"id\":\"pi_synthetic\",\"object\":\"payment_intent\",\"status\":\"succeeded\",\"amount\":1000,\"amount_received\":1000,\"currency\":\"usd\",\"livemode\":false,\"metadata\":{\"correlation_id\":\"synthetic-checkout-001\"},\"latest_charge\":\"ch_synthetic\"}. Compare exact money, mode and correlation with trusted expectations; succeeded alone is insufficient. 404 unknown PaymentIntent; 400 invalid expansion. Never use a publishable key/client_secret for these privileged verification reads. Uses inherited vault:stripe_secret_key (test secret for manual sandbox use) and stripe base URL including /v1. No Stripe-Account or Stripe-Version header: direct account, account-default API version. Common failures: 401 authentication, 403 permissions, 429 rate limit or 5xx provider failure. Synthetic error: {\"error\":{\"type\":\"invalid_request_error\",\"code\":\"resource_missing\",\"message\":\"No such resource\"}}. Examples are partial synthetic objects, never evidence of a paid payment."
+description: 'Retrieve stripe_payment_intent_id from the actual Session payment_intent reference. expand[]=latest_charge returns the Charge object; otherwise copy its actual ID into the existing Retrieve charge request. 200 partial example: {"id":"pi_synthetic","object":"payment_intent","status":"succeeded","amount":1000,"amount_received":1000,"currency":"usd","livemode":false,"metadata":{"correlation_id":"synthetic-checkout-001"},"latest_charge":"ch_synthetic"}. Compare exact money, mode and correlation with trusted expectations; succeeded alone is insufficient. 404 unknown PaymentIntent; 400 invalid expansion. Never use a publishable key/client_secret for these privileged verification reads. Uses inherited vault:stripe_secret_key (test secret for manual sandbox use) and stripe base URL including /v1. No Stripe-Account or Stripe-Version header: direct account, account-default API version. Common failures: 401 authentication, 403 permissions, 429 rate limit or 5xx provider failure. Synthetic error: {"error":{"type":"invalid_request_error","code":"resource_missing","message":"No such resource"}}. Examples are partial synthetic objects, never evidence of a paid payment.'
 url: "{{stripe}}/payment_intents/:payment_intent_id?expand[]=latest_charge"
 method: GET
 order: 8000
 pathVariables:
   - key: payment_intent_id
-    value: "{{stripe_payment_intent_id}}"
+    value: pi_3UTmplFaTfIlKPqw09Ts4aJF
+    description: ""
 queryParams:
-  "expand[]": latest_charge
+  expand[]: latest_charge
 auth:
   type: inherit
   credentials:
     id: 44bc4504-b8a5-4b4d-b887-d7458a64aaf2
-examples: ./.resources/Retrieve PaymentIntent.resources/examples

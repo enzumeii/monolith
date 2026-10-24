@@ -1,11 +1,13 @@
+pub mod files;
+pub use files::{UploadFileQuery, UploadedFileDTO};
 pub mod common;
 pub use common::PatchField;
 pub mod conventions;
 pub use conventions::{
-    ConventionDTO, ConventionListResponse, ConventionPaymentMethod, ConventionVariantDTO,
-    ConventionVariantInput, ConventionVariantListResponse, ConventionVariantsResponse,
-    CreateConvention, ListConventionVariantsQuery, ListConventionsQuery, PatchConvention,
-    ReplaceConventionVariants,
+    ConventionCurrencyOption, ConventionDTO, ConventionListResponse, ConventionOptionsResponse,
+    ConventionPaymentMethod, ConventionVariantDTO, ConventionVariantInput,
+    ConventionVariantListResponse, ConventionVariantsResponse, CreateConvention,
+    ListConventionVariantsQuery, ListConventionsQuery, PatchConvention, ReplaceConventionVariants,
 };
 pub mod accounting;
 pub mod admin;
@@ -63,3 +65,7 @@ mod report_results_tests;
 #[cfg(test)]
 #[path = "tests/dto/conventions.rs"]
 mod convention_tests;
+
+#[cfg(test)]
+#[path = "tests/dto/files.rs"]
+mod file_tests;

@@ -14,10 +14,10 @@ function fixture(t) {
  fs.writeFileSync(path.join(root,'bin/cargo'),`#!/bin/bash
 case "$2" in
 show-env) printf 'export INSTRUMENTED=1\\n';;
-report) while [ "$1" != "--output-path" ]; do shift; done; shift; printf 'SF:services/api/src/main.rs\\nDA:1,1\\nend_of_record\\n' > "$1";;
+report) while [ "$1" != "--output-path" ]; do shift; done; shift; printf 'SF:%s\\nDA:1,1\\nend_of_record\\n' "$TEST_SOURCE" > "$1";;
 esac
 `,{mode:0o755});
- return {root,run:(...args)=>spawnSync('bash',[path.join(root,'scripts/test-coverage.sh'),...args],{encoding:'utf8',env:{...process.env,PATH:path.join(root,'bin')+':'+process.env.PATH,TEST_EXIT:'0'}})};
+ return {root,run:(...args)=>spawnSync('bash',[path.join(root,'scripts/test-coverage.sh'),...args],{encoding:'utf8',env:{...process.env,PATH:path.join(root,'bin')+':'+process.env.PATH,TEST_EXIT:'0',TEST_SOURCE:args[0]==='ui'?'crates/ui/src/lib.rs':'services/api/src/main.rs'}})};
 }
 test('ordinary tests succeed without coverage output',t=>{const f=fixture(t);const r=f.run('api');assert.equal(r.status,0,r.stderr);assert.equal(fs.existsSync(path.join(f.root,'target')),false);});
 test('coverage writes only its scope even with spaces in path',t=>{const f=fixture(t);const r=f.run('api','--coverage');assert.equal(r.status,0,r.stderr);assert.match(fs.readFileSync(path.join(f.root,'target/coverage/api/lcov.info'),'utf8'),/SF:services\/api/);});
@@ -29,3 +29,5 @@ test('test failure removes stale report and preserves other scopes',t=>{
  assert.equal(fs.existsSync(path.join(f.root,'target/coverage/api/lcov.info')),false);
  assert.equal(fs.readFileSync(path.join(f.root,'target/coverage/domain/lcov.info'),'utf8'),'stale');
 });
+
+test('shared UI coverage is a separate supported scope',t=>{const f=fixture(t);const r=f.run('ui','--coverage');assert.equal(r.status,0,r.stderr);assert.match(fs.readFileSync(path.join(f.root,'target/coverage/ui/lcov.info'),'utf8'),/SF:crates\/ui\/src/);});

@@ -26,3 +26,59 @@ fn create_and_patch_preserve_country_normalization_and_reject_unknown_codes() {
         );
     }
 }
+
+#[test]
+fn patch_preserves_omitted_legacy_logos_and_validates_supplied_locations() {
+    let input = create(request("TH")).unwrap();
+    let legacy_url = "https://legacy.example.test/convention.png";
+    let current = Convention {
+        id: uuid::Uuid::new_v4(),
+        slug: input.slug,
+        name: input.name,
+        logo_url: Some(legacy_url.into()),
+        country_code: input.country_code,
+        event_starts_on: input.event_starts_on,
+        event_ends_on: input.event_ends_on,
+        description_markdown: input.description_markdown,
+        preorder_enabled: false,
+        currency_code: input.currency_code,
+        payment_methods: vec!["stripe".into()],
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    let patch = serde_json::from_value(json!({"name":"Updated convention"})).unwrap();
+    let merged = merge(patch, &current).unwrap();
+    assert_eq!(merged.name, "Updated convention");
+    assert_eq!(merged.logo_url.as_deref(), Some(legacy_url));
+    let patch = serde_json::from_value(json!({"logo_url":null})).unwrap();
+    assert!(merge(patch, &current).unwrap().logo_url.is_none());
+    let location = "conventions/country-test/550e8400-e29b-41d4-a716-446655440000.png";
+    let patch = serde_json::from_value(json!({"logo_url":location})).unwrap();
+    assert_eq!(
+        merge(patch, &current).unwrap().logo_url.as_deref(),
+        Some(location)
+    );
+    let patch = serde_json::from_value(json!({"logo_url":legacy_url})).unwrap();
+    assert!(patch_shape(&patch).is_err());
+    assert!(merge(patch, &current).is_err());
+    let mut new_convention = request("TH");
+    new_convention.logo_url = Some(legacy_url.into());
+    assert!(create(new_convention).is_err());
+}
+
+#[test]
+fn logo_locations_are_canonical() {
+    let key = "conventions/fair/550e8400-e29b-41d4-a716-446655440000.png";
+    assert_eq!(logo_location(key).unwrap(), "image/png");
+    for bad in [
+        "reports/fair/a.png",
+        "conventions/fair/../a.png",
+        "conventions/fair/a.png",
+        "https://storage.test/a.png",
+        "conventions/fair/550e8400-e29b-41d4-a716-446655440000.svg",
+        "conventions/fair/550E8400-E29B-41D4-A716-446655440000.png",
+        "conventions/fair/550e8400-e29b-41d4-0716-446655440000.png",
+    ] {
+        assert!(logo_location(bad).is_err(), "{bad}");
+    }
+}

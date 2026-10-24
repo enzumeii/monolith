@@ -27,6 +27,22 @@ fn convention_dtos_reject_unknown_fields_and_json_number_prices() {
 }
 
 #[test]
+fn logo_attachment_accepts_location_but_rejects_render_url() {
+    assert!(
+        serde_json::from_value::<PatchConvention>(
+            json!({"logo_url":"conventions/fair/550e8400-e29b-41d4-a716-446655440000.png"})
+        )
+        .is_ok()
+    );
+    assert!(
+        serde_json::from_value::<PatchConvention>(
+            json!({"logo_preview_url":"https://storage.test/signed"})
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn selected_variant_serialization_preserves_display_snapshot_and_legacy_nulls() {
     let mut value = json!({"id":"id","convention_id":"parent","shopify_product_id":"gid://shopify/Product/1","shopify_variant_id":"gid://shopify/ProductVariant/2","final_price":"12.99","created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z","inventory_policy":"DENY","product_title":"Product","variant_title":"Blue","sku":"SKU-2","product_image":{"url":"https://example.test/product.png"},"variant_image":null});
     let dto: crate::dto::ConventionVariantDTO = serde_json::from_value(value.clone()).unwrap();
@@ -84,4 +100,21 @@ fn catalogue_variants_omit_unavailable_reason() {
     assert!(wire.get("unavailable_reason").is_none());
     assert_eq!(wire["available_quantity"], 0);
     assert_eq!(wire["eligible"], true);
+}
+
+#[test]
+fn convention_options_round_trip_country_and_currency_select_values() {
+    let value = json!({
+        "countries": ["JP", "TH", "US"],
+        "currencies": [
+            {"code": "THB", "payment_methods": ["stripe", "paypal", "promptpay"]},
+            {"code": "USD", "payment_methods": ["stripe", "paypal"]}
+        ]
+    });
+    let options: crate::dto::ConventionOptionsResponse =
+        serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(options.countries, ["JP", "TH", "US"]);
+    assert_eq!(serde_json::to_value(options).unwrap(), value);
+    let empty = crate::dto::ConventionOptionsResponse::default();
+    assert!(empty.countries.is_empty() && empty.currencies.is_empty());
 }
