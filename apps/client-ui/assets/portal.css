@@ -19,7 +19,7 @@
 .portal-product { min-width: 0; padding: .85rem; gap: .25rem; margin: 0; overflow-wrap: anywhere; }
 .portal-product h3 { margin: .35rem 0 0; font-size: 1.1rem; line-height: 1.3; }
 .portal-product p { margin: 0; line-height: 1.4; }
-.portal-product .button-link { align-self: flex-start; margin-top: .5rem; min-height: 44px; }
+.portal-product .button-link { align-self: flex-start; margin-top: auto; min-height: 44px; }
 .portal-product-image { width: 100%; height: 160px; object-fit: contain; }
 .portal-description { white-space: pre-wrap; overflow-wrap: anywhere; }
 .portal-product-detail { gap: 1rem; }
