@@ -23,4 +23,4 @@ pub(crate) use ui::{Heading, HeadingLevel};
 
 pub(crate) use report_table::{DataTable, DownloadFile, DownloadTable, TableData};
 
-pub const SITE_LOGO: Asset = asset!("/assets/logo.png");
+pub const SITE_LOGO: Asset = ui::SITE_LOGO;

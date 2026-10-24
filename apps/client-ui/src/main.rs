@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use ui::{COMMON_STYLESHEET, ErrorMessage, LoadingMessage};
+use ui::{COMMON_STYLESHEET, ErrorMessage, LoadingMessage, SITE_LOGO};
 
 mod api;
 mod cart;
@@ -15,6 +15,7 @@ fn main() {
 fn App() -> Element {
     let mut settings = use_resource(config::Settings::new);
     rsx! {
+        document::Link { rel: "icon", r#type: "image/png", href: SITE_LOGO }
         document::Stylesheet { href: COMMON_STYLESHEET }
         document::Stylesheet { href: asset!("/assets/portal.css") }
         Configuration {

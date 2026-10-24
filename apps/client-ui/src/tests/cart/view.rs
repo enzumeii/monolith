@@ -9,7 +9,8 @@ fn summary_preserves_exact_large_decimal_strings_and_has_no_payment_action() {
     dom.rebuild_in_place();
     let html = dioxus_ssr::render(&dom);
     assert!(html.contains("USD 9007199254740993.12"));
-    assert!(html.contains("USD 0.00"));
+    assert!(!html.contains("Shipping"));
+    assert!(!html.contains("USD 0.00"));
     assert!(!html.contains("button"));
 }
 
@@ -65,8 +66,12 @@ mod mounted {
                     TestDocument::new(vec![]),
                 );
                 assert!(dioxus_ssr::render(&dom).contains("Checking current prices"));
-                assert!(until(&mut dom, "Current total").await.contains("USD 24.60"));
-                input(&mut dom, "cart-quantity-1", "change", "bad");
+                let html = until(&mut dom, "Current total").await;
+                assert!(html.contains("USD 24.60"));
+                assert!(!html.contains("Refresh prices"));
+                assert!(!html.contains("Shipping"));
+                assert!(!html.contains("Retry cart"));
+                input(&mut dom, "cart-quantity-1", "input", "bad");
                 dom.in_scope(ScopeId::ROOT, || {
                     assert_eq!(
                         captured
@@ -79,7 +84,7 @@ mod mounted {
                         2
                     );
                 });
-                input(&mut dom, "cart-quantity-1", "change", "1");
+                input(&mut dom, "cart-quantity-1", "input", "1");
                 assert!(!dioxus_ssr::render(&dom).contains("Current total"));
                 assert!(
                     until(&mut dom, "Current total")
@@ -96,6 +101,35 @@ mod mounted {
         assert_eq!(requests.len(), 9);
         assert!(requests[4].contains("\"quantity\":1"));
         assert!(requests[7].contains("\"items\":[]"));
+    }
+
+    #[tokio::test]
+    async fn cart_line_shows_safe_current_picture_or_accessible_placeholder() {
+        responses(&[], async {
+            for url in [
+                Some("https://images.test/blue.png"),
+                Some("javascript:alert(1)"),
+                None,
+            ] {
+                let mut data = catalogue();
+                data.products[0].variants[0].image =
+                    url.map(|url| domain::dto::CatalogueImage { url: url.into() });
+                let (dom, _) = mounted(
+                    Screen::Cart(data, CHECKOUT.into()),
+                    populated(),
+                    TestDocument::new(vec![]),
+                );
+                let html = dioxus_ssr::render(&dom);
+                if url == Some("https://images.test/blue.png") {
+                    assert!(html.contains("src=\"https://images.test/blue.png\""));
+                    assert!(html.contains("alt=\"Shirt / Blue / Large\""));
+                } else {
+                    assert!(html.contains("No image available"));
+                    assert!(!html.contains("javascript:"));
+                }
+            }
+        })
+        .await;
     }
 
     #[tokio::test]
@@ -172,7 +206,7 @@ mod mounted {
                 );
                 let html = until(&mut dom, "Current catalogue unavailable").await;
                 assert!(!html.contains("Current total"));
-                click(&mut dom, "__text", "Refresh prices and availability");
+                click(&mut dom, "__text", "Retry cart");
                 until(&mut dom, "Current total").await;
             },
         )

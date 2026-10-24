@@ -1,6 +1,6 @@
 use domain::dto::{
-    ConventionQuote, PublicCatalogueResponse, PublicProduct, PublicVariant, QuoteConventionItem,
-    QuoteConventionRequest,
+    CatalogueImage, ConventionQuote, PublicCatalogueResponse, PublicProduct, PublicVariant,
+    QuoteConventionItem, QuoteConventionRequest,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -27,6 +27,7 @@ pub struct ReconciledLine {
     pub variant_id: String,
     pub title: String,
     pub variant_title: String,
+    pub image: Option<CatalogueImage>,
     pub quantity: u32,
     pub max_quantity: u32,
     pub current_price: Option<String>,
@@ -166,6 +167,13 @@ pub fn reconciliation(cart: &Cart, products: &[PublicProduct]) -> Vec<Reconciled
                 variant_id: item.variant_id.clone(),
                 title,
                 variant_title,
+                image: current.and_then(|(product, variant)| {
+                    variant
+                        .image
+                        .as_ref()
+                        .or(product.featured_image.as_ref())
+                        .cloned()
+                }),
                 quantity: item.quantity,
                 max_quantity: maximum,
                 price_changed: price

@@ -2,7 +2,7 @@ use super::{
     filters::{Filters, product_types},
     safe_image,
 };
-use crate::{cart::CartContext, route::Route};
+use crate::cart::CartContext;
 use dioxus::prelude::*;
 use domain::dto::{PublicCatalogueResponse, PublicProduct, PublicVariant};
 use ui::{ErrorMessage, Heading, HeadingLevel};
@@ -15,13 +15,6 @@ pub fn CataloguePage(slug: String) -> Element {
 #[component]
 pub fn Catalogue(catalogue: PublicCatalogueResponse) -> Element {
     let mut filters = use_signal(Filters::default);
-    let context = use_context::<CartContext>();
-    let cart = context.cart.read();
-    let count: u32 = cart.items.iter().map(|item| item.quantity).sum();
-    let cart_route = Route::CartPage {
-        slug: catalogue.convention.slug.clone(),
-        checkout_id: cart.checkout_id.clone(),
-    };
     let matching = filters.read().matching(&catalogue.products);
     let total = matching.len();
     let current = filters.read().visible_page(total);
@@ -29,9 +22,7 @@ pub fn Catalogue(catalogue: PublicCatalogueResponse) -> Element {
     let per_page = filters.read().per_page;
     let types = product_types(&catalogue.products);
     rsx! {
-        Heading { title: "Preorder collection", level: HeadingLevel::Section,
-            Link { to: cart_route, class: "button-link primary", "View cart ({count})" }
-        }
+        Heading { title: "Preorder collection", level: HeadingLevel::Section }
         div { class: "panel portal-filters",
             label { r#for: "product-search", "Search products" }
             input { id: "product-search", r#type: "search", value: "{filters.read().search}", placeholder: "Name, description or SKU", oninput: move |event| { let mut value = filters.write(); value.search = event.value(); value.reset(); } }
@@ -39,12 +30,6 @@ pub fn Catalogue(catalogue: PublicCatalogueResponse) -> Element {
             select { id: "product-type", value: "{filters.read().product_type}", onchange: move |event| { let mut value = filters.write(); value.product_type = event.value(); value.reset(); },
                 option { value: "", "All types" }
                 for kind in types { option { value: "{kind}", "{kind}" } }
-            }
-            label { r#for: "page-size", "Products per page" }
-            select { id: "page-size", value: "{per_page}", onchange: move |event| {
-                if let Ok(size @ (12 | 24 | 48)) = event.value().parse::<usize>() { let mut value = filters.write(); value.per_page = size; value.reset(); }
-            },
-                option { value: "12", "12" } option { value: "24", "24" } option { value: "48", "48" }
             }
         }
         p { class: "meta", role: "status", "{total} products · Page {current} of {pages}" }
@@ -55,6 +40,14 @@ pub fn Catalogue(catalogue: PublicCatalogueResponse) -> Element {
             }
         }
         nav { class: "portal-pagination", aria_label: "Product pages",
+            div { class: "portal-page-size",
+                label { r#for: "page-size", "Products per page" }
+                select { id: "page-size", value: "{per_page}", onchange: move |event| {
+                    if let Ok(size @ (12 | 24 | 48)) = event.value().parse::<usize>() { let mut value = filters.write(); value.per_page = size; value.reset(); }
+                },
+                    option { value: "12", "12" } option { value: "24", "24" } option { value: "48", "48" }
+                }
+            }
             button { class: "ghost", disabled: current <= 1, onclick: move |_| filters.write().page = current.saturating_sub(1).max(1), "Previous" }
             span { "{current} / {pages}" }
             button { class: "ghost", disabled: current >= pages, onclick: move |_| filters.write().page = (current + 1).min(pages), "Next" }

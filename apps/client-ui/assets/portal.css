@@ -1,6 +1,15 @@
 .portal-page .panel { max-width: none; }
 .portal-page { max-width: 1200px; }
-.portal-brand { padding: 1rem 1.25rem; border-bottom: 1px solid var(--panel-border); font-size: 1.4rem; font-weight: bold; }
+.portal-brand { border-bottom: 1px solid var(--panel-border); }
+.portal-navbar { max-width: 1200px; margin: 0 auto; padding: .75rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.portal-back-link { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: .3rem .6rem; margin-bottom: .75rem; font-size: 1.3rem; }
+.portal-brand-link { display: inline-flex; align-items: center; gap: .65rem; font-size: 1.4rem; font-weight: bold; }
+.portal-brand-logo { width: 48px; height: 48px; object-fit: contain; }
+.portal-nav-actions { display: flex; align-items: center; gap: 1rem; }
+.portal-cart-link { position: relative; display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; margin-right: .5rem; }
+.portal-cart-icon { width: 26px; height: 26px; }
+.portal-cart-count { position: absolute; top: -.35rem; right: -.5rem; min-width: 1.5rem; height: 1.5rem; padding: 0 .3rem; display: grid; place-items: center; background: var(--primary); color: var(--primary-text); border: 1px solid var(--panel-border); border-radius: 999px; font-size: .75rem; font-weight: bold; line-height: 1; }
+.portal-brand-link:focus-visible, .portal-cart-link:focus-visible { outline: 2px solid var(--heading); outline-offset: 3px; }
 .portal-event { display: flex; gap: 1.5rem; align-items: flex-start; margin-bottom: 1.5rem; }
 .portal-logo { width: 112px; height: 112px; object-fit: contain; flex-shrink: 0; }
 .portal-placeholder { display: grid; place-items: center; background: var(--accent); color: var(--primary-text); font-size: 3rem; }
@@ -17,15 +26,28 @@
 .portal-price { font-weight: bold; }
 .portal-quantity { display: flex; gap: .75rem; align-items: center; }
 .portal-quantity input { max-width: 6rem; }
-.portal-pagination { display: flex; align-items: center; justify-content: center; gap: 1.25rem; margin-top: 1.5rem; }
+.portal-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 1.25rem; margin-top: 1.5rem; }
+.portal-page-size { display: flex; align-items: center; gap: .75rem; }
+.portal-page-size label { margin: 0; }
+.portal-page-size select { width: auto; }
 .portal-notice { padding: .75rem 1rem; border: 1px solid var(--panel-border); background: var(--hover-bg); }
 .portal-cart-lines { display: grid; gap: 1rem; }
-.portal-cart-line { display: grid; grid-template-columns: 1fr minmax(180px, 240px); gap: 1.5rem; }
+.portal-cart-line { display: grid; grid-template-columns: 112px 1fr minmax(180px, 240px); gap: 1.5rem; }
+.portal-cart-image { width: 112px; height: 112px; object-fit: contain; }
+.portal-cart-image-placeholder { display: grid; place-items: center; background: var(--accent); color: var(--primary-text); font-size: 2rem; }
+.portal-cart-line h3 { margin-top: 0; }
 .portal-cart-line button { margin-top: .75rem; margin-right: .5rem; }
 .portal-totals { margin: 1.5rem 0; }
 .portal-totals dl { display: grid; grid-template-columns: 1fr auto; gap: .5rem 1rem; }
 .portal-totals dd { text-align: right; margin: 0; }
 @media (max-width: 600px) {
+    .portal-navbar { gap: .5rem; padding: .75rem 1rem; }
+    .portal-brand-link { font-size: 1.05rem; gap: .4rem; }
+    .portal-brand-logo { width: 38px; height: 38px; }
+    .portal-nav-actions { gap: .65rem; }
+    .portal-nav-actions .button-link { padding: .4rem; font-size: .85rem; }
+    .portal-page-size { width: 100%; justify-content: center; }
+    .portal-pagination { gap: .75rem; }
     .portal-event { gap: .75rem; flex-direction: column; }
     .portal-logo { width: 80px; height: 80px; }
     .portal-filters, .portal-cart-line { grid-template-columns: 1fr; }

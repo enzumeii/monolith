@@ -1,4 +1,4 @@
-use super::ConventionHeader;
+use super::{ConventionHeader, navbar::PortalNavbar};
 use crate::{api, cart::browser, route::Route};
 use dioxus::prelude::*;
 use ui::{ErrorMessage, Heading, LoadingMessage};
@@ -13,7 +13,7 @@ pub fn Directory() -> Element {
         api::conventions::directory(today, country).await
     });
     let state = conventions.read().clone();
-    rsx! { main { class: "page portal-page",
+    rsx! { PortalNavbar {} main { class: "page portal-page",
         Heading { title: "Upcoming conventions" }
         p { class: "meta", "Choose a convention to browse its preorder collection." }
         match state {

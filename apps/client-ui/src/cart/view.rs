@@ -109,10 +109,8 @@ pub fn CartView(catalogue: PublicCatalogueResponse, checkout_id: String) -> Elem
     let unresolved = changed || lines.iter().any(|line| line.issue.is_some());
     let current_products = products.clone();
     rsx! {
-        Heading { title: "Your cart", level: HeadingLevel::Section,
-            Link { to: Route::CataloguePage { slug: catalogue.convention.slug }, class: "button-link ghost", "Continue browsing" }
-        }
-        p { class: "meta", "Review your selections. Shipping is free. Payment will be available later." }
+        Heading { title: "Your cart", level: HeadingLevel::Section }
+        p { class: "meta", "Review your selections. Payment will be available later." }
         if lines.is_empty() { p { "Your cart is empty." } }
         div { class: "portal-cart-lines",
             for line in lines {
@@ -121,7 +119,10 @@ pub fn CartView(catalogue: PublicCatalogueResponse, checkout_id: String) -> Elem
         }
         if !ready { LoadingMessage { message: "Checking current prices and availability…" } }
         if ready {
-            if let Some(Err(error)) = state.as_ref() { ErrorMessage { message: Some(error.message.clone()) } }
+            if let Some(Err(error)) = state.as_ref() {
+                ErrorMessage { message: Some(error.message.clone()) }
+                button { class: "ghost", onclick: move |_| current.restart(), "Retry cart" }
+            }
             if let Some(value) = fresh {
                 if changed {
                     p { class: "portal-notice", role: "status", "Prices have changed since you added these items. Review and accept the current prices to update your total." }
@@ -129,12 +130,14 @@ pub fn CartView(catalogue: PublicCatalogueResponse, checkout_id: String) -> Elem
                 }
                 match value.quote.as_ref() {
                     Some(Ok(quote)) if !unresolved => rsx! { QuoteSummary { quote: quote.clone() } },
-                    Some(Err(error)) => rsx! { ErrorMessage { message: Some(error.message.clone()) } },
+                    Some(Err(error)) => rsx! {
+                        ErrorMessage { message: Some(error.message.clone()) }
+                        button { class: "ghost", onclick: move |_| current.restart(), "Retry cart" }
+                    },
                     Some(Ok(_)) | None => rsx! { p { class: "hint", "Resolve the highlighted changes to see your current total." } },
                 }
             }
         }
-        button { class: "ghost", onclick: move |_| current.restart(), "Refresh prices and availability" }
     }
 }
 
@@ -149,6 +152,11 @@ fn CartLine(line: super::model::ReconciledLine, currency: String) -> Element {
     let input_id = format!("cart-quantity-{}", id.rsplit('/').next().unwrap_or("item"));
     let remove_label = format!("Remove {} / {}", line.title, line.variant_title);
     rsx! { article { class: "panel portal-cart-line",
+        if let Some(image) = line.image.as_ref().filter(|image| crate::pages::safe_image(&image.url)) {
+            img { class: "portal-cart-image", src: "{image.url}", alt: "{line.title} / {line.variant_title}" }
+        } else {
+            div { class: "portal-cart-image portal-cart-image-placeholder", role: "img", aria_label: "No image available", "✦" }
+        }
         div { h3 { "{line.title}" } p { "{line.variant_title}" }
             if let Some(price) = line.current_price { p { "{currency} {price} each" } }
             if line.price_changed { p { class: "portal-notice", "Unit price changed. Acknowledgement required." } }
@@ -157,7 +165,7 @@ fn CartLine(line: super::model::ReconciledLine, currency: String) -> Element {
         div {
             label { r#for: "{input_id}", "{label}" }
             input { id: "{input_id}", r#type: "number", min: "1", max: "999", step: "1", value: "{line.quantity}",
-                onchange: move |event| { if let Ok(quantity) = event.value().parse() { context.update(|cart| cart.set_quantity(&id, quantity)); } } }
+                oninput: move |event| { if let Ok(quantity) = event.value().parse() { context.update(|cart| cart.set_quantity(&id, quantity)); } } }
             if maximum > 0 && line.quantity > maximum {
                 button { class: "ghost", onclick: move |_| context.update(|cart| cart.set_quantity(&reduce_id, maximum)), "Reduce to {maximum}" }
             }
@@ -173,7 +181,6 @@ fn QuoteSummary(quote: ConventionQuote) -> Element {
         for line in quote.items { p { "{line.quantity} × {quote.currency_code} {line.unit_price} = {quote.currency_code} {line.line_total}" } }
         dl {
             dt { "Subtotal" } dd { "{quote.currency_code} {quote.subtotal}" }
-            dt { "Shipping" } dd { "{quote.currency_code} {quote.shipping}" }
             dt { "Total" } dd { strong { "{quote.currency_code} {quote.total}" } }
         }
     } }

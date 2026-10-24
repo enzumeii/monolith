@@ -5,6 +5,7 @@ mod view;
 pub use model::{Cart, reconciliation};
 pub use view::CartView;
 
+use crate::pages::{ConventionContent, ConventionFrame};
 use dioxus::prelude::*;
 use domain::dto::PublicCatalogueResponse;
 use std::collections::BTreeMap;
@@ -46,9 +47,18 @@ pub fn CartProvider(catalogue: PublicCatalogueResponse, checkout_id: Option<Stri
         }
     });
     let restored = restored.read().clone();
+    let back_to = checkout_id
+        .as_ref()
+        .map(|_| crate::route::Route::CataloguePage {
+            slug: catalogue.convention.slug.clone(),
+        });
     match restored {
-        None => rsx! { LoadingMessage { message: "Restoring your cart…" } },
-        Some(Err(message)) => rsx! { ErrorMessage { message: Some(message) } },
+        None => {
+            rsx! { ConventionFrame { back_to, LoadingMessage { message: "Restoring your cart…" } } }
+        }
+        Some(Err(message)) => {
+            rsx! { ConventionFrame { back_to, ErrorMessage { message: Some(message) } } }
+        }
         Some(Ok(restored)) => rsx! { ReadyCart { catalogue, checkout_id, restored } },
     }
 }
@@ -78,14 +88,7 @@ fn ReadyCart(
             }
         }
     });
-    rsx! {
-        if let Some(message) = notice.read().clone() { p { class: "portal-notice", role: "status", "{message}" } }
-        if let Some(checkout_id) = checkout_id {
-            CartView { catalogue, checkout_id }
-        } else {
-            crate::pages::catalogue::Catalogue { catalogue }
-        }
-    }
+    rsx! { ConventionContent { catalogue, checkout_id, notice: notice.read().clone() } }
 }
 
 #[cfg(test)]

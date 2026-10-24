@@ -218,6 +218,11 @@ async fn catalogue_quantity_search_type_and_pagination_events_preserve_cart() {
         TestDocument::new(vec![]),
     );
     assert!(dioxus_ssr::render(&dom).contains("26 products"));
+    let html = dioxus_ssr::render(&dom);
+    assert!(
+        html.find("portal-products").expect("product grid")
+            < html.find("id=\"page-size\"").expect("page-size selector")
+    );
     input(&mut dom, "page-size", "change", "12");
     assert!(dioxus_ssr::render(&dom).contains("Page 1 of 3"));
     click(&mut dom, "__text", "Next");
@@ -239,7 +244,6 @@ async fn catalogue_quantity_search_type_and_pagination_events_preserve_cart() {
         "aria-label",
         "Add Product 02 / Blue / Large to cart",
     );
-    assert!(dioxus_ssr::render(&dom).contains("View cart (2)"));
     dom.in_scope(ScopeId::ROOT, || {
         assert_eq!(
             captured

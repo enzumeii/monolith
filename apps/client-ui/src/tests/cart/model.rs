@@ -141,3 +141,32 @@ fn replacement_convention_or_currency_cannot_supply_an_old_carts_quote() {
         assert_eq!(cart, original_cart);
     }
 }
+
+#[test]
+fn cart_images_use_current_variant_then_product_and_are_not_persisted() {
+    let mut cart = cart();
+    cart.add(&variant(), 1).expect("add");
+    let mut product = product();
+    let product_image = domain::dto::CatalogueImage {
+        url: "https://images.test/product.png".into(),
+    };
+    let variant_image = domain::dto::CatalogueImage {
+        url: "https://images.test/variant.png".into(),
+    };
+    product.featured_image = Some(product_image.clone());
+    product.variants[0].image = Some(variant_image.clone());
+    assert_eq!(
+        reconciliation(&cart, &[product.clone()])[0].image,
+        Some(variant_image)
+    );
+    product.variants[0].image = None;
+    assert_eq!(
+        reconciliation(&cart, &[product.clone()])[0].image,
+        Some(product_image)
+    );
+    product.featured_image = None;
+    assert!(reconciliation(&cart, &[product])[0].image.is_none());
+    assert!(reconciliation(&cart, &[])[0].image.is_none());
+    let stored = serde_json::to_string(&cart).expect("serialize cart");
+    assert!(!stored.contains("image"));
+}
