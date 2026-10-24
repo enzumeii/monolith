@@ -15,13 +15,14 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | Signing key | `JWT_SECRET` from ignored `.env` or environment | Hex-encoded random key of at least 32 bytes |
 | Shopify URL | `client.shopify.admin_api_url` in `services/api/application.toml` | Full `https://<shop>.myshopify.com/admin/api/2026-10/graphql.json`; local overlay does not replace it |
 | Shopify token | `SHOPIFY_ACCESS_TOKEN` from ignored API `.env` or environment | ConfigBuilder overrides client.shopify.access_token before one deserialization; standard file values apply when there is no environment override; Debug redacts credentials |
-| Backoffice | Public `application.toml`, `[api] base_url` | Default `http://localhost:3000/v1`; loaded once by typed `Settings`/`ApiConfig` |
-| Local browser | UI `http://localhost:8084`, API `http://localhost:3000` | Same hostname is required for exact origins and SameSite cookies |
+| Public UI settings | Each app’s `application.toml`, `[api] base_url` | Default `http://localhost:3000/v1`; each typed reader loads one published asset once at startup |
+| Local browser | Backoffice `http://localhost:8084`, customer UI `http://localhost:8085`, API `http://localhost:3000` | Same hostname is required for exact origins and SameSite cookies |
 | Production browser | `browser.allowed_origins` in production TOML | Explicit `https://convention.enzumeii.com` and `https://enzumeii.vercel.app`; secure cookies are enforced; production hostname metadata is not used; browser calls use same-origin `/api/v1` |
 | Preview browser | `VERCEL_ENV=preview` and validated generated `VERCEL_URL` | Replaces the configured list with only the preview HTTPS origin and enforces secure cookies |
 | Vercel local browser | `VERCEL_ENV=development` and explicit loopback `VERCEL_URL` host:port | Replaces the configured list with this gateway origin; permits HTTP/insecure cookies only for `localhost`, `127.0.0.1` or `[::1]` with a nonzero port |
-| Frontend environments | Selected local/prod file published as `application.toml` | Production uses `/api/v1`; build restores local source file, including after failure |
-| Frontend hosting | Static CSR HTML/WASM/assets under `/backoffice/` and `/user/` | Browser loads public settings before application calls and session restoration |
+| Frontend environments | Each app’s base `application.toml` → selected override (default `application.prod.toml`) at build time | Both UIs recursively merge tables; override arrays/scalars replace base values. Publish one `application.toml`; production uses `/api/v1` and backoffice inherits its base catalogue location. Restore source bytes after success or failure |
+| UI build dependencies | Root `just setup`; explicit root npm install in CI and each Vercel static service | Pinned TOML parser and deployment tools include dev dependencies; the build composer never installs packages |
+| Frontend hosting | Static customer CSR HTML/WASM/assets at `/`; backoffice under `/backoffice/`; legacy `/user` redirects | Browser loads public settings before application calls and session restoration |
 | Cron authorization | Environment `CRON_SECRET` | Backend only; never embedded in browser assets |
 | Local Vercel environment | Inherited environment → ignored root `.env` → ignored API `.env` | `just vercel-dev` checks DATABASE_URL, JWT_SECRET, CRON_SECRET and S3 credentials, starts/initializes local S3, sets local development metadata and uses the API native dev command through an owned temporary config. The API loads its local TOML overlay and cron choice; production still uses the container |
 
@@ -31,7 +32,7 @@ Inherited environment variables keep dotenvy's normal precedence, including `RUN
 | --- | --- | --- |
 | Local (default) | `just setup` or `just setup --local`; item `87323839-368f-4288-a4a5-9b0320699892` | Writes `RUN_ENV=local` in ignored `.env`; `just run` loads `application.local.toml` |
 | QA | `just setup --qa`; item `0a291e2c-4ae4-436d-8730-ddf301a544d7` | Writes `RUN_ENV=qa` in the same `.env`; `just run` loads required `application.qa.toml` |
-| Shared local services | PostgreSQL and S3 use the existing development lifecycle | Browser `allowed_origins = ["http://localhost:8084"]`, S3 endpoint `http://localhost:3001`, VPS scheduler by default |
+| Shared local services | PostgreSQL and S3 use the existing development lifecycle | Browser `allowed_origins = ["http://localhost:8084", "http://localhost:8085"]`, S3 endpoint `http://localhost:3001`, VPS scheduler by default |
 | Stripe endpoint | `https://api.stripe.com/v1/` in both modes | QA explicitly retains this URL; use the selected item's sandbox credential for test payments |
 | Vault fields | `JWT_SECRET`, `CRON_SECRET`, `SHOPIFY_ACCESS_TOKEN`, `RESEND_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `STRIPE_SECRET_KEY` | No database, S3 or private sender profile import |
 | Same-mode setup | Preserve nonempty values; fill missing/empty values | Secure atomic `.env` write with mode `0600`; RUN_ENV always reflects the selected mode |
@@ -68,7 +69,7 @@ Run recipes from the package directory.
 | Domain | `just setup`, `just test`, `just check`; library has no server |
 | Shared UI | `just check`, `just test`, `just test --coverage`; shared library with no server |
 | Report generator | `just check`, `just test`; shared library with no setup recipe or server |
-| Client UI | `just setup`, `just run`, `just test`, `just check`; existing CSR browser shell |
+| Client UI | `just setup`, `just serve`, `just test`, `just check`; customer convention portal |
 | Workspace formatting | `cargo fmt --all -- --check` from the repository root |
 
 | API verification mode | Dependencies and scope |
@@ -76,7 +77,7 @@ Run recipes from the package directory.
 | `cargo test --locked -p api --lib` | Library tests and loopback transport fixtures; configured Docker PostgreSQL must be ready; no Shopify credentials |
 | `just test` | Compose PostgreSQL/private S3/init, native Cargo tests once, `cargo api-e2e` for TCP endpoint tests only, and Compose down with volumes removed even on failure |
 | `just check` | Formatting and strict Clippy on all API targets |
-| API E2E | `e2e-test/healthz.rs`, `e2e-test/v1/{auth,admins}.rs`, `e2e-test/v1/admin/{catalogue,conventions,inventories,orders,transactions}.rs` and `e2e-test/v1/admin/cron/{configs,report}.rs`; real TCP endpoints |
+| API E2E | `e2e-test/healthz.rs`, `e2e-test/v1/{auth,admins,conventions}.rs`, `e2e-test/v1/admin/{catalogue,conventions,inventories,orders,transactions}.rs` and `e2e-test/v1/admin/cron/{configs,report}.rs`; real TCP endpoints |
 | Process lifecycle | `e2e-test/process.rs` exercises owned-child teardown |
 | Shared harness | `e2e-test/common.rs` owns temporary TOML, local API child, readiness, and teardown |
 | Fixtures | Unique owned records; shared Compose database during a run; cleanup only test-owned data |
@@ -281,7 +282,7 @@ Report queries require product, inventory, location and order access; reading un
 | Postman examples | Internal `conventions/{list,create,get,patch,delete,list-variants,replace-variants}` and `conventions/catalogue/{products,continue}` use synthetic IDs/prices and workspace variables. External `catalogue_products` / `convention_variant` query text and variables match API documents; inherited credentials remain private |
 | Local checks | Use package `just check` / `just test` recipes and root `cargo fmt --all -- --check`. Local-only `/Users/wphongphanpa/.local/bin/postman workspace lint` validates the checked-in workspace; do not run synthetic mutation examples against production |
 | Isolation | Use an owned `CARGO_TARGET_DIR` per worktree. API full recipe accepts `E2E_COMPOSE_PROJECT`, `E2E_POSTGRES_PORT`, `E2E_S3_PORT` and `E2E_DATABASE_URL`; preserve its Compose cleanup. Controlled provider matrices may serialize behind the fixture advisory lock |
-| Current limit | Public convention pages/APIs (ENZ-38), routing (ENZ-41) and quotes remain separate work. Guest checkout retains linkage/evidence hashes; Shopify retains the accepted purchase |
+| Current limit | Public convention browsing, product detail and quotes use the anonymous APIs described in [conventions](conventions.md). The portal does not invoke payments; guest checkout retains linkage/evidence hashes while Shopify retains the accepted purchase |
 
 ## Inventory enablement
 
@@ -352,7 +353,7 @@ Titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/e
 | Service | Root / builder | Public paths |
 | --- | --- | --- |
 | `backoffice` | `apps/backoffice/vercel` / `@vercel/static-build` | `/backoffice`, `/backoffice/(.*)` |
-| `client-ui` | `apps/client-ui/vercel` / `@vercel/static-build` | `/user`, `/user/(.*)` |
+| `client-ui` | `apps/client-ui/vercel` / `@vercel/static-build` | `/`, `/<slug>`, `/<slug>/products/<product-id>`, `/<slug>/cart/<UUID>` and `/assets/*`; legacy `/user` redirects |
 | `api` | `.` / `@vercel/container`; `Dockerfile.api.vercel` | `/api/(.*)` and exact `/_cron` |
 | Bindings | None | Browser requests use `/api/v1` directly |
 
@@ -362,9 +363,9 @@ Titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/e
 | `just check` | Workflow, shell, policy tests and pinned CLI configuration/service resolution |
 | `just vercel-build` | Build both static CSR bundles and the API Docker image |
 | `just vercel-dev` | Load local API secrets, start/init persistent local S3, prebuild static bundles, then run all three services on localhost:18027 (optional --port/--queue-port/--runtime-cache-port/--schedules-port); local TOML selects VPS polling or manual Vercel cron |
-| `vercel.json` | Static filesystem-first routes, asset404 guards, own-prefix SPA fallbacks, public API and daily cron |
+| `vercel.json` | Static filesystem-first routes, asset404 guards, app route-shape SPA fallbacks, legacy redirects, public API and daily cron |
 | `scripts/install-vercel-dx.sh` | Compile pinned Dioxus 0.7.10 with the repository Rust toolchain into writable `.tools/vercel-dx`; reuse verified cached version |
-| `scripts/build-vercel-ui.sh` | Select public production TOML, build web-only WASM, restore local TOML and copy only public assets under the app prefix |
+| `scripts/build-vercel-ui.sh` | Select public production TOML, build web-only WASM, restore local TOML and copy only public assets (backoffice prefix; customer root) |
 | `scripts/serve-vercel-ui.mjs` | Development-only static command for unlinked CLI, reading each service's existing routes and generated public directory; excluded from published frontend output |
 
 | Native static build prerequisite | Requirement |
@@ -384,7 +385,7 @@ Titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/e
 
 The daily `0 0 * * *` schedule is UTC: Hobby execution falls approximately between 07:00 and 07:59 Bangkok. It wakes stored Bangkok cron expressions. Production deployments alone receive scheduled calls; local dev does not schedule them. The backend authenticates `Authorization: Bearer CRON_SECRET`, awaits a bounded 240-second pass and reserves five seconds for retention. Missed/failed invocations await later recovery. Oversized jobs can repeat and exhaust attempts; backlog duration depends on workload.
 
-Static services have no frontend executable or runtime dependency. Their build-only package metadata avoids Cargo backend detection. The root Vercel project includes workspace crates/scripts; each app's generated output is `vercel/public/<prefix>`. Service routes check existing files, reject missing `/assets/` files, then fall back only within that application's prefix. The API owns `/api/v1` directly and returns its ordinary errors for unknown `/api/*` routes. Native `/v1` and `/healthz` aliases receive no public Vercel rewrite. Local unmatched `/` may return CLI directory HTML200; this does not establish hosted root routing.
+Static services have no frontend executable or runtime dependency. Their build-only package metadata avoids Cargo backend detection. The root Vercel project includes workspace crates/scripts; backoffice output is `vercel/public/backoffice` and customer output is `vercel/public`. Service routes check existing files, reject missing assets, then fall back only for their configured route shapes. The customer shell resolves enabled slugs through the public API before rendering metadata; a syntactically valid unknown slug can receive an HTTP200 shell followed by a generic unavailable state. Arbitrary subpaths and missing assets return404. The API owns `/api/v1` directly and returns its ordinary errors for unknown `/api/*` routes. Native `/v1` and `/healthz` aliases receive no public Vercel rewrite. The customer root serves the convention directory. Legacy `/user` entry paths redirect to the corresponding root routes. Actual hosted geo-header propagation and domain cutover remain separate deployment verification.
 
 | Manual production deployment | Operation |
 | --- | --- |

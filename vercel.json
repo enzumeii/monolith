@@ -6,7 +6,7 @@
   "services": {
     "backoffice": {
       "root": "apps/backoffice/vercel",
-      "installCommand": "true",
+      "installCommand": "npm ci --prefix ../../.. --include=dev --ignore-scripts --no-audit --no-fund",
       "buildCommand": "bash ../../../scripts/build-vercel-ui.sh backoffice backoffice",
       "outputDirectory": "public",
       "routes": [
@@ -26,20 +26,38 @@
     },
     "client-ui": {
       "root": "apps/client-ui/vercel",
-      "installCommand": "true",
-      "buildCommand": "bash ../../../scripts/build-vercel-ui.sh client-ui user",
+      "installCommand": "npm ci --prefix ../../.. --include=dev --ignore-scripts --no-audit --no-fund",
+      "buildCommand": "bash ../../../scripts/build-vercel-ui.sh client-ui root",
       "outputDirectory": "public",
       "routes": [
+        {
+          "src": "/user/?",
+          "status": 308,
+          "headers": {
+            "Location": "/"
+          }
+        },
+        {
+          "src": "/user/((?!(?:api|v1|healthz|backoffice|user|assets)(?:/|$))(?=[^/]{1,63}(?:/|$))[a-z0-9]+(?:-[a-z0-9]+)*(?:/products/[1-9][0-9]*|/cart/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)",
+          "status": 308,
+          "headers": {
+            "Location": "/$1"
+          }
+        },
         {
           "handle": "filesystem"
         },
         {
-          "src": "/user/assets/.*",
+          "src": "/assets/.*",
           "status": 404
         },
         {
-          "src": "/user(?:/.*)?",
-          "dest": "/user/index.html"
+          "src": "/",
+          "dest": "/index.html"
+        },
+        {
+          "src": "/(?!(?:api|v1|healthz|backoffice|user|assets)(?:/|$))(?=[^/]{1,63}(?:/|$))[a-z0-9]+(?:-[a-z0-9]+)*(?:/products/[1-9][0-9]*|/cart/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?",
+          "dest": "/index.html"
         }
       ],
       "devCommand": "node ../../../scripts/serve-vercel-ui.mjs client-ui"
@@ -77,13 +95,7 @@
       }
     },
     {
-      "source": "/user",
-      "destination": {
-        "service": "client-ui"
-      }
-    },
-    {
-      "source": "/user/(.*)",
+      "source": "/(.*)",
       "destination": {
         "service": "client-ui"
       }

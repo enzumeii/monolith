@@ -2,10 +2,10 @@
 default:
     @just --list
 
-# Install the pinned Conventional Commits reference parser (Node 24+ required).
+# Install pinned CI, deployment and UI config build dependencies (Node 24+ required).
 setup:
     npm ci --prefix .github/scripts --ignore-scripts --no-audit --no-fund
-    npm ci --ignore-scripts --no-audit --no-fund
+    npm ci --include=dev --ignore-scripts --no-audit --no-fund
 
 # Validate GitHub workflows, Bash scripts, and PR/release/coverage behavior (Node, actionlint, shellcheck required).
 check:
@@ -18,7 +18,7 @@ check:
 # Build both static UI bundles and the API image locally (Rust, dx and Docker required).
 vercel-build:
     bash scripts/build-vercel-ui.sh backoffice backoffice
-    bash scripts/build-vercel-ui.sh client-ui user
+    bash scripts/build-vercel-ui.sh client-ui root
     bash scripts/build-vercel-containers.sh
 
 # Run all services on port 18027 using API .env and local TOML cron selection.

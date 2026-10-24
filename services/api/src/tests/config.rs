@@ -377,7 +377,7 @@ fn new_reads_non_secret_configuration_only_from_toml() {
     assert_eq!(settings.server.port, 3000);
     assert_eq!(
         settings.browser.allowed_origins,
-        vec!["http://localhost:8084"]
+        vec!["http://localhost:8084", "http://localhost:8085"]
     );
     assert!(settings.browser.insecure_local);
     assert_eq!(settings.client.unwrap().shopify.unwrap().timeout_secs, 10);
@@ -837,7 +837,7 @@ fn local_toml_can_choose_either_cron_without_deployment_metadata() {
             assert_eq!(settings.scheduler.retention_interval_secs, 2);
             assert_eq!(
                 settings.browser.allowed_origins,
-                vec!["http://localhost:8084"]
+                vec!["http://localhost:8084", "http://localhost:8085"]
             );
         }
     });
@@ -1191,7 +1191,7 @@ fn qa_startup_probe() {
     );
     assert_eq!(
         settings.browser.allowed_origins,
-        vec!["http://localhost:8084"]
+        vec!["http://localhost:8084", "http://localhost:8085"]
     );
     assert!(settings.browser.insecure_local);
     assert_eq!(settings.scheduler.implementation, CronImplementation::Vps);

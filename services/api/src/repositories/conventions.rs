@@ -203,6 +203,42 @@ pub(crate) async fn replace(
     variants(c, id).await
 }
 
+pub(crate) async fn public_directory(
+    pool: &PgPool,
+    today: chrono::NaiveDate,
+    country: Option<&str>,
+    page: u32,
+    per_page: u32,
+) -> Result<Vec<Convention>, AppError> {
+    Ok(sqlx::query_as(
+        "SELECT *
+         FROM conventions
+         WHERE preorder_enabled = TRUE
+           AND event_ends_on >= $1
+         ORDER BY CASE WHEN country_code = $2 THEN 0 ELSE 1 END,
+                  event_starts_on, slug, id
+         LIMIT $3 OFFSET $4",
+    )
+    .bind(today)
+    .bind(country)
+    .bind(i64::from(per_page) + 1)
+    .bind(i64::from(page - 1) * i64::from(per_page))
+    .fetch_all(pool)
+    .await?)
+}
+
+pub(crate) async fn public_find(pool: &PgPool, slug: &str) -> Result<Option<Convention>, AppError> {
+    Ok(sqlx::query_as(
+        "SELECT *
+         FROM conventions
+         WHERE slug = $1
+           AND preorder_enabled = TRUE",
+    )
+    .bind(slug)
+    .fetch_optional(pool)
+    .await?)
+}
+
 fn conflict(error: sqlx::Error) -> AppError {
     if let sqlx::Error::Database(ref db) = error
         && db.is_unique_violation()

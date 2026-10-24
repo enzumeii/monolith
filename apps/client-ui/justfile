@@ -23,6 +23,7 @@ test coverage="":
 [private]
 _test:
     cargo test --locked -p client-ui
+    node --test src/tests/browser.mjs
 
 # Build the client-only web bundle for local use.
 build:

@@ -1,0 +1,17 @@
+$kind: http-request
+description: 'Anonymous cart quote. Replace convention_slug and synthetic variant GID with selected saved values. Exact request only items[{variant_id,quantity}], up to250 unique ProductVariant IDs, quantities1..999; empty items allowed and needs no provider. All membership validation precedes Shopify. Server uses persisted final prices/current currency and live stock only, rechecking enabled/membership/prices after provider reads. Returns200 {currency_code,items:[{variant_id,quantity,unit_price,line_total}],subtotal,shipping,total}; shipping zero. No stock reservation, order, payment or mutation. Unselected400; selected missing/unavailable/overstock or race409, no successful partial totals. Disabled404, malformed400, missing client503, invalid upstream502, timeout504, database500; safe {error} JSON; Cache-Control no-store. Reject all query parameters/unknown fields/client amounts.'
+url: "{{server}}/v1/conventions/:convention_slug/quote"
+method: POST
+auth:
+  type: noauth
+pathVariables:
+  convention_slug: example-convention
+body:
+  type: json
+  content: |-
+    {
+      "items": [
+        {"variant_id": "gid://shopify/ProductVariant/2", "quantity": 2}
+      ]
+    }
+order: 4000

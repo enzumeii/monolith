@@ -12,3 +12,5 @@ pub mod orders;
 pub mod catalogue;
 
 pub mod conventions;
+
+pub(crate) mod public_conventions;

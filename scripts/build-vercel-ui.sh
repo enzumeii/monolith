@@ -6,7 +6,7 @@ config=${3:-application.prod.toml}
 root=$(cd "$(dirname "$0")/.." && pwd)
 export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 case "$package:$prefix" in
-  backoffice:backoffice|client-ui:user) ;;
+  backoffice:backoffice|client-ui:root) ;;
   *) echo 'Unknown UI package or public prefix' >&2; exit 2 ;;
 esac
 if command -v dx >/dev/null 2>&1 && [[ $(dx --version 2>/dev/null) == "dioxus 0.7.10 "* ]]; then
@@ -26,13 +26,19 @@ restore_config() {
 trap restore_config EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-cp "$config" application.toml
+node "$root/scripts/compose-vercel-ui-config.mjs" "$backup" "$config" application.toml
 export CARGO_TARGET_DIR="$PWD/target/vercel"
 bundle="$CARGO_TARGET_DIR/dx/$package/release/web/public"
 rm -rf "${bundle%/public}"
-"$dx_command" build --web --release --package "$package" --base-path "$prefix" --debug-symbols false --locked
+base_path="$prefix"
+output="vercel/public/$prefix"
+if [[ "$prefix" == root ]]; then
+  base_path=/
+  output=vercel/public
+fi
+"$dx_command" build --web --release --package "$package" --base-path "$base_path" --debug-symbols false --locked
 test -f "$bundle/index.html"
 test -f "$bundle/assets/application.toml"
 rm -rf vercel/public
-mkdir -p "vercel/public/$prefix"
-cp -R "$bundle/." "vercel/public/$prefix/"
+mkdir -p "$output"
+cp -R "$bundle/." "$output/"

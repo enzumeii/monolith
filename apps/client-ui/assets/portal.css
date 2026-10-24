@@ -1,0 +1,80 @@
+.portal-page .panel { max-width: none; }
+.portal-page { max-width: 1200px; }
+.portal-brand { border-bottom: 1px solid var(--panel-border); }
+.portal-navbar { max-width: 1200px; margin: 0 auto; padding: .75rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.portal-back-link { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: .3rem .6rem; margin-bottom: .75rem; font-size: 1.3rem; }
+.portal-brand-link { display: inline-flex; align-items: center; gap: .65rem; font-size: 1.4rem; font-weight: bold; }
+.portal-brand-logo { width: 48px; height: 48px; object-fit: contain; }
+.portal-nav-actions { display: flex; align-items: center; gap: 1rem; }
+.portal-cart-link { position: relative; display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; margin-right: .5rem; }
+.portal-cart-icon { width: 26px; height: 26px; }
+.portal-cart-count { position: absolute; top: -.35rem; right: -.5rem; min-width: 1.5rem; height: 1.5rem; padding: 0 .3rem; display: grid; place-items: center; background: var(--primary); color: var(--primary-text); border: 1px solid var(--panel-border); border-radius: 999px; font-size: .75rem; font-weight: bold; line-height: 1; }
+.portal-brand-link:focus-visible, .portal-cart-link:focus-visible { outline: 2px solid var(--heading); outline-offset: 3px; }
+.portal-event { display: flex; gap: 1.5rem; align-items: flex-start; margin-bottom: 1.5rem; }
+.portal-logo { width: 112px; height: 112px; object-fit: contain; flex-shrink: 0; }
+.portal-placeholder { display: grid; place-items: center; background: var(--accent); color: var(--primary-text); font-size: 3rem; }
+.portal-directory { display: grid; gap: 1.5rem; }
+.portal-filters { display: grid; grid-template-columns: 1fr 2fr; gap: .75rem 1.25rem; align-items: center; }
+.portal-products { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }
+.portal-product { min-width: 0; padding: .85rem; gap: .25rem; margin: 0; overflow-wrap: anywhere; }
+.portal-product h3 { margin: .35rem 0 0; font-size: 1.1rem; line-height: 1.3; }
+.portal-product p { margin: 0; line-height: 1.4; }
+.portal-product .button-link { align-self: flex-start; margin-top: auto; min-height: 44px; }
+.portal-product-image { width: 100%; height: 160px; object-fit: contain; }
+.portal-description { white-space: pre-wrap; overflow-wrap: anywhere; }
+.portal-product-detail { gap: 1rem; }
+.portal-product-summary { display: flex; align-items: flex-start; gap: 1rem; }
+.portal-product-summary .portal-product-image { width: 120px; height: 120px; flex-shrink: 0; }
+.portal-product-summary-copy { min-width: 0; overflow-wrap: anywhere; }
+.portal-product-summary .content-heading { margin-bottom: .25rem; }
+.portal-product-summary p { margin: .25rem 0 0; line-height: 1.4; }
+.portal-product-variants { display: grid; gap: 0; list-style: none; margin: 0; padding: 0; }
+.portal-variant { display: grid; grid-template-columns: 72px minmax(0, 1fr) minmax(240px, 320px); align-items: center; gap: 1rem; border-top: 1px solid var(--panel-border); padding: 1rem 0; min-width: 0; }
+.portal-variant-media { width: 72px; min-height: 72px; }
+.portal-variant-image { display: block; width: 72px; height: 72px; object-fit: contain; }
+.portal-variant-details, .portal-variant-actions { min-width: 0; overflow-wrap: anywhere; }
+.portal-variant-details h4 { margin: 0; font-size: 1.1rem; line-height: 1.3; }
+.portal-variant p { margin: .25rem 0 0; line-height: 1.4; }
+.portal-variant-actions label { display: block; margin: 0 0 .35rem; }
+.portal-price { font-weight: bold; }
+.portal-quantity { display: flex; gap: .75rem; align-items: center; }
+.portal-quantity input { max-width: 6rem; min-width: 0; }
+.portal-variant-actions .primary { margin-top: 0; min-height: 44px; }
+.portal-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 1.25rem; margin-top: 1.5rem; }
+.portal-page-size { display: flex; align-items: center; gap: .75rem; }
+.portal-page-size label { margin: 0; }
+.portal-page-size select { width: auto; }
+.portal-notice { padding: .75rem 1rem; border: 1px solid var(--panel-border); background: var(--hover-bg); }
+.portal-cart-lines { display: grid; gap: 1rem; }
+.portal-cart-line { display: grid; grid-template-columns: 112px 1fr minmax(180px, 240px); gap: 1.5rem; }
+.portal-cart-image { width: 112px; height: 112px; object-fit: contain; }
+.portal-cart-image-placeholder { display: grid; place-items: center; background: var(--accent); color: var(--primary-text); font-size: 2rem; }
+.portal-cart-line h3 { margin-top: 0; }
+.portal-cart-line button { margin-top: .75rem; margin-right: .5rem; }
+.portal-totals { margin: 1.5rem 0; }
+.portal-totals dl { display: grid; grid-template-columns: 1fr auto; gap: .5rem 1rem; }
+.portal-totals dd { text-align: right; margin: 0; }
+@media (min-width: 601px) and (max-width: 1023px) {
+    .portal-products { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+    .portal-navbar { gap: .5rem; padding: .75rem 1rem; }
+    .portal-brand-link { font-size: 1.05rem; gap: .4rem; }
+    .portal-brand-logo { width: 38px; height: 38px; }
+    .portal-nav-actions { gap: .65rem; }
+    .portal-nav-actions .button-link { padding: .4rem; font-size: .85rem; }
+    .portal-products { grid-template-columns: minmax(0, 1fr); }
+    .portal-product-summary { flex-direction: column; gap: .65rem; }
+    .portal-variant { grid-template-columns: 56px minmax(0, 1fr); gap: .65rem; }
+    .portal-variant-media, .portal-variant-image { width: 56px; height: 56px; min-height: 56px; }
+    .portal-variant-actions { grid-column: 1 / -1; }
+    .portal-variant-actions .portal-quantity { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; }
+    .portal-variant-actions .portal-quantity input { max-width: none; }
+    .portal-page-size { width: 100%; justify-content: center; }
+    .portal-pagination { gap: .75rem; }
+    .portal-event { gap: .75rem; flex-direction: column; }
+    .portal-logo { width: 80px; height: 80px; }
+    .portal-filters, .portal-cart-line { grid-template-columns: 1fr; }
+    .portal-filters label { margin-bottom: -.5rem; }
+    .portal-quantity { flex-wrap: wrap; }
+}

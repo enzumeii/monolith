@@ -30,7 +30,7 @@ pub struct CatalogueImage {
     pub url: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct CatalogueOption {
     pub name: String,
     pub value: String,

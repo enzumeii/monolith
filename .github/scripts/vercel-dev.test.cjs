@@ -34,7 +34,7 @@ if(args.includes('local-s3-init')) {
  fs.writeFileSync(path.join(root,'bin/cargo'),'#!/bin/sh\nexit 73\n');
  fs.chmodSync(path.join(root,'bin/cargo'),0o755);
  fs.writeFileSync(path.join(root,'services/api/.env'),dotenv);
- fs.writeFileSync(path.join(root,'scripts/build-vercel-ui.sh'),'exit 0\n');
+ fs.writeFileSync(path.join(root,'scripts/build-vercel-ui.sh'),`printf '%s %s\\n' "$1" "$2" >> build-calls.log\n`);
  fs.writeFileSync(path.join(root,'node_modules/vercel/dist/index.js'),`
 const fs=require('node:fs');
 const configPath=process.argv[process.argv.indexOf('--local-config')+1];
@@ -69,6 +69,7 @@ test('local dev loads API dotenv, preserves inherited credentials, uses native A
  assert.match(fs.readFileSync(path.join(root,'docker-calls.log'),'utf8'),/stop local-s3/);
  assert.equal(observed.cron,'file-cron');
  assert.equal(observed.db,'postgres://synthetic:synthetic@localhost/local');
+ assert.equal(fs.readFileSync(path.join(root,'build-calls.log'),'utf8'),'backoffice backoffice\nclient-ui root\n');
  assert.equal(observed.runEnv,'local');
  assert.equal(observed.vercelEnv,'development');
  assert.equal(observed.url,'localhost:18027');

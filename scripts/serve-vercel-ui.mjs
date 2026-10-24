@@ -8,7 +8,7 @@ const config = JSON.parse(await readFile(resolve(root, 'vercel.json'), 'utf8'));
 const service = config.services[process.argv[2]];
 if (!service || service.runtime || !service.outputDirectory) throw new Error('Expected static service name');
 const publicRoot = await realpath(resolve(root, service.root, service.outputDirectory));
-const routes = service.routes.filter(route => route.src).map(route => ({ ...route, pattern: new RegExp(`^${route.src}$`) }));
+const routes = service.routes.map(route => ({ ...route, pattern: route.src ? new RegExp(`^${route.src}$`) : undefined }));
 const contentTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.wasm': 'application/wasm', '.css': 'text/css', '.toml': 'text/plain', '.png': 'image/png', '.svg': 'image/svg+xml' };
 
 // Local Vercel development only: production publishes files through @vercel/static-build.
@@ -18,32 +18,43 @@ createServer(async (request, response) => {
       response.writeHead(405).end();
       return;
     }
-    const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
-    const route = routes.find(candidate => candidate.pattern.test(pathname));
-    if (!route) {
-      response.writeHead(404).end();
-      return;
-    }
+    const url = new URL(request.url, 'http://localhost');
+    const pathname = decodeURIComponent(url.pathname);
     const load = async path => {
       let file = resolve(publicRoot, `.${path}`);
-      if (!file.startsWith(`${publicRoot}${sep}`)) throw new Error('Invalid static path');
+      if (file !== publicRoot && !file.startsWith(`${publicRoot}${sep}`)) throw new Error('Invalid static path');
       if ((await stat(file)).isDirectory()) file = resolve(file, 'index.html');
       file = await realpath(file);
       if (!file.startsWith(`${publicRoot}${sep}`)) throw new Error('Invalid static path');
       return { file, bytes: await readFile(file) };
     };
-    let output;
-    try {
-      output = await load(pathname);
-    } catch {
-      if (!route.dest) {
-        response.writeHead(route.status || 404).end();
+    const send = output => {
+      response.writeHead(200, { 'content-type': contentTypes[extname(output.file)] || 'application/octet-stream', 'cache-control': 'no-store' });
+      response.end(request.method === 'HEAD' ? undefined : output.bytes);
+    };
+    for (const route of routes) {
+      if (route.handle === 'filesystem') {
+        try {
+          send(await load(pathname));
+          return;
+        } catch {
+          continue;
+        }
+      }
+      if (!route.pattern?.test(pathname)) continue;
+      if (route.status >= 300 && route.status < 400 && route.headers?.Location) {
+        const location = pathname.replace(route.pattern, route.headers.Location);
+        response.writeHead(route.status, { Location: `${location}${url.search}`, 'cache-control': 'no-store' }).end();
         return;
       }
-      output = await load(route.dest);
+      if (route.dest) {
+        send(await load(pathname.replace(route.pattern, route.dest)));
+        return;
+      }
+      response.writeHead(route.status || 404).end();
+      return;
     }
-    response.writeHead(200, { 'content-type': contentTypes[extname(output.file)] || 'application/octet-stream', 'cache-control': 'no-store' });
-    response.end(request.method === 'HEAD' ? undefined : output.bytes);
+    response.writeHead(404).end();
   } catch {
     response.writeHead(400).end();
   }

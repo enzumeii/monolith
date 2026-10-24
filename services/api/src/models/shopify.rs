@@ -547,6 +547,7 @@ fn validate_size(first: u16) -> Result<(), ClientError> {
 }
 pub(crate) mod catalogue;
 pub(crate) mod convention_variant;
+pub(crate) mod variant_nodes;
 
 mod products;
 

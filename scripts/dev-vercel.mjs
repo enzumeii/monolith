@@ -77,7 +77,7 @@ try {
   if (!config.services.api.devCommand) throw new Error('API local devCommand is required');
   configPath = `.vercel-dev-${randomUUID()}.json`;
   await writeFile(configPath, JSON.stringify(config), { mode: 0o600, flag: 'wx' });
-  for (const [app, prefix] of [['backoffice', 'backoffice'], ['client-ui', 'user']]) {
+  for (const [app, prefix] of [['backoffice', 'backoffice'], ['client-ui', 'root']]) {
     const code = await run('bash', ['scripts/build-vercel-ui.sh', app, prefix]);
     if (code) {
       process.exitCode = code;

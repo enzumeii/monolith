@@ -364,10 +364,3 @@ dialog.modal::backdrop {
     .calendar-navigation { grid-template-columns: 2.4rem minmax(0, 1fr) 4.6rem 2.4rem; gap: .2rem; }
     .calendar-navigation button { min-width: 0; padding: .35rem; }
 }
-
-.content-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
-.content-heading-title { display: flex; align-items: center; gap: .75rem; min-width: 0; flex: 1; }
-.content-heading-title h2, .content-heading-title h3 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.content-heading-title > .button-link { flex-shrink: 0; min-width: 2.75rem; font-size: 1.25rem; }
-.content-heading-actions { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
-.content-heading-actions > button, .content-heading-actions > .button-link { margin-top: 0; }

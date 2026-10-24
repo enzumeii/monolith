@@ -1,0 +1,9 @@
+$kind: http-request
+description: 'Anonymous customer endpoint; no bearer or browser session required. Native /v1 and hosted /api/v1 mounts are supported. Responses use Cache-Control: no-store. Disabled/missing conventions404; malformed requests400; unavailable provider503; unusable provider502; timeout504; database500 safe JSON. No stored S3 locations, costs, source prices, payment configuration or admin timestamps are exposed. Returns200 {convention,products} grouped selected-only current Shopify variants with final_price in convention currency, selected options, image/type/text, available_quantity and max_quantity. ACTIVE/tracked only. DENY maximum clamps stock0..999; CONTINUE maximum999. Empty selection avoids provider read. Reject query/body400.'
+url: "{{server}}/v1/conventions/:convention_slug/products"
+method: GET
+auth:
+  type: noauth
+pathVariables:
+  convention_slug: example-convention
+order: 3000
