@@ -93,7 +93,6 @@ async fn selected_variants_keep_prices_images_limits_and_independent_cart_quanti
         "Blue / Large",
         "Red / Small",
         "Green / Small",
-        "SKU: SHIRT-RD-S",
         "USD 12.30",
         "USD 25.75",
         "Currently unavailable",
@@ -101,7 +100,12 @@ async fn selected_variants_keep_prices_images_limits_and_independent_cart_quanti
     ] {
         assert!(html.contains(expected), "missing {expected}: {html}");
     }
-    assert_eq!(html.matches("class=\"portal-variant\"").count(), 3);
+    assert!(html.contains(r#"<ul class="portal-product-variants""#));
+    assert!(html.contains(r#"role="list" aria-label="Product variants""#));
+    assert_eq!(html.matches("<li class=\"portal-variant\"").count(), 3);
+    assert!(!html.contains("SKU"));
+    assert!(!html.contains("SHIRT-BL-L"));
+    assert!(!html.contains("SHIRT-RD-S"));
     assert!(!html.contains("Other product"));
     assert!(!html.contains("Other variant"));
     assert!(quantity_input(&html, "quantity-1").contains(r#"max="2""#));
