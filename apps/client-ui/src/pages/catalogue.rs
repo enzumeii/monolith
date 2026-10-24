@@ -25,7 +25,7 @@ pub fn Catalogue(catalogue: PublicCatalogueResponse) -> Element {
         Heading { title: "Preorder collection", level: HeadingLevel::Section }
         div { class: "panel portal-filters",
             label { r#for: "product-search", "Search products" }
-            input { id: "product-search", r#type: "search", value: "{filters.read().search}", placeholder: "Name, description or SKU", oninput: move |event| { let mut value = filters.write(); value.search = event.value(); value.reset(); } }
+            input { id: "product-search", r#type: "search", value: "{filters.read().search}", placeholder: "Name or description", oninput: move |event| { let mut value = filters.write(); value.search = event.value(); value.reset(); } }
             label { r#for: "product-type", "Product type" }
             select { id: "product-type", value: "{filters.read().product_type}", onchange: move |event| { let mut value = filters.write(); value.product_type = event.value(); value.reset(); },
                 option { value: "", "All types" }
@@ -71,7 +71,7 @@ fn ProductCard(product: PublicProduct, slug: String) -> Element {
         p { class: "portal-description", "{product.description}" }
         p { class: "meta", "{count} {variant_label}" }
         if let Some(route) = route {
-            Link { class: "button-link", to: route, aria_label: "View variants for {product.title}", "View variants" }
+            Link { class: "button-link primary", to: route, aria_label: "View variants for {product.title}", "View variants" }
         }
     } }
 }

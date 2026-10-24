@@ -29,6 +29,10 @@ async fn catalogue_groups_variant_choices_behind_one_product_link_and_searches_n
     assert!(html.contains("https://images.test/shirt.png"));
     assert!(html.contains("Soft cotton"));
     assert!(html.contains("Clothing"));
+    assert!(html.contains(r#"placeholder="Name or description""#));
+    assert!(!html.contains("SKU"));
+    assert!(!html.contains("SHIRT-BL-L"));
+    assert!(!html.contains("SHIRT-RED-S"));
     assert!(!html.contains("Add to cart"));
     assert!(!html.contains("quantity-"));
     assert!(!html.contains("USD 12.30"));
