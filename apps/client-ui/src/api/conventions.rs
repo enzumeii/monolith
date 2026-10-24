@@ -83,3 +83,7 @@ fn validate_slug(slug: &str) -> ApiResult<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../tests/api/conventions.rs"]
+mod tests;

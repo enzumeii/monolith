@@ -90,4 +90,4 @@ fn ReadyCart(
 
 #[cfg(test)]
 #[path = "tests/cart/context.rs"]
-mod tests;
+pub(crate) mod tests;

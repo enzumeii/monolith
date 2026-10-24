@@ -59,3 +59,39 @@ fn same_tab_cache_survives_page_remounts_before_any_browser_save() {
         );
     });
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn provider_restores_before_saving_and_preserves_storage_failure_notices() {
+    use crate::pages::tests::{Screen, TestDocument, empty_cart, mounted, until};
+    let document = TestDocument::new(vec![
+        serde_json::json!({"raw":null,"checkout_id":CHECKOUT,"blocked":true}),
+        serde_json::json!(false),
+    ]);
+    let (mut dom, _) = mounted(
+        Screen::Provider(crate::api::tests::catalogue()),
+        empty_cart(),
+        document.clone(),
+    );
+    assert!(dioxus_ssr::render(&dom).contains("Restoring your cart"));
+    let html = until(&mut dom, "Changes remain in this tab").await;
+    assert!(html.contains("Preorder collection"));
+    assert_eq!(document.scripts.borrow().len(), 2);
+    assert!(document.scripts.borrow()[0].contains("getItem"));
+    assert!(document.scripts.borrow()[1].contains("setItem"));
+    let (mut dom, _) = mounted(
+        Screen::Provider(crate::api::tests::catalogue()),
+        empty_cart(),
+        TestDocument::new(vec![]),
+    );
+    let html = until(&mut dom, "Unable to initialize your cart").await;
+    assert!(!html.contains("Preorder collection"));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn context(
+    cart: Signal<Cart>,
+    cache: Signal<BTreeMap<String, browser::Restored>>,
+) -> CartContext {
+    CartContext { cart, cache }
+}

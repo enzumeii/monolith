@@ -42,3 +42,7 @@ fn safe_image(url: &str) -> bool {
     reqwest::Url::parse(url)
         .is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
 }
+
+#[cfg(test)]
+#[path = "tests/pages.rs"]
+pub(crate) mod tests;

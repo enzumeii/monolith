@@ -58,3 +58,7 @@ impl ApiError {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/api.rs"]
+pub(crate) mod tests;

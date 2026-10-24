@@ -891,9 +891,11 @@ dependencies = [
  "dioxus",
  "dioxus-ssr",
  "domain",
+ "futures",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "tokio",
  "toml",
  "ui",
 ]

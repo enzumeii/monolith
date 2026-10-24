@@ -78,3 +78,7 @@ pub async fn save(cart: &Cart) -> Result<(), String> {
 fn storage_key(convention_id: &str) -> String {
     format!("enzumeii.cart.v1.{convention_id}")
 }
+
+#[cfg(test)]
+#[path = "../tests/cart/browser.rs"]
+mod tests;

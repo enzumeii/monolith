@@ -22,3 +22,7 @@ web = ["dioxus/web"]
 
 [dev-dependencies]
 dioxus-ssr = "0.7.10"
+futures.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }

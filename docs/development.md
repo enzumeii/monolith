@@ -21,7 +21,7 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | Preview browser | `VERCEL_ENV=preview` and validated generated `VERCEL_URL` | Replaces the configured list with only the preview HTTPS origin and enforces secure cookies |
 | Vercel local browser | `VERCEL_ENV=development` and explicit loopback `VERCEL_URL` host:port | Replaces the configured list with this gateway origin; permits HTTP/insecure cookies only for `localhost`, `127.0.0.1` or `[::1]` with a nonzero port |
 | Frontend environments | Selected local/prod file published as `application.toml` | Production uses `/api/v1`; build restores local source file, including after failure |
-| Frontend hosting | Static CSR HTML/WASM/assets under `/backoffice/` and `/user/` | Browser loads public settings before application calls and session restoration |
+| Frontend hosting | Static customer CSR HTML/WASM/assets at `/`; backoffice under `/backoffice/`; legacy `/user` redirects | Browser loads public settings before application calls and session restoration |
 | Cron authorization | Environment `CRON_SECRET` | Backend only; never embedded in browser assets |
 | Local Vercel environment | Inherited environment → ignored root `.env` → ignored API `.env` | `just vercel-dev` checks DATABASE_URL, JWT_SECRET, CRON_SECRET and S3 credentials, starts/initializes local S3, sets local development metadata and uses the API native dev command through an owned temporary config. The API loads its local TOML overlay and cron choice; production still uses the container |
 
@@ -31,7 +31,7 @@ Inherited environment variables keep dotenvy's normal precedence, including `RUN
 | --- | --- | --- |
 | Local (default) | `just setup` or `just setup --local`; item `87323839-368f-4288-a4a5-9b0320699892` | Writes `RUN_ENV=local` in ignored `.env`; `just run` loads `application.local.toml` |
 | QA | `just setup --qa`; item `0a291e2c-4ae4-436d-8730-ddf301a544d7` | Writes `RUN_ENV=qa` in the same `.env`; `just run` loads required `application.qa.toml` |
-| Shared local services | PostgreSQL and S3 use the existing development lifecycle | Browser `allowed_origins = ["http://localhost:8084"]`, S3 endpoint `http://localhost:3001`, VPS scheduler by default |
+| Shared local services | PostgreSQL and S3 use the existing development lifecycle | Browser `allowed_origins = ["http://localhost:8084", "http://localhost:8085"]`, S3 endpoint `http://localhost:3001`, VPS scheduler by default |
 | Stripe endpoint | `https://api.stripe.com/v1/` in both modes | QA explicitly retains this URL; use the selected item's sandbox credential for test payments |
 | Vault fields | `JWT_SECRET`, `CRON_SECRET`, `SHOPIFY_ACCESS_TOKEN`, `RESEND_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `STRIPE_SECRET_KEY` | No database, S3 or private sender profile import |
 | Same-mode setup | Preserve nonempty values; fill missing/empty values | Secure atomic `.env` write with mode `0600`; RUN_ENV always reflects the selected mode |
