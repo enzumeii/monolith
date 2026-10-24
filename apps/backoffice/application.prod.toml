@@ -1,5 +1,2 @@
 [api]
 base_url = "/api/v1"
-
-[conventions]
-catalogue_location_id = "65761018027"

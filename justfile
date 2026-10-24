@@ -2,10 +2,10 @@
 default:
     @just --list
 
-# Install the pinned Conventional Commits reference parser (Node 24+ required).
+# Install pinned CI, deployment and UI config build dependencies (Node 24+ required).
 setup:
     npm ci --prefix .github/scripts --ignore-scripts --no-audit --no-fund
-    npm ci --ignore-scripts --no-audit --no-fund
+    npm ci --include=dev --ignore-scripts --no-audit --no-fund
 
 # Validate GitHub workflows, Bash scripts, and PR/release/coverage behavior (Node, actionlint, shellcheck required).
 check:

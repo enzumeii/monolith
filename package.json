@@ -1,5 +1,6 @@
 {
   "devDependencies": {
+    "smol-toml": "1.5.2",
     "vercel": "65.1.0"
   },
   "name": "monolith-deployment",

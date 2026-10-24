@@ -6,6 +6,7 @@ const path=require('node:path');
 const net=require('node:net');
 const {spawn,spawnSync}=require('node:child_process');
 const {setTimeout:delay}=require('node:timers/promises');
+const {parse}=require('smol-toml');
 
 async function server(t, service) {
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'monolith-vercel-ui-'));
@@ -79,8 +80,11 @@ for(const [app,prefix,basePath] of [['client-ui','root','/'],['backoffice','back
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   for(const dir of ['scripts',`apps/${app}`,'bin']) fs.mkdirSync(path.join(root,dir),{recursive:true});
   fs.copyFileSync('scripts/build-vercel-ui.sh',path.join(root,'scripts/build-vercel-ui.sh'));
-  fs.writeFileSync(path.join(root,`apps/${app}/application.toml`),'local-config');
-  fs.writeFileSync(path.join(root,`apps/${app}/application.prod.toml`),'public-config');
+  fs.copyFileSync('scripts/compose-vercel-ui-config.mjs',path.join(root,'scripts/compose-vercel-ui-config.mjs'));
+  fs.symlinkSync(path.resolve('node_modules'),path.join(root,'node_modules'),'dir');
+  const local=fs.readFileSync(`apps/${app}/application.toml`,'utf8')+'\n[build_fixture]\nretained = true\n';
+  fs.writeFileSync(path.join(root,`apps/${app}/application.toml`),local);
+  fs.copyFileSync(`apps/${app}/application.prod.toml`,path.join(root,`apps/${app}/application.prod.toml`));
   fs.writeFileSync(path.join(root,'bin/dx'),`#!/bin/sh
 if [ "$1" = --version ]; then echo 'dioxus 0.7.10 fixture'; exit 0; fi
 printf '%s\\n' "$@" > dx-args
@@ -91,15 +95,31 @@ exit "\${TEST_BUILD_EXIT:-0}"
 `);
   fs.chmodSync(path.join(root,'bin/dx'),0o755);
   const env={...process.env,CARGO_HOME:root,PATH:path.join(root,'bin')+path.delimiter+process.env.PATH};
-  const run=extra=>spawnSync('bash',['scripts/build-vercel-ui.sh',app,prefix],{cwd:root,env:{...env,...extra},encoding:'utf8'});
+  const run=(extra,selected)=>spawnSync('bash',['scripts/build-vercel-ui.sh',app,prefix,...(selected?[selected]:[])],{cwd:root,env:{...env,...extra},encoding:'utf8'});
   const built=run({});
   assert.equal(built.status,0,built.stderr);
   const args=fs.readFileSync(path.join(root,`apps/${app}/dx-args`),'utf8').trim().split('\n');
   assert.equal(args[args.indexOf('--base-path')+1],basePath);
   const output=path.join(root,`apps/${app}/vercel/public`,prefix==='root'?'':prefix);
-  assert.equal(fs.readFileSync(path.join(output,'assets/application.toml'),'utf8'),'public-config');
-  assert.equal(fs.readFileSync(path.join(root,`apps/${app}/application.toml`),'utf8'),'local-config');
+  const published=parse(fs.readFileSync(path.join(output,'assets/application.toml'),'utf8'));
+  assert.equal(published.api.base_url,'/api/v1');
+  assert.equal(published.build_fixture?.retained,true,'unspecified base settings survive for both apps');
+  if(app==='backoffice') assert.equal(published.conventions.catalogue_location_id,'65761018027');
+  const source=path.join(root,`apps/${app}/application.toml`);
+  assert.equal(fs.readFileSync(source,'utf8'),local);
   assert.equal(run({TEST_BUILD_EXIT:'17'}).status,17);
-  assert.equal(fs.readFileSync(path.join(root,`apps/${app}/application.toml`),'utf8'),'local-config');
+  assert.equal(fs.readFileSync(source,'utf8'),local);
+  assert.equal(run({},'application.toml').status,0,'base file remains a valid selected config');
+  assert.deepEqual(parse(fs.readFileSync(path.join(output,'assets/application.toml'),'utf8')),parse(local));
+  assert.equal(fs.readFileSync(source,'utf8'),local);
+  fs.rmSync(path.join(root,`apps/${app}/vercel`),{recursive:true});
+  fs.writeFileSync(path.join(root,`apps/${app}/application.prod.toml`),'[invalid');
+  assert.notEqual(run({}).status,0,'malformed override fails');
+  assert.equal(fs.readFileSync(source,'utf8'),local);
+  assert.equal(fs.existsSync(path.join(output,'assets/application.toml')),false,'failed composition publishes no asset');
+  fs.unlinkSync(path.join(root,`apps/${app}/application.prod.toml`));
+  assert.notEqual(run({}).status,0,'missing override fails');
+  assert.equal(fs.readFileSync(source,'utf8'),local);
+  assert.equal(fs.existsSync(path.join(output,'assets/application.toml')),false);
  });
 }

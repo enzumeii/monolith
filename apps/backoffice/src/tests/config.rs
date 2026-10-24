@@ -35,10 +35,10 @@ fn config_asset_rejects_invalid_page_url() {
 fn deployment_configs_select_public_api_without_changing_local_urls() {
     let local: super::Settings =
         toml::from_str(include_str!("../../application.toml")).expect("local settings");
-    let production: super::Settings =
-        toml::from_str(include_str!("../../application.prod.toml")).expect("production settings");
+    let production: toml::Table =
+        toml::from_str(include_str!("../../application.prod.toml")).expect("production overrides");
     assert_eq!(local.api.base_url, "http://localhost:3000/v1");
-    assert_eq!(production.api.base_url, "/api/v1");
+    assert_eq!(production["api"]["base_url"].as_str(), Some("/api/v1"));
 }
 
 #[test]
@@ -68,17 +68,13 @@ fn relative_api_uses_the_current_generated_origin() {
 
 #[test]
 fn convention_location_is_required_and_uses_numeric_location_validation() {
-    for contents in [
-        include_str!("../../application.toml"),
-        include_str!("../../application.prod.toml"),
-    ] {
-        let mut settings: super::Settings = toml::from_str(contents).expect("settings");
-        assert_eq!(settings.conventions.catalogue_location_id, "65761018027");
-        assert!(settings.validate().is_ok());
-        for invalid in ["", "0", "000", "gid://shopify/Location/1", "1 2", "-1"] {
-            settings.conventions.catalogue_location_id = invalid.into();
-            assert!(settings.validate().is_err());
-        }
+    let mut settings: super::Settings =
+        toml::from_str(include_str!("../../application.toml")).expect("base settings");
+    assert_eq!(settings.conventions.catalogue_location_id, "65761018027");
+    assert!(settings.validate().is_ok());
+    for invalid in ["", "0", "000", "gid://shopify/Location/1", "1 2", "-1"] {
+        settings.conventions.catalogue_location_id = invalid.into();
+        assert!(settings.validate().is_err());
     }
     assert!(toml::from_str::<super::Settings>("[api]\nbase_url = \"/api/v1\"").is_err());
 }
