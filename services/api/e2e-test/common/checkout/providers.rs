@@ -11,6 +11,26 @@ use axum::{
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
+#[derive(Clone)]
+pub struct ResponseGate {
+    entered: Arc<tokio::sync::Semaphore>,
+    release: Arc<tokio::sync::Semaphore>,
+}
+
+impl ResponseGate {
+    pub async fn entered(&self) {
+        tokio::time::timeout(std::time::Duration::from_secs(10), self.entered.acquire())
+            .await
+            .unwrap()
+            .unwrap()
+            .forget();
+    }
+
+    pub fn release(&self) {
+        self.release.add_permits(100);
+    }
+}
+
 pub struct Providers {
     pub url: String,
     state: Arc<Mutex<Scenario>>,
@@ -21,6 +41,9 @@ pub struct Providers {
 #[allow(clippy::struct_excessive_bools)]
 struct Scenario {
     calls: Vec<Value>,
+    gate: Option<(String, ResponseGate)>,
+    evidence_conflict: bool,
+    missing_order_name: bool,
     search_mode: String,
     draft_input: Value,
     stripe_input: Value,
@@ -61,6 +84,23 @@ impl Providers {
         let router = Router::new().fallback(any(reply)).with_state(state.clone());
         let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         Self { url, state, server }
+    }
+
+    pub fn gate(&self, operation: &str) -> ResponseGate {
+        let gate = ResponseGate {
+            entered: Arc::new(tokio::sync::Semaphore::new(0)),
+            release: Arc::new(tokio::sync::Semaphore::new(0)),
+        };
+        self.state.lock().unwrap().gate = Some((operation.into(), gate.clone()));
+        gate
+    }
+
+    pub fn evidence_conflict(&self) {
+        self.state.lock().unwrap().evidence_conflict = true;
+    }
+
+    pub fn missing_order_name(&self, missing: bool) {
+        self.state.lock().unwrap().missing_order_name = missing;
     }
 
     pub fn calls(&self) -> Vec<Value> {
@@ -284,6 +324,17 @@ async fn reply(
             .filter(|(name, _)| operation == *name || *name == provider_operation(path, &method))
             .map(|(_, fault)| fault.clone())
     };
+    let gate = state
+        .lock()
+        .unwrap()
+        .gate
+        .as_ref()
+        .filter(|(name, _)| operation == *name || *name == provider_operation(path, &method))
+        .map(|(_, gate)| gate.clone());
+    if let Some(gate) = gate {
+        gate.entered.add_permits(1);
+        gate.release.acquire().await.unwrap().forget();
+    }
     let delay_hold_read = if operation == "CheckoutDraft" {
         let mut scenario = state.lock().unwrap();
         scenario
@@ -384,7 +435,7 @@ async fn reply(
             json!({"draftOrderComplete":{"draftOrder":{"id":draft_id(&scenario),"order":{"id":order_id(&scenario)}},"userErrors":[]}})
         }
         "CheckoutOrder" => {
-            json!({"order":{"id":order_id(&scenario),"name":"#E2E-ORDER","displayFinancialStatus":"PAID","cancelledAt":null,
+            json!({"order":{"id":order_id(&scenario),"name":if scenario.missing_order_name {Value::Null} else {json!("#E2E-ORDER")},"displayFinancialStatus":"PAID","cancelledAt":null,
             "tags":scenario.tags,"totalPriceSet":{"presentmentMoney":{"amount":"40.00","currencyCode":"SGD"}}}})
         }
         "EditOrderTags" => {
@@ -554,7 +605,7 @@ fn draft_search(scenario: &Scenario, body: &Value) -> Value {
 fn stripe_session(scenario: &Scenario) -> Value {
     json!({"id":format!("cs_{}",scenario.id),"object":"checkout.session","mode":"payment",
         "status":if scenario.paid || scenario.stripe_processing {"complete"} else {"open"},"payment_status":if scenario.paid {"paid"} else {"unpaid"},
-        "livemode":false,"amount_total":4000,"currency":"sgd","metadata":{"checkout_id":scenario.stripe_input["metadata[checkout_id]"]},
+        "livemode":false,"amount_total":if scenario.evidence_conflict {4001} else {4000},"currency":"sgd","metadata":{"checkout_id":scenario.stripe_input["metadata[checkout_id]"]},
         "payment_intent":if scenario.paid {json!(format!("pi_{}",scenario.id))} else {Value::Null},
         "url":if scenario.paid || scenario.stripe_processing {Value::Null} else {json!("https://checkout.stripe.com/synthetic-session")},"expires_at":scenario.stripe_input["expires_at"].as_str().and_then(|v|v.parse::<i64>().ok())})
 }

@@ -4,6 +4,8 @@
 //! owns a unique fixture prefix and cleans up only its own records.
 //! Advisory locking serializes whole-table and controlled trigger scenarios across runs.
 
+pub mod checkout;
+
 use argon2::{
     Argon2, PasswordHasher,
     password_hash::{SaltString, rand_core::OsRng},
@@ -582,6 +584,15 @@ pub async fn client_with_shopify(url: &str) -> TestClient {
 #[allow(clippy::struct_excessive_bools)]
 pub struct ProviderConfig<'a> {
     pub checkout_enabled: bool,
+    pub recovery_enabled: bool,
+    pub recovery_wake_secs: Option<u64>,
+    pub recovery_batch_size: Option<usize>,
+    pub recovery_concurrency: Option<usize>,
+    pub recovery_budget_secs: Option<u64>,
+    pub recovery_lease_secs: Option<u32>,
+    pub recovery_backoff_secs: Option<u64>,
+    pub recovery_max_backoff_secs: Option<u64>,
+    pub recovery_max_failures: Option<u32>,
     pub shopify_url: Option<&'a str>,
     pub paypal_url: Option<&'a str>,
     pub stripe_url: Option<&'a str>,
@@ -712,6 +723,18 @@ signed_url_ttl_secs = {s3_ttl_secs}
         )
     };
     let checkout = checkout_configuration(config);
+    let recovery = format!(
+        "[checkout_recovery]\nenabled = {}\nwake_secs = {}\nbatch_size = {}\nconcurrency = {}\nbudget_secs = {}\nlease_secs = {}\nretry_backoff_secs = {}\nmax_retry_backoff_secs = {}\nmax_failures = {}\n",
+        config.recovery_enabled,
+        config.recovery_wake_secs.unwrap_or(60),
+        config.recovery_batch_size.unwrap_or(10),
+        config.recovery_concurrency.unwrap_or(2),
+        config.recovery_budget_secs.unwrap_or(60),
+        config.recovery_lease_secs.unwrap_or(90),
+        config.recovery_backoff_secs.unwrap_or(60),
+        config.recovery_max_backoff_secs.unwrap_or(900),
+        config.recovery_max_failures.unwrap_or(12),
+    );
     std::fs::write(
         api.directory.join("application.toml"),
         format!(
@@ -732,6 +755,7 @@ max_payload_bytes = 20971520
 max_email_bytes = 20971520
 {s3}
 {checkout}
+{recovery}
 [browser]
 allowed_origins = ["http://127.0.0.1:8084", "https://convention.enzumeii.com", "https://enzumeii.vercel.app"]
 insecure_local = true
