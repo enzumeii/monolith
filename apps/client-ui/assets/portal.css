@@ -1,0 +1,34 @@
+.portal-page .panel { max-width: none; }
+.portal-page { max-width: 1200px; }
+.portal-brand { padding: 1rem 1.25rem; border-bottom: 1px solid var(--panel-border); font-size: 1.4rem; font-weight: bold; }
+.portal-event { display: flex; gap: 1.5rem; align-items: flex-start; margin-bottom: 1.5rem; }
+.portal-logo { width: 112px; height: 112px; object-fit: contain; flex-shrink: 0; }
+.portal-placeholder { display: grid; place-items: center; background: var(--accent); color: var(--primary-text); font-size: 3rem; }
+.portal-directory { display: grid; gap: 1.5rem; }
+.portal-filters { display: grid; grid-template-columns: 1fr 2fr; gap: .75rem 1.25rem; align-items: center; }
+.portal-products { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 1.25rem; }
+.portal-product { min-width: 0; }
+.portal-product h3 { margin-top: .75rem; }
+.portal-product-image { width: 100%; height: 240px; object-fit: contain; }
+.portal-description { white-space: pre-wrap; overflow-wrap: anywhere; }
+.portal-variant { border-top: 1px solid var(--panel-border); padding-top: 1rem; margin-top: 1rem; }
+.portal-variant h4 { margin: .5rem 0; }
+.portal-variant-image { width: 72px; height: 72px; object-fit: contain; float: right; }
+.portal-price { font-weight: bold; }
+.portal-quantity { display: flex; gap: .75rem; align-items: center; }
+.portal-quantity input { max-width: 6rem; }
+.portal-pagination { display: flex; align-items: center; justify-content: center; gap: 1.25rem; margin-top: 1.5rem; }
+.portal-notice { padding: .75rem 1rem; border: 1px solid var(--panel-border); background: var(--hover-bg); }
+.portal-cart-lines { display: grid; gap: 1rem; }
+.portal-cart-line { display: grid; grid-template-columns: 1fr minmax(180px, 240px); gap: 1.5rem; }
+.portal-cart-line button { margin-top: .75rem; margin-right: .5rem; }
+.portal-totals { margin: 1.5rem 0; }
+.portal-totals dl { display: grid; grid-template-columns: 1fr auto; gap: .5rem 1rem; }
+.portal-totals dd { text-align: right; margin: 0; }
+@media (max-width: 600px) {
+    .portal-event { gap: .75rem; flex-direction: column; }
+    .portal-logo { width: 80px; height: 80px; }
+    .portal-filters, .portal-cart-line { grid-template-columns: 1fr; }
+    .portal-filters label { margin-bottom: -.5rem; }
+    .portal-quantity { flex-wrap: wrap; }
+}

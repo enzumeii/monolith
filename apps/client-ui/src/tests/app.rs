@@ -27,11 +27,27 @@ fn configuration_failure_exposes_alert_and_retry() {
     assert!(!html.contains("Client application"));
 }
 
-#[test]
-fn configured_shell_renders_without_inventing_customer_features() {
-    let settings = toml::from_str(include_str!("../../application.toml")).expect("settings");
-    let html = render(Some(Ok(settings)));
-    assert!(html.contains("Enzumeii"));
-    assert!(html.contains("Client application"));
-    assert!(!html.contains("Retry"));
+pub(crate) fn variant() -> domain::dto::PublicVariant {
+    domain::dto::PublicVariant {
+        id: "gid://shopify/ProductVariant/1".into(),
+        title: "Blue / Large".into(),
+        sku: Some("SHIRT-BL-L".into()),
+        image: None,
+        selected_options: vec![],
+        final_price: "12.30".into(),
+        inventory_policy: domain::dto::CatalogueInventoryPolicy::Deny,
+        available_quantity: 10,
+        max_quantity: 10,
+    }
+}
+
+pub(crate) fn product() -> domain::dto::PublicProduct {
+    domain::dto::PublicProduct {
+        id: "gid://shopify/Product/1".into(),
+        title: "Shirt".into(),
+        description: "Soft cotton".into(),
+        product_type: "Clothing".into(),
+        featured_image: None,
+        variants: vec![variant()],
+    }
 }

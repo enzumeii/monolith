@@ -1,7 +1,11 @@
 use dioxus::prelude::*;
 use ui::{COMMON_STYLESHEET, ErrorMessage, LoadingMessage};
 
+mod api;
+mod cart;
 mod config;
+mod pages;
+mod route;
 
 fn main() {
     dioxus::launch(App);
@@ -12,6 +16,7 @@ fn App() -> Element {
     let mut settings = use_resource(config::Settings::new);
     rsx! {
         document::Stylesheet { href: COMMON_STYLESHEET }
+        document::Stylesheet { href: asset!("/assets/portal.css") }
         Configuration {
             state: settings.read().clone(),
             retry: move |()| { settings.restart(); },
@@ -34,11 +39,11 @@ fn Configuration(state: Option<Result<config::Settings, String>>, retry: EventHa
 #[component]
 fn Application(settings: config::Settings) -> Element {
     use_context_provider(move || settings);
+    use_context_provider(|| {
+        Signal::new(std::collections::BTreeMap::<String, cart::browser::Restored>::new())
+    });
     rsx! {
-        main {
-            h1 { "Enzumeii" }
-            p { "Client application" }
-        }
+        Router::<route::Route> {}
     }
 }
 
