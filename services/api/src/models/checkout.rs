@@ -59,3 +59,20 @@ pub(crate) enum CompletionState {
     Completed,
     Uncertain,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "text", rename_all = "snake_case")]
+pub(crate) enum RecoveryCode {
+    Observed,
+    WaitingForPayment,
+    TransientFailure,
+    ClaimAbandoned,
+    AttemptsExhausted,
+    EvidenceConflict,
+    MissingPurchase,
+    ReservationUnsafe,
+    MutationWindowExpired,
+    DraftAmbiguous,
+    CompletionUncertain,
+}
