@@ -548,12 +548,19 @@ async fn late_authoritative_payment_rearms_previously_unpaid_checkout() {
         save(&fixture.pool, &row, token).await.unwrap();
         assert!(fixture.metadata(row.id).await.1.is_none());
         row.payment_state = late_state;
-        let before = Utc::now() + Duration::seconds(60);
+        let before: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
         save(&fixture.pool, &row, token).await.unwrap();
         let metadata = fixture.metadata(row.id).await;
+        let after: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&fixture.pool)
+            .await
+            .unwrap();
         let next_due = metadata.1.unwrap();
-        assert!(next_due >= before);
-        assert!(next_due <= Utc::now() + Duration::seconds(60));
+        assert!(next_due >= before + Duration::seconds(60));
+        assert!(next_due <= after + Duration::seconds(60));
         assert_eq!((metadata.0, metadata.2, metadata.3), (0, false, None));
         release(&fixture.pool, row.id, token).await.unwrap();
         fixture.due(row.id, 0).await;

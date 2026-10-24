@@ -303,6 +303,13 @@ async fn reply(
     } else {
         serde_json::from_slice(&raw).unwrap_or(Value::Null)
     };
+    let raw_webhook_event = if path == "/v1/notifications/verify-webhook-signature" {
+        let envelope: std::collections::BTreeMap<String, Box<serde_json::value::RawValue>> =
+            serde_json::from_slice(&raw).unwrap();
+        Some(envelope["webhook_event"].get().to_owned())
+    } else {
+        None
+    };
     let operation = body["operationName"].as_str().unwrap_or(path).to_owned();
     if !operation.starts_with('/') {
         assert_eq!(headers["x-shopify-access-token"], "e2e-fixture-token");
@@ -317,6 +324,7 @@ async fn reply(
             "stripe_version":headers.get("stripe-version").and_then(|v|v.to_str().ok()),
             "idempotency_key":headers.get("idempotency-key").and_then(|v|v.to_str().ok()),
             "paypal_request_id":headers.get("paypal-request-id").and_then(|v|v.to_str().ok()),
+            "raw_webhook_event":raw_webhook_event,
             "payment_create":method == Method::POST && (path == "/stripe/checkout/sessions" || path == "/v2/checkout/orders")}));
         scenario
             .fault

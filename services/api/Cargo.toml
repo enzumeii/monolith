@@ -14,7 +14,7 @@ reqwest.workspace = true
 resend-rs = "0.35.0"
 domain = { path = "../../crates/domain" }
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 config.workspace = true
 dotenvy.workspace = true
 tracing.workspace = true

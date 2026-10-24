@@ -2070,3 +2070,54 @@ async fn checkout_hold_expiring_during_final_read_prevents_completion_mutation()
     .unwrap();
     assert_eq!(payment, "paid");
 }
+
+#[tokio::test]
+async fn checkout_paypal_signed_event_preserves_wire_json_and_rejects_failed_postback() {
+    let fixture = fixture().await;
+    let upstream = Providers::start().await;
+    let client = configured(&upstream).await;
+    let input = purchase(&fixture, "paypal").await;
+    accepted(&client, &input).await;
+    upstream.pay();
+    let id = input["operation_id"].as_str().unwrap();
+    let event = upstream.paypal_event(id, "event_signed_raw");
+    let raw = format!(
+        "{{\"resource\" : {}, \"event_type\" : \"CHECKOUT.ORDER.APPROVED\", \"id\":\"event_signed_\\u0072aw\"}}",
+        event["resource"]
+    );
+    let callback = || {
+        let mut request = paypal_webhook(&event);
+        *request.body_mut() = Body::from(raw.clone());
+        request
+    };
+    upstream.fault(
+        "/v1/notifications/verify-webhook-signature",
+        "rejected_signature",
+    );
+    assert_eq!(client.send(callback()).await.unwrap().status(), 400);
+    assert_eq!(upstream.count("CompleteCheckoutDraft"), 0);
+    assert!(
+        upstream
+            .calls()
+            .iter()
+            .all(|call| { !call["path"].as_str().unwrap().ends_with("/capture") })
+    );
+    upstream.clear_fault();
+    assert_eq!(client.send(callback()).await.unwrap().status(), 200);
+    let postbacks: Vec<_> = upstream
+        .calls()
+        .into_iter()
+        .filter(|call| call["operation"] == "/v1/notifications/verify-webhook-signature")
+        .collect();
+    assert_eq!(postbacks.len(), 2);
+    for call in postbacks {
+        assert_eq!(call["raw_webhook_event"], raw);
+        assert_eq!(call["body"]["transmission_sig"], "synthetic_signature");
+        assert_eq!(call["body"]["transmission_id"], "transmission_e2e");
+        assert_eq!(call["body"]["webhook_id"], "webhook_e2e");
+    }
+    let response = client.send(verify(id, Some(SECRET))).await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(body_json(response).await["status"], "completed");
+    assert_eq!(upstream.count("CompleteCheckoutDraft"), 1);
+}

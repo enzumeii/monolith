@@ -19,7 +19,9 @@ pub async fn verify_event(
     request: &VerifyWebhookSignatureRequest,
 ) -> Result<VerifiedEvent, WebhookError> {
     validate_request(request)?;
-    let event = webhook::decode(&request.webhook_event)?;
+    let value = serde_json::from_str(request.webhook_event.get())
+        .map_err(|_| WebhookError::InvalidEvent)?;
+    let event = webhook::decode(&value)?;
     let verified = client.verify_webhook_signature(request).await?;
     if verified.verification_status != WebhookVerificationStatus::Success {
         return Err(WebhookError::InvalidSignature);
@@ -37,10 +39,7 @@ fn validate_request(request: &VerifyWebhookSignatureRequest) -> Result<(), Webho
     ];
     if headers.iter().any(|value| value.len() > MAX_HEADER_BYTES)
         || request.webhook_id.len() > MAX_HEADER_BYTES
-        || serde_json::to_vec(&request.webhook_event)
-            .map_err(|_| WebhookError::InvalidEvent)?
-            .len()
-            > MAX_BODY_BYTES
+        || request.webhook_event.get().len() > MAX_BODY_BYTES
     {
         return Err(WebhookError::InputTooLarge);
     }

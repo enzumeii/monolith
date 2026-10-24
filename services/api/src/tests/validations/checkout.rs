@@ -143,6 +143,21 @@ fn webhook_shape_checks_preserve_mixed_authentication_and_configuration_order() 
             .to_string(),
         "Missing or invalid webhook authentication header"
     );
+    for (header, value) in [
+        ("paypal-auth-algo", "SHA256withRSA"),
+        ("paypal-cert-url", "https://api.paypal.com/cert/fixture"),
+        ("paypal-transmission-id", "transmission_fixture"),
+        ("paypal-transmission-sig", "signature_fixture"),
+        ("paypal-transmission-time", "2026-10-24T00:00:00Z"),
+    ] {
+        headers.insert(header, value.parse().unwrap());
+    }
+    let raw = br#"{"resource" : {"id":"ORDER123"}, "event_type":"CHECKOUT.ORDER.APPROVED", "id":"EVENT\u0031"}"#;
+    let payload = paypal_authentication(&config, &headers, raw).unwrap();
+    assert_eq!(payload.webhook_event.get().as_bytes(), raw);
+    assert_eq!(payload.transmission_sig, "signature_fixture");
+    assert_eq!(payload.webhook_id, "registered_fixture");
+    headers.clear();
     config.stripe_webhook_secret = Some("whsec_fixture".into());
     assert_eq!(
         stripe_authentication(&config, &headers)

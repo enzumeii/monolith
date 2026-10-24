@@ -159,7 +159,8 @@ pub(crate) fn paypal_authentication(
                 "PayPal webhook configuration unavailable",
             )
         })?;
-    let value = serde_json::from_slice(raw).map_err(|_| invalid("Invalid PayPal webhook event"))?;
+    let webhook_event =
+        serde_json::from_slice(raw).map_err(|_| invalid("Invalid PayPal webhook event"))?;
     Ok(VerifyWebhookSignatureRequest {
         auth_algo: webhook_header(headers, "paypal-auth-algo")?.into(),
         cert_url: webhook_header(headers, "paypal-cert-url")?.into(),
@@ -167,7 +168,7 @@ pub(crate) fn paypal_authentication(
         transmission_sig: webhook_header(headers, "paypal-transmission-sig")?.into(),
         transmission_time: webhook_header(headers, "paypal-transmission-time")?.into(),
         webhook_id: webhook_id.into(),
-        webhook_event: value,
+        webhook_event,
     })
 }
 
