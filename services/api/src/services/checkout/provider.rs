@@ -1,8 +1,9 @@
-use super::{CheckoutClients, conflict, purchase, unavailable};
+use super::{
+    AdvanceError, CheckoutClients, RecoveryOutcome, conflict, purchase, recovery, unavailable,
+};
 use crate::{
     error::AppError,
-    models::checkout::{Checkout, CompletionState, DraftState, PaymentState},
-    repositories::checkout as repo,
+    models::checkout::{Checkout, CompletionState, DraftState, PaymentState, RecoveryCode},
 };
 use crate::{
     error::upstream,
@@ -33,7 +34,8 @@ pub(super) async fn advance(
     money: &CheckoutMoney,
     token: Uuid,
     reservation_safe: bool,
-) -> Result<(), AppError> {
+    report_diagnostics: bool,
+) -> Result<RecoveryOutcome, AdvanceError> {
     if checkout.provider_resource_id.is_none() {
         if !reservation_safe {
             checkout.payment_state = if checkout.payment_state == PaymentState::NotStarted {
@@ -41,7 +43,8 @@ pub(super) async fn advance(
             } else {
                 PaymentState::Uncertain
             };
-            return repo::save(pool, checkout, token).await;
+            super::save(pool, checkout, token).await?;
+            return Ok(RecoveryOutcome::Manual(RecoveryCode::ReservationUnsafe));
         }
         let retention = if checkout.provider == "stripe" {
             Duration::hours(23)
@@ -52,26 +55,35 @@ pub(super) async fn advance(
             && Utc::now() >= checkout.created_at + retention
         {
             checkout.payment_state = PaymentState::Uncertain;
-            return repo::save(pool, checkout, token).await;
+            super::save(pool, checkout, token).await?;
+            return Ok(RecoveryOutcome::Manual(RecoveryCode::MutationWindowExpired));
         }
         let initiation = if checkout.payment_state == PaymentState::NotStarted {
             InitiationMode::Fresh
         } else {
             InitiationMode::Recover
         };
+        if initiation == InitiationMode::Recover
+            && (checkout.gateway_request_fingerprint.is_none()
+                || checkout.success_url.is_none()
+                || checkout.cancel_url.is_none())
+        {
+            return Ok(RecoveryOutcome::Manual(RecoveryCode::MissingPurchase));
+        }
         let fingerprint = initiation_fingerprint(checkout, money)?;
         if checkout
             .gateway_request_fingerprint
             .as_ref()
             .is_some_and(|stored| stored != &fingerprint)
         {
-            return Err(conflict(
+            return Err(crate::models::checkout_completion::evidence_conflict(
                 "Checkout gateway parameters changed; reconciliation is required",
-            ));
+            )
+            .into());
         }
         checkout.gateway_request_fingerprint = Some(fingerprint);
         checkout.payment_state = PaymentState::Creating;
-        repo::save(pool, checkout, token).await?;
+        super::save(pool, checkout, token).await?;
         let outcome = start_or_recover_payment(clients, checkout, money, initiation).await?;
         checkout.payment_state = match outcome {
             InitiationOutcome::RequiresAction => PaymentState::RequiresAction,
@@ -79,15 +91,33 @@ pub(super) async fn advance(
         };
         checkout.success_url = None;
         checkout.cancel_url = None;
-        repo::save(pool, checkout, token).await?;
+        super::save(pool, checkout, token).await?;
         if outcome == InitiationOutcome::RequiresAction {
-            return Ok(());
+            return Ok(RecoveryOutcome::Observed(RecoveryCode::WaitingForPayment));
         }
     }
     if checkout.provider == "stripe" {
-        reconcile_stripe_payment(pool, clients, checkout, money, token, reservation_safe).await
+        reconcile_stripe_payment(
+            pool,
+            clients,
+            checkout,
+            money,
+            token,
+            reservation_safe,
+            report_diagnostics,
+        )
+        .await
     } else {
-        reconcile_paypal_payment(pool, clients, checkout, money, token, reservation_safe).await
+        reconcile_paypal_payment(
+            pool,
+            clients,
+            checkout,
+            money,
+            token,
+            reservation_safe,
+            report_diagnostics,
+        )
+        .await
     }
 }
 
@@ -98,19 +128,19 @@ pub(super) async fn bind_authenticated_resource(
     money: &CheckoutMoney,
     token: Uuid,
     resource: &str,
-) -> Result<(), AppError> {
+) -> Result<(), AdvanceError> {
     if !matches!(
         checkout.payment_state,
         PaymentState::Creating | PaymentState::Uncertain
     ) || checkout.draft_state != DraftState::Reserved
         || checkout.provider_resource_id.is_some()
     {
-        return Err(conflict("Payment initiation is not awaiting association"));
+        return Err(conflict("Payment initiation is not awaiting association").into());
     }
     checkout.provider_resource_id = Some(resource.to_owned());
     if checkout.provider == "stripe" {
         if !resource.starts_with("cs_") {
-            return Err(conflict("Stripe checkout resource is invalid"));
+            return Err(conflict("Stripe checkout resource is invalid").into());
         }
         let client = clients.stripe.ok_or_else(unavailable)?;
         payments::stripe::verify_payment(client, &stripe_expected(checkout, money)?)
@@ -135,7 +165,7 @@ pub(super) async fn bind_authenticated_resource(
     checkout.payment_state = PaymentState::RequiresAction;
     checkout.success_url = None;
     checkout.cancel_url = None;
-    repo::save(pool, checkout, token).await
+    super::save(pool, checkout, token).await
 }
 
 pub(super) fn paypal_amount(money: &CheckoutMoney) -> Result<String, AppError> {
@@ -191,7 +221,8 @@ async fn reconcile_stripe_payment(
     money: &CheckoutMoney,
     token: Uuid,
     reservation_safe: bool,
-) -> Result<(), AppError> {
+    report_diagnostics: bool,
+) -> Result<RecoveryOutcome, AdvanceError> {
     let client = clients.stripe.ok_or_else(unavailable)?;
     let expected = stripe_expected(checkout, money)?;
     let outcome = payments::stripe::verify_payment(client, &expected)
@@ -201,7 +232,8 @@ async fn reconcile_stripe_payment(
         && !matches!(&outcome, stripe::payment::PaymentOutcome::VerifiedPaid(_))
     {
         checkout.completion_state = CompletionState::Uncertain;
-        return repo::save(pool, checkout, token).await;
+        super::save(pool, checkout, token).await?;
+        return Ok(RecoveryOutcome::Manual(RecoveryCode::EvidenceConflict));
     }
     match outcome {
         stripe::payment::PaymentOutcome::RequiresAction => {
@@ -212,14 +244,16 @@ async fn reconcile_stripe_payment(
         }
         stripe::payment::PaymentOutcome::ExpiredUnpaid => {
             checkout.payment_state = PaymentState::Unpaid;
-            return repo::save(pool, checkout, token).await;
+            super::save(pool, checkout, token).await?;
+            return Ok(RecoveryOutcome::Observed(RecoveryCode::Observed));
         }
         stripe::payment::PaymentOutcome::VerifiedPaid(paid) => {
             checkout.payment_state = PaymentState::Paid;
-            repo::save(pool, checkout, token).await?;
+            super::save(pool, checkout, token).await?;
             if paid.refunded || paid.amount_refunded != 0 || paid.disputed {
                 checkout.completion_state = CompletionState::Uncertain;
-                return repo::save(pool, checkout, token).await;
+                super::save(pool, checkout, token).await?;
+                return Ok(RecoveryOutcome::Manual(RecoveryCode::EvidenceConflict));
             }
         }
     }
@@ -229,6 +263,7 @@ async fn reconcile_stripe_payment(
         checkout,
         token,
         reservation_safe,
+        report_diagnostics,
         PaymentContext::Stripe {
             client,
             expected: &expected,
@@ -243,7 +278,8 @@ async fn reconcile_paypal_payment(
     money: &CheckoutMoney,
     token: Uuid,
     reservation_safe: bool,
-) -> Result<(), AppError> {
+    report_diagnostics: bool,
+) -> Result<RecoveryOutcome, AdvanceError> {
     let client = clients.paypal.ok_or_else(unavailable)?;
     let expected = paypal_expected(checkout, money)?;
     let mut outcome = payments::paypal::verify_payment(client, &expected)
@@ -253,7 +289,8 @@ async fn reconcile_paypal_payment(
         && !matches!(&outcome, paypal::payment::PaymentOutcome::VerifiedPaid(_))
     {
         checkout.completion_state = CompletionState::Uncertain;
-        return repo::save(pool, checkout, token).await;
+        super::save(pool, checkout, token).await?;
+        return Ok(RecoveryOutcome::Manual(RecoveryCode::EvidenceConflict));
     }
     if matches!(outcome, paypal::payment::PaymentOutcome::Pending) {
         let order = client
@@ -274,15 +311,16 @@ async fn reconcile_paypal_payment(
             }
             if Utc::now() >= checkout.created_at + Duration::hours(5) {
                 checkout.payment_state = PaymentState::Uncertain;
-                return repo::save(pool, checkout, token).await;
+                super::save(pool, checkout, token).await?;
+                return Ok(RecoveryOutcome::Manual(RecoveryCode::MutationWindowExpired));
             }
             checkout.payment_state = PaymentState::Processing;
-            repo::save(pool, checkout, token).await?;
+            super::save(pool, checkout, token).await?;
             if checkout
                 .reservation_expires_at
                 .is_none_or(|expiry| expiry <= Utc::now())
             {
-                return Ok(());
+                return Ok(RecoveryOutcome::Observed(RecoveryCode::WaitingForPayment));
             }
             client
                 .capture_order(&expected.order_id, &format!("capture-{}", checkout.id))
@@ -301,11 +339,12 @@ async fn reconcile_paypal_payment(
         }
         paypal::payment::PaymentOutcome::TerminalUnpaid => {
             checkout.payment_state = PaymentState::Unpaid;
-            return repo::save(pool, checkout, token).await;
+            super::save(pool, checkout, token).await?;
+            return Ok(RecoveryOutcome::Observed(RecoveryCode::Observed));
         }
         paypal::payment::PaymentOutcome::VerifiedPaid(_) => {
             checkout.payment_state = PaymentState::Paid;
-            repo::save(pool, checkout, token).await?;
+            super::save(pool, checkout, token).await?;
         }
     }
     complete(
@@ -314,6 +353,7 @@ async fn reconcile_paypal_payment(
         checkout,
         token,
         reservation_safe,
+        report_diagnostics,
         PaymentContext::Paypal {
             client,
             expected: &expected,
@@ -339,13 +379,14 @@ async fn pending(
     checkout: &mut Checkout,
     token: Uuid,
     actionable: bool,
-) -> Result<(), AppError> {
+) -> Result<RecoveryOutcome, AdvanceError> {
     checkout.payment_state = if actionable {
         PaymentState::RequiresAction
     } else {
         PaymentState::Processing
     };
-    repo::save(pool, checkout, token).await
+    super::save(pool, checkout, token).await?;
+    Ok(RecoveryOutcome::Observed(RecoveryCode::WaitingForPayment))
 }
 
 async fn start_or_recover_payment(
@@ -389,7 +430,9 @@ async fn initiate_stripe(
         .await
         .map_err(|error| upstream(error))?;
     if account.id != checkout.provider_account_id || account.object != "account" {
-        return Err(conflict("Stripe account does not match checkout"));
+        return Err(crate::models::checkout_completion::evidence_conflict(
+            "Stripe account does not match checkout",
+        ));
     }
     let request = CreateCheckoutSession {
         amount: money.minor,
@@ -416,7 +459,9 @@ async fn initiate_stripe(
             .expires_at
             .is_none_or(|actual| actual > expiry.timestamp())
     {
-        return Err(conflict("Stripe checkout does not match purchase"));
+        return Err(crate::models::checkout_completion::evidence_conflict(
+            "Stripe checkout does not match purchase",
+        ));
     }
     if let Some(url) = session.url.as_deref() {
         redirect(url)?;
@@ -441,7 +486,9 @@ async fn initiate_paypal(
 ) -> Result<InitiationOutcome, AppError> {
     let client = clients.paypal.ok_or_else(unavailable)?;
     if client.api_origin() != checkout.provider_environment {
-        return Err(conflict("PayPal environment does not match checkout"));
+        return Err(crate::models::checkout_completion::evidence_conflict(
+            "PayPal environment does not match checkout",
+        ));
     }
     let order = client
         .create_order(
@@ -509,8 +556,9 @@ async fn complete(
     checkout: &mut Checkout,
     token: Uuid,
     reservation_safe: bool,
+    report_diagnostics: bool,
     payment: PaymentContext<'_>,
-) -> Result<(), AppError> {
+) -> Result<RecoveryOutcome, AdvanceError> {
     let draft = ShopifyId::new(
         checkout
             .draft_id
@@ -518,33 +566,94 @@ async fn complete(
             .ok_or_else(|| conflict("Checkout draft is missing"))?,
     )
     .map_err(|error| upstream(error))?;
-    let mode = if matches!(
-        checkout.completion_state,
-        CompletionState::Completing | CompletionState::Uncertain
-    ) || !reservation_safe
-    {
-        CompletionMode::ReconcileOnly
-    } else {
-        CompletionMode::CompleteIfOpen
-    };
+    let mode = completion_mode(checkout, reservation_safe);
     let current = match clients.shopify.checkout_draft(&draft).await {
         Ok(Some(current)) => current,
-        Ok(None) => return Ok(()),
+        Ok(None) => return Ok(RecoveryOutcome::Retry(RecoveryCode::CompletionUncertain)),
         Err(error) => {
-            crate::error::log_background_error("Checkout draft readback", &upstream(error));
-            return Ok(());
+            return Ok(completion_failure(
+                "Checkout draft readback",
+                &upstream(error),
+                report_diagnostics,
+            ));
         }
     };
     if let Err(error) = purchase::validate_purchase(checkout, &current) {
         checkout.completion_state = CompletionState::Uncertain;
-        repo::save(pool, checkout, token).await?;
-        crate::error::log_background_error("Checkout purchase readback", &error);
-        return Ok(());
+        super::save(pool, checkout, token).await?;
+        return Ok(completion_failure(
+            "Checkout purchase readback",
+            &error,
+            report_diagnostics,
+        ));
     }
+    if !reservation_safe && current.order.is_none() {
+        checkout.completion_state = CompletionState::Uncertain;
+        super::save(pool, checkout, token).await?;
+        return Ok(RecoveryOutcome::Manual(RecoveryCode::ReservationUnsafe));
+    }
+    let CompletionAttempt {
+        result,
+        mutation_started,
+    } = complete_with_checkpoint(pool, clients, checkout, token, payment, mode).await?;
+    match result {
+        Ok(CompletionOutcome::Completed { order_id }) => {
+            save_completed_order(
+                pool,
+                clients,
+                checkout,
+                token,
+                &order_id,
+                report_diagnostics,
+            )
+            .await
+        }
+        result => {
+            checkout.completion_state = if mutation_started || mode == CompletionMode::ReconcileOnly
+            {
+                CompletionState::Uncertain
+            } else {
+                CompletionState::NotStarted
+            };
+            super::save(pool, checkout, token).await?;
+            match result {
+                Err(error) => Ok(completion_failure(
+                    "Checkout Shopify completion",
+                    &error,
+                    report_diagnostics,
+                )),
+                _ => Ok(RecoveryOutcome::Retry(RecoveryCode::CompletionUncertain)),
+            }
+        }
+    }
+}
+
+struct CompletionAttempt {
+    result: Result<CompletionOutcome, AppError>,
+    mutation_started: bool,
+}
+
+async fn complete_with_checkpoint(
+    pool: &PgPool,
+    clients: &CheckoutClients<'_>,
+    checkout: &mut Checkout,
+    token: Uuid,
+    payment: PaymentContext<'_>,
+    mode: CompletionMode,
+) -> Result<CompletionAttempt, AdvanceError> {
+    let draft = ShopifyId::new(
+        checkout
+            .draft_id
+            .as_ref()
+            .ok_or_else(|| conflict("Checkout draft is missing"))?,
+    )
+    .map_err(|error| upstream(error))?;
     let mut attempted = false;
+    let mut checkpoint_error = None;
     let result = {
         let checkout = &mut *checkout;
         let attempted = &mut attempted;
+        let checkpoint_error = &mut checkpoint_error;
         checkout_completion::complete_paid_draft_with_before_completion(
             clients.shopify,
             &draft,
@@ -552,20 +661,33 @@ async fn complete(
             mode,
             move || async move {
                 let current = purchase::read(clients, checkout).await?;
-                purchase::validate_reservation(checkout, &current)?;
+                purchase::validate_reservation(checkout, &current)
+                    .map_err(|error| recovery::manual(error, RecoveryCode::ReservationUnsafe))?;
                 if checkout
                     .reservation_expires_at
                     .is_none_or(|expiry| expiry <= Utc::now())
                 {
-                    return Err(conflict("Checkout reservation expired before completion"));
+                    return Err(recovery::manual(
+                        conflict("Checkout reservation expired before completion"),
+                        RecoveryCode::ReservationUnsafe,
+                    ));
                 }
                 checkout.completion_state = CompletionState::Completing;
-                repo::save(pool, checkout, token).await?;
+                if let Err(error) = crate::repositories::checkout::save(pool, checkout, token).await
+                {
+                    *checkpoint_error = Some(error);
+                    return Err(conflict(
+                        "Checkout completion checkpoint could not be saved",
+                    ));
+                }
                 if checkout
                     .reservation_expires_at
                     .is_none_or(|expiry| expiry <= Utc::now())
                 {
-                    return Err(conflict("Checkout reservation expired before completion"));
+                    return Err(recovery::manual(
+                        conflict("Checkout reservation expired before completion"),
+                        RecoveryCode::ReservationUnsafe,
+                    ));
                 }
                 *attempted = true;
                 Ok(())
@@ -573,30 +695,13 @@ async fn complete(
         )
         .await
     };
-    let outcome = match result {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            checkout.completion_state = if attempted || mode == CompletionMode::ReconcileOnly {
-                CompletionState::Uncertain
-            } else {
-                CompletionState::NotStarted
-            };
-            repo::save(pool, checkout, token).await?;
-            crate::error::log_background_error("Checkout Shopify completion", &error);
-            return Ok(());
-        }
-    };
-    if let CompletionOutcome::Completed { order_id } = outcome {
-        save_completed_order(pool, clients, checkout, token, &order_id).await?;
-    } else {
-        checkout.completion_state = if attempted || mode == CompletionMode::ReconcileOnly {
-            CompletionState::Uncertain
-        } else {
-            CompletionState::NotStarted
-        };
-        repo::save(pool, checkout, token).await?;
+    if let Some(error) = checkpoint_error {
+        return Err(AdvanceError::Persistence(error));
     }
-    Ok(())
+    Ok(CompletionAttempt {
+        result,
+        mutation_started: attempted,
+    })
 }
 
 async fn save_completed_order(
@@ -605,27 +710,68 @@ async fn save_completed_order(
     checkout: &mut Checkout,
     token: Uuid,
     order_id: &ShopifyId,
-) -> Result<(), AppError> {
+    report_diagnostics: bool,
+) -> Result<RecoveryOutcome, AdvanceError> {
     checkout.order_id = Some(order_id.as_ref().to_owned());
     checkout.completion_state = CompletionState::Uncertain;
-    repo::save(pool, checkout, token).await?;
+    super::save(pool, checkout, token).await?;
     let order = match clients.shopify.checkout_order(order_id).await {
         Ok(Some(order)) => order,
-        Ok(None) => return Ok(()),
+        Ok(None) => return Ok(RecoveryOutcome::Retry(RecoveryCode::CompletionUncertain)),
         Err(error) => {
-            crate::error::log_background_error("Checkout order readback", &upstream(error));
-            return Ok(());
+            return Ok(completion_failure(
+                "Checkout order readback",
+                &upstream(error),
+                report_diagnostics,
+            ));
         }
     };
-    let Some(_name) = order.name.filter(|name| !name.trim().is_empty()) else {
-        return Ok(());
-    };
-    if !purchase::tags_match(checkout, &order.tags) {
-        return Ok(());
+    if let Some(outcome) = order_confirmation(checkout, &order) {
+        return Ok(outcome);
     }
     checkout.completion_state = CompletionState::Completed;
-    repo::save(pool, checkout, token).await?;
-    Ok(())
+    super::save(pool, checkout, token).await?;
+    Ok(RecoveryOutcome::Observed(RecoveryCode::Observed))
+}
+
+fn order_confirmation(
+    checkout: &Checkout,
+    order: &crate::models::shopify::CompletionOrder,
+) -> Option<RecoveryOutcome> {
+    if order
+        .name
+        .as_deref()
+        .is_none_or(|name| name.trim().is_empty())
+    {
+        Some(RecoveryOutcome::Retry(RecoveryCode::CompletionUncertain))
+    } else if !purchase::tags_match(checkout, &order.tags) {
+        Some(RecoveryOutcome::Manual(RecoveryCode::EvidenceConflict))
+    } else {
+        None
+    }
+}
+
+fn completion_mode(checkout: &Checkout, reservation_safe: bool) -> CompletionMode {
+    if matches!(
+        checkout.completion_state,
+        CompletionState::Completing | CompletionState::Uncertain
+    ) || !reservation_safe
+    {
+        CompletionMode::ReconcileOnly
+    } else {
+        CompletionMode::CompleteIfOpen
+    }
+}
+
+fn completion_failure(
+    operation: &'static str,
+    error: &AppError,
+    report_diagnostics: bool,
+) -> RecoveryOutcome {
+    if report_diagnostics {
+        crate::error::log_background_error(operation, error);
+    }
+    recovery::classify(error)
 }
 
 fn metadata(checkout: &Checkout) -> BTreeMap<String, String> {
@@ -682,3 +828,7 @@ fn paypal_minor(money: &CheckoutMoney) -> Result<i64, AppError> {
     }
     Ok(money.minor / scale)
 }
+
+#[cfg(test)]
+#[path = "../../tests/services/checkout/provider.rs"]
+mod tests;

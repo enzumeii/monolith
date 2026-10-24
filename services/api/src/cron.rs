@@ -1,3 +1,4 @@
+pub(crate) mod checkout;
 pub(crate) mod job;
 pub(crate) mod publication;
 pub(crate) mod report;
@@ -12,7 +13,9 @@ pub(crate) async fn invoke(state: &AppState) -> Result<(), AppError> {
     let deadline = tokio::time::Instant::now()
         + std::time::Duration::from_secs(settings.invocation_budget_secs);
     let work_deadline = deadline - std::time::Duration::from_secs(settings.retention_reserve_secs);
-    let reports = if state.settings.scheduler.enabled {
+    let recovery = checkout::run(state, work_deadline).await;
+    let reports = if state.settings.scheduler.enabled && tokio::time::Instant::now() < work_deadline
+    {
         drain(state, work_deadline).await
     } else {
         Ok(())
@@ -28,7 +31,7 @@ pub(crate) async fn invoke(state: &AppState) -> Result<(), AppError> {
             "Refresh token retention exceeded invocation capacity",
         )
     })??;
-    reports
+    recovery.and(reports)
 }
 
 pub(crate) async fn run_once(state: &AppState) -> Result<bool, AppError> {

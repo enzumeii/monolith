@@ -20,6 +20,17 @@ lease_secs = 300
 max_payload_bytes = 20971520
 max_email_bytes = 20971520
 
+[checkout_recovery]
+enabled = true
+wake_secs = 60
+batch_size = 10
+concurrency = 2
+budget_secs = 60
+lease_secs = 90
+retry_backoff_secs = 60
+max_retry_backoff_secs = 900
+max_failures = 12
+
 [browser]
 allowed_origins = []
 insecure_local = true

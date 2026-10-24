@@ -161,7 +161,7 @@ fn valid_id(id: &str, prefix: &str) -> bool {
 
 #[track_caller]
 fn verification_error() -> ClientError {
-    ClientError::new(ClientErrorKind::Protocol("Payment verification failed"))
+    super::evidence_mismatch()
 }
 
 #[cfg(test)]

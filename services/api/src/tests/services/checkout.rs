@@ -3,7 +3,7 @@ use chrono::Duration;
 use domain::dto::checkout::CheckoutMoney;
 use std::collections::BTreeMap;
 
-fn checkout() -> Checkout {
+pub(super) fn checkout() -> Checkout {
     let id = Uuid::new_v4();
     let now = Utc::now();
     let money = money();
@@ -34,14 +34,14 @@ fn checkout() -> Checkout {
     }
 }
 
-fn money() -> CheckoutMoney {
+pub(super) fn money() -> CheckoutMoney {
     CheckoutMoney {
         minor: 4000,
         currency: "SGD".into(),
     }
 }
 
-fn draft(row: &Checkout) -> serde_json::Value {
+pub(super) fn draft(row: &Checkout) -> serde_json::Value {
     serde_json::json!({
         "id":"gid://shopify/DraftOrder/1", "ready":true, "status":"OPEN", "order":null,
         "tags":[format!("checkout:{}",row.id)], "email":"private@example.test", "paymentTerms":null,
@@ -253,4 +253,41 @@ fn uncertain_payment_requires_reconciliation_without_a_payment_action() {
         response_status(&row, true),
         CheckoutStatus::ReconciliationRequired
     );
+}
+
+#[tokio::test]
+async fn internal_recovery_uses_owned_row_without_guest_auth_or_another_claim() {
+    let shop = crate::client::tests::Fixture::new(vec![]).await;
+    let shopify = crate::services::common::client(&shop);
+    let clients = CheckoutClients {
+        shopify: &shopify,
+        stripe: None,
+        paypal: None,
+    };
+    let settings = config::Config::builder()
+        .add_source(config::File::from_str(
+            include_str!("../../../application.qa.toml"),
+            config::FileFormat::Toml,
+        ))
+        .build()
+        .expect("QA non-sensitive configuration")
+        .get::<CheckoutSettings>("checkout")
+        .expect("checkout settings");
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://fixture:fixture@127.0.0.1:1/fixture")
+        .expect("lazy pool");
+    pool.close().await;
+    let mut row = checkout();
+    row.owner_expires_at = Utc::now() - Duration::days(1);
+    row.draft_state = DraftState::NotStarted;
+    row.draft_id = None;
+    let original_owner_expiry = row.owner_expires_at;
+    assert_eq!(
+        recover_claimed(&pool, &settings, &clients, &mut row, Uuid::new_v4())
+            .await
+            .expect("safe outcome"),
+        RecoveryOutcome::Manual(crate::models::checkout::RecoveryCode::MissingPurchase)
+    );
+    assert_eq!(row.owner_expires_at, original_owner_expiry);
+    assert_eq!(shop.requests().len(), 0);
 }

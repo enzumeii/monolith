@@ -1,6 +1,9 @@
 pub(crate) mod notification;
 mod provider;
 mod purchase;
+mod recovery;
+
+pub(crate) use recovery::RecoveryOutcome;
 
 use crate::{
     client::{paypal::PaypalClient, shopify::ShopifyClient, stripe::StripeClient},
@@ -141,7 +144,7 @@ pub(crate) async fn webhook(
         }
         .await;
         let release = repo::release(pool, claimed.id, token).await;
-        result?;
+        result.map_err(AdvanceError::into_app)?;
         release?;
         checkout = claimed;
     }
@@ -173,6 +176,20 @@ pub(crate) async fn webhook(
     Ok(())
 }
 
+pub(crate) async fn recover_claimed(
+    pool: &PgPool,
+    settings: &CheckoutSettings,
+    clients: &CheckoutClients<'_>,
+    checkout: &mut Checkout,
+    token: Uuid,
+) -> Result<RecoveryOutcome, AppError> {
+    match advance_claimed(pool, settings, clients, checkout, token, None, false).await {
+        Ok(outcome) => Ok(outcome),
+        Err(AdvanceError::Business(error)) => Ok(recovery::classify(&error)),
+        Err(AdvanceError::Persistence(error)) => Err(error),
+    }
+}
+
 async fn advance(
     pool: &PgPool,
     clients: &CheckoutClients<'_>,
@@ -199,35 +216,17 @@ async fn advance(
         return hydrate_response(clients, &row, true).await;
     };
     let result = async {
-        if matches!(
-            checkout.draft_state,
-            DraftState::Creating | DraftState::Uncertain
-        ) {
-            purchase::recover(pool, clients, &mut checkout, token).await?;
-        }
-        if checkout.draft_state == DraftState::NotStarted {
-            let prepared = prepared.ok_or_else(|| {
-                conflict("Original purchase request is required before draft creation")
-            })?;
-            purchase::reserve(pool, settings, clients, &mut checkout, prepared, token).await?;
-        }
-        let draft = purchase::read(clients, &checkout).await?;
-        let money = purchase::validate_purchase(&checkout, &draft)?;
-        if checkout.completion_state != CompletionState::Completed {
-            let reservation_safe = purchase::validate_reservation(&checkout, &draft).is_ok()
-                && checkout
-                    .reservation_expires_at
-                    .is_some_and(|expiry| expiry > Utc::now());
-            provider::advance(
-                pool,
-                clients,
-                &mut checkout,
-                &money,
-                token,
-                reservation_safe,
-            )
-            .await?;
-        }
+        advance_claimed(
+            pool,
+            settings,
+            clients,
+            &mut checkout,
+            token,
+            prepared,
+            true,
+        )
+        .await
+        .map_err(AdvanceError::into_app)?;
         hydrate_response(clients, &checkout, false).await
     }
     .await;
@@ -235,6 +234,75 @@ async fn advance(
     let result = result?;
     release?;
     Ok(result)
+}
+
+async fn advance_claimed(
+    pool: &PgPool,
+    settings: &CheckoutSettings,
+    clients: &CheckoutClients<'_>,
+    checkout: &mut Checkout,
+    token: Uuid,
+    prepared: Option<&purchase::PreparedPurchase>,
+    report_diagnostics: bool,
+) -> Result<RecoveryOutcome, AdvanceError> {
+    if matches!(
+        checkout.draft_state,
+        DraftState::Creating | DraftState::Uncertain
+    ) {
+        purchase::recover(pool, clients, checkout, token).await?;
+    }
+    if checkout.draft_state == DraftState::NotStarted {
+        let prepared = prepared.ok_or_else(|| {
+            recovery::manual(
+                conflict("Original purchase request is required before draft creation"),
+                crate::models::checkout::RecoveryCode::MissingPurchase,
+            )
+        })?;
+        purchase::reserve(pool, settings, clients, checkout, prepared, token).await?;
+    }
+    let draft = purchase::read(clients, checkout).await?;
+    let money = purchase::validate_purchase(checkout, &draft)?;
+    if checkout.completion_state == CompletionState::Completed {
+        return Ok(RecoveryOutcome::Observed(
+            crate::models::checkout::RecoveryCode::Observed,
+        ));
+    }
+    let reservation_safe = purchase::validate_reservation(checkout, &draft).is_ok()
+        && checkout
+            .reservation_expires_at
+            .is_some_and(|expiry| expiry > Utc::now());
+    provider::advance(
+        pool,
+        clients,
+        checkout,
+        &money,
+        token,
+        reservation_safe,
+        report_diagnostics,
+    )
+    .await
+}
+
+enum AdvanceError {
+    Business(AppError),
+    Persistence(AppError),
+}
+impl AdvanceError {
+    fn into_app(self) -> AppError {
+        match self {
+            Self::Business(error) | Self::Persistence(error) => error,
+        }
+    }
+}
+impl From<AppError> for AdvanceError {
+    fn from(error: AppError) -> Self {
+        Self::Business(error)
+    }
+}
+async fn save(pool: &PgPool, checkout: &Checkout, token: Uuid) -> Result<(), AdvanceError> {
+    repo::save(pool, checkout, token)
+        .await
+        .map_err(AdvanceError::Persistence)
 }
 
 async fn hydrate_response(

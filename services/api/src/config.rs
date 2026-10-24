@@ -1,5 +1,7 @@
 pub mod checkout;
+mod checkout_recovery;
 pub use checkout::CheckoutSettings;
+pub use checkout_recovery::CheckoutRecoveryConfig;
 
 use std::env;
 
@@ -110,6 +112,7 @@ impl std::fmt::Debug for StripeConfig {
 #[derive(Deserialize, Clone)]
 pub struct Settings {
     pub checkout: Option<CheckoutSettings>,
+    pub checkout_recovery: CheckoutRecoveryConfig,
     pub shipping_sender: Option<ShippingSender>,
     pub client: Option<ClientConfig>,
     pub browser: BrowserConfig,
@@ -159,6 +162,7 @@ impl JwtSettings {
 impl Settings {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.jwt.key()?;
+        self.checkout_recovery.validate()?;
         if let Some(checkout) = &self.checkout {
             checkout.validate(self.browser.insecure_local)?;
         }

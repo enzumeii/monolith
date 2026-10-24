@@ -1,7 +1,7 @@
 use super::ExpectedPayment;
 use crate::models::paypal::payment::exact_money;
 use crate::{
-    client::{ClientError, ClientErrorKind},
+    client::ClientError,
     models::paypal::{Capture, Order, PaymentMoney},
 };
 
@@ -60,9 +60,7 @@ pub(super) fn validate_capture_binding(
 
 #[track_caller]
 pub(super) fn mismatch() -> ClientError {
-    ClientError::new(ClientErrorKind::Protocol(
-        "PayPal payment evidence does not match",
-    ))
+    super::super::evidence_mismatch()
 }
 
 fn money_matches(expected: &ExpectedPayment, amount: &PaymentMoney) -> bool {

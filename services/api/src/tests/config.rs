@@ -479,6 +479,7 @@ fn builder_token_precedence_and_missing_url_follow_normal_configuration() {
         let source = r#"
             server = { host = "localhost", port = 3000 }
             database = { max_connections = 1, min_connections = 1 }
+            checkout_recovery = { enabled=true, wake_secs=60, batch_size=10, concurrency=2, budget_secs=60, lease_secs=90, retry_backoff_secs=60, max_retry_backoff_secs=900, max_failures=12 }
             scheduler = { implementation="vps", poll_interval_secs=1, retention_interval_secs=3600, invocation_budget_secs=240, retention_reserve_secs=5, enabled=false, concurrency=1, max_attempts=2, retry_backoff_secs=1, lease_secs=5, max_payload_bytes=20971520, max_email_bytes=20971520 }
             browser = { allowed_origins = ["http://localhost:8084"], insecure_local = true }
         "#;
@@ -1331,7 +1332,7 @@ fn checkout_overlays_are_complete_and_secrets_use_environment_overrides() {
         assert_eq!(checkout.stripe_livemode, livemode);
         assert_eq!(checkout.paypal_api_origin, paypal);
         assert_eq!(checkout.reservation_secs, 3600);
-        assert_eq!(checkout.guest_recovery_secs, 604800);
+        assert_eq!(checkout.guest_recovery_secs, 604_800);
         assert_eq!(
             checkout.return_path_template,
             "/{convention_slug}/checkout/return?checkout_id={checkout_id}"

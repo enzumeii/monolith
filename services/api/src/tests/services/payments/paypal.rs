@@ -399,7 +399,7 @@ async fn exact_integer_money_verifies_zero_decimal_and_large_minor_amounts() {
 }
 
 #[tokio::test]
-async fn contradictory_provider_evidence_has_a_safe_protocol_error_and_original_location() {
+async fn contradictory_provider_evidence_has_a_typed_safe_error_and_original_location() {
     for (index, pointer) in [(1, "/id"), (2, "/amount/value")] {
         let mut replies = objects();
         *replies[index].pointer_mut(pointer).unwrap() = json!("untrusted-provider-value");
@@ -409,7 +409,7 @@ async fn contradictory_provider_evidence_has_a_safe_protocol_error_and_original_
             .unwrap_err();
         assert!(matches!(
             error.kind(),
-            ClientErrorKind::Protocol("PayPal payment evidence does not match")
+            ClientErrorKind::Upstream { source, timed_out: false } if source.is::<super::super::EvidenceMismatch>()
         ));
         assert!(
             error
@@ -418,7 +418,11 @@ async fn contradictory_provider_evidence_has_a_safe_protocol_error_and_original_
                 .ends_with("services/payments/paypal/evidence.rs")
         );
         assert!(!format!("{error:?}").contains("untrusted-provider-value"));
-        assert!(std::error::Error::source(&error).is_none());
+        assert!(
+            std::error::Error::source(&error)
+                .unwrap()
+                .is::<super::super::EvidenceMismatch>()
+        );
     }
 }
 

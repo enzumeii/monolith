@@ -134,7 +134,7 @@ async fn rejects_context_and_paid_object_mismatches_before_following_the_next_re
         assert!(
             matches!(
                 error.kind(),
-                ClientErrorKind::Protocol("Payment verification failed")
+                ClientErrorKind::Upstream { source, timed_out: false } if source.is::<super::super::EvidenceMismatch>()
             ),
             "object {index} field {field}: {value}"
         );

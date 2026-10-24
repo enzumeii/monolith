@@ -437,6 +437,12 @@ async fn unusable_completion_payload_reconciles_without_replaying_the_mutation()
             assert_eq!(result.is_ok(), visible);
             if let Err(error) = result {
                 assert!(error.to_string().contains("ReconcileOnly"));
+                assert!(
+                    error
+                        .find_source::<crate::client::shopify::CheckoutIdentityMismatch>()
+                        .is_none()
+                );
+                assert!(error.find_source::<crate::models::checkout_completion::CompletionEvidenceConflict>().is_none());
             }
             assert_eq!(
                 operations(&shop)
@@ -448,6 +454,37 @@ async fn unusable_completion_payload_reconciles_without_replaying_the_mutation()
         }
     }
 }
+#[tokio::test]
+async fn completed_draft_with_wrong_linked_resource_keeps_upstream_identity_failure() {
+    use axum::response::IntoResponse;
+
+    for mode in [
+        CompletionMode::CompleteIfOpen,
+        CompletionMode::ReconcileOnly,
+    ] {
+        let provider = Fixture::new(paid().into_iter().map(Reply::json).collect()).await;
+        let mut response = draft(true);
+        response["data"]["draftOrder"]["order"]["id"] = json!("gid://shopify/Product/2");
+        let shop = Fixture::new(vec![Reply::json(response)]).await;
+        let error = run(&shop, &provider, mode).await.unwrap_err();
+        assert!(
+            error
+                .find_source::<crate::client::shopify::CheckoutIdentityMismatch>()
+                .is_some()
+        );
+        let response = error.into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_GATEWAY);
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"error":"Upstream request failed"})
+        );
+        assert_eq!(operations(&shop), ["CheckoutDraft"]);
+    }
+}
+
 #[tokio::test]
 async fn wrong_returned_draft_identity_never_authorizes_an_order() {
     let provider = Fixture::new(paid().into_iter().map(Reply::json).collect()).await;
@@ -461,10 +498,13 @@ async fn wrong_returned_draft_identity_never_authorizes_an_order() {
             .collect(),
     )
     .await;
+    let error = run(&shop, &provider, CompletionMode::CompleteIfOpen)
+        .await
+        .unwrap_err();
     assert!(
-        run(&shop, &provider, CompletionMode::CompleteIfOpen)
-            .await
-            .is_err()
+        error
+            .find_source::<crate::client::shopify::CheckoutIdentityMismatch>()
+            .is_some()
     );
     assert_eq!(
         operations(&shop),

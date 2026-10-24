@@ -8,7 +8,7 @@ use crate::{
     },
     error::{AppError, upstream},
     models::{
-        checkout_completion::{ExactMoney, conflict, currency_precision},
+        checkout_completion::{ExactMoney, conflict, currency_precision, evidence_conflict},
         paypal,
         shopify::{
             CompletionDraft, CompletionDraftStatus, CompletionFinancialStatus, CompletionOrder,
@@ -84,7 +84,7 @@ where
                 }
                 stripe::payment::PaymentOutcome::VerifiedPaid(paid) => {
                     if paid.refunded || paid.amount_refunded != 0 || paid.disputed {
-                        return Err(conflict(
+                        return Err(evidence_conflict(
                             "Refunded or disputed payment cannot complete a draft",
                         ));
                     }
@@ -163,10 +163,10 @@ where
             Err(error) => {
                 if matches!(
                     error.kind(),
-                    ClientErrorKind::Mutation { .. }
-                        | ClientErrorKind::InvalidInput(_)
-                        | ClientErrorKind::Protocol("completed draft identity mismatch")
-                ) {
+                    ClientErrorKind::Mutation { .. } | ClientErrorKind::InvalidInput(_)
+                ) || std::error::Error::source(&error).is_some_and(|source| {
+                    source.is::<crate::client::shopify::CheckoutIdentityMismatch>()
+                }) {
                     return Err(upstream(error));
                 }
                 let recovered = read_draft(shopify, draft_id)
@@ -191,7 +191,9 @@ where
             .await
             .map_err(|error| upstream(error))?;
         if updated_id != order_id.as_ref() {
-            return Err(conflict("Shopify tag mutation order identity mismatch"));
+            return Err(evidence_conflict(
+                "Shopify tag mutation order identity mismatch",
+            ));
         }
         let confirmed = read_order(shopify, &order_id, money).await?;
         validate_references(&confirmed.tags, references)?;
@@ -239,7 +241,9 @@ fn validate_references(existing: &[String], expected: &[String]) -> Result<(), A
         .iter()
         .any(|tag| tag.starts_with("payment:") && !expected.contains(tag))
     {
-        return Err(conflict("Shopify order has conflicting payment references"));
+        return Err(evidence_conflict(
+            "Shopify order has conflicting payment references",
+        ));
     }
     Ok(())
 }
@@ -256,11 +260,13 @@ fn linked_order(draft: &CompletionDraft) -> Result<Option<ShopifyId>, AppError> 
             order
                 .id
                 .require_kind("Order")
-                .map_err(|error| upstream(error))?;
+                .map_err(|_| upstream(crate::client::shopify::checkout_identity_mismatch()))?;
             Ok(Some(order.id.clone()))
         }
         (CompletionDraftStatus::Open | CompletionDraftStatus::InvoiceSent, None) => Ok(None),
-        _ => Err(conflict("Shopify draft and linked order state mismatch")),
+        _ => Err(evidence_conflict(
+            "Shopify draft and linked order state mismatch",
+        )),
     }
 }
 async fn read_order(
@@ -278,7 +284,9 @@ async fn read_order(
         CompletionFinancialStatus::Paid
     ) || order.cancelled_at.is_some()
     {
-        return Err(conflict("Shopify order is not paid or is cancelled"));
+        return Err(evidence_conflict(
+            "Shopify order is not paid or is cancelled",
+        ));
     }
     validate_money(money, &order.total_price_set.presentment_money)?;
     Ok(order)
@@ -287,7 +295,7 @@ fn validate_money(expected: &ExactMoney, actual: &Money) -> Result<(), AppError>
     if actual.currency_code != expected.currency
         || expected.parse_amount(&actual.amount)? != expected.minor
     {
-        return Err(conflict(
+        return Err(evidence_conflict(
             "Shopify amount or currency does not match verified payment",
         ));
     }

@@ -1,4 +1,4 @@
-use super::{CheckoutClients, conflict, provider_name, unavailable};
+use super::{AdvanceError, CheckoutClients, conflict, provider_name, unavailable};
 use crate::{
     config::CheckoutSettings,
     error::{AppError, upstream},
@@ -10,7 +10,7 @@ use crate::{
             Money, PageRequest, ShopifyId,
         },
     },
-    repositories::{checkout as repo, conventions},
+    repositories::conventions,
 };
 use chrono::{Duration, Utc};
 use domain::dto::{
@@ -141,7 +141,7 @@ pub(super) async fn reserve(
     checkout: &mut Checkout,
     purchase: &PreparedPurchase,
     token: Uuid,
-) -> Result<(), AppError> {
+) -> Result<(), AdvanceError> {
     validate_stock(settings, clients, purchase).await?;
     let deadline = Utc::now()
         + Duration::seconds(
@@ -174,23 +174,23 @@ pub(super) async fn reserve(
     };
     checkout.draft_state = DraftState::Creating;
     checkout.reservation_expires_at = Some(deadline);
-    repo::save(pool, checkout, token).await?;
+    super::save(pool, checkout, token).await?;
     let created = match clients.shopify.create_draft_order(&input).await {
         Ok(payload) if payload.user_errors.is_empty() => payload.draft_order,
         Ok(_) => {
             checkout.draft_state = DraftState::Uncertain;
-            repo::save(pool, checkout, token).await?;
-            return Err(conflict("Shopify could not reserve this purchase"));
+            super::save(pool, checkout, token).await?;
+            return Err(conflict("Shopify could not reserve this purchase").into());
         }
         Err(error) => {
             checkout.draft_state = DraftState::Uncertain;
-            repo::save(pool, checkout, token).await?;
-            return Err(upstream(error));
+            super::save(pool, checkout, token).await?;
+            return Err(upstream(error).into());
         }
     };
     checkout.draft_state = DraftState::Uncertain;
     checkout.draft_id = created.map(|draft| draft.id.as_ref().to_owned());
-    repo::save(pool, checkout, token).await?;
+    super::save(pool, checkout, token).await?;
     let draft = read(clients, checkout).await?;
     validate_reservation(checkout, &draft)?;
     validate_payable(&draft)?;
@@ -198,13 +198,11 @@ pub(super) async fn reserve(
         .reserve_inventory_until
         .is_none_or(|expiry| expiry < Utc::now() + Duration::minutes(30))
     {
-        return Err(conflict(
-            "Shopify reservation does not match the accepted purchase",
-        ));
+        return Err(conflict("Shopify reservation does not match the accepted purchase").into());
     }
     checkout.reservation_expires_at = draft.reserve_inventory_until;
     checkout.draft_state = DraftState::Reserved;
-    repo::save(pool, checkout, token).await
+    super::save(pool, checkout, token).await
 }
 
 pub(super) async fn recover(
@@ -212,7 +210,7 @@ pub(super) async fn recover(
     clients: &CheckoutClients<'_>,
     checkout: &mut Checkout,
     token: Uuid,
-) -> Result<(), AppError> {
+) -> Result<(), AdvanceError> {
     if checkout.draft_id.is_none() {
         let query = format!("tag:'checkout:{}'", checkout.id);
         let expected_tag = format!("checkout:{}", checkout.id);
@@ -232,8 +230,18 @@ pub(super) async fn recover(
             |drafts| {
                 for draft in drafts {
                     if draft.tags.contains(&expected_tag) {
-                        validate_purchase(checkout, &draft)?;
-                        validate_reservation(checkout, &draft)?;
+                        validate_purchase(checkout, &draft).map_err(|error| {
+                            super::recovery::manual(
+                                error,
+                                crate::models::checkout::RecoveryCode::DraftAmbiguous,
+                            )
+                        })?;
+                        validate_reservation(checkout, &draft).map_err(|error| {
+                            super::recovery::manual(
+                                error,
+                                crate::models::checkout::RecoveryCode::DraftAmbiguous,
+                            )
+                        })?;
                         found.push(draft.id.as_ref().to_owned());
                     }
                 }
@@ -243,10 +251,14 @@ pub(super) async fn recover(
         )
         .await?;
         if found.len() != 1 {
-            return Err(conflict("Shopify draft creation requires reconciliation"));
+            return Err(super::recovery::manual(
+                conflict("Shopify draft creation requires reconciliation"),
+                crate::models::checkout::RecoveryCode::DraftAmbiguous,
+            )
+            .into());
         }
         checkout.draft_id = found.pop();
-        repo::save(pool, checkout, token).await?;
+        super::save(pool, checkout, token).await?;
     }
     let draft = read(clients, checkout).await?;
     if checkout.payment_state == PaymentState::NotStarted {
@@ -255,7 +267,7 @@ pub(super) async fn recover(
         checkout.reservation_expires_at = draft.reserve_inventory_until;
     }
     checkout.draft_state = DraftState::Reserved;
-    repo::save(pool, checkout, token).await
+    super::save(pool, checkout, token).await
 }
 
 pub(super) async fn read(
@@ -309,7 +321,7 @@ pub(super) fn validate_purchase(
         || evidence_hash(email, &money, &actual)? != checkout.evidence_hash
         || !tags_match(checkout, &draft.tags)
     {
-        return Err(conflict(
+        return Err(crate::models::checkout_completion::evidence_conflict(
             "Shopify draft no longer matches the accepted purchase",
         ));
     }

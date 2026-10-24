@@ -56,6 +56,21 @@ impl AppError {
         self.location
     }
 
+    pub(crate) fn find_source<T: std::error::Error + 'static>(&self) -> Option<&T> {
+        self.cause.as_ref()?.chain().find_map(|source| {
+            source.downcast_ref::<T>().or_else(|| {
+                let mut source = std::error::Error::source(client_cause(source)?);
+                while let Some(current) = source {
+                    if let Some(found) = current.downcast_ref::<T>() {
+                        return Some(found);
+                    }
+                    source = current.source();
+                }
+                None
+            })
+        })
+    }
+
     fn operation(&self, fallback: &'static str) -> &'static str {
         self.contexts.first().copied().unwrap_or(fallback)
     }

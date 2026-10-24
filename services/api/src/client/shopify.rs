@@ -340,7 +340,10 @@ impl ShopifyClient {
             )
             .await?;
         for draft in &data.draft_orders.nodes {
-            draft.id.require_kind("DraftOrder")?;
+            draft
+                .id
+                .require_kind("DraftOrder")
+                .map_err(|_| checkout_identity_mismatch())?;
         }
         data.draft_orders.validate_after(page.after.as_deref())?;
         Ok(data.draft_orders)
@@ -360,11 +363,12 @@ impl ShopifyClient {
             )
             .await?;
         if let Some(draft) = &data.draft_order {
-            draft.id.require_kind("DraftOrder")?;
+            draft
+                .id
+                .require_kind("DraftOrder")
+                .map_err(|_| checkout_identity_mismatch())?;
             if &draft.id != id {
-                return Err(ClientError::new(ClientErrorKind::Protocol(
-                    "draft identity mismatch",
-                )));
+                return Err(checkout_identity_mismatch());
             }
         }
         Ok(data.draft_order)
@@ -392,14 +396,15 @@ impl ShopifyClient {
             ClientError::new(ClientErrorKind::Protocol("completed draft missing"))
         })?;
         if &draft.id != id {
-            return Err(ClientError::new(ClientErrorKind::Protocol(
-                "completed draft identity mismatch",
-            )));
+            return Err(checkout_identity_mismatch());
         }
         let order = draft.order.ok_or_else(|| {
             ClientError::new(ClientErrorKind::Protocol("completed order missing"))
         })?;
-        order.id.require_kind("Order")?;
+        order
+            .id
+            .require_kind("Order")
+            .map_err(|_| checkout_identity_mismatch())?;
         Ok(order.id)
     }
     pub(crate) async fn checkout_order(
@@ -416,11 +421,12 @@ impl ShopifyClient {
             )
             .await?;
         if let Some(order) = &data.order {
-            order.id.require_kind("Order")?;
+            order
+                .id
+                .require_kind("Order")
+                .map_err(|_| checkout_identity_mismatch())?;
             if &order.id != id {
-                return Err(ClientError::new(ClientErrorKind::Protocol(
-                    "order identity mismatch",
-                )));
+                return Err(checkout_identity_mismatch());
             }
         }
         Ok(data.order)
@@ -471,6 +477,18 @@ impl ShopifyClient {
             .await
     }
 }
+#[derive(Debug, thiserror::Error)]
+#[error("Shopify checkout identity does not match")]
+pub(crate) struct CheckoutIdentityMismatch;
+
+#[track_caller]
+pub(crate) fn checkout_identity_mismatch() -> ClientError {
+    ClientError::new(ClientErrorKind::Upstream {
+        source: Box::new(CheckoutIdentityMismatch),
+        timed_out: false,
+    })
+}
+
 #[cfg(test)]
 #[path = "../tests/client/shopify.rs"]
 mod tests;
