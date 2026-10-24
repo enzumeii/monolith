@@ -394,4 +394,258 @@ mod mounted {
                 .any(|script| script.contains("window.location.assign(\"/fair-a/checkout/return"))
         );
     }
+
+    #[tokio::test]
+    async fn malformed_return_links_never_read_browser_credentials_or_contact_the_api() {
+        for query in [
+            "token=provider-approval",
+            "checkout_id=not-a-uuid",
+            "checkout_id=a2913eb5-722d-41a3-a521-632e7fa8cc9a&checkout_id=a2913eb5-722d-41a3-a521-632e7fa8cc9a",
+        ] {
+            let doc = TestDocument::new(vec![]);
+            let inspected = doc.clone();
+            let ((), requests) = responses(&[], async {
+                let (mut dom, _) = mounted(
+                    Screen::Route(format!("/fair-a/checkout/return?{query}")),
+                    cart(),
+                    doc,
+                );
+                let html = until(&mut dom, "This checkout link is invalid").await;
+                assert!(!html.contains("Congratulations"));
+            })
+            .await;
+            assert_eq!(requests, Vec::<String>::new());
+            assert!(inspected.scripts.borrow().is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_status_retry_rechecks_the_same_payment_after_a_temporary_failure() {
+        let attempt = attempt(CheckoutProvider::Paypal);
+        let body = response(&attempt, CheckoutStatus::Unpaid, None);
+        let doc = TestDocument::new(vec![
+            json!({"ok":true,"value":attempt}),
+            boot(&attempt, false),
+            boot(&attempt, false),
+        ]);
+        let inspected = doc.clone();
+        let ((), requests) = responses(
+            &[(503, r#"{"error":"Provider unavailable"}"#), (200, &body)],
+            async {
+                let (mut dom, _) = mounted(
+                    Screen::Route(format!(
+                        "/fair-a/checkout/return?checkout_id={}",
+                        attempt.operation_id
+                    )),
+                    cart(),
+                    doc,
+                );
+                let html = until(&mut dom, "We could not confirm this payment yet").await;
+                assert!(!html.contains("Congratulations"));
+                click(&mut dom, "__text", "Check status");
+                let html = until(&mut dom, "Payment was not completed").await;
+                assert!(html.contains("Return to cart"));
+                assert!(!html.contains("We could not confirm this payment yet"));
+            },
+        )
+        .await;
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(|request| {
+            request.starts_with(&format!("POST /v1/order/{}/verify ", attempt.operation_id))
+                && request.contains(&attempt.secret)
+        }));
+        assert_eq!(
+            *inspected.sent.borrow(),
+            vec![json!({"status":null}), json!({"status":"unpaid"})]
+        );
+    }
+
+    #[tokio::test]
+    async fn verified_completion_invalidates_only_the_matching_cached_cart() {
+        for newer_cart in [false, true] {
+            let attempt = attempt(CheckoutProvider::Stripe);
+            let mut body: Value =
+                serde_json::from_str(&response(&attempt, CheckoutStatus::Completed, None))
+                    .expect("checkout response fixture");
+            body["order"] = json!({"id":"gid://shopify/Order/1234","name":"#CONVENTION-1234"});
+            let body = body.to_string();
+            let doc = TestDocument::new(vec![
+                json!({"ok":true,"value":attempt}),
+                boot(&attempt, false),
+            ]);
+            let inspected = doc.clone();
+            let ((), requests) = responses(&[(200, &body)], async {
+                let (mut dom, _) = mounted(
+                    Screen::Route(format!(
+                        "/fair-a/checkout/return?checkout_id={}",
+                        attempt.operation_id
+                    )),
+                    cart(),
+                    doc,
+                );
+                let mut saved_cart = cart();
+                if newer_cart {
+                    saved_cart.items[0].quantity += 1;
+                }
+                let unrelated = Cart::new("another-convention".into(), "another-cart".into());
+                let mut cache = dom.in_scope(ScopeId::APP, || {
+                    use_context::<
+                        Signal<std::collections::BTreeMap<String, crate::cart::browser::Restored>>,
+                    >()
+                });
+                cache.write().insert(
+                    saved_cart.convention_id.clone(),
+                    crate::cart::browser::Restored {
+                        cart: saved_cart.clone(),
+                        notice: None,
+                    },
+                );
+                cache.write().insert(
+                    unrelated.convention_id.clone(),
+                    crate::cart::browser::Restored {
+                        cart: unrelated.clone(),
+                        notice: None,
+                    },
+                );
+                let html = until(&mut dom, "Congratulations!").await;
+                assert!(html.contains("#CONVENTION-1234"));
+                assert!(!html.contains("gid://shopify"));
+                assert_eq!(
+                    cache
+                        .peek()
+                        .get(&saved_cart.convention_id)
+                        .map(|saved| &saved.cart),
+                    newer_cart.then_some(&saved_cart)
+                );
+                assert_eq!(cache.peek()[&unrelated.convention_id].cart, unrelated);
+            })
+            .await;
+            assert_eq!(requests.len(), 1);
+            assert_eq!(
+                *inspected.sent.borrow(),
+                vec![json!({"status":"completed"})]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn fresh_validation_rejection_allows_cart_review_but_ambiguous_conflict_keeps_recovery() {
+        for status in [400, 422, 409] {
+            let attempt = attempt(CheckoutProvider::Stripe);
+            let doc =
+                TestDocument::new(vec![json!({"ok":true,"value":null}), boot(&attempt, true)]);
+            let inspected = doc.clone();
+            let ((), requests) = responses(
+                &[(status, r#"{"error":"Checkout cannot proceed"}"#)],
+                async {
+                    let (mut dom, _) =
+                        mounted(Screen::Checkout(cart(), Some(quote())), cart(), doc);
+                    until(&mut dom, "Pay with PayPal").await;
+                    input(&mut dom, "checkout-email", "input", "buyer@example.test");
+                    click(&mut dom, "id", "checkout-card");
+                    let expected = if status == 409 {
+                        "We could not confirm this payment yet"
+                    } else {
+                        "Payment could not be started"
+                    };
+                    let html = until(&mut dom, expected).await;
+                    assert_eq!(html.contains("Check existing payment"), status == 409);
+                    assert_eq!(html.contains("checkout-email"), status != 409);
+                    assert!(!html.contains("Congratulations"));
+                },
+            )
+            .await;
+            assert_eq!(requests.len(), 1);
+            let disposition = if status == 409 {
+                Value::Null
+            } else {
+                json!("rejected")
+            };
+            assert_eq!(
+                *inspected.sent.borrow(),
+                vec![json!({"status":disposition})]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn unusable_restored_create_payload_never_sends_a_replacement_purchase() {
+        let attempt = attempt(CheckoutProvider::Stripe);
+        let valid = boot(&attempt, true);
+        let mut changed: Value = serde_json::from_str(
+            valid["__eval_messages"][0]["value"]["payload"]
+                .as_str()
+                .expect("saved request"),
+        )
+        .expect("saved request JSON");
+        changed["items"][0]["quantity"] = json!(999);
+        for payload in [
+            Value::Null,
+            json!("invalid JSON"),
+            json!(changed.to_string()),
+        ] {
+            let mut started = valid.clone();
+            started["__eval_messages"][0]["value"]["payload"] = payload;
+            let doc = TestDocument::new(vec![json!({"ok":true,"value":null}), started]);
+            let inspected = doc.clone();
+            let ((), requests) = responses(&[], async {
+                let (mut dom, _) = mounted(Screen::Checkout(cart(), Some(quote())), cart(), doc);
+                until(&mut dom, "Pay with PayPal").await;
+                input(&mut dom, "checkout-email", "input", "buyer@example.test");
+                click(&mut dom, "id", "checkout-card");
+                let html = until(&mut dom, "We could not confirm this payment yet").await;
+                assert!(html.contains("Check existing payment"));
+            })
+            .await;
+            assert_eq!(requests, Vec::<String>::new());
+            assert_eq!(*inspected.sent.borrow(), vec![json!({"status":null})]);
+        }
+    }
+
+    #[tokio::test]
+    async fn continue_payment_surfaces_unsafe_link_and_browser_navigation_failures() {
+        for (url, expected, navigation_reply) in [
+            (
+                "https://untrusted.example/pay",
+                "unsupported payment link",
+                None,
+            ),
+            (
+                "https://checkout.stripe.com/c/pay/original",
+                "Unable to open the payment page",
+                Some(Value::Null),
+            ),
+        ] {
+            let attempt = attempt(CheckoutProvider::Stripe);
+            let body = response(&attempt, CheckoutStatus::RequiresAction, Some(url));
+            let mut replies = vec![
+                json!({"ok":true,"value":attempt}),
+                boot(&attempt, false),
+                json!("https://convention.example/fair-a/checkout/return"),
+            ];
+            replies.extend(navigation_reply);
+            let doc = TestDocument::new(replies);
+            let inspected = doc.clone();
+            let ((), requests) = responses(&[(200, &body)], async {
+                let (mut dom, _) = mounted(
+                    Screen::Route(format!(
+                        "/fair-a/checkout/return?checkout_id={}",
+                        attempt.operation_id
+                    )),
+                    cart(),
+                    doc,
+                );
+                until(&mut dom, "Continue your payment").await;
+                click(&mut dom, "__text", "Continue payment");
+                let html = until(&mut dom, expected).await;
+                assert!(!html.contains("Congratulations"));
+            })
+            .await;
+            assert_eq!(requests.len(), 1);
+            let scripts = inspected.scripts.borrow();
+            assert!(scripts.iter().all(|script| {
+                !script.contains("window.location.assign(\"https://untrusted.example")
+            }));
+        }
+    }
 }
