@@ -73,7 +73,7 @@ async fn required_payment_accessors_reuse_clients_and_retain_availability_errors
         assert_payment_error(error, message).await;
     }
     let stripe_config = serde_json::from_value(
-        json!({"base_url": f.url.as_str(), "secret_key":"fixture", "timeout_secs":3}),
+        json!({"base_url": f.url.as_str(), "secret_key":"fixture", "timeout_secs":3, "checkout_api_version":"2026-08-26.dahlia"}),
     )
     .unwrap();
     let paypal_config = serde_json::from_value(json!({"base_url": f.url.as_str(), "client_id":"fixture", "client_secret":"fixture", "timeout_secs":3})).unwrap();

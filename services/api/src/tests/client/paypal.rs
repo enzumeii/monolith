@@ -429,7 +429,7 @@ fn create_payload() -> crate::models::paypal::CreateOrderRequest {
         "reference_id":"payment-uuid", "custom_id":"draft-correlation",
         "amount":{"currency_code":"USD","value":"12.50"}, "payee":{"merchant_id":"MERCHANT123"}
     }], "payment_source":{"paypal":{"experience_context":{
-        "return_url":"https://merchant.example/return", "cancel_url":"https://merchant.example/cancel"
+        "return_url":"https://merchant.example/return", "cancel_url":"https://merchant.example/cancel", "shipping_preference":"NO_SHIPPING"
     }}}})).unwrap()
 }
 
