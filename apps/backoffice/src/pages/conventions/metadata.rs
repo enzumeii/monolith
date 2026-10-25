@@ -260,6 +260,9 @@ pub fn MetadataFields(
                 }
             }
         }
+        if current.currency == "THB" && current.methods.contains(&ConventionPaymentMethod::Stripe) {
+            p { class: "hint", "Stripe requires a minimum payment total of THB 10.00 when the Stripe account settles in THB. Consider this when setting convention prices." }
+        }
         if unsupported_country { p { class: "error", "The saved country is unsupported. Choose an available country before saving metadata." } }
         if unsupported_currency { p { class: "error", "The saved currency is unsupported. You can edit metadata or disable preorders. Choose a supported currency before enabling or changing payment methods." } }
         div { class: "convention-description-layout",

@@ -513,8 +513,6 @@ fn request_error(error: &api::ApiError, fresh: bool) -> AttemptError {
     AttemptError {
         message: if expired {
             "This browser can no longer verify this checkout. Keep your payment receipt and contact the shop before paying again."
-        } else if error.status == 422 {
-            &error.message
         } else if rejected && fresh {
             "Payment could not be started. Review your confirmation email and current cart details before paying."
         } else if retryable {

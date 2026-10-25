@@ -947,26 +947,25 @@ mod mounted {
             started["__eval_messages"][0]["value"]["payload"] = Value::Null;
             let doc = TestDocument::new(vec![json!({"ok":true,"value":attempt}), started]);
             let inspected = doc.clone();
-            let ((), requests) = responses(&[(status, r#"{"error":"Stop"}"#)], async {
-                let (mut dom, _) = mounted(
-                    Screen::Route(format!(
-                        "/fair-a/checkout/return?checkout_id={}",
-                        attempt.operation_id
-                    )),
-                    cart(),
-                    doc,
-                );
-                let html = until(
-                    &mut dom,
-                    if status == 422 {
-                        "Stop"
-                    } else {
-                        "contact the shop"
-                    },
-                )
-                .await;
-                assert!(!html.contains("Check status"));
-            })
+            let ((), requests) = responses(
+                &[(
+                    status,
+                    r#"{"error":"Stripe requires a minimum payment of THB 10.00"}"#,
+                )],
+                async {
+                    let (mut dom, _) = mounted(
+                        Screen::Route(format!(
+                            "/fair-a/checkout/return?checkout_id={}",
+                            attempt.operation_id
+                        )),
+                        cart(),
+                        doc,
+                    );
+                    let html = until(&mut dom, "contact the shop").await;
+                    assert!(!html.contains("THB 10.00"));
+                    assert!(!html.contains("Check status"));
+                },
+            )
             .await;
             assert_eq!(requests.len(), 1);
             assert!(
@@ -1211,7 +1210,10 @@ mod mounted {
             ]);
             let inspected = doc.clone();
             let ((), requests) = responses(
-                &[(status, r#"{"error":"Checkout cannot proceed"}"#)],
+                &[(
+                    status,
+                    r#"{"error":"Stripe requires a minimum payment of THB 10.00"}"#,
+                )],
                 async {
                     let (mut dom, _) =
                         mounted(Screen::Checkout(cart(), Some(quote())), cart(), doc);
@@ -1220,12 +1222,11 @@ mod mounted {
                     click(&mut dom, "id", "checkout-card");
                     let expected = if status == 409 {
                         "Payment recovery could not continue"
-                    } else if status == 422 {
-                        "Checkout cannot proceed"
                     } else {
                         "Payment could not be started"
                     };
                     let html = until(&mut dom, expected).await;
+                    assert!(!html.contains("THB 10.00"));
                     assert!(!html.contains("Check existing payment"));
                     assert_eq!(html.contains("checkout-email"), status != 409);
                     assert!(!html.contains("Congratulations"));
@@ -1383,17 +1384,25 @@ mod mounted {
 }
 
 #[test]
-fn safe_minimum_validation_is_visible_without_releasing_an_uncertain_attempt() {
+fn provider_minimum_details_are_hidden_without_releasing_an_uncertain_attempt() {
     let error = api::ApiError::new(
         reqwest::StatusCode::UNPROCESSABLE_ENTITY,
-        "Card payments require a total of at least THB 10.00.",
+        "Stripe requires a minimum payment of THB 10.00",
     );
     let fresh = request_error(&error, true);
-    assert_eq!(fresh.message, error.message);
+    assert!(fresh.message.starts_with("Payment could not be started"));
+    assert!(!fresh.message.contains("Stripe"));
+    assert!(!fresh.message.contains("10.00"));
     assert_eq!(fresh.disposition, Some("rejected"));
     assert!(!fresh.retryable);
     let recovery = request_error(&error, false);
-    assert_eq!(recovery.message, error.message);
+    assert!(
+        recovery
+            .message
+            .starts_with("Payment recovery could not continue")
+    );
+    assert!(!recovery.message.contains("Stripe"));
+    assert!(!recovery.message.contains("10.00"));
     assert_eq!(recovery.disposition, None);
     assert!(!recovery.retryable);
 }

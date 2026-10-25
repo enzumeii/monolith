@@ -209,3 +209,38 @@ mod mounted {
         assert!(requests[6].contains(r#""logo_url":"conventions/event-two/key.png""#));
     }
 }
+
+#[test]
+fn stripe_thb_minimum_guidance_is_only_shown_for_selected_thb_stripe() {
+    fn app(props: (String, Vec<ConventionPaymentMethod>)) -> Element {
+        let draft = use_signal(|| Metadata {
+            currency: props.0,
+            methods: props.1,
+            ..Default::default()
+        });
+        rsx! { MetadataFields { draft, options: ConventionOptionsResponse::default(), editing: true } }
+    }
+    for (currency, methods, visible) in [
+        ("THB", vec![ConventionPaymentMethod::Stripe], true),
+        (
+            "THB",
+            vec![
+                ConventionPaymentMethod::Stripe,
+                ConventionPaymentMethod::Paypal,
+            ],
+            true,
+        ),
+        ("THB", vec![ConventionPaymentMethod::Paypal], false),
+        ("THB", vec![], false),
+        ("AUD", vec![ConventionPaymentMethod::Stripe], false),
+    ] {
+        let mut dom = VirtualDom::new_with_props(app, (currency.into(), methods));
+        dom.rebuild_in_place();
+        let html = dioxus_ssr::render(&dom);
+        assert_eq!(html.contains("THB 10.00"), visible, "{html}");
+        if visible {
+            assert!(html.contains("payment total"));
+            assert!(html.contains("settles in THB"));
+        }
+    }
+}

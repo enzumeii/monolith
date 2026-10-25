@@ -1091,3 +1091,13 @@ Sanitized provider readbacks, report output, source bindings and complete logs r
 | API focused evidence | Focused checkout and catalogue real-TCP regressions passed against owned dependencies during implementation. Final checkout refactoring passed 48 non-database native tests and all-target Clippy. The newest legacy rejection cases and combined final full API suite remain pending |
 | Repository tooling | Root checks passed 127 Node tests plus workflow, shell and Vercel validation. API setup helpers passed 36 tests; Postman lint passed 90 files with zero errors or warnings |
 | Draft publication limits | Published early at the user's request for review. Final combined API coverage, fresh web bundles, browser acceptance and real TEST/Sandbox redirects have not been completed for this follow-up. Earlier interrupted API coverage is not a passing result. No existing order, provider setting, payment, payout, release or deployment was changed |
+
+
+### Stripe minimum guidance presentation — 2026-10-26
+
+| Check | Evidence and limits |
+| --- | --- |
+| Customer checkout | Removed the raw 422-message presentation branch. Fresh rejections use existing customer wording and release only rejected attempts; recovery uses existing safe wording and retains ownership. The exact Stripe minimum text is absent in fresh/recovery mounted regressions |
+| Backoffice guidance | The shared create/edit metadata form shows THB 10.00 payment-total guidance only when THB and Stripe are selected, explicitly conditional on the Stripe account settling in THB. Rendered tests cover Stripe, PayPal, both, neither and another currency |
+| Validation | Both new regression tests failed before implementation. Full customer and backoffice native suites passed (117 and 189 unit tests respectively, plus existing backoffice startup integration). Independent source review found no actionable issue. Strict native/WASM checks passed for both apps, along with 32 customer JavaScript tests. Backend minimum enforcement and endpoint contracts are unchanged |
+| Limits | No real provider action or browser acceptance run. Hosted CI and deployment are separate from these local checks |
