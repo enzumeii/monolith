@@ -107,6 +107,7 @@ pub(crate) struct ExternalPaymentRecording<'a> {
     pub convention_slug: &'a str,
     pub identity: Option<correlation::Identity>,
     pub provider_resource_id: Option<&'a str>,
+    pub money_snapshots: Option<correlation::MoneySnapshots>,
 }
 impl<'a> ExternalPaymentRecording<'a> {
     pub(crate) fn from_checkout(
@@ -114,7 +115,9 @@ impl<'a> ExternalPaymentRecording<'a> {
     ) -> Result<Self, AppError> {
         let identity = match checkout.correlation_version {
             correlation::LEGACY_VERSION => None,
-            correlation::METADATA_VERSION => Some(correlation::Identity::from_checkout(checkout)?),
+            correlation::METADATA_VERSION | correlation::INDEPENDENT_VERSION => {
+                Some(correlation::Identity::from_checkout(checkout)?)
+            }
             _ => {
                 return Err(evidence_conflict(
                     "Unsupported checkout correlation version",
@@ -130,6 +133,16 @@ impl<'a> ExternalPaymentRecording<'a> {
                 .ok_or_else(|| evidence_conflict("Checkout convention binding is missing"))?,
             identity,
             provider_resource_id: checkout.provider_resource_id.as_deref(),
+            money_snapshots: if checkout.correlation_version == correlation::INDEPENDENT_VERSION {
+                Some(correlation::MoneySnapshots {
+                    payment: correlation::payment_money(checkout)?
+                        .ok_or_else(|| evidence_conflict("Checkout payment snapshot is missing"))?,
+                    shopify: correlation::shopify_money(checkout)?
+                        .ok_or_else(|| evidence_conflict("Checkout Shopify snapshot is missing"))?,
+                })
+            } else {
+                None
+            },
         })
     }
 }
@@ -146,18 +159,33 @@ pub(crate) async fn complete_external_paid_draft(
     draft_id
         .require_kind("DraftOrder")
         .map_err(|error| upstream(error))?;
-    let (money, references, attributes, method) = match verified_payment(payment).await? {
-        VerifiedPayment::Waiting(outcome) => return Ok(outcome),
-        VerifiedPayment::Paid {
-            money,
-            references,
-            attributes,
-            method,
-        } => (money, references, attributes, method),
-    };
+    let (payment_money, references, mut attributes, method) =
+        match verified_payment(payment).await? {
+            VerifiedPayment::Waiting(outcome) => return Ok(outcome),
+            VerifiedPayment::Paid {
+                money,
+                references,
+                attributes,
+                method,
+            } => (money, references, attributes, method),
+        };
     if let Some(identity) = &recording.identity {
         validate_final_payment_attributes(&attributes, identity, recording.provider_resource_id)?;
     }
+    let money = match &recording.money_snapshots {
+        Some(snapshots) => {
+            if payment_money.minor != snapshots.payment.minor
+                || payment_money.currency != snapshots.payment.currency
+            {
+                return Err(evidence_conflict(
+                    "Verified payment differs from accepted payment snapshot",
+                ));
+            }
+            attributes.extend(snapshots.attributes());
+            exact_money(snapshots.shopify.minor, &snapshots.shopify.currency)?
+        }
+        None => payment_money,
+    };
     let draft = read_draft(shopify, draft_id).await?;
     validate_money(&money, &draft.total_price_set.presentment_money)?;
     validate_external_binding(&recording, &draft.tags, &draft.custom_attributes)?;
@@ -225,6 +253,17 @@ pub(crate) fn validate_external_paid_order(
     method: &str,
 ) -> Result<(), AppError> {
     validate_external_sale(order, money, recording, method)?;
+    if let Some(expected) = &recording.money_snapshots
+        && (money.minor != expected.shopify.minor
+            || money.currency != expected.shopify.currency
+            || correlation::parse_money_snapshots(&order.custom_attributes)?.as_ref()
+                != Some(expected))
+    {
+        return Err(evidence_conflict(
+            "Shopify order money snapshots are incomplete or inconsistent",
+        ));
+    }
+
     if let Some(identity) = &recording.identity {
         validate_final_payment_attributes(
             &order.custom_attributes,
@@ -313,6 +352,9 @@ async fn save_verified_references(
             }
         }
         validate_payment_attributes(&order.custom_attributes, attributes, true)?;
+        if let Some(snapshots) = &recording.money_snapshots {
+            validate_snapshot_attributes(&order.custom_attributes, snapshots, true)?;
+        }
     } else {
         validate_references(&order.tags, references)?;
         let missing: Vec<&str> = references
@@ -428,6 +470,16 @@ fn validate_external_binding(
                 "Shopify order does not match the accepted convention",
             ));
         }
+        if let Some(expected) = &recording.money_snapshots {
+            if correlation::unique_value(attributes, correlation::VERSION_KEY)? != Some("3")
+                || correlation::parse_payment_money(attributes)?.as_ref() != Some(&expected.payment)
+            {
+                return Err(evidence_conflict("Shopify payment snapshot conflicts"));
+            }
+            validate_snapshot_attributes(attributes, expected, false)?;
+        } else if correlation::unique_value(attributes, correlation::VERSION_KEY)? != Some("2") {
+            return Err(evidence_conflict("Shopify checkout version conflicts"));
+        }
         return Ok(());
     }
     let slug: Vec<_> = attributes
@@ -456,11 +508,30 @@ fn validate_external_references(
     expected: &[CustomAttribute],
 ) -> Result<(), AppError> {
     if recording.identity.is_some() {
+        if let Some(snapshots) = &recording.money_snapshots {
+            validate_snapshot_attributes(attributes, snapshots, false)?;
+        }
         validate_payment_attributes(attributes, expected, false)
     } else {
         validate_references(tags, references)
     }
 }
+fn validate_snapshot_attributes(
+    attributes: &[CustomAttribute],
+    snapshots: &correlation::MoneySnapshots,
+    require_all: bool,
+) -> Result<(), AppError> {
+    for expected in snapshots.attributes() {
+        match correlation::unique_value(attributes, &expected.key)? {
+            Some(actual) if actual == expected.value => {}
+            None if !require_all => {}
+            None => return Err(reconciliation_required()),
+            _ => return Err(evidence_conflict("Shopify monetary metadata conflicts")),
+        }
+    }
+    Ok(())
+}
+
 fn payment_attribute(key: &str, value: &str) -> CustomAttribute {
     CustomAttribute {
         key: key.into(),

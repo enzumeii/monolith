@@ -4,7 +4,7 @@ use crate::{
     error::{AppError, upstream},
     models::{
         checkout::{Checkout, CompletionState, DraftState, PaymentRecordingState, PaymentState},
-        checkout_completion::ExactMoney,
+        checkout_completion::{ExactMoney, evidence_conflict},
         shopify::{
             CompletionDraft, CompletionDraftStatus, CreateDraftOrderInput, CustomAttribute,
             DraftOrderLineItemInput, Money, PageRequest, ShopifyId,
@@ -52,7 +52,7 @@ pub(super) async fn prepare(
     existing: Option<&Checkout>,
 ) -> Result<(Checkout, PreparedPurchase), AppError> {
     let completion_version = existing.map_or(2, |checkout| checkout.completion_version);
-    let correlation_version = existing.map_or(correlation::METADATA_VERSION, |checkout| {
+    let correlation_version = existing.map_or(correlation::INDEPENDENT_VERSION, |checkout| {
         checkout.correlation_version
     });
     let id = Uuid::parse_str(&request.operation_id)
@@ -63,23 +63,17 @@ pub(super) async fn prepare(
         .await?
         .ok_or_else(|| conflict("Convention is unavailable"))?;
     let provider = provider_name(request.provider);
-    if !convention.preorder_enabled
-        || !convention
-            .payment_methods
-            .iter()
-            .any(|method| method == provider)
-    {
-        return Err(conflict("Convention or payment method is unavailable"));
-    }
-    if request.expected_currency != convention.currency_code {
-        return Err(conflict("Convention currency changed; refresh the cart"));
-    }
+    validate_convention_purchase(&convention, request)?;
     let (account_id, environment) =
         provider_identity(settings, clients, request.provider, existing).await?;
     let selected = repositories::conventions::variants(pool, convention_id).await?;
     let (items, total) = prepare_items(request, &selected, &convention.currency_code, provider)?;
-    let slug = (completion_version == 2 || correlation_version == correlation::METADATA_VERSION)
-        .then(|| convention.slug.clone());
+    let slug = (completion_version == 2
+        || matches!(
+            correlation_version,
+            correlation::METADATA_VERSION | correlation::INDEPENDENT_VERSION
+        ))
+    .then(|| convention.slug.clone());
     let purchase = PreparedPurchase {
         email: request.email.clone(),
         note: request.note.clone(),
@@ -88,7 +82,10 @@ pub(super) async fn prepare(
             currency: convention.currency_code,
         },
         items,
-        tags: if correlation_version == correlation::METADATA_VERSION {
+        tags: if matches!(
+            correlation_version,
+            correlation::METADATA_VERSION | correlation::INDEPENDENT_VERSION
+        ) {
             purchase_tags(convention_id, &convention.name, id, slug.as_deref())
         } else {
             legacy_purchase_tags(convention_id, &convention.name, id, slug.as_deref())
@@ -141,15 +138,23 @@ pub(super) async fn reserve(
                         .map_err(|error| upstream(error))?,
                     quantity: i32::try_from(item.quantity)
                         .map_err(|_| conflict("Invalid quantity"))?,
-                    price_override: Some(Money {
-                        amount: amount(item.unit_price_minor, &purchase.money.currency)?,
-                        currency_code: purchase.money.currency.clone(),
-                    }),
+                    price_override: (checkout.correlation_version
+                        != correlation::INDEPENDENT_VERSION)
+                        .then(|| {
+                            Ok::<_, AppError>(Money {
+                                amount: amount(item.unit_price_minor, &purchase.money.currency)?,
+                                currency_code: purchase.money.currency.clone(),
+                            })
+                        })
+                        .transpose()?,
                 })
             })
             .collect::<Result<_, AppError>>()?,
         tags: purchase.tags.clone(),
-        custom_attributes: if checkout.correlation_version == correlation::METADATA_VERSION {
+        custom_attributes: if matches!(
+            checkout.correlation_version,
+            correlation::METADATA_VERSION | correlation::INDEPENDENT_VERSION
+        ) {
             correlation::identity_attributes(checkout)?
         } else {
             purchase
@@ -162,7 +167,9 @@ pub(super) async fn reserve(
                 .collect()
         },
         email: Some(purchase.email.clone()),
-        presentment_currency_code: Some(purchase.money.currency.clone()),
+        presentment_currency_code: (checkout.correlation_version
+            != correlation::INDEPENDENT_VERSION)
+            .then(|| purchase.money.currency.clone()),
         reserve_inventory_until: Some(deadline),
         session_token: Some(checkout.id.to_string()),
         ..Default::default()
@@ -172,10 +179,15 @@ pub(super) async fn reserve(
     super::save(pool, checkout, token).await?;
     let created = match clients.shopify.create_draft_order(&input).await {
         Ok(payload) if payload.user_errors.is_empty() => payload.draft_order,
-        Ok(_) => {
+        Ok(payload) => {
             checkout.draft_state = DraftState::Uncertain;
             super::save(pool, checkout, token).await?;
-            return Err(conflict("Shopify could not reserve this purchase").into());
+            return Err(upstream(crate::client::ClientError::new(
+                crate::client::ClientErrorKind::Mutation {
+                    errors: payload.user_errors,
+                },
+            ))
+            .into());
         }
         Err(error) => {
             checkout.draft_state = DraftState::Uncertain;
@@ -195,6 +207,7 @@ pub(super) async fn reserve(
     {
         return Err(conflict("Shopify reservation does not match the accepted purchase").into());
     }
+    pin_shopify_money(checkout, &draft)?;
     checkout.reservation_expires_at = draft.reserve_inventory_until;
     checkout.draft_state = DraftState::Reserved;
     super::save(pool, checkout, token).await
@@ -214,6 +227,7 @@ pub(super) async fn recover(
     if checkout.payment_state == PaymentState::NotStarted {
         validate_reservation(checkout, &draft)?;
         validate_payable(&draft)?;
+        pin_shopify_money(checkout, &draft)?;
         checkout.reservation_expires_at = draft.reserve_inventory_until;
     }
     checkout.draft_state = DraftState::Reserved;
@@ -243,6 +257,7 @@ pub(super) fn validate_purchase(
     draft: &CompletionDraft,
 ) -> Result<CheckoutMoney, AppError> {
     let money = draft_money(draft)?;
+    let evidence_money = purchase_evidence_money(checkout, draft, &money)?;
     let actual = reservation_lines(draft)?;
     let email = draft
         .email
@@ -251,7 +266,7 @@ pub(super) fn validate_purchase(
     if actual.is_empty()
         || bound_evidence_hash(
             email,
-            &money,
+            &evidence_money,
             &actual,
             if checkout.completion_version == 2 {
                 checkout.convention_slug.as_deref()
@@ -260,21 +275,40 @@ pub(super) fn validate_purchase(
             },
         )? != checkout.evidence_hash
         || !tags_match(checkout, &draft.tags)
-        || (checkout.correlation_version == correlation::METADATA_VERSION
-            && !correlation::identity_matches(checkout, &draft.custom_attributes))
+        || (matches!(
+            checkout.correlation_version,
+            correlation::METADATA_VERSION | correlation::INDEPENDENT_VERSION
+        ) && !correlation::identity_matches(checkout, &draft.custom_attributes))
         || (checkout.correlation_version == correlation::LEGACY_VERSION
             && checkout.completion_version == 2
             && !slug_matches(checkout, &draft.custom_attributes))
     {
-        return Err(crate::models::checkout_completion::evidence_conflict(
+        return Err(evidence_conflict(
             "Shopify draft no longer matches the accepted purchase",
         ));
     }
     Ok(money)
 }
 
+pub(super) fn payment_money(
+    checkout: &Checkout,
+    legacy: &CheckoutMoney,
+) -> Result<CheckoutMoney, AppError> {
+    if checkout.correlation_version == correlation::INDEPENDENT_VERSION {
+        correlation::shopify_money(checkout)?
+            .ok_or_else(|| evidence_conflict("Checkout Shopify snapshot is missing"))?;
+        correlation::payment_money(checkout)?
+            .ok_or_else(|| evidence_conflict("Checkout payment snapshot is missing"))
+    } else {
+        Ok(legacy.clone())
+    }
+}
+
 pub(super) fn tags_match(checkout: &Checkout, tags: &[String]) -> bool {
-    if checkout.correlation_version == correlation::METADATA_VERSION {
+    if matches!(
+        checkout.correlation_version,
+        correlation::METADATA_VERSION | correlation::INDEPENDENT_VERSION
+    ) {
         if correlation::Identity::from_checkout(checkout)
             .and_then(|identity| correlation::validate_legacy_identity(&identity, tags))
             .is_err()
@@ -412,6 +446,12 @@ fn purchase_record(
         completion_version: identity.completion_version,
         correlation_version: identity.correlation_version,
         convention_slug: purchase.slug.clone(),
+        payment_amount_minor: (identity.correlation_version == correlation::INDEPENDENT_VERSION)
+            .then_some(purchase.money.minor),
+        payment_currency: (identity.correlation_version == correlation::INDEPENDENT_VERSION)
+            .then(|| purchase.money.currency.clone()),
+        shopify_amount_minor: None,
+        shopify_currency: None,
         payment_recording_state: PaymentRecordingState::NotStarted,
         guest_secret_hash: guest_hash.to_vec(),
         owner_expires_at: now
@@ -494,11 +534,80 @@ fn bound_evidence_hash(
     }
 }
 
+fn validate_convention_purchase(
+    convention: &crate::models::conventions::Convention,
+    request: &CreateCheckoutRequest,
+) -> Result<(), AppError> {
+    let provider = provider_name(request.provider);
+    if !convention.preorder_enabled
+        || !convention
+            .payment_methods
+            .iter()
+            .any(|method| method == provider)
+    {
+        return Err(conflict("Convention or payment method is unavailable"));
+    }
+    if request.expected_currency != convention.currency_code {
+        return Err(conflict("Convention currency changed; refresh the cart"));
+    }
+    Ok(())
+}
+
+fn purchase_evidence_money(
+    checkout: &Checkout,
+    draft: &CompletionDraft,
+    money: &CheckoutMoney,
+) -> Result<CheckoutMoney, AppError> {
+    if checkout.correlation_version == correlation::INDEPENDENT_VERSION {
+        let payment = correlation::payment_money(checkout)?
+            .ok_or_else(|| evidence_conflict("Checkout payment snapshot is missing"))?;
+        if let Some(expected) = correlation::shopify_money(checkout)? {
+            if expected != *money {
+                return Err(evidence_conflict("Shopify purchase money changed"));
+            }
+        } else if checkout.payment_state != PaymentState::NotStarted
+            || !matches!(
+                checkout.draft_state,
+                DraftState::Creating | DraftState::Uncertain
+            )
+        {
+            return Err(evidence_conflict("Checkout Shopify snapshot is missing"));
+        }
+        if draft.custom_attributes.iter().any(|attr| {
+            matches!(
+                attr.key.as_str(),
+                correlation::SHOPIFY_AMOUNT_KEY | correlation::SHOPIFY_CURRENCY_KEY
+            )
+        }) && correlation::parse_money_snapshots(&draft.custom_attributes)?
+            .is_none_or(|snapshots| snapshots.shopify != *money)
+        {
+            return Err(evidence_conflict(
+                "Shopify draft monetary metadata conflicts",
+            ));
+        }
+        Ok(payment)
+    } else {
+        Ok(money.clone())
+    }
+}
+
+fn pin_shopify_money(checkout: &mut Checkout, draft: &CompletionDraft) -> Result<(), AppError> {
+    if checkout.correlation_version == correlation::INDEPENDENT_VERSION {
+        let observed = validate_purchase(checkout, draft)?;
+        checkout.shopify_amount_minor = Some(observed.minor);
+        checkout.shopify_currency = Some(observed.currency);
+    }
+    Ok(())
+}
+
 async fn find_reserved_draft(
     clients: &CheckoutClients<'_>,
     checkout: &Checkout,
 ) -> Result<String, AppError> {
-    let metadata = checkout.correlation_version == correlation::METADATA_VERSION;
+    let metadata = matches!(
+        checkout.correlation_version,
+        correlation::METADATA_VERSION | correlation::INDEPENDENT_VERSION
+    );
     let expected_tag = if metadata {
         None
     } else {

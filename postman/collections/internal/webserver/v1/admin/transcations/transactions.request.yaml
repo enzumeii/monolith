@@ -8,6 +8,10 @@ description: |
   Each provider array is sorted oldest-first by po_date then transaction_date; unknown po_date sorts last.
   Items are sorted oldest-first by transaction_date. All comparisons use instants across offsets.
   Stripe uses inclusive payout bounds and THB settlement amounts; currency is THB.
+  Checkout metadata version3 links exact gateway references with independent payment and Shopify money snapshots.
+  Gateway source amounts must match payment metadata; paid Shopify order and single manual sale must match Shopify metadata.
+  Provider report money and Shopify item currencies retain their own semantics; no FX conversion between them is fabricated.
+  Legacy version1/2 and native payment matching retain existing rules.
   PayPal uses inclusive transaction-date bounds and native currency, with <=31-day paginated windows.
   PayPal exchange_rate and po_date are null because this response does not identify FX or bank settlement.
   PayPal shipping_amount takes precedence over currency-compatible Shopify shipping; unknown shipping is null.

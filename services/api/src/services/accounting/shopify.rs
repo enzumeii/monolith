@@ -2,8 +2,11 @@ use super::{Payment, date, money, protocol, quantity};
 use crate::{
     client::shopify::ShopifyClient,
     error::{AppError, upstream},
-    models::accounting::AccountingDateRange,
-    models::shopify::{CompletionFinancialStatus, Money, Order, OrderTransaction, PageRequest},
+    models::{
+        accounting::AccountingDateRange,
+        checkout_completion::{ExactMoney, currency_precision},
+        shopify::{CompletionFinancialStatus, Money, Order, OrderTransaction, PageRequest},
+    },
     services, transformers,
 };
 use domain::dto::accounting::AccountingTransactions;
@@ -91,6 +94,7 @@ fn native_index(orders: &[Order]) -> Result<OrderIndex, AppError> {
     let mut identities = HashMap::new();
     for (position, order) in orders.iter().enumerate() {
         let metadata = metadata(order)?;
+        let independent_money = metadata.as_ref().is_some_and(|proof| proof.money.is_some());
         let identity = metadata
             .as_ref()
             .map(|proof| proof.identity.checkout_id)
@@ -122,6 +126,9 @@ fn native_index(orders: &[Order]) -> Result<OrderIndex, AppError> {
                         .push(position);
                 }
             }
+        }
+        if independent_money {
+            continue;
         }
         for tx in order.transactions.iter().chain(
             order
@@ -187,6 +194,7 @@ fn matching_positions(
     let index = native_index(orders)?;
     let mut claims: HashMap<(usize, usize), HashSet<(u8, &str)>> = HashMap::new();
     let mut external_claims = HashSet::new();
+    let mut independent_claims = HashSet::new();
     let mut positions = Vec::with_capacity(payments.len());
     for payment in payments {
         let position = matching_position(orders, &index, payment)?;
@@ -195,6 +203,12 @@ fn matching_positions(
         {
             let order = &orders[position];
             let external = external_sale_transaction(order, payment)?;
+            if external.is_some()
+                && metadata(order)?.is_some_and(|proof| proof.money.is_some())
+                && !independent_claims.insert(position)
+            {
+                return Err(protocol("duplicate Shopify checkout accounting claim"));
+            }
             for (transaction, tx) in order.transactions.iter().enumerate() {
                 if external != Some(transaction) && !matches(tx, payment)? {
                     continue;
@@ -242,46 +256,51 @@ fn external_sale_transaction(order: &Order, payment: &Payment) -> Result<Option<
         return Ok(None);
     }
     let metadata = metadata(order)?;
-    let gateway = if let Some(proof) = metadata.as_ref() {
-        if proof.gateway != gateway_key(payment.transaction.gateway)
-            || proof.reference != Some(payment.transaction.payment_reference.as_str())
-            || order.transactions.len() >= 100
-            || order
-                .transactions
-                .iter()
-                .any(|tx| !tx.kind.eq_ignore_ascii_case("sale"))
-        {
-            return Ok(None);
-        }
-        "manual"
-    } else {
-        if !correlation(&order.tags, "co:") || !correlation(&order.tags, "cv:") {
-            return Ok(None);
-        }
-        let Ok(tag) = external_reference(payment) else {
-            return Ok(None);
-        };
-        if order.tags.iter().filter(|value| **value == tag).count() != 1 {
-            return Ok(None);
-        }
-        match payment.transaction.gateway {
-            AccountingGateway::Stripe => "Stripe Card Payments",
-            AccountingGateway::Paypal => "paypal",
-        }
+    let Some(gateway) = external_gateway(order, payment, metadata.as_ref()) else {
+        return Ok(None);
     };
+    let expected = metadata.as_ref().and_then(|proof| proof.money.as_ref());
+    let shopify_money = if let Some(expected) = expected {
+        if source.minor != expected.payment.minor || source.currency != expected.payment.currency {
+            return Ok(None);
+        }
+        let precision = currency_precision(&expected.shopify.currency)
+            .ok_or_else(|| protocol("invalid Shopify checkout accounting currency"))?;
+        Some(
+            ExactMoney::new(
+                expected.shopify.minor,
+                &expected.shopify.currency,
+                precision,
+            )
+            .map_err(|error| {
+                protocol("invalid Shopify checkout accounting money").with_source(error)
+            })?,
+        )
+    } else {
+        None
+    };
+    let expected_order = shopify_money.as_ref().unwrap_or(source);
     let Some(total) = order.current_total_price_set.as_ref() else {
         return Ok(None);
     };
     let Some(outstanding) = order.total_outstanding_set.as_ref() else {
         return Ok(None);
     };
+    if shopify_money.is_some()
+        && (!exact_amount(&total.shop_money, expected_order, expected_order.minor)
+            || !exact_amount(&outstanding.shop_money, expected_order, 0))
+    {
+        return Ok(None);
+    }
     let Some(total) = total.presentment_money.as_ref() else {
         return Ok(None);
     };
     let Some(outstanding) = outstanding.presentment_money.as_ref() else {
         return Ok(None);
     };
-    if !exact_amount(total, source, source.minor) || !exact_amount(outstanding, source, 0) {
+    if !exact_amount(total, expected_order, expected_order.minor)
+        || !exact_amount(outstanding, expected_order, 0)
+    {
         return Ok(None);
     }
     let mut successful = order
@@ -302,7 +321,13 @@ fn external_sale_transaction(order: &Order, payment: &Payment) -> Result<Option<
             .amount_set
             .presentment_money
             .as_ref()
-            .is_some_and(|amount| exact_amount(amount, source, source.minor))
+            .is_some_and(|amount| exact_amount(amount, expected_order, expected_order.minor))
+        || shopify_money.is_some()
+            && !exact_amount(
+                &tx.amount_set.shop_money,
+                expected_order,
+                expected_order.minor,
+            )
         || payment.transaction.gateway == AccountingGateway::Paypal
             && reference(tx)?.is_some_and(|(gateway, reference)| {
                 gateway != gateway_key(payment.transaction.gateway)
@@ -314,10 +339,42 @@ fn external_sale_transaction(order: &Order, payment: &Payment) -> Result<Option<
     Ok(Some(position))
 }
 
+fn external_gateway(
+    order: &Order,
+    payment: &Payment,
+    metadata: Option<&Metadata<'_>>,
+) -> Option<&'static str> {
+    if let Some(proof) = metadata {
+        if proof.gateway != gateway_key(payment.transaction.gateway)
+            || proof.reference != Some(payment.transaction.payment_reference.as_str())
+            || order.transactions.len() >= 100
+            || order
+                .transactions
+                .iter()
+                .any(|tx| !tx.kind.eq_ignore_ascii_case("sale"))
+        {
+            return None;
+        }
+        return Some("manual");
+    }
+    if !correlation(&order.tags, "co:") || !correlation(&order.tags, "cv:") {
+        return None;
+    }
+    let tag = external_reference(payment).ok()?;
+    if order.tags.iter().filter(|value| **value == tag).count() != 1 {
+        return None;
+    }
+    Some(match payment.transaction.gateway {
+        AccountingGateway::Stripe => "Stripe Card Payments",
+        AccountingGateway::Paypal => "paypal",
+    })
+}
+
 struct Metadata<'a> {
     identity: services::checkout::correlation::Identity,
     gateway: u8,
     reference: Option<&'a str>,
+    money: Option<services::checkout::correlation::MoneySnapshots>,
 }
 
 fn metadata(order: &Order) -> Result<Option<Metadata<'_>>, AppError> {
@@ -393,10 +450,15 @@ fn metadata(order: &Order) -> Result<Option<Metadata<'_>>, AppError> {
     } else {
         None
     };
+    let money = services::checkout::correlation::parse_money_snapshots(&order.custom_attributes)
+        .map_err(|error| {
+            protocol("invalid Shopify checkout accounting money").with_source(error)
+        })?;
     Ok(Some(Metadata {
         identity,
         gateway,
         reference,
+        money,
     }))
 }
 
@@ -547,7 +609,11 @@ fn apply(
     {
         payment.transaction.shipping_fee
     } else if has_shipping_allocation {
-        shipping_total(&shipping_lines, payment)?
+        shipping_total(
+            &shipping_lines,
+            payment,
+            metadata(order)?.is_some_and(|proof| proof.money.is_some()),
+        )?
     } else if payment.transaction.gateway == AccountingGateway::Stripe {
         Some(0.0)
     } else {
@@ -674,10 +740,18 @@ fn sale_details(order: &Order, payment: &Payment) -> Result<SaleAllocation, AppE
     }
 }
 
-fn shipping_total(lines: &[&Money], payment: &Payment) -> Result<Option<f64>, AppError> {
+fn shipping_total(
+    lines: &[&Money],
+    payment: &Payment,
+    independent: bool,
+) -> Result<Option<f64>, AppError> {
     let mut total = 0.0;
     for line in lines {
-        let value = if payment.transaction.gateway == AccountingGateway::Paypal {
+        let value = if independent && money(&line.amount)? == 0.0 {
+            0.0
+        } else if independent && !line.currency_code.eq_ignore_ascii_case(&payment.currency) {
+            return Ok(None);
+        } else if payment.transaction.gateway == AccountingGateway::Paypal {
             if !line
                 .currency_code
                 .eq_ignore_ascii_case(&payment.transaction.currency)

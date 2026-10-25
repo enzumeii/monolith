@@ -15,6 +15,7 @@ async fn both_gateways_complete_without_browser_or_webhook_with_reports_disabled
     let fixture = common::fixture().await;
     for provider in ["stripe", "paypal"] {
         let upstream = Providers::start().await;
+        upstream.shopify_money("12.00", "AUD");
         let client = configured(&upstream, ProviderConfig::default()).await;
         let input = purchase(&fixture, provider).await;
         accepted(&client, &input).await;
@@ -28,7 +29,7 @@ async fn both_gateways_complete_without_browser_or_webhook_with_reports_disabled
         assert_eq!(completed["completion_state"], "completed", "{completed}");
         assert_eq!(completed["payment_state"], "paid");
         assert_eq!(completed["completion_version"], 2);
-        assert_eq!(completed["correlation_version"], 2);
+        assert_eq!(completed["correlation_version"], 3);
         assert_eq!(upstream.count("EditOrderTags"), 0);
         assert_eq!(upstream.count("UpdateOrderCustomAttributes"), 1);
         assert_eq!(completed["payment_recording_state"], "recorded");
@@ -107,6 +108,7 @@ async fn vercel_waits_for_authenticated_get_and_pending_observation_resets_failu
 async fn vps_recovery_runs_with_reports_disabled_and_shutdown_stops_owned_work() {
     let fixture = common::fixture().await;
     let upstream = Providers::start().await;
+    upstream.shopify_money("12.00", "USD");
     let creator = configured(&upstream, ProviderConfig::default()).await;
     let input = purchase(&fixture, "paypal").await;
     accepted(&creator, &input).await;

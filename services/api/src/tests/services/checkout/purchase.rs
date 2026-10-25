@@ -589,3 +589,36 @@ fn customer_fulfillment_notes_do_not_change_financial_purchase_evidence() {
         purchase.note = None;
     }
 }
+
+#[test]
+fn independent_purchase_keeps_payment_evidence_and_pins_shopify_catalogue_money() {
+    let mut row = metadata_checkout();
+    row.correlation_version = correlation::INDEPENDENT_VERSION;
+    row.payment_amount_minor = Some(4000);
+    row.payment_currency = Some("SGD".into());
+    row.payment_state = PaymentState::NotStarted;
+    row.draft_state = DraftState::Uncertain;
+    let mut value = metadata_draft(&row);
+    value["totalPriceSet"]["presentmentMoney"] = json!({"amount":"7.00", "currencyCode":"AUD"});
+    let parsed: CompletionDraft = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(validate_purchase(&row, &parsed).unwrap().currency, "AUD");
+    assert!(payment_money(&row, &draft_money(&parsed).unwrap()).is_err());
+    pin_shopify_money(&mut row, &parsed).unwrap();
+    assert_eq!(row.shopify_amount_minor, Some(700));
+    assert_eq!(
+        payment_money(&row, &draft_money(&parsed).unwrap())
+            .unwrap()
+            .currency,
+        "SGD"
+    );
+    for money in [
+        json!({"amount":"7.01","currencyCode":"AUD"}),
+        json!({"amount":"7.00","currencyCode":"USD"}),
+    ] {
+        let mut changed = value.clone();
+        changed["totalPriceSet"]["presentmentMoney"] = money;
+        assert!(validate_purchase(&row, &serde_json::from_value(changed).unwrap()).is_err());
+    }
+    row.payment_amount_minor = Some(4001);
+    assert!(validate_purchase(&row, &parsed).is_err());
+}

@@ -8,10 +8,14 @@ description: |
   supply an optional line-item priceOverride with amount and currencyCode.
   Optional note is native plain-text Shopify draft/order fulfillment text.
   Contact/address, tags and customAttributes are caller supplied. New guest
-  checkout metadata2 emits only the convention slug tag (literal through 40
+  checkout metadata3 emits only the convention slug tag (literal through 40
   characters; first 40 for a longer valid slug). The five singleton identity
   attributes below bind the canonical checkout/convention UUIDs, exact full slug,
-  correlation version 2 and selected provider. Legacy persisted attempts retain
+  correlation version 3 and selected provider. Payment minor units/currency are
+  frozen independently. Shopify chooses its own catalogue prices/current currency;
+  do not pass convention priceOverride or presentmentCurrencyCode. Shopify money
+  is pinned after reserved-draft readback and added to the final order metadata.
+  Legacy persisted versions1/2 retain
   their original tag contract. This runnable example uses synthetic identity and
   a short slug; replace all values consistently for an owned test checkout.
   Verified provider payment references are added later, never invented at create.
@@ -72,7 +76,7 @@ variables: |-
       "customAttributes": [
         {
           "key": "checkout_correlation_version",
-          "value": "2"
+          "value": "3"
         },
         {
           "key": "checkout_id",
@@ -89,9 +93,10 @@ variables: |-
         {
           "key": "payment_provider",
           "value": "stripe"
-        }
+        },
+        {"key": "payment_amount_minor", "value": "1000"},
+        {"key": "payment_currency", "value": "THB"}
       ],
-      "presentmentCurrencyCode": "THB",
       "reserveInventoryUntil": "2099-01-01T00:00:00Z",
       "sessionToken": "synthetic-session-token-42"
     }

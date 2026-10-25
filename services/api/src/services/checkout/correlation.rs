@@ -2,10 +2,16 @@ use crate::{
     error::AppError,
     models::{checkout::Checkout, shopify::CustomAttribute},
 };
+use domain::dto::checkout::CheckoutMoney;
 use uuid::Uuid;
 
 pub(crate) const LEGACY_VERSION: i16 = 1;
 pub(crate) const METADATA_VERSION: i16 = 2;
+pub(crate) const INDEPENDENT_VERSION: i16 = 3;
+pub(crate) const PAYMENT_AMOUNT_KEY: &str = "payment_amount_minor";
+pub(crate) const PAYMENT_CURRENCY_KEY: &str = "payment_currency";
+pub(crate) const SHOPIFY_AMOUNT_KEY: &str = "shopify_amount_minor";
+pub(crate) const SHOPIFY_CURRENCY_KEY: &str = "shopify_currency";
 pub(crate) const VERSION_KEY: &str = "checkout_correlation_version";
 pub(crate) const CHECKOUT_KEY: &str = "checkout_id";
 pub(crate) const CONVENTION_KEY: &str = "convention_id";
@@ -16,6 +22,38 @@ pub(crate) const STRIPE_INTENT_KEY: &str = "stripe_payment_intent_id";
 pub(crate) const STRIPE_CHARGE_KEY: &str = "stripe_charge_id";
 pub(crate) const PAYPAL_ORDER_KEY: &str = "paypal_order_id";
 pub(crate) const PAYPAL_CAPTURE_KEY: &str = "paypal_capture_id";
+
+const MONEY_KEYS: [&str; 4] = [
+    PAYMENT_AMOUNT_KEY,
+    PAYMENT_CURRENCY_KEY,
+    SHOPIFY_AMOUNT_KEY,
+    SHOPIFY_CURRENCY_KEY,
+];
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct MoneySnapshots {
+    pub payment: CheckoutMoney,
+    pub shopify: CheckoutMoney,
+}
+
+impl MoneySnapshots {
+    pub(crate) fn attributes(&self) -> Vec<CustomAttribute> {
+        let mut attributes = Vec::with_capacity(4);
+        append_money(
+            &mut attributes,
+            PAYMENT_AMOUNT_KEY,
+            PAYMENT_CURRENCY_KEY,
+            &self.payment,
+        );
+        append_money(
+            &mut attributes,
+            SHOPIFY_AMOUNT_KEY,
+            SHOPIFY_CURRENCY_KEY,
+            &self.shopify,
+        );
+        attributes
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Identity {
@@ -55,12 +93,45 @@ impl Identity {
 }
 
 pub(crate) fn identity_attributes(checkout: &Checkout) -> Result<Vec<CustomAttribute>, AppError> {
-    Ok(Identity::from_checkout(checkout)?.attributes())
+    if !matches!(
+        checkout.correlation_version,
+        METADATA_VERSION | INDEPENDENT_VERSION
+    ) {
+        return Err(invalid());
+    }
+    let mut attributes = Identity::from_checkout(checkout)?.attributes();
+    attributes[0].value = checkout.correlation_version.to_string();
+    if checkout.correlation_version == INDEPENDENT_VERSION {
+        let payment = payment_money(checkout)?.ok_or_else(invalid)?;
+        append_money(
+            &mut attributes,
+            PAYMENT_AMOUNT_KEY,
+            PAYMENT_CURRENCY_KEY,
+            &payment,
+        );
+        if let Some(shopify) = shopify_money(checkout)? {
+            append_money(
+                &mut attributes,
+                SHOPIFY_AMOUNT_KEY,
+                SHOPIFY_CURRENCY_KEY,
+                &shopify,
+            );
+        }
+    } else if payment_money(checkout)?.is_some() || shopify_money(checkout)?.is_some() {
+        return Err(invalid());
+    }
+    Ok(attributes)
 }
 
 pub(crate) fn identity_matches(checkout: &Checkout, attributes: &[CustomAttribute]) -> bool {
     Identity::from_checkout(checkout).is_ok_and(|expected| {
-        parse_identity(attributes).is_ok_and(|actual| actual.as_ref() == Some(&expected))
+        unique_value(attributes, VERSION_KEY).ok().flatten()
+            == Some(checkout.correlation_version.to_string().as_str())
+            && parse_identity(attributes).is_ok_and(|actual| actual.as_ref() == Some(&expected))
+            && (checkout.correlation_version != INDEPENDENT_VERSION
+                || parse_payment_money(attributes).is_ok_and(|actual| {
+                    payment_money(checkout).is_ok_and(|expected| actual == expected)
+                }))
     })
 }
 
@@ -93,6 +164,10 @@ pub(crate) fn parse_identity(attributes: &[CustomAttribute]) -> Result<Option<Id
         STRIPE_CHARGE_KEY,
         PAYPAL_ORDER_KEY,
         PAYPAL_CAPTURE_KEY,
+        PAYMENT_AMOUNT_KEY,
+        PAYMENT_CURRENCY_KEY,
+        SHOPIFY_AMOUNT_KEY,
+        SHOPIFY_CURRENCY_KEY,
     ];
     for key in owned {
         unique_value(attributes, key)?;
@@ -103,8 +178,13 @@ pub(crate) fn parse_identity(attributes: &[CustomAttribute]) -> Result<Option<Id
     {
         return Ok(None);
     }
-    if unique_value(attributes, VERSION_KEY)? != Some("2") {
-        return Err(invalid());
+    match unique_value(attributes, VERSION_KEY)? {
+        Some("2") => reject_money_attributes(attributes)?,
+        Some("3") => {
+            parse_payment_money(attributes)?.ok_or_else(invalid)?;
+            parse_optional_money(attributes, SHOPIFY_AMOUNT_KEY, SHOPIFY_CURRENCY_KEY)?;
+        }
+        _ => return Err(invalid()),
     }
     let required = |key| unique_value(attributes, key)?.ok_or_else(invalid);
     let identity = Identity {
@@ -138,6 +218,47 @@ pub(crate) fn parse_identity(attributes: &[CustomAttribute]) -> Result<Option<Id
     Ok(Some(identity))
 }
 
+pub(crate) fn payment_money(checkout: &Checkout) -> Result<Option<CheckoutMoney>, AppError> {
+    snapshot_money(
+        checkout.payment_amount_minor,
+        checkout.payment_currency.as_deref(),
+    )
+}
+
+pub(crate) fn shopify_money(checkout: &Checkout) -> Result<Option<CheckoutMoney>, AppError> {
+    snapshot_money(
+        checkout.shopify_amount_minor,
+        checkout.shopify_currency.as_deref(),
+    )
+}
+
+pub(crate) fn parse_payment_money(
+    attributes: &[CustomAttribute],
+) -> Result<Option<CheckoutMoney>, AppError> {
+    match unique_value(attributes, VERSION_KEY)? {
+        Some("3") => parse_optional_money(attributes, PAYMENT_AMOUNT_KEY, PAYMENT_CURRENCY_KEY)?
+            .map(Some)
+            .ok_or_else(invalid),
+        Some("2") | None => {
+            reject_money_attributes(attributes)?;
+            Ok(None)
+        }
+        _ => Err(invalid()),
+    }
+}
+
+pub(crate) fn parse_money_snapshots(
+    attributes: &[CustomAttribute],
+) -> Result<Option<MoneySnapshots>, AppError> {
+    parse_identity(attributes)?;
+    let Some(payment) = parse_payment_money(attributes)? else {
+        return Ok(None);
+    };
+    let shopify = parse_optional_money(attributes, SHOPIFY_AMOUNT_KEY, SHOPIFY_CURRENCY_KEY)?
+        .ok_or_else(invalid)?;
+    Ok(Some(MoneySnapshots { payment, shopify }))
+}
+
 pub(crate) fn validate_legacy_identity(
     identity: &Identity,
     tags: &[String],
@@ -150,6 +271,72 @@ pub(crate) fn validate_legacy_identity(
         if let Some(value) = values.next()
             && (values.next().is_some() || canonical_uuid(value)? != expected)
         {
+            return Err(invalid());
+        }
+    }
+    Ok(())
+}
+
+fn snapshot_money(
+    minor: Option<i64>,
+    currency: Option<&str>,
+) -> Result<Option<CheckoutMoney>, AppError> {
+    match (minor, currency) {
+        (None, None) => Ok(None),
+        (Some(minor), Some(currency)) => {
+            let precision = crate::models::checkout_completion::currency_precision(currency)
+                .ok_or_else(invalid)?;
+            crate::models::checkout_completion::ExactMoney::new(minor, currency, precision)
+                .map_err(|_| invalid())?;
+            Ok(Some(CheckoutMoney {
+                minor,
+                currency: currency.into(),
+            }))
+        }
+        _ => Err(invalid()),
+    }
+}
+
+fn parse_optional_money(
+    attributes: &[CustomAttribute],
+    amount_key: &str,
+    currency_key: &str,
+) -> Result<Option<CheckoutMoney>, AppError> {
+    let amount = unique_value(attributes, amount_key)?;
+    let currency = unique_value(attributes, currency_key)?;
+    let minor = amount
+        .map(|value| {
+            let minor = value.parse::<i64>().map_err(|_| invalid())?;
+            if minor.to_string() != value {
+                return Err(invalid());
+            }
+            Ok(minor)
+        })
+        .transpose()?;
+    snapshot_money(minor, currency)
+}
+
+fn append_money(
+    attributes: &mut Vec<CustomAttribute>,
+    amount_key: &str,
+    currency_key: &str,
+    money: &CheckoutMoney,
+) {
+    attributes.extend([
+        CustomAttribute {
+            key: amount_key.into(),
+            value: money.minor.to_string(),
+        },
+        CustomAttribute {
+            key: currency_key.into(),
+            value: money.currency.clone(),
+        },
+    ]);
+}
+
+fn reject_money_attributes(attributes: &[CustomAttribute]) -> Result<(), AppError> {
+    for key in MONEY_KEYS {
+        if unique_value(attributes, key)?.is_some() {
             return Err(invalid());
         }
     }

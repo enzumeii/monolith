@@ -2,7 +2,7 @@
 
 use crate::common::checkout::{
     CHECKOUT, OTHER_SECRET, SECRET, accepted, configured, providers::Providers, purchase,
-    purchase_with_slug, request, verify,
+    purchase_in_currency, purchase_with_slug, request, verify,
 };
 use crate::common::{TestFixture, body_json, fixture};
 use axum::{body::Body, http::Request};
@@ -110,11 +110,8 @@ async fn checkout_reserves_authoritative_draft_and_retries_without_new_payment_f
         let draft_input = &before[create_index]["body"]["variables"]["input"];
         assert_eq!(draft_input["email"], "buyer@example.test");
         assert_eq!(draft_input["lineItems"][0]["quantity"], 2);
-        assert_eq!(
-            draft_input["lineItems"][0]["priceOverride"]["amount"],
-            "20.00"
-        );
-        assert_eq!(draft_input["presentmentCurrencyCode"], "SGD");
+        assert!(draft_input["lineItems"][0].get("priceOverride").is_none());
+        assert!(draft_input.get("presentmentCurrencyCode").is_none());
         upstream.assert_navigation_and_private_data(id, SECRET);
         let response = client.send(verify(id, Some(SECRET))).await.unwrap();
         assert_eq!(response.status(), 200);
@@ -496,13 +493,7 @@ async fn checkout_paid_shopify_failure_preserves_payment_and_retries_same_order(
 #[tokio::test]
 async fn checkout_inventory_and_exact_reservation_failures_stop_before_payment() {
     let fixture = fixture().await;
-    for case in [
-        "last_unit",
-        "untracked",
-        "continue_selling",
-        "no_hold",
-        "total_mismatch",
-    ] {
+    for case in ["last_unit", "untracked", "continue_selling", "no_hold"] {
         let upstream = Providers::start().await;
         let client = configured(&upstream).await;
         let input = purchase(&fixture, "stripe").await;
@@ -511,7 +502,7 @@ async fn checkout_inventory_and_exact_reservation_failures_stop_before_payment()
             "untracked" => upstream.inventory(10, false, "DENY"),
             "continue_selling" => upstream.inventory(10, true, "CONTINUE"),
             "no_hold" => upstream.reservation(false, true),
-            _ => upstream.reservation(true, false),
+            _ => unreachable!(),
         }
         let response = client
             .send(request(CHECKOUT, Some(SECRET), &input))
@@ -526,9 +517,9 @@ async fn checkout_inventory_and_exact_reservation_failures_stop_before_payment()
         assert_eq!(upstream.payment_creates(), 0);
         assert_eq!(
             upstream.count("CreateDraftOrder"),
-            usize::from(matches!(case, "no_hold" | "total_mismatch"))
+            usize::from(case == "no_hold")
         );
-        if matches!(case, "no_hold" | "total_mismatch") {
+        if case == "no_hold" {
             let response = client
                 .send(request(CHECKOUT, Some(SECRET), &input))
                 .await
@@ -1058,6 +1049,7 @@ async fn checkout_lost_draft_and_provider_mutation_responses_preserve_operation_
         ("paypal", "/v2/checkout/orders"),
     ] {
         let upstream = Providers::start().await;
+        upstream.shopify_money("12.00", "AUD");
         let client = configured(&upstream).await;
         let input = purchase(&fixture, provider).await;
         upstream.fault(operation, "lost");
@@ -1101,6 +1093,7 @@ async fn checkout_lost_capture_and_completion_responses_reconcile_without_repeat
     let fixture = fixture().await;
     for operation in ["PaypalCaptureOrder", "CompleteCheckoutDraft"] {
         let upstream = Providers::start().await;
+        upstream.shopify_money("12.00", "AUD");
         let client = configured(&upstream).await;
         let input = purchase(&fixture, "paypal").await;
         accepted(&client, &input).await;
@@ -1263,7 +1256,7 @@ WHERE id = $1",
         second_response.unwrap().status().as_u16(),
     ];
     statuses.sort_unstable();
-    assert_eq!(statuses, [200, 409]);
+    assert_eq!(statuses, [200, 502]);
     assert_eq!(upstream.count("CatalogueProducts"), 2);
     assert_eq!(upstream.count("CreateDraftOrder"), 2);
     assert_eq!(upstream.payment_creates(), 1);
@@ -1540,6 +1533,7 @@ async fn checkout_gateway_fingerprint_prevents_changed_recovery_request() {
     let fixture = fixture().await;
     for provider in ["stripe", "paypal"] {
         let upstream = Providers::start().await;
+        upstream.shopify_money("12.00", "AUD");
         let client = configured(&upstream).await;
         let input = purchase(&fixture, provider).await;
         let id = input["operation_id"].as_str().unwrap();
@@ -2210,7 +2204,7 @@ async fn checkout_records_named_external_payment_and_preserves_full_convention_s
             let draft = &created["body"]["variables"]["input"];
             let attributes = draft["customAttributes"].as_array().unwrap();
             for (key, value) in [
-                ("checkout_correlation_version", "2"),
+                ("checkout_correlation_version", "3"),
                 ("checkout_id", checkout),
                 ("convention_id", input["convention_id"].as_str().unwrap()),
                 ("convention_slug", slug.as_str()),
@@ -2337,6 +2331,10 @@ async fn untouched_legacy_checkout_replays_original_preparation_and_completes_on
              SET completion_version = 1,
                  correlation_version = 1,
                  convention_slug = NULL,
+                 payment_amount_minor = NULL,
+                 payment_currency = NULL,
+                 shopify_amount_minor = NULL,
+                 shopify_currency = NULL,
                  evidence_hash = $2,
                  required_tag_hashes = $3
              WHERE id = $1",
@@ -2734,4 +2732,184 @@ async fn checkout_stripe_webhook_account_dependency_failure_does_not_advance_pay
         assert_eq!(upstream.count("/stripe/account"), 1);
         assert_eq!(upstream.calls().len(), 1);
     }
+}
+
+#[tokio::test]
+async fn independent_convention_payment_and_shopify_money_stay_pinned_for_both_gateways() {
+    let fixture = fixture().await;
+    for provider in ["stripe", "paypal"] {
+        for (payment_currency, unit_price, unit_minor, shopify_currency) in [
+            ("THB", "20.00", 2000, "AUD"),
+            ("SGD", "20.00", 2000, "USD"),
+            ("SGD", "20.00", 2000, "SGD"),
+            ("JPY", "20", 20, "USD"),
+        ] {
+            let upstream = Providers::start().await;
+            upstream.shopify_money("12.00", shopify_currency);
+            let client = configured(&upstream).await;
+            let slug = format!("{}-{}", fixture.prefix(), Uuid::new_v4().simple());
+            let mut input = purchase_in_currency(
+                &fixture,
+                provider,
+                &slug,
+                payment_currency,
+                unit_price,
+                unit_minor,
+            )
+            .await;
+            input["note"] = json!("Independent currency pickup");
+            let convention = Uuid::parse_str(input["convention_id"].as_str().unwrap()).unwrap();
+            let first = client
+                .send(request(CHECKOUT, Some(SECRET), &input))
+                .await
+                .unwrap();
+            let status = first.status();
+            let first = body_json(first).await;
+            assert_eq!(status, 200, "{first}");
+            let expected = json!({"minor":unit_minor*2,"currency":payment_currency});
+            assert_eq!(first["money"], expected);
+            assert_eq!(first["status"], "requires_action");
+            let checkout = input["operation_id"].as_str().unwrap();
+            let snapshots: (i16, i64, String, i64, String) = sqlx::query_as(
+                "SELECT correlation_version, payment_amount_minor, payment_currency,
+                        shopify_amount_minor, shopify_currency
+                 FROM checkouts
+                 WHERE id = $1",
+            )
+            .bind(Uuid::parse_str(checkout).unwrap())
+            .fetch_one(&fixture.pool())
+            .await
+            .unwrap();
+            assert_eq!(
+                snapshots,
+                (
+                    3,
+                    unit_minor * 2,
+                    payment_currency.into(),
+                    1200,
+                    shopify_currency.into()
+                )
+            );
+            sqlx::query(
+                "UPDATE conventions
+                 SET preorder_enabled = FALSE
+                 WHERE id = $1",
+            )
+            .bind(convention)
+            .execute(&fixture.pool())
+            .await
+            .unwrap();
+            sqlx::query(
+                "UPDATE convention_variants
+                 SET final_price = 99
+                 WHERE convention_id = $1",
+            )
+            .bind(convention)
+            .execute(&fixture.pool())
+            .await
+            .unwrap();
+            upstream.pay();
+            for _ in 0..2 {
+                let result = client.send(verify(checkout, Some(SECRET))).await.unwrap();
+                let status = result.status();
+                let result = body_json(result).await;
+                assert_eq!(status, 200, "{result}");
+                assert_eq!(result["status"], "completed", "{result}");
+                assert_eq!(result["money"], expected);
+            }
+            assert_eq!(upstream.payment_creates(), 1);
+            assert_eq!(upstream.count("CreateDraftOrder"), 1);
+            assert_eq!(upstream.count("RecordCheckoutPayment"), 1);
+            let calls = upstream.calls();
+            let draft = &calls
+                .iter()
+                .find(|call| call["operation"] == "CreateDraftOrder")
+                .unwrap()["body"]["variables"]["input"];
+            assert!(draft.get("presentmentCurrencyCode").is_none());
+            assert!(draft["lineItems"][0].get("priceOverride").is_none());
+            assert_eq!(draft["note"], "Independent currency pickup");
+            let updated = &calls
+                .iter()
+                .find(|call| call["operation"] == "UpdateOrderCustomAttributes")
+                .unwrap()["body"]["variables"]["input"]["customAttributes"];
+            for (key, value) in [
+                ("payment_amount_minor", (unit_minor * 2).to_string()),
+                ("payment_currency", payment_currency.into()),
+                ("shopify_amount_minor", "1200".into()),
+                ("shopify_currency", shopify_currency.into()),
+            ] {
+                assert_eq!(
+                    updated
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .filter(|attribute| attribute["key"] == key && attribute["value"] == value)
+                        .count(),
+                    1,
+                    "{updated}"
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn invalid_or_changed_shopify_snapshot_never_starts_another_payment() {
+    let fixture = fixture().await;
+    for provider in ["stripe", "paypal"] {
+        for amount in ["0.00", "-1.00"] {
+            let upstream = Providers::start().await;
+            upstream.shopify_money(amount, "AUD");
+            let client = configured(&upstream).await;
+            let input = purchase(&fixture, provider).await;
+            let result = client
+                .send(request(CHECKOUT, Some(SECRET), &input))
+                .await
+                .unwrap();
+            assert_eq!(result.status(), 409);
+            assert_eq!(upstream.payment_creates(), 0);
+            assert_eq!(upstream.count("CreateDraftOrder"), 1);
+        }
+        for (amount, currency) in [("12.01", "AUD"), ("12.00", "USD")] {
+            let upstream = Providers::start().await;
+            upstream.shopify_money("12.00", "AUD");
+            let client = configured(&upstream).await;
+            let input = purchase(&fixture, provider).await;
+            accepted(&client, &input).await;
+            upstream.shopify_money(amount, currency);
+            upstream.pay();
+            let result = client
+                .send(verify(
+                    input["operation_id"].as_str().unwrap(),
+                    Some(SECRET),
+                ))
+                .await
+                .unwrap();
+            assert_eq!(result.status(), 409);
+            assert_eq!(upstream.payment_creates(), 1);
+            assert_eq!(upstream.count("RecordCheckoutPayment"), 0);
+            assert_eq!(upstream.count("CompleteCheckoutDraft"), 0);
+        }
+    }
+}
+
+#[tokio::test]
+async fn shopify_draft_rejection_retains_private_diagnostics_without_starting_gateway_payment() {
+    let fixture = fixture().await;
+    let upstream = Providers::start().await;
+    let client = configured(&upstream).await;
+    let input = purchase(&fixture, "stripe").await;
+    upstream.fault("CreateDraftOrder", "user_error");
+    let response = client
+        .send(request(CHECKOUT, Some(SECRET), &input))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 502);
+    assert_eq!(
+        body_json(response).await,
+        json!({"error":"Upstream request failed"})
+    );
+    assert_eq!(upstream.payment_creates(), 0);
+    assert_eq!(upstream.count("CreateDraftOrder"), 1);
+    assert!(!client.logs().contains("buyer@example.test"));
 }

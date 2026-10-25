@@ -77,6 +77,8 @@ pub(crate) async fn create(
         || stored.request_fingerprint != checkout.request_fingerprint
         || stored.provider_account_id != checkout.provider_account_id
         || stored.provider_environment != checkout.provider_environment
+        || stored.payment_amount_minor != checkout.payment_amount_minor
+        || stored.payment_currency != checkout.payment_currency
         || stored.evidence_hash != checkout.evidence_hash
         || stored.required_tag_hashes != checkout.required_tag_hashes
     {
@@ -148,7 +150,8 @@ pub(crate) async fn webhook(
         };
         let result = async {
             let draft = purchase::read(clients, &claimed).await?;
-            let money = purchase::validate_purchase(&claimed, &draft)?;
+            let draft_money = purchase::validate_purchase(&claimed, &draft)?;
+            let money = purchase::payment_money(&claimed, &draft_money)?;
             provider::bind_authenticated_resource(
                 pool,
                 clients,
@@ -280,7 +283,8 @@ async fn advance_claimed(
         purchase::reserve(pool, settings, clients, checkout, prepared, token).await?;
     }
     let draft = purchase::read(clients, checkout).await?;
-    let money = purchase::validate_purchase(checkout, &draft)?;
+    let shopify_money = purchase::validate_purchase(checkout, &draft)?;
+    let money = purchase::payment_money(checkout, &shopify_money)?;
     if checkout.completion_state == CompletionState::Completed {
         return Ok(RecoveryOutcome::Observed(
             crate::models::checkout::RecoveryCode::Observed,
@@ -330,10 +334,11 @@ async fn hydrate_response(
     busy: bool,
 ) -> Result<CheckoutResponse, AppError> {
     let draft = purchase::read(clients, checkout).await?;
-    let money = purchase::validate_purchase(checkout, &draft)?;
+    let shopify_money = purchase::validate_purchase(checkout, &draft)?;
+    let money = purchase::payment_money(checkout, &shopify_money)?;
     let status = response_status(checkout, busy);
     let next_action = next_action(clients, checkout, status).await?;
-    let order = completed_order(clients, checkout, &money, status).await?;
+    let order = completed_order(clients, checkout, &shopify_money, status).await?;
     Ok(transformers::checkout::response(
         checkout,
         status,
