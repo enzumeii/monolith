@@ -34,6 +34,10 @@ impl CartContext {
     }
 }
 
+pub(crate) fn use_cart_cache() {
+    use_context_provider(|| Signal::new(BTreeMap::<String, browser::Restored>::new()));
+}
+
 #[component]
 pub(crate) fn CartProvider(catalogue: PublicCatalogueResponse, view: ConventionView) -> Element {
     let convention_id = catalogue.convention.id.clone();

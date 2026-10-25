@@ -3,6 +3,7 @@ pub(crate) mod notification;
 mod provider;
 mod purchase;
 mod recovery;
+pub(crate) mod webhooks;
 
 pub(crate) use recovery::RecoveryOutcome;
 
@@ -11,10 +12,10 @@ use crate::{
     config::CheckoutSettings,
     error::AppError,
     models::checkout::{Checkout, CompletionState, DraftState, PaymentState},
-    repositories::checkout as repo,
+    repositories, services, transformers,
 };
 use axum::http::StatusCode;
-use chrono::{SubsecRound, Utc};
+use chrono::Utc;
 use domain::dto::checkout::{
     CheckoutMoney, CheckoutNextAction, CheckoutOrder, CheckoutProvider, CheckoutResponse,
     CheckoutStatus, CreateCheckoutRequest,
@@ -42,7 +43,7 @@ pub(crate) async fn create(
         serde_json::to_vec(request).map_err(|error| AppError::from(anyhow::Error::new(error)))?,
     )
     .to_vec();
-    let existing = repo::find(pool, id).await?;
+    let existing = repositories::checkout::find(pool, id).await?;
     if let Some(row) = &existing {
         authorize(row, guest_hash)?;
         if row.request_fingerprint != fingerprint {
@@ -65,9 +66,9 @@ pub(crate) async fn create(
     )
     .await?;
     let mut transaction = pool.begin().await?;
-    repo::insert(&mut transaction, &checkout).await?;
+    repositories::checkout::insert(&mut transaction, &checkout).await?;
     transaction.commit().await?;
-    let stored = repo::find(pool, id)
+    let stored = repositories::checkout::find(pool, id)
         .await?
         .ok_or_else(|| conflict("Checkout could not be recovered"))?;
     authorize(&stored, guest_hash)?;
@@ -95,7 +96,9 @@ pub(crate) async fn verify(
     id: Uuid,
     guest_hash: &[u8],
 ) -> Result<CheckoutResponse, AppError> {
-    let checkout = repo::find(pool, id).await?.ok_or_else(unauthorized)?;
+    let checkout = repositories::checkout::find(pool, id)
+        .await?
+        .ok_or_else(unauthorized)?;
     authorize(&checkout, guest_hash)?;
     advance(pool, clients, id, false, None, settings).await
 }
@@ -110,14 +113,14 @@ pub(crate) async fn webhook(
 ) -> Result<(), AppError> {
     let name = provider_name(provider);
     let associated = if let Some(resource) = resource_id {
-        repo::by_resource(pool, name, resource).await?
+        repositories::checkout::by_resource(pool, name, resource).await?
     } else {
         None
     };
     let mut checkout = match associated {
         Some(row) => row,
         None => match correlation_id {
-            Some(id) => repo::find(pool, id).await?,
+            Some(id) => repositories::checkout::find(pool, id).await?,
             None => None,
         }
         .ok_or_else(|| {
@@ -138,7 +141,8 @@ pub(crate) async fn webhook(
             )
         })?;
         let token = Uuid::new_v4();
-        let Some(mut claimed) = repo::claim(pool, checkout.id, token).await? else {
+        let Some(mut claimed) = repositories::checkout::claim(pool, checkout.id, token).await?
+        else {
             return Err(AppError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Checkout is being advanced",
@@ -159,7 +163,7 @@ pub(crate) async fn webhook(
             .await
         }
         .await;
-        let release = repo::release(pool, claimed.id, token).await;
+        let release = repositories::checkout::release(pool, claimed.id, token).await;
         result.map_err(AdvanceError::into_app)?;
         release?;
         checkout = claimed;
@@ -215,14 +219,16 @@ async fn advance(
     settings: &CheckoutSettings,
 ) -> Result<CheckoutResponse, AppError> {
     let token = Uuid::new_v4();
-    let Some(mut checkout) = repo::claim(pool, id, token).await? else {
+    let Some(mut checkout) = repositories::checkout::claim(pool, id, token).await? else {
         if webhook {
             return Err(AppError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Checkout is being advanced",
             ));
         }
-        let row = repo::find(pool, id).await?.ok_or_else(unauthorized)?;
+        let row = repositories::checkout::find(pool, id)
+            .await?
+            .ok_or_else(unauthorized)?;
         if row.draft_id.is_none() {
             return Err(AppError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -246,7 +252,7 @@ async fn advance(
         hydrate_response(clients, &checkout, false).await
     }
     .await;
-    let release = repo::release(pool, id, token).await;
+    let release = repositories::checkout::release(pool, id, token).await;
     let result = result?;
     release?;
     Ok(result)
@@ -317,7 +323,7 @@ impl From<AppError> for AdvanceError {
     }
 }
 async fn save(pool: &PgPool, checkout: &Checkout, token: Uuid) -> Result<(), AdvanceError> {
-    repo::save(pool, checkout, token)
+    repositories::checkout::save(pool, checkout, token)
         .await
         .map_err(AdvanceError::Persistence)
 }
@@ -331,103 +337,104 @@ async fn hydrate_response(
     let shopify_money = purchase::validate_purchase(checkout, &draft)?;
     let money = purchase::payment_money(checkout, &shopify_money)?;
     let status = response_status(checkout, busy);
-    let next_action = if status == CheckoutStatus::RequiresAction {
-        let resource = checkout
-            .provider_resource_id
-            .as_deref()
-            .ok_or_else(|| conflict("Checkout payment is missing"))?;
-        let url = if checkout.provider == "stripe" {
-            clients
-                .stripe
-                .ok_or_else(unavailable)?
-                .get_checkout_session(resource)
-                .await
-                .map_err(|error| crate::error::upstream(error))?
-                .url
-        } else {
-            clients
-                .paypal
-                .ok_or_else(unavailable)?
-                .get_order(resource)
-                .await
-                .map_err(|error| crate::error::upstream(error))?
-                .links
-                .into_iter()
-                .find(|link| matches!(link.rel.as_str(), "approve" | "payer-action"))
-                .map(|link| link.href)
-        }
-        .ok_or_else(|| conflict("Checkout payment action is unavailable"))?;
-        Some(CheckoutNextAction::Redirect {
-            url: provider::redirect(&url)?,
-        })
-    } else {
-        None
-    };
-    let order = if status == CheckoutStatus::Completed {
-        let id = crate::models::shopify::ShopifyId::new(
-            checkout
-                .order_id
-                .as_deref()
-                .ok_or_else(|| conflict("Completed checkout order is missing"))?,
-        )
-        .map_err(|error| crate::error::upstream(error))?;
-        let order = clients
-            .shopify
-            .checkout_order(&id)
-            .await
-            .map_err(|error| crate::error::upstream(error))?
-            .ok_or_else(|| conflict("Completed checkout order is missing"))?;
-        if checkout.completion_version == 2 {
-            super::checkout_completion::validate_external_paid_order(
-                &order,
-                &purchase::exact(shopify_money.minor, &shopify_money.currency)?,
-                &super::checkout_completion::ExternalPaymentRecording::from_checkout(checkout)?,
-                if checkout.provider == "stripe" {
-                    "Stripe Card Payments"
-                } else {
-                    "paypal"
-                },
-            )?;
-        }
-        let actual = &order.total_price_set.presentment_money;
-        if !purchase::tags_match(checkout, &order.tags)
-            || actual.currency_code != shopify_money.currency
-            || purchase::exact(shopify_money.minor, &shopify_money.currency)?
-                .parse_amount(&actual.amount)?
-                != shopify_money.minor
-        {
-            return Err(conflict("Completed Shopify order does not match purchase"));
-        }
-        Some(CheckoutOrder {
-            id: id.as_ref().to_owned(),
-            name: order
-                .name
-                .filter(|name| !name.trim().is_empty())
-                .ok_or_else(|| conflict("Completed checkout order name is missing"))?,
-        })
-    } else {
-        None
-    };
-    Ok(response(checkout, status, money, next_action, order))
-}
-
-fn response(
-    checkout: &Checkout,
-    status: CheckoutStatus,
-    money: CheckoutMoney,
-    next_action: Option<CheckoutNextAction>,
-    order: Option<CheckoutOrder>,
-) -> CheckoutResponse {
-    CheckoutResponse {
-        checkout_id: checkout.id.to_string(),
+    let next_action = next_action(clients, checkout, status).await?;
+    let order = completed_order(clients, checkout, &shopify_money, status).await?;
+    Ok(transformers::checkout::response(
+        checkout,
         status,
         money,
-        reservation_expires_at: checkout
-            .reservation_expires_at
-            .map(|value| value.trunc_subsecs(6).to_rfc3339()),
         next_action,
         order,
+    ))
+}
+
+async fn next_action(
+    clients: &CheckoutClients<'_>,
+    checkout: &Checkout,
+    status: CheckoutStatus,
+) -> Result<Option<CheckoutNextAction>, AppError> {
+    if status != CheckoutStatus::RequiresAction {
+        return Ok(None);
     }
+    let resource = checkout
+        .provider_resource_id
+        .as_deref()
+        .ok_or_else(|| conflict("Checkout payment is missing"))?;
+    let url = if checkout.provider == "stripe" {
+        clients
+            .stripe
+            .ok_or_else(unavailable)?
+            .get_checkout_session(resource)
+            .await
+            .map_err(|error| crate::error::upstream(error))?
+            .url
+    } else {
+        clients
+            .paypal
+            .ok_or_else(unavailable)?
+            .get_order(resource)
+            .await
+            .map_err(|error| crate::error::upstream(error))?
+            .links
+            .into_iter()
+            .find(|link| matches!(link.rel.as_str(), "approve" | "payer-action"))
+            .map(|link| link.href)
+    }
+    .ok_or_else(|| conflict("Checkout payment action is unavailable"))?;
+    Ok(Some(CheckoutNextAction::Redirect {
+        url: provider::redirect(&url)?,
+    }))
+}
+
+async fn completed_order(
+    clients: &CheckoutClients<'_>,
+    checkout: &Checkout,
+    money: &CheckoutMoney,
+    status: CheckoutStatus,
+) -> Result<Option<CheckoutOrder>, AppError> {
+    if status != CheckoutStatus::Completed {
+        return Ok(None);
+    }
+    let id = crate::models::shopify::ShopifyId::new(
+        checkout
+            .order_id
+            .as_deref()
+            .ok_or_else(|| conflict("Completed checkout order is missing"))?,
+    )
+    .map_err(|error| crate::error::upstream(error))?;
+    let order = clients
+        .shopify
+        .checkout_order(&id)
+        .await
+        .map_err(|error| crate::error::upstream(error))?
+        .ok_or_else(|| conflict("Completed checkout order is missing"))?;
+    if checkout.completion_version == 2 {
+        services::checkout_completion::validate_external_paid_order(
+            &order,
+            &purchase::exact(money.minor, &money.currency)?,
+            &services::checkout_completion::ExternalPaymentRecording::from_checkout(checkout)?,
+            if checkout.provider == "stripe" {
+                "Stripe Card Payments"
+            } else {
+                "paypal"
+            },
+        )?;
+    }
+    let actual = &order.total_price_set.presentment_money;
+    if !purchase::tags_match(checkout, &order.tags)
+        || actual.currency_code != money.currency
+        || purchase::exact(money.minor, &money.currency)?.parse_amount(&actual.amount)?
+            != money.minor
+    {
+        return Err(conflict("Completed Shopify order does not match purchase"));
+    }
+    Ok(Some(CheckoutOrder {
+        id: id.as_ref().to_owned(),
+        name: order
+            .name
+            .filter(|name| !name.trim().is_empty())
+            .ok_or_else(|| conflict("Completed checkout order name is missing"))?,
+    }))
 }
 
 fn authorize(checkout: &Checkout, supplied: &[u8]) -> Result<(), AppError> {

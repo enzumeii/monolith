@@ -20,9 +20,9 @@ pub async fn list(
     State(state): State<AppState>,
     query: Result<Query<domain::dto::orders::ListOrdersQuery>, QueryRejection>,
 ) -> Result<Json<domain::dto::orders::ListOrdersResponse>, AppError> {
-    let (search, page) = validations::orders::extract_list_query(query)?;
+    let (filter, page) = validations::orders::extract_list_query(query)?;
     Ok(Json(
-        services::orders::list(shopify_client(&state)?, search, page).await?,
+        services::orders::list(shopify_client(&state)?, filter, page).await?,
     ))
 }
 pub async fn shipping_labels(

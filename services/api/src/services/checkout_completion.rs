@@ -18,8 +18,8 @@ use crate::{
         },
         stripe,
     },
+    utils,
 };
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use sha2::{Digest, Sha256};
 
 /// The caller owns authorization, durable payment-to-draft association and serialization.
@@ -273,22 +273,7 @@ pub(crate) fn validate_external_paid_order(
     }
     Ok(())
 }
-pub(crate) fn reference(kind: &str, id: &str) -> Result<String, AppError> {
-    let tag = format!("payment:{kind}:{id}");
-    if id.is_empty()
-        || id
-            .chars()
-            .any(|c| c.is_whitespace() || c.is_control() || matches!(c, ':' | ','))
-        || tag.chars().count() > 255
-    {
-        return Err(conflict("Invalid payment reference tag"));
-    }
-    if tag.chars().count() > 40 {
-        let digest = Sha256::digest(tag.as_bytes());
-        return Ok(format!("payment:{}", URL_SAFE_NO_PAD.encode(&digest[..24])));
-    }
-    Ok(tag)
-}
+
 fn validate_external_sale(
     order: &CompletionOrder,
     money: &ExactMoney,
@@ -572,7 +557,7 @@ fn validate_payment_attributes(
         let wanted = expected.iter().find(|attribute| attribute.key == key);
         match (actual, wanted) {
             (Some(value), Some(wanted)) if value == wanted.value => {
-                reference(kind, value)
+                utils::payment_reference::tag(kind, value)
                     .map_err(|_| evidence_conflict("Shopify payment reference is invalid"))?;
             }
             (None, Some(_)) if !require_all => {}
@@ -722,9 +707,12 @@ async fn verified_payment(payment: PaymentContext<'_>) -> Result<VerifiedPayment
                     (
                         exact_money(paid.amount, &paid.currency)?,
                         vec![
-                            reference("stripe:session", &paid.session_id)?,
-                            reference("stripe:intent", &paid.payment_intent_id)?,
-                            reference("stripe:charge", &paid.charge_id)?,
+                            utils::payment_reference::tag("stripe:session", &paid.session_id)?,
+                            utils::payment_reference::tag(
+                                "stripe:intent",
+                                &paid.payment_intent_id,
+                            )?,
+                            utils::payment_reference::tag("stripe:charge", &paid.charge_id)?,
                         ],
                         vec![
                             payment_attribute(correlation::STRIPE_SESSION_KEY, &paid.session_id),
@@ -753,8 +741,8 @@ async fn verified_payment(payment: PaymentContext<'_>) -> Result<VerifiedPayment
                 paypal::payment::PaymentOutcome::VerifiedPaid(paid) => (
                     paypal_money(paid.amount, &paid.currency)?,
                     vec![
-                        reference("paypal:order", &paid.order_id)?,
-                        reference("paypal:capture", &paid.capture_id)?,
+                        utils::payment_reference::tag("paypal:order", &paid.order_id)?,
+                        utils::payment_reference::tag("paypal:capture", &paid.capture_id)?,
                     ],
                     vec![
                         payment_attribute(correlation::PAYPAL_ORDER_KEY, &paid.order_id),

@@ -81,6 +81,8 @@ pub fn DownloadFile(
                         let mime = mime.clone();
                         let id = id.clone();
                         spawn(async move {
+                            let loading = ui::loading_guard();
+                            loading.paint().await;
                             let result = match encode.call(()) {
                                 Ok(bytes) => download(bytes, &filename, &mime, &id).await,
                                 Err(message) => Err(message),

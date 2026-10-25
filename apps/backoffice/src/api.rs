@@ -71,6 +71,7 @@ fn uuid_request(method: Method, path: &str, id: &str) -> ApiResult<RequestBuilde
 }
 
 async fn send(request: RequestBuilder) -> ApiResult<Response> {
+    let _loading = ui::loading_guard();
     let response = request
         .send()
         .await
@@ -87,6 +88,7 @@ async fn send(request: RequestBuilder) -> ApiResult<Response> {
 }
 
 async fn decode<T: DeserializeOwned>(request: RequestBuilder) -> ApiResult<T> {
+    let _loading = ui::loading_guard();
     send(request)
         .await?
         .json()

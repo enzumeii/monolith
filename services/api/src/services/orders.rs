@@ -1,16 +1,14 @@
-use super::pagination::for_each_page;
 use crate::{
     client::ClientError,
     error::{AppError, upstream},
     models::{
-        products::ReportRow,
+        orders::OrderListFilter,
         shopify::{OrdersByTagRequest, PageRequest},
     },
+    services::{self, inventories::report::ReportRow},
+    transformers,
 };
-use domain::dto::{
-    OrderReportResponse,
-    orders::{ListOrdersResponse, OrderSummary},
-};
+use domain::dto::{OrderReportResponse, orders::ListOrdersResponse};
 use std::collections::HashMap;
 
 pub async fn order_report(
@@ -20,7 +18,7 @@ pub async fn order_report(
     let request = OrdersByTagRequest { tags };
     let mut rows = Vec::new();
     let mut by_sku = HashMap::new();
-    for_each_page(
+    services::pagination::for_each_page(
         None,
         async |after| {
             client
@@ -30,7 +28,11 @@ pub async fn order_report(
         |orders| {
             for order in orders {
                 for line in order.line_items.into_complete_nodes()? {
-                    merge(&mut rows, &mut by_sku, line.into_report_row()?)?;
+                    merge(
+                        &mut rows,
+                        &mut by_sku,
+                        ReportRow::new(transformers::orders::report_input(line))?,
+                    )?;
                 }
             }
             Ok(())
@@ -46,9 +48,10 @@ pub async fn order_report(
 
 pub async fn list(
     client: &crate::client::shopify::ShopifyClient,
-    search: String,
+    filter: OrderListFilter,
     page: PageRequest,
 ) -> Result<ListOrdersResponse, AppError> {
+    let search = list_search(filter)?;
     let result = client
         .list_orders(&search, &page)
         .await
@@ -59,18 +62,7 @@ pub async fn list(
     let orders = result
         .nodes
         .into_iter()
-        .map(|order| {
-            Ok(OrderSummary {
-                id: crate::models::shopify::ShopifyId::new(order.id)
-                    .and_then(|id| id.number("Order"))?,
-                number: order.number,
-                full_name: order.customer.and_then(|customer| customer.full_name()),
-                email: order.email,
-                shipping_country_code: order
-                    .shipping_address
-                    .and_then(|address| address.country_code_v2),
-            })
-        })
+        .map(transformers::orders::summary)
         .collect::<Result<Vec<_>, ClientError>>()
         .map_err(|error| upstream(error))?;
     Ok(ListOrdersResponse {
@@ -133,6 +125,33 @@ pub(super) async fn edit_order_tags(
             .map_err(|error| upstream(error))?;
     }
     Ok(())
+}
+
+fn list_search(filter: OrderListFilter) -> Result<String, AppError> {
+    use domain::dto::orders::FulfillmentStatus;
+    let mut search = if let Some(tags) = filter.tags {
+        OrdersByTagRequest { tags }
+            .search()
+            .map_err(|error| upstream(error))?
+    } else {
+        String::new()
+    };
+    if let Some(status) = filter.fulfillment {
+        let status = match status {
+            FulfillmentStatus::Unfulfilled => "unfulfilled",
+            FulfillmentStatus::Fulfilled => "fulfilled",
+            FulfillmentStatus::Partial => "partial",
+            FulfillmentStatus::Unshipped => "unshipped",
+            FulfillmentStatus::Shipped => "shipped",
+            FulfillmentStatus::Any => "any",
+        };
+        if !search.is_empty() {
+            search.push_str(" AND ");
+        }
+        search.push_str("fulfillment_status:");
+        search.push_str(status);
+    }
+    Ok(search)
 }
 
 fn merge(

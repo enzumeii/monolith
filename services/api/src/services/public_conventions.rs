@@ -6,8 +6,7 @@ use crate::{
         conventions::{Convention, ConventionVariant},
         shopify::{ProductStatus, ShopifyId, variant_nodes::LiveVariant},
     },
-    repositories::conventions as repo,
-    validations::conventions::invalid,
+    repositories, transformers, validations,
 };
 use axum::http::StatusCode;
 use domain::dto::{
@@ -25,8 +24,14 @@ pub(crate) async fn directory(
     page: u32,
     per_page: u32,
 ) -> Result<PublicConventionListResponse, AppError> {
-    let mut records =
-        repo::public_directory(pool, today, country.as_deref(), page, per_page).await?;
+    let mut records = repositories::conventions::public_directory(
+        pool,
+        today,
+        country.as_deref(),
+        page,
+        per_page,
+    )
+    .await?;
     let has_next = records.len() > per_page as usize;
     records.truncate(per_page as usize);
     let mut items = Vec::with_capacity(records.len());
@@ -58,7 +63,7 @@ pub(crate) async fn products(
 ) -> Result<PublicCatalogueResponse, AppError> {
     let convention = enabled(pool, slug).await?;
     let s3 = s3?;
-    let selected = repo::variants(pool, convention.id).await?;
+    let selected = repositories::conventions::variants(pool, convention.id).await?;
     let live = current(shopify, &selected).await?;
     let (convention, selected) = recheck(pool, slug, &convention, &selected).await?;
     let mut products: Vec<PublicProduct> = Vec::new();
@@ -74,14 +79,7 @@ pub(crate) async fn products(
         if let Some(product) = products.iter_mut().find(|product| product.id == id) {
             product.variants.push(variant);
         } else {
-            products.push(PublicProduct {
-                id: id.to_owned(),
-                title: live.product.title,
-                description: live.product.description,
-                product_type: live.product.product_type,
-                featured_image: live.product.featured_image,
-                variants: vec![variant],
-            });
+            products.push(transformers::public_conventions::product(live, variant));
         }
     }
     Ok(PublicCatalogueResponse {
@@ -97,7 +95,7 @@ pub(crate) async fn quote(
     request: QuoteConventionRequest,
 ) -> Result<ConventionQuote, AppError> {
     let convention = enabled(pool, slug).await?;
-    let selected = repo::variants(pool, convention.id).await?;
+    let selected = repositories::conventions::variants(pool, convention.id).await?;
     let requested = request
         .items
         .iter()
@@ -106,7 +104,11 @@ pub(crate) async fn quote(
                 .iter()
                 .find(|saved| saved.shopify_variant_id == item.variant_id)
                 .cloned()
-                .ok_or_else(|| invalid("Cart variant does not belong to this convention"))
+                .ok_or_else(|| {
+                    validations::conventions::invalid(
+                        "Cart variant does not belong to this convention",
+                    )
+                })
         })
         .collect::<Result<Vec<_>, _>>()?;
     let live = current(shopify, &requested).await?;
@@ -130,11 +132,15 @@ pub(crate) async fn quote(
         let line_amount = minor
             .checked_mul(u64::from(item.quantity))
             .filter(|v| *v <= i64::MAX.cast_unsigned())
-            .ok_or_else(|| invalid("Cart total exceeds the supported amount"))?;
+            .ok_or_else(|| {
+                validations::conventions::invalid("Cart total exceeds the supported amount")
+            })?;
         subtotal = subtotal
             .checked_add(line_amount)
             .filter(|v| *v <= i64::MAX.cast_unsigned())
-            .ok_or_else(|| invalid("Cart total exceeds the supported amount"))?;
+            .ok_or_else(|| {
+                validations::conventions::invalid("Cart total exceeds the supported amount")
+            })?;
         items.push(ConventionQuoteLine {
             variant_id: item.variant_id,
             quantity: item.quantity,
@@ -153,25 +159,14 @@ pub(crate) async fn quote(
 }
 
 async fn enabled(pool: &PgPool, slug: &str) -> Result<Convention, AppError> {
-    repo::public_find(pool, slug)
+    repositories::conventions::public_find(pool, slug)
         .await?
         .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Convention unavailable"))
 }
 
 async fn project(record: Convention, s3: &S3Client) -> Result<PublicConvention, AppError> {
     let dto = logo::project(record, s3).await?;
-    Ok(PublicConvention {
-        id: dto.id,
-        slug: dto.slug,
-        name: dto.name,
-        logo_preview_url: dto.logo_preview_url,
-        logo_preview_url_expires_at: dto.logo_preview_url_expires_at,
-        country_code: dto.country_code,
-        event_starts_on: dto.event_starts_on,
-        event_ends_on: dto.event_ends_on,
-        description_markdown: dto.description_markdown,
-        currency_code: dto.currency_code,
-    })
+    Ok(transformers::public_conventions::convention(dto))
 }
 
 async fn current(
@@ -200,7 +195,7 @@ async fn recheck(
     selected: &[ConventionVariant],
 ) -> Result<(Convention, Vec<ConventionVariant>), AppError> {
     let after = enabled(pool, slug).await?;
-    let current = repo::variants(pool, after.id).await?;
+    let current = repositories::conventions::variants(pool, after.id).await?;
     if after.id != before.id
         || after.currency_code != before.currency_code
         || selected.len() != current.len()
@@ -233,17 +228,13 @@ fn variant(
     code: &str,
 ) -> Result<PublicVariant, AppError> {
     let quantity = live.available_quantity().map_err(|error| upstream(error))?;
-    Ok(PublicVariant {
-        id: live.id.as_ref().to_owned(),
-        title: live.title.clone(),
-        sku: live.sku.clone(),
-        image: live.image.clone(),
-        selected_options: live.selected_options.clone(),
-        final_price: money::canonical(&saved.final_price, code).map_err(invalid_saved_money)?,
-        inventory_policy: live.inventory_policy,
-        available_quantity: quantity,
-        max_quantity: maximum(live, quantity),
-    })
+    let final_price = money::canonical(&saved.final_price, code).map_err(invalid_saved_money)?;
+    Ok(transformers::public_conventions::variant(
+        live,
+        final_price,
+        quantity,
+        maximum(live, quantity),
+    ))
 }
 
 fn conflict() -> AppError {

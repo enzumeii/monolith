@@ -2,7 +2,7 @@ use crate::{
     cron::publication::{GeneratedFile, PreparedReport},
     error::AppError,
     models::cron::checkpoint::{ExecutionCheckpoint, FileCheckpoint, MailState},
-    services::cron::report::{self, ReportData},
+    services::cron::report::ReportData,
 };
 use axum::http::StatusCode;
 use chrono::SubsecRound;
@@ -18,7 +18,7 @@ pub(crate) async fn prepare(
 ) -> Result<PreparedReport, AppError> {
     let files = encode(data, max_payload_bytes).await?;
     let generated_at = chrono::Utc::now().naive_utc().trunc_subsecs(6);
-    let storage_prefix = report::storage_prefix(kind, generated_at, id);
+    let storage_prefix = crate::models::cron::report::storage_prefix(kind, generated_at, id);
     let checkpoint = ExecutionCheckpoint {
         generated_at,
         storage_prefix: storage_prefix.clone(),

@@ -13,6 +13,10 @@ Read the root [AGENTS.md](../../../AGENTS.md) and the touched module before plac
 - Preserve private access, serde hooks, feature gates and module paths when rearranging items. Limit reordering to files already in scope.
 - Inspect the final touched files for production items after test-module declarations, then run the owning crate's formatter/check and relevant tests.
 
+## Visible layer calls
+
+At cross-layer operation calls, retain the layer and feature in the path, for example `validations::conventions::...`, `transformers::conventions::...`, `services::conventions::...` and `repositories::conventions::...`. Import layer modules rather than bare operations or aliases such as `convention_validation` and `convention_service` that hide the module path. Import types directly and keep cohesive local helper names concise.
+
 Example final items:
 
 ```rust

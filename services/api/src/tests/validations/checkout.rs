@@ -153,6 +153,11 @@ fn webhook_shape_checks_preserve_mixed_authentication_and_configuration_order() 
     }
     let raw = br#"{"resource" : {"id":"ORDER123"}, "event_type":"CHECKOUT.ORDER.APPROVED", "id":"EVENT\u0031"}"#;
     let payload = paypal_authentication(&config, &headers, raw).unwrap();
+    let crate::models::checkout::WebhookInput::Paypal(payload) =
+        crate::transformers::checkout::paypal_webhook(payload)
+    else {
+        panic!("PayPal authentication must map to PayPal input")
+    };
     assert_eq!(payload.webhook_event.get().as_bytes(), raw);
     assert_eq!(payload.transmission_sig, "signature_fixture");
     assert_eq!(payload.webhook_id, "registered_fixture");

@@ -1,8 +1,9 @@
 use backoffice::{
     SITE_LOGO, config,
-    pages::{Login, use_scheduled_reports_history},
+    pages::Login,
     route::Route,
     session::{self, SESSION},
+    use_draft_history,
 };
 use dioxus::prelude::*;
 
@@ -12,11 +13,21 @@ fn main() {
 
 #[component]
 fn App() -> Element {
-    let mut settings = use_resource(config::Settings::new);
     rsx! {
         document::Link { rel: "icon", r#type: "image/png", href: SITE_LOGO }
         document::Stylesheet { href: ui::COMMON_STYLESHEET }
         document::Stylesheet { href: asset!("/assets/main.css") }
+        ui::LoadingBoundary { Startup {} }
+    }
+}
+
+#[component]
+fn Startup() -> Element {
+    let mut settings = use_resource(|| async {
+        let _loading = ui::loading_guard();
+        config::Settings::new().await
+    });
+    rsx! {
         match settings.read().as_ref() {
             Some(Ok(settings)) => rsx! { Application { settings: settings.clone() } },
             Some(Err(message)) => rsx! {
@@ -31,7 +42,7 @@ fn App() -> Element {
 #[component]
 fn Application(settings: config::Settings) -> Element {
     use_context_provider(move || settings);
-    use_scheduled_reports_history();
+    use_draft_history();
     use_effect(|| {
         session::install_sync();
         spawn(async {
@@ -57,3 +68,7 @@ fn Application(settings: config::Settings) -> Element {
         }
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "tests/app.rs"]
+mod tests;

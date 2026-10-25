@@ -1,15 +1,16 @@
-use super::{Payment, cents, empty_transaction, iso_utc, protocol};
+use super::{Payment, cents, iso_utc, protocol};
 use crate::{
     client::stripe::StripeClient,
     error::{AppError, upstream},
+    models::accounting::AccountingDateRange,
     models::{
         checkout_completion::{ExactMoney, currency_precision},
         stripe::{
             BalanceTransaction, BalanceTransactionKind, Charge, ChargeStatus, FeeKind, Payout,
         },
     },
-    services::pagination::{CursorPage, collect_cursor_pages},
-    validations::accounting::AccountingDateRange,
+    services::{self, pagination::CursorPage},
+    transformers,
 };
 use domain::dto::{AccountingGateway, AccountingKind};
 
@@ -17,7 +18,7 @@ pub(super) async fn collect(
     client: &StripeClient,
     range: &AccountingDateRange,
 ) -> Result<Vec<Payment>, AppError> {
-    collect_cursor_pages(
+    services::pagination::collect_cursor_pages(
         |cursor| async move {
             let page = client
                 .list_payouts(
@@ -48,7 +49,7 @@ pub(super) async fn collect(
 }
 
 async fn collect_payout(client: &StripeClient, payout: &Payout) -> Result<Vec<Payment>, AppError> {
-    collect_cursor_pages(
+    services::pagination::collect_cursor_pages(
         |cursor| async move {
             let page = client
                 .list_balance_transactions(&payout.id, 100, cursor.as_deref())
@@ -84,13 +85,14 @@ async fn collect_payout(client: &StripeClient, payout: &Payout) -> Result<Vec<Pa
                 let (reference, created, description, currency, source_money) =
                     reference(client, &balance, source, refund).await?;
                 let rate = exchange_rate(&balance, &currency)?;
-                let mut transaction = empty_transaction(
+                let mut transaction = transformers::accounting::transaction(
                     AccountingGateway::Stripe,
                     if refund {
                         AccountingKind::Refund
                     } else {
                         AccountingKind::Sale
                     },
+                    Some(0.0),
                 );
                 transaction.po_number.clone_from(&payout.id);
                 transaction.po_date = Some(iso_utc(payout.arrival_date));

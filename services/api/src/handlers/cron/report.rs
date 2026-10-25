@@ -1,4 +1,4 @@
-use crate::{error::AppError, services::cron::report, state::AppState, validations};
+use crate::{error::AppError, services, state::AppState, transformers, validations};
 use axum::{
     Json,
     extract::{
@@ -11,12 +11,14 @@ use domain::dto::ListReportResultsQuery;
 pub async fn list(
     State(state): State<AppState>,
     query: Result<Query<ListReportResultsQuery>, QueryRejection>,
-) -> Result<Json<report::ReportPage>, AppError> {
-    let query = validations::cron::configs::validate_query(query)?;
+) -> Result<Json<services::cron::report::ReportPage>, AppError> {
+    let query = crate::validations::common::query(query, "Invalid cron query")?;
     Ok(Json(
-        report::list(
+        services::cron::report::list(
             &state.pool,
-            validations::cron::report::validate_filter(&query)?,
+            transformers::cron::report::filter(&validations::cron::report::validate_filter(
+                &query,
+            )?),
         )
         .await?,
     ))
@@ -26,7 +28,11 @@ pub async fn detail(
     path: Result<Path<String>, PathRejection>,
 ) -> Result<Json<domain::dto::ReportResultDTO>, AppError> {
     Ok(Json(
-        report::detail(&state.pool, validations::cron::configs::validate_id(path)?).await?,
+        services::cron::report::detail(
+            &state.pool,
+            crate::validations::common::uuid_path(path, "Invalid cron identifier")?,
+        )
+        .await?,
     ))
 }
 
@@ -48,7 +54,8 @@ pub async fn download_url(
             )
         })?
         .signed_url_ttl_secs;
-    let result = report::download_url(&state.pool, client, id, &filename, ttl_secs).await?;
+    let result =
+        services::cron::report::download_url(&state.pool, client, id, &filename, ttl_secs).await?;
     Ok((
         [(axum::http::header::CACHE_CONTROL, "no-store")],
         Json(result),

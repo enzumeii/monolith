@@ -1,24 +1,8 @@
 use crate::error::AppError;
-use crate::models::AuthenticatedAdmin;
+use crate::models::AdminPageRequest;
 use axum::http::StatusCode;
-use domain::dto::{AdminRole, CreateAdminRequest, ListAdminsQuery, UpdateAdminRequest};
+use domain::dto::{CreateAdminRequest, ListAdminsQuery, UpdateAdminRequest};
 
-#[derive(Debug, Clone, Copy)]
-pub struct AdminPageRequest {
-    page: u32,
-    per_page: u32,
-}
-
-impl AdminPageRequest {
-    #[must_use]
-    pub fn page(self) -> u32 {
-        self.page
-    }
-    #[must_use]
-    pub fn per_page(self) -> u32 {
-        self.per_page
-    }
-}
 impl TryFrom<ListAdminsQuery> for AdminPageRequest {
     type Error = AppError;
     fn try_from(query: ListAdminsQuery) -> Result<Self, Self::Error> {
@@ -29,41 +13,8 @@ impl TryFrom<ListAdminsQuery> for AdminPageRequest {
 /// Map the raw query params to a validated `AdminPageRequest`.
 /// Applies defaults (`page=1`, `per_page=25`) and enforces 1..=100.
 pub fn validate_page(query: &ListAdminsQuery) -> Result<AdminPageRequest, AppError> {
-    let page = query.page.unwrap_or(1);
-    let per_page = query.per_page.unwrap_or(25);
-    if page == 0 || per_page == 0 || per_page > 100 {
-        return Err(AppError::new(
-            StatusCode::BAD_REQUEST,
-            "page must be positive and per_page must be between 1 and 100",
-        ));
-    }
+    let (page, per_page) = super::common::validate_page(query.page, query.per_page)?;
     Ok(AdminPageRequest { page, per_page })
-}
-
-/// Ensure the caller may update the target account.
-///
-/// `SuperAdmin` may update any account; a regular `Admin` may only update
-/// their own account. Anything else is rejected with `Forbidden`.
-pub fn validate_update(claims: &AuthenticatedAdmin, target_id: i64) -> Result<(), AppError> {
-    let allowed = claims.role == AdminRole::SuperAdmin || claims.id == target_id;
-    if !allowed {
-        return Err(AppError::new(
-            StatusCode::FORBIDDEN,
-            "Your account is forbidden to make this action",
-        ));
-    }
-    Ok(())
-}
-
-/// Ensure the caller is not deleting their own account.
-pub fn validate_delete(claims: &AuthenticatedAdmin, target_id: i64) -> Result<(), AppError> {
-    if claims.id == target_id {
-        return Err(AppError::new(
-            StatusCode::FORBIDDEN,
-            "Your account is forbidden to make this action",
-        ));
-    }
-    Ok(())
 }
 
 pub fn validate_create(req: &CreateAdminRequest) -> Result<(), AppError> {

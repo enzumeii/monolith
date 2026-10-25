@@ -176,6 +176,8 @@ button.logout {
 
 .modal-actions {
     display: flex;
+    align-items: center;
+    flex-wrap: wrap;
     justify-content: flex-end;
     gap: 0.5rem;
 }
@@ -265,6 +267,7 @@ button.logout:hover:not(:disabled) {
 .report-actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .report-pager { flex-wrap: wrap; }
 .report-pager select { width: auto; }
+.report-pager label { margin-top: 0; }
 .report-skeleton { overflow: hidden; }
 .report-skeleton-row { height: 2.75rem; margin: 0.5rem 0; background: linear-gradient(90deg, var(--panel-border) 25%, var(--panel) 50%, var(--panel-border) 75%); background-size: 200% 100%; animation: report-shimmer 1.4s linear infinite; }
 @keyframes report-shimmer { to { background-position: -200% 0; } }
@@ -276,8 +279,6 @@ button.logout:hover:not(:disabled) {
 
 .trigger-form { display: grid; gap: 0.75rem; }
 .trigger-form .primary { justify-self: start; }
-.loading-overlay { z-index: 100; touch-action: none; }
-.loading-overlay:focus { outline: none; }
 .trigger-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; }
 .trigger-summary div { padding: 0.75rem 0.4rem; background: var(--bg); border: 1px solid var(--panel-border); text-align: center; }
 .trigger-summary dt { font-size: 0.8rem; overflow-wrap: anywhere; }
@@ -300,9 +301,15 @@ button.logout:hover:not(:disabled) {
 dialog.popup { width: min(54rem, calc(100vw - 2rem)); max-width: none; max-height: calc(100dvh - 2rem); overflow-y: auto; padding: 1.5rem; }
 .popup .schedule-editor { margin: 0; max-width: none; }
 @media (max-width: 640px) { .schedule-tabs { width: 100%; } .schedule-tabs a { flex: 1; padding: .65rem .8rem; } dialog.popup { padding: 1rem; } }
-.schedule-filters { display: flex; flex-direction: row; flex-wrap: wrap; align-items: start; gap: 1rem; max-width: none; }
-.schedule-filters > div { flex: 1 1 9rem; }
+.schedule-filters { display: flex; flex-direction: row; flex-wrap: wrap; align-items: end; gap: 1rem; max-width: none; }
+.schedule-filters > div { flex: 1 1 9rem; min-width: 0; }
+.schedule-filters > .schedule-actions { flex: 0 1 auto; }
+.schedule-filters > .schedule-filter-help, .schedule-filters > .schedule-filter-error { flex: 1 1 100%; margin: 0; }
+.schedule-filter-error:empty { display: none; }
 .schedule-filters label { display: block; }
+.modal-actions > button, .modal-actions > .button-link,
+.row-actions > button, .row-actions > .button-link,
+.schedule-actions > button, .schedule-actions > .button-link { margin-top: 0; }
 .schedule-pagination { margin: 1rem 0; }
 .scheduled-reports-page { max-width: 1280px; min-width: 0; }
 .schedule-table { width: 100%; }

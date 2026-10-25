@@ -1,7 +1,7 @@
 use crate::{
     client::s3::S3Client,
     error::{AppError, upstream},
-    validations::files::{self, UploadImage},
+    validations::{self, files::UploadImage},
 };
 use axum::http::StatusCode;
 use uuid::Uuid;
@@ -11,7 +11,7 @@ pub(crate) async fn upload(
     directory: &str,
     image: UploadImage,
 ) -> Result<domain::dto::UploadedFileDTO, AppError> {
-    files::folder(directory)?;
+    validations::files::folder(directory)?;
     let extension = if image.content_type == "image/png" {
         "png"
     } else {

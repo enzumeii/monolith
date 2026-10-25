@@ -9,7 +9,7 @@ mod pagination;
 pub mod route;
 pub mod session;
 
-pub use components::SITE_LOGO;
+pub use components::{SITE_LOGO, draft_navigation::use_draft_history};
 
 #[cfg(test)]
 #[path = "tests/events.rs"]

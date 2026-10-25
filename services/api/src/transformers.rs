@@ -1,0 +1,9 @@
+pub(crate) mod accounting;
+pub(crate) mod admin;
+pub(crate) mod catalogue;
+pub(crate) mod checkout;
+pub(crate) mod conventions;
+pub(crate) mod cron;
+pub(crate) mod inventories;
+pub(crate) mod orders;
+pub(crate) mod public_conventions;

@@ -27,7 +27,7 @@ fn result() -> ReportResult {
 }
 #[test]
 fn malformed_saved_metadata_returns_controlled_errors() {
-    assert!(result().into_dto().is_ok());
+    assert!(result_dto(result()).is_ok());
     for kind in 0..15 {
         let mut row = result();
         match kind {
@@ -59,16 +59,51 @@ fn malformed_saved_metadata_returns_controlled_errors() {
             }
             _ => row.files[0].storage_key = "https://untrusted.example.test/inventory.csv".into(),
         }
-        assert!(row.into_dto().is_err(), "mutation {kind}");
+        assert!(result_dto(row).is_err(), "mutation {kind}");
     }
-    assert!(!validate_csv_filename("file.xlsx"));
+    assert!(!SavedFile::valid_filename("file.xlsx"));
 }
 #[test]
 fn metadata_response_does_not_expose_storage_receipts_or_capabilities() {
     let value =
-        serde_json::to_value(result().into_dto().expect("valid metadata")).expect("DTO JSON");
+        serde_json::to_value(result_dto(result()).expect("valid metadata")).expect("DTO JSON");
     assert_eq!(
         value["files"][0],
         serde_json::json!({"filename":"inventory.csv", "content_type":"text/csv; charset=utf-8"})
     );
+}
+
+#[test]
+fn saved_transaction_period_retains_bangkok_bounds_and_subsecond_accounting_end() {
+    let resolved = resolve_parameters(
+        ScheduleReportType::Transaction,
+        "PREVIOUS_MONTH",
+        chrono::DateTime::parse_from_rfc3339("2026-10-31T17:00:00Z")
+            .expect("due")
+            .naive_utc(),
+    )
+    .expect("resolved month");
+    assert_eq!(
+        resolved,
+        "2026-10-01T00:00:00+07:00 - 2026-10-31T23:59:59+07:00"
+    );
+    let range = saved_parameters(ScheduleReportType::Transaction, &resolved)
+        .expect("saved period")
+        .expect("transaction range");
+    assert_eq!(range.start.to_rfc3339(), "2026-10-01T00:00:00+07:00");
+    assert_eq!(
+        range.end.to_rfc3339(),
+        "2026-10-31T23:59:59.999999999+07:00"
+    );
+    for value in [
+        "2026-10-01T00:00:00Z - 2026-10-31T23:59:59Z",
+        "2026-10-01T00:00:00+07:00 - 2026-10-31T23:59:59.5+07:00",
+        "2026-10-01T01:00:00+07:00 - 2026-10-31T23:59:59+07:00",
+        "2026-10-01T00:00:00+07:00 - 2026-11-01T00:00:00+07:00",
+        "2026-11-01T00:00:00+07:00 - 2026-10-31T23:59:59+07:00",
+    ] {
+        let error = saved_parameters(ScheduleReportType::Transaction, value)
+            .expect_err("invalid saved period");
+        assert_eq!(error.to_string(), "Saved report metadata is invalid");
+    }
 }

@@ -1,20 +1,43 @@
 use crate::{
     api,
     components::{
-        ErrorMessage,
+        Confirm, ErrorMessage,
         request_state::{RequestState, use_owner},
     },
     session,
 };
 use base64::Engine;
-use dioxus::prelude::*;
-use domain::dto::ConventionDTO;
+use dioxus::{html::FileData, prelude::*};
+use domain::dto::{ConventionDTO, PatchConvention, PatchField};
 
 #[derive(Clone, PartialEq)]
 pub(super) struct LogoFile {
     pub name: String,
     pub mime: String,
     pub bytes: Vec<u8>,
+    preview_url: String,
+}
+
+impl LogoFile {
+    async fn read(selected: FileData, mime: String) -> Result<Self, String> {
+        let bytes = selected
+            .read_bytes()
+            .await
+            .map_err(|_| "Unable to read this logo file within the 2 MiB limit".to_string())?;
+        if !(1..=2_097_152).contains(&bytes.len()) {
+            return Err("Unable to read this logo file within the 2 MiB limit".into());
+        }
+        Ok(Self {
+            name: selected.name(),
+            preview_url: format!(
+                "data:{};base64,{}",
+                mime,
+                base64::engine::general_purpose::STANDARD.encode(&bytes)
+            ),
+            mime,
+            bytes: bytes.to_vec(),
+        })
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -30,6 +53,7 @@ impl LogoSelection {
         self.generation += 1;
     }
     pub async fn upload(self, slug: &str) -> api::ApiResult<String> {
+        let _loading = ui::loading_guard();
         if let Some((saved_slug, location)) = (self.staged)()
             && saved_slug == slug
         {
@@ -54,6 +78,156 @@ pub(super) fn use_logo_selection() -> LogoSelection {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub(super) struct LogoEditor {
+    preview: Signal<Preview>,
+    selection: LogoSelection,
+    pub request: Signal<RequestState>,
+    error: Signal<Option<String>>,
+    notice: Signal<Option<String>>,
+    confirmation: Signal<bool>,
+    owner: Memo<Option<(i64, domain::AdminRole)>>,
+}
+
+impl LogoEditor {
+    pub fn dirty(self) -> bool {
+        (self.selection.file)().is_some() || self.request.read().pending()
+    }
+
+    pub fn upload(mut self, id: String, slug: String) {
+        if (self.selection.file)().is_none() {
+            return;
+        }
+        let Some(ticket) = self.request.write().begin() else {
+            return;
+        };
+        let request_owner = (self.owner)();
+        self.error.set(None);
+        self.notice.set(None);
+        spawn(async move {
+            let _loading = ui::loading_guard();
+            let result = async {
+                let location = self.selection.upload(&slug).await?;
+                if (self.owner)() != request_owner {
+                    return Err(api::ApiError::new(
+                        reqwest::StatusCode::CONFLICT,
+                        "Session changed",
+                    ));
+                }
+                self.selection.staged.set(Some((slug, location.clone())));
+                session::with_session(|| {
+                    api::conventions::update(
+                        &id,
+                        PatchConvention {
+                            logo_url: PatchField::Set(location),
+                            ..Default::default()
+                        },
+                    )
+                })
+                .await
+            }
+            .await;
+            if (self.owner)() != request_owner || !self.request.write().finish(ticket) {
+                return;
+            }
+            match result {
+                Ok(record) => {
+                    self.preview.write().replace(&record);
+                    self.selection.reset();
+                    self.notice.set(Some("Logo uploaded and saved".into()));
+                }
+                Err(error) => self.error.set(Some(error.to_string())),
+            }
+        });
+    }
+
+    pub fn clear(mut self, id: String) {
+        self.confirmation.set(false);
+        let Some(ticket) = self.request.write().begin() else {
+            return;
+        };
+        let request_owner = (self.owner)();
+        self.error.set(None);
+        self.notice.set(None);
+        spawn(async move {
+            let _loading = ui::loading_guard();
+            let result = session::with_session(|| {
+                api::conventions::update(
+                    &id,
+                    PatchConvention {
+                        logo_url: PatchField::Clear,
+                        ..Default::default()
+                    },
+                )
+            })
+            .await;
+            if (self.owner)() != request_owner || !self.request.write().finish(ticket) {
+                return;
+            }
+            match result {
+                Ok(record) => {
+                    self.preview.write().replace(&record);
+                    self.notice.set(Some("Saved logo cleared".into()));
+                }
+                Err(error) => self.error.set(Some(error.to_string())),
+            }
+        });
+    }
+}
+
+pub(super) fn use_logo_editor(record: &ConventionDTO) -> LogoEditor {
+    LogoEditor {
+        preview: use_signal(|| Preview::from_record(record)),
+        selection: use_logo_selection(),
+        request: use_signal(RequestState::default),
+        error: use_signal(|| None),
+        notice: use_signal(|| None),
+        confirmation: use_signal(|| false),
+        owner: use_owner(),
+    }
+}
+
+#[component]
+pub(super) fn EditLogo(
+    id: String,
+    slug: String,
+    mut editor: LogoEditor,
+    delete_pending: bool,
+) -> Element {
+    let pending = editor.request.read().pending();
+    rsx! {
+        section { class: "panel convention-section", aria_label: "Convention logo",
+            h3 { "Convention logo" }
+            p { "Upload saves the logo independently. PNG or JPEG only, at most 2 MiB and 4096 × 4096 pixels." }
+            LogoPreview { preview: editor.preview, id: id.clone(), replace_disabled: pending || delete_pending }
+            LogoPicker { selection: editor.selection, request: editor.request, error: editor.error, notice: editor.notice }
+            ErrorMessage { message: (editor.error)() }
+            if let Some(message) = (editor.notice)() { p { role: "status", "{message}" } }
+            div { class: "convention-actions",
+                button { id: "convention-logo-upload", r#type: "button", class: "primary", disabled: pending || (editor.selection.file)().is_none(),
+                    onclick: move |_| editor.upload(id.clone(), slug.clone()),
+                    if pending { "Processing logo…" } else { "Upload logo" }
+                }
+                button { id: "convention-logo-clear", r#type: "button", class: "danger", disabled: pending,
+                    onclick: move |_| editor.confirmation.set(true), "Clear saved logo"
+                }
+            }
+        }
+    }
+}
+
+#[component]
+pub(super) fn ClearLogoConfirmation(id: String, mut editor: LogoEditor) -> Element {
+    rsx! {
+        Confirm { open: (editor.confirmation)(), title: "Clear saved logo?",
+            message: "The current logo reference will be removed. Previously uploaded objects are retained in storage.",
+            confirm_label: "Clear logo", danger: true,
+            on_cancel: move |()| editor.confirmation.set(false),
+            on_confirm: move |()| editor.clear(id.clone()),
+        }
+    }
+}
+
 #[component]
 pub(super) fn LogoPicker(
     mut selection: LogoSelection,
@@ -62,15 +236,6 @@ pub(super) fn LogoPicker(
     mut notice: Signal<Option<String>>,
 ) -> Element {
     let owner = use_owner();
-    let selected_preview = use_memo(move || {
-        selection.file.read().as_ref().map(|file| {
-            format!(
-                "data:{};base64,{}",
-                file.mime,
-                base64::engine::general_purpose::STANDARD.encode(&file.bytes)
-            )
-        })
-    });
     rsx! {
         div { class: "convention-logo-file-box",
         label { class: "convention-label", r#for: "convention-logo-file", "Choose logo file" }
@@ -84,18 +249,21 @@ pub(super) fn LogoPicker(
                     if !matches!(mime.as_str(), "image/png" | "image/jpeg") || !(1..=2_097_152).contains(&selected.size()) { error.set(Some("Choose a PNG or JPEG between 1 byte and 2 MiB".into())); return; }
                     let Some(ticket) = request.write().begin() else { return; }; let request_owner = owner();
                     spawn(async move {
-                        let result = selected.read_bytes().await;
+                        let loading = ui::loading_guard();
+                        loading.paint().await;
+                        let result = LogoFile::read(selected, mime).await;
                         if owner() != request_owner || !request.write().finish(ticket) { return; }
-                        match result { Ok(bytes) if (1..=2_097_152).contains(&bytes.len()) => selection.file.set(Some(LogoFile { name: selected.name(), mime, bytes: bytes.to_vec() })), _ => error.set(Some("Unable to read this logo file within the 2 MiB limit".into())) }
+                        match result {
+                            Ok(file) => selection.file.set(Some(file)),
+                            Err(message) => error.set(Some(message)),
+                        }
                     });
                 }
             }
         }
         if let Some(selected) = (selection.file)() {
             div { class: "convention-logo-candidate",
-                if let Some(src) = selected_preview() {
-                    LogoImageButton { src, alt: "Selected logo preview", disabled: request.read().pending(), on_error: move |()| error.set(Some("Unable to preview this image. Choose a valid PNG or JPEG.".into())) }
-                }
+                LogoImageButton { src: selected.preview_url, alt: "Selected logo preview", disabled: request.read().pending(), on_error: move |()| error.set(Some("Unable to preview this image. Choose a valid PNG or JPEG.".into())) }
                 p { "Selected: {selected.name} (not yet saved)" }
             }
         }

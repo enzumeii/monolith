@@ -3,16 +3,11 @@ use crate::{
     client::shopify::ShopifyClient,
     error::{AppError, upstream},
     models::{
-        Sku, SkuCategory,
+        accounting::AccountingDateRange,
         checkout_completion::{ExactMoney, currency_precision},
-        shopify::{
-            AccountingLineItem, CompletionFinancialStatus, Money, Order, OrderTransaction,
-            PageRequest,
-        },
+        shopify::{CompletionFinancialStatus, Money, Order, OrderTransaction, PageRequest},
     },
-    services::{checkout::correlation as checkout_metadata, pagination::for_each_page},
-    utils::contact::{format_address, phone_number},
-    validations::accounting::AccountingDateRange,
+    services, transformers,
 };
 use domain::dto::accounting::AccountingTransactions;
 use domain::dto::{AccountingGateway, AccountingItem, AccountingKind, AccountingReportResponse};
@@ -47,7 +42,7 @@ pub(super) async fn enrich(
     );
     let mut orders = Vec::new();
     let mut seen = HashSet::new();
-    for_each_page(
+    services::pagination::for_each_page(
         None,
         |after| {
             let page = PageRequest { first: 10, after };
@@ -242,7 +237,7 @@ fn external_reference(payment: &Payment) -> Result<String, AppError> {
         AccountingGateway::Stripe => "stripe:charge",
         AccountingGateway::Paypal => "paypal:capture",
     };
-    crate::services::checkout_completion::reference(kind, &payment.transaction.payment_reference)
+    crate::utils::payment_reference::tag(kind, &payment.transaction.payment_reference)
 }
 
 fn external_sale_transaction(order: &Order, payment: &Payment) -> Result<Option<usize>, AppError> {
@@ -376,15 +371,15 @@ fn external_gateway(
 }
 
 struct Metadata<'a> {
-    identity: checkout_metadata::Identity,
+    identity: services::checkout::correlation::Identity,
     gateway: u8,
     reference: Option<&'a str>,
-    money: Option<checkout_metadata::MoneySnapshots>,
+    money: Option<services::checkout::correlation::MoneySnapshots>,
 }
 
 fn metadata(order: &Order) -> Result<Option<Metadata<'_>>, AppError> {
-    let Some(identity) =
-        checkout_metadata::parse_identity(&order.custom_attributes).map_err(|error| {
+    let Some(identity) = services::checkout::correlation::parse_identity(&order.custom_attributes)
+        .map_err(|error| {
             protocol("invalid Shopify checkout accounting metadata").with_source(error)
         })?
     else {
@@ -394,39 +389,54 @@ fn metadata(order: &Order) -> Result<Option<Metadata<'_>>, AppError> {
         (
             0,
             &[
-                (checkout_metadata::STRIPE_SESSION_KEY, "stripe:session"),
-                (checkout_metadata::STRIPE_INTENT_KEY, "stripe:intent"),
-                (checkout_metadata::STRIPE_CHARGE_KEY, "stripe:charge"),
+                (
+                    services::checkout::correlation::STRIPE_SESSION_KEY,
+                    "stripe:session",
+                ),
+                (
+                    services::checkout::correlation::STRIPE_INTENT_KEY,
+                    "stripe:intent",
+                ),
+                (
+                    services::checkout::correlation::STRIPE_CHARGE_KEY,
+                    "stripe:charge",
+                ),
             ],
         )
     } else {
         (
             1,
             &[
-                (checkout_metadata::PAYPAL_ORDER_KEY, "paypal:order"),
-                (checkout_metadata::PAYPAL_CAPTURE_KEY, "paypal:capture"),
+                (
+                    services::checkout::correlation::PAYPAL_ORDER_KEY,
+                    "paypal:order",
+                ),
+                (
+                    services::checkout::correlation::PAYPAL_CAPTURE_KEY,
+                    "paypal:capture",
+                ),
             ],
         )
     };
     let mut references = Vec::new();
     let mut tags = HashSet::new();
     for (key, kind) in keys {
-        if let Some(value) = checkout_metadata::unique_value(&order.custom_attributes, key)
-            .map_err(|error| {
-                protocol("invalid Shopify checkout accounting metadata").with_source(error)
-            })?
+        if let Some(value) =
+            services::checkout::correlation::unique_value(&order.custom_attributes, key).map_err(
+                |error| protocol("invalid Shopify checkout accounting metadata").with_source(error),
+            )?
         {
             tags.insert(
-                crate::services::checkout_completion::reference(kind, value).map_err(|error| {
+                crate::utils::payment_reference::tag(kind, value).map_err(|error| {
                     protocol("invalid Shopify checkout accounting reference").with_source(error)
                 })?,
             );
             references.push(value);
         }
     }
-    checkout_metadata::validate_legacy_identity(&identity, &order.tags).map_err(|error| {
-        protocol("conflicting Shopify checkout accounting identity").with_source(error)
-    })?;
+    services::checkout::correlation::validate_legacy_identity(&identity, &order.tags).map_err(
+        |error| protocol("conflicting Shopify checkout accounting identity").with_source(error),
+    )?;
     let mut seen = HashSet::new();
     for tag in order.tags.iter().filter(|tag| tag.starts_with("payment:")) {
         if !tags.contains(tag) || !seen.insert(tag) {
@@ -440,8 +450,8 @@ fn metadata(order: &Order) -> Result<Option<Metadata<'_>>, AppError> {
     } else {
         None
     };
-    let money =
-        checkout_metadata::parse_money_snapshots(&order.custom_attributes).map_err(|error| {
+    let money = services::checkout::correlation::parse_money_snapshots(&order.custom_attributes)
+        .map_err(|error| {
             protocol("invalid Shopify checkout accounting money").with_source(error)
         })?;
     Ok(Some(Metadata {
@@ -563,38 +573,9 @@ fn apply(
     let mut adjusted = false;
     let mut include_items = false;
     if payment.transaction.kind == AccountingKind::Refund {
-        for refund in &order.refunds {
-            let matched = refund
-                .transactions
-                .nodes
-                .iter()
-                .map(|tx| matches(tx, payment))
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .any(|found| found);
-            if !matched {
-                continue;
-            }
-            has_shipping_allocation = true;
-            shipping_lines.extend(
-                refund
-                    .refund_shipping_lines
-                    .nodes
-                    .iter()
-                    .map(|line| &line.subtotal_amount_set.shop_money),
-            );
-            for line in &refund.refund_line_items.nodes {
-                items.push(item(
-                    &line.line_item,
-                    -line.quantity,
-                    -money(&line.subtotal_set.shop_money.amount)?,
-                    AccountingKind::Refund,
-                    &payment.transaction.transaction_date,
-                    id,
-                    &payment.transaction.payment_reference,
-                ));
-            }
-        }
+        let refund_shipping = refund_details(payment, order, items, id)?;
+        has_shipping_allocation = refund_shipping.is_some();
+        shipping_lines = refund_shipping.unwrap_or_default();
     } else {
         let allocation = sale_details(order, payment)?;
         adjusted = allocation.order_adjusted;
@@ -612,7 +593,7 @@ fn apply(
     }
     if include_items {
         for line in &order.line_items.nodes {
-            items.push(item(
+            items.push(transformers::accounting::item(
                 line,
                 line.quantity,
                 money(&line.original_unit_price_set.shop_money.amount)?,
@@ -638,20 +619,57 @@ fn apply(
     } else {
         None
     };
-    let tx = &mut payment.transaction;
-    tx.shopify_order_id = id;
-    tx.shopify_order_number = order.number;
-    tx.shopify_order_tags.clone_from(&order.tags);
-    tx.customer_name = order
-        .shipping_address
-        .as_ref()
-        .and_then(|address| address.name.clone())
-        .unwrap_or_default();
-    tx.customer_address = address(order);
-    tx.customer_phone = phone(order);
-    tx.shipping_fee = shipping;
-    tx.order_adjusted = adjusted;
+    transformers::accounting::order_details(
+        &mut payment.transaction,
+        order,
+        id,
+        shipping,
+        adjusted,
+    );
     Ok(())
+}
+
+fn refund_details<'a>(
+    payment: &Payment,
+    order: &'a Order,
+    items: &mut Vec<AccountingItem>,
+    id: u64,
+) -> Result<Option<Vec<&'a Money>>, AppError> {
+    let mut shipping_lines = Vec::new();
+    let mut matched_refund = false;
+    for refund in &order.refunds {
+        let matched = refund
+            .transactions
+            .nodes
+            .iter()
+            .map(|tx| matches(tx, payment))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .any(|found| found);
+        if !matched {
+            continue;
+        }
+        matched_refund = true;
+        shipping_lines.extend(
+            refund
+                .refund_shipping_lines
+                .nodes
+                .iter()
+                .map(|line| &line.subtotal_amount_set.shop_money),
+        );
+        for line in &refund.refund_line_items.nodes {
+            items.push(transformers::accounting::item(
+                &line.line_item,
+                -line.quantity,
+                -money(&line.subtotal_set.shop_money.amount)?,
+                AccountingKind::Refund,
+                &payment.transaction.transaction_date,
+                id,
+                &payment.transaction.payment_reference,
+            ));
+        }
+    }
+    Ok(matched_refund.then_some(shipping_lines))
 }
 
 struct SaleAllocation {
@@ -777,59 +795,6 @@ fn thb(amount: &Money, payment: &Payment) -> Result<f64, AppError> {
         return Err(protocol("invalid shipping amount"));
     }
     Ok(result)
-}
-
-fn item(
-    line: &AccountingLineItem,
-    quantity: i64,
-    price: f64,
-    kind: AccountingKind,
-    date: &str,
-    order_id: u64,
-    reference: &str,
-) -> AccountingItem {
-    let sku = line.sku.clone().map(Sku::into_string).unwrap_or_default();
-    AccountingItem {
-        quantity,
-        price,
-        currency: line
-            .original_unit_price_set
-            .shop_money
-            .currency_code
-            .clone(),
-        title: line.title.clone(),
-        variant: line.variant_title.clone().unwrap_or_default(),
-        category: SkuCategory::from_sku(&sku).as_str().to_owned(),
-        sku,
-        kind,
-        transaction_date: date.to_owned(),
-        shopify_order_id: order_id,
-        payment_reference: reference.to_owned(),
-    }
-}
-
-fn address(order: &Order) -> String {
-    let Some(address) = &order.shipping_address else {
-        return String::new();
-    };
-    format_address(&[
-        address.address1.as_deref(),
-        address.address2.as_deref(),
-        address.city.as_deref(),
-        address.province_code.as_deref(),
-        address.country.as_deref(),
-        address.zip.as_deref(),
-    ])
-}
-
-fn phone(order: &Order) -> u64 {
-    phone_number(
-        order
-            .shipping_address
-            .as_ref()
-            .and_then(|a| a.phone.as_deref())
-            .unwrap_or_default(),
-    )
 }
 #[cfg(test)]
 #[path = "../../tests/services/accounting/shopify.rs"]

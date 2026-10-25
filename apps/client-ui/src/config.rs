@@ -30,16 +30,21 @@ pub struct Settings {
 
 impl Settings {
     pub async fn new() -> ApiResult<Self> {
-        let mut page = document::eval("dioxus.send(window.location.href);");
-        let page_url = page
-            .recv::<String>()
-            .await
-            .map_err(|_| invalid("Unable to determine the application URL"))?;
-        let url = resolve_config_url(&CONFIG_ASSET.to_string(), &page_url).map_err(invalid)?;
+        let (page_url, url) = {
+            let _loading = ui::loading_guard();
+            let mut page = document::eval("dioxus.send(window.location.href);");
+            let page_url = page
+                .recv::<String>()
+                .await
+                .map_err(|_| invalid("Unable to determine the application URL"))?;
+            let url = resolve_config_url(&CONFIG_ASSET.to_string(), &page_url).map_err(invalid)?;
+            (page_url, url)
+        };
         api::retry(|| Self::load(url.clone(), &page_url)).await
     }
 
     async fn load(url: reqwest::Url, page_url: &str) -> ApiResult<Self> {
+        let _loading = ui::loading_guard();
         let response = reqwest::get(url)
             .await
             .map_err(|error| ApiError::transport(&error, "Unable to load application.toml"))?;

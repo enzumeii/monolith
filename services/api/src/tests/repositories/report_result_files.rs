@@ -43,12 +43,13 @@ async fn exact_receipt_idempotence_conflicts_and_database_constraints() {
     assert_constraints(&mut connection, id, other, &original).await;
     drop(connection);
     assert!(
-        repositories::report_results::find(&state.pool, id)
-            .await
-            .unwrap()
-            .unwrap()
-            .into_dto()
-            .is_ok()
+        crate::services::cron::report::result_dto(
+            repositories::report_results::find(&state.pool, id)
+                .await
+                .unwrap()
+                .unwrap()
+        )
+        .is_ok()
     );
     let other_file = file(other, "transactions.csv");
     insert(

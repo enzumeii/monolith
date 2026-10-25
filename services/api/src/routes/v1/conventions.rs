@@ -1,4 +1,4 @@
-use crate::{handlers::public_conventions as handler, state::AppState};
+use crate::{handlers, state::AppState};
 use axum::{
     Router,
     extract::Request,
@@ -10,10 +10,13 @@ use axum::{
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/", get(handler::list))
-        .route("/{slug}", get(handler::get))
-        .route("/{slug}/products", get(handler::products))
-        .route("/{slug}/quote", post(handler::quote))
+        .route("/", get(handlers::public_conventions::list))
+        .route("/{slug}", get(handlers::public_conventions::get))
+        .route(
+            "/{slug}/products",
+            get(handlers::public_conventions::products),
+        )
+        .route("/{slug}/quote", post(handlers::public_conventions::quote))
         .layer(middleware::from_fn(no_store))
 }
 

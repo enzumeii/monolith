@@ -14,14 +14,30 @@ impl dioxus::html::NativeFileData for LogoFixture {
         "logo.png".into()
     }
     fn content_type(&self) -> Option<String> {
-        Some(self.0.into())
+        Some(
+            if self.0.starts_with("read-") {
+                "image/png"
+            } else {
+                self.0
+            }
+            .into(),
+        )
     }
     fn read_bytes(
         &self,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<dioxus::html::bytes::Bytes, CapturedError>>>,
     > {
-        Box::pin(async { Ok(dioxus::html::bytes::Bytes::from_static(b"logo")) })
+        let behavior = self.0;
+        Box::pin(async move {
+            if behavior == "read-failure" {
+                return Err(CapturedError::from_display("controlled file read failure"));
+            }
+            if behavior == "read-pending" {
+                return std::future::pending().await;
+            }
+            Ok(dioxus::html::bytes::Bytes::from_static(b"logo"))
+        })
     }
     fn read_string(
         &self,
@@ -67,7 +83,7 @@ fn picker_app() -> Element {
     let request = use_signal(RequestState::default);
     let error = use_signal(|| None::<String>);
     let notice = use_signal(|| None::<String>);
-    rsx! { LogoPicker { selection, request, error, notice } ErrorMessage { message: error() } }
+    rsx! { ui::LoadingBoundary { LogoPicker { selection, request, error, notice } ErrorMessage { message: error() } } }
 }
 #[test]
 fn invalid_image_type_does_not_create_an_upload_candidate() {
@@ -160,4 +176,42 @@ async fn selected_logo_has_an_image_preview_and_replacement_button() {
     assert!(html.contains("Selected logo preview"));
     assert!(html.contains("Click image to replace"));
     assert!(html.contains("not yet saved"));
+}
+
+#[tokio::test]
+async fn logo_file_read_is_blocking_and_failure_or_scope_cancellation_releases_it() {
+    for behavior in ["read-failure", "read-pending"] {
+        dioxus::html::set_event_converter(Box::new(FormEventConverter));
+        let mut dom = VirtualDom::new(picker_app);
+        let initial = dom.rebuild_to_vec();
+        let data =
+            dioxus::html::PlatformEventData::new(Box::new(vec![dioxus::html::FileData::new(
+                LogoFixture(behavior),
+            )]));
+        dom.runtime().handle_event(
+            "change",
+            Event::new(Rc::new(data) as Rc<dyn std::any::Any>, true),
+            listeners(&initial, "change")[0],
+        );
+        for _ in 0..10 {
+            render_changes(&mut dom);
+        }
+        let html = dioxus_ssr::render(&dom);
+        assert!(
+            !html.contains("not yet saved"),
+            "no candidate from a pending or failed read"
+        );
+        if behavior == "read-pending" {
+            assert!(
+                html.contains("page-loading"),
+                "pending file read blocks page: {html}"
+            );
+            assert!(html.contains("inert="));
+            drop(dom);
+        } else {
+            assert!(html.contains("Unable to read this logo file"), "{html}");
+            assert!(!html.contains("page-loading"));
+            assert!(!html.contains("inert="));
+        }
+    }
 }

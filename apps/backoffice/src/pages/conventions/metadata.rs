@@ -11,7 +11,7 @@ use crate::{
     session,
 };
 use dioxus::prelude::*;
-use domain::dto::{ConventionOptionsResponse, ConventionPaymentMethod};
+use domain::dto::{ConventionDTO, ConventionOptionsResponse, ConventionPaymentMethod};
 
 #[component]
 pub fn CreateEditor() -> Element {
@@ -93,6 +93,124 @@ pub fn CreateEditor() -> Element {
         }
     }
 }
+#[derive(Clone, Copy, PartialEq)]
+pub(super) struct MetadataEditor {
+    pub draft: Signal<Metadata>,
+    pub saved: Signal<Metadata>,
+    pub request: Signal<RequestState>,
+    error: Signal<Option<String>>,
+    notice: Signal<Option<String>>,
+    owner: Memo<Option<(i64, domain::AdminRole)>>,
+}
+
+impl MetadataEditor {
+    pub fn dirty(self) -> bool {
+        (self.draft)() != (self.saved)() || self.request.read().pending()
+    }
+
+    pub fn allowed(self, options: &ConventionOptionsResponse) -> bool {
+        let draft = self.draft.read();
+        !draft.requires_capabilities(&self.saved.read())
+            || options
+                .currencies
+                .iter()
+                .find(|item| item.code == draft.currency)
+                .is_some_and(|item| {
+                    draft
+                        .methods
+                        .iter()
+                        .all(|method| item.payment_methods.contains(method))
+                })
+    }
+
+    pub fn save(mut self, id: String, allowed: bool) {
+        if self.request.read().pending() {
+            return;
+        }
+        if !allowed {
+            self.error.set(Some("Choose supported currency and payment methods before enabling preorders or changing payment methods".into()));
+            return;
+        }
+        let snapshot = (self.draft)();
+        if snapshot == (self.saved)() {
+            return;
+        }
+        let input = match snapshot.patch(&(self.saved)()) {
+            Ok(input) => input,
+            Err(error) => {
+                self.error.set(Some(error));
+                return;
+            }
+        };
+        let Some(ticket) = self.request.write().begin() else {
+            return;
+        };
+        let request_owner = (self.owner)();
+        self.error.set(None);
+        self.notice.set(None);
+        spawn(async move {
+            let result = session::with_session(|| api::conventions::update(&id, input)).await;
+            if (self.owner)() != request_owner || !self.request.write().finish(ticket) {
+                return;
+            }
+            match result {
+                Ok(record) => {
+                    let saved = Metadata::from_record(&record);
+                    self.saved.set(saved.clone());
+                    if (self.draft)() == snapshot {
+                        self.draft.set(saved);
+                    }
+                    self.notice.set(Some("Metadata saved".into()));
+                }
+                Err(error) => self.error.set(Some(error.to_string())),
+            }
+        });
+    }
+}
+
+pub(super) fn use_metadata_editor(record: &ConventionDTO) -> MetadataEditor {
+    let mut editor = MetadataEditor {
+        draft: use_signal(|| Metadata::from_record(record)),
+        saved: use_signal(|| Metadata::from_record(record)),
+        request: use_signal(RequestState::default),
+        error: use_signal(|| None),
+        notice: use_signal(|| None),
+        owner: use_owner(),
+    };
+    use_effect(move || {
+        if (editor.draft)() != (editor.saved)() {
+            editor.notice.set(None);
+        }
+    });
+    editor
+}
+
+#[component]
+pub(super) fn EditMetadata(
+    id: String,
+    options: ConventionOptionsResponse,
+    editor: MetadataEditor,
+) -> Element {
+    let allowed = editor.allowed(&options);
+    let pending = editor.request.read().pending();
+    rsx! {
+        section { class: "panel convention-section", aria_label: "Convention metadata",
+            h3 { "Convention metadata" }
+            form { novalidate: true, onsubmit: move |event| {
+                event.prevent_default();
+                editor.save(id.clone(), allowed);
+            },
+                fieldset { disabled: pending, MetadataFields { draft: editor.draft, options, editing: true } }
+                ErrorMessage { message: (editor.error)() }
+                if let Some(message) = (editor.notice)() { p { role: "status", "{message}" } }
+                button { r#type: "submit", class: "primary", disabled: pending || !allowed || (editor.draft)() == (editor.saved)(),
+                    if pending { "Saving metadata…" } else { "Save metadata" }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 pub fn MetadataFields(
     mut draft: Signal<Metadata>,

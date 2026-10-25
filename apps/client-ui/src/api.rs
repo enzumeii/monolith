@@ -30,6 +30,7 @@ pub fn request(method: Method, path: &str) -> ApiResult<RequestBuilder> {
 }
 
 pub async fn decode<T: DeserializeOwned>(request: RequestBuilder) -> ApiResult<T> {
+    let _loading = ui::loading_guard();
     let response = request
         .send()
         .await

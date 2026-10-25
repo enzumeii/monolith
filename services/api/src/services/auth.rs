@@ -1,10 +1,4 @@
-use crate::{
-    error::AppError,
-    models::Admin,
-    models::Claims,
-    repositories::{admin, auth},
-    utils::password,
-};
+use crate::{error::AppError, models::Admin, models::Claims, repositories, utils::password};
 use axum::http::StatusCode;
 use chrono::{Duration, Utc};
 use domain::dto::{LoginRequest, RefreshRequest, TokenResponse};
@@ -19,13 +13,7 @@ pub async fn login(
     jwt_secret: &[u8],
     req: LoginRequest,
 ) -> Result<TokenResponse, AppError> {
-    if req.password.chars().count() > 128 {
-        return Err(AppError::new(
-            StatusCode::UNAUTHORIZED,
-            "Invalid username or password",
-        ));
-    }
-    let account = admin::find_by_username(pool, &req.username)
+    let account = repositories::admin::find_by_username(pool, &req.username)
         .await?
         .ok_or_else(|| AppError::new(StatusCode::UNAUTHORIZED, "Invalid username or password"))?;
     if !password::verify(req.password, account.password_hash.clone()).await? {
@@ -47,14 +35,20 @@ pub async fn refresh(
     req: RefreshRequest,
 ) -> Result<TokenResponse, AppError> {
     let hash = hash_token(&req.refresh_token);
-    let id = auth::refresh_owner(pool, &hash).await?.ok_or_else(|| {
-        AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token").with_bearer_challenge()
-    })?;
-    let account = admin::find_by_id(pool, id).await?.ok_or_else(|| {
-        AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token").with_bearer_challenge()
-    })?;
+    let id = repositories::auth::refresh_owner(pool, &hash)
+        .await?
+        .ok_or_else(|| {
+            AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
+                .with_bearer_challenge()
+        })?;
+    let account = repositories::admin::find_by_id(pool, id)
+        .await?
+        .ok_or_else(|| {
+            AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
+                .with_bearer_challenge()
+        })?;
     let mut transaction = pool.begin().await?;
-    let family_id = auth::consume_refresh_token(&mut transaction, &hash, id)
+    let family_id = repositories::auth::consume_refresh_token(&mut transaction, &hash, id)
         .await?
         .ok_or_else(|| {
             AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
@@ -71,7 +65,12 @@ pub async fn logout(
     req: RefreshRequest,
 ) -> Result<(), AppError> {
     let mut connection = pool.acquire().await?;
-    auth::delete_refresh_family(&mut connection, actor.id, &hash_token(&req.refresh_token)).await?;
+    repositories::auth::delete_refresh_family(
+        &mut connection,
+        actor.id,
+        &hash_token(&req.refresh_token),
+    )
+    .await?;
     Ok(())
 }
 
@@ -101,7 +100,7 @@ async fn issue_token_pair(
     let mut bytes = [0u8; 32];
     rand::rng().fill(&mut bytes);
     let refresh_token = hex::encode(bytes);
-    auth::create_refresh_token(
+    repositories::auth::create_refresh_token(
         connection,
         account.id,
         &hash_token(&refresh_token),

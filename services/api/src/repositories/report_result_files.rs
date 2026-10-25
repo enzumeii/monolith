@@ -8,19 +8,20 @@ pub(crate) async fn insert(
     position: i32,
     file: &SavedFile,
 ) -> Result<(), AppError> {
-    crate::validations::cron::report::validate_saved_file(file)?;
+    file.validate()?;
     let size = i64::try_from(file.size_bytes).map_err(|_| crate::models::cron::saved_invalid())?;
     let inserted: Option<Uuid> = sqlx::query_scalar(
         r"INSERT INTO report_result_files
             (report_result_id, filename, position, content_type, bucket, storage_key, size_bytes, sha256)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-        ON CONFLICT (report_result_id, filename) DO UPDATE SET filename=EXCLUDED.filename
-        WHERE report_result_files.position=EXCLUDED.position
-            AND report_result_files.content_type=EXCLUDED.content_type
-            AND report_result_files.bucket=EXCLUDED.bucket
-            AND report_result_files.storage_key=EXCLUDED.storage_key
-            AND report_result_files.size_bytes=EXCLUDED.size_bytes
-            AND report_result_files.sha256=EXCLUDED.sha256
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (report_result_id, filename) DO UPDATE
+        SET filename = EXCLUDED.filename
+        WHERE report_result_files.position = EXCLUDED.position
+            AND report_result_files.content_type = EXCLUDED.content_type
+            AND report_result_files.bucket = EXCLUDED.bucket
+            AND report_result_files.storage_key = EXCLUDED.storage_key
+            AND report_result_files.size_bytes = EXCLUDED.size_bytes
+            AND report_result_files.sha256 = EXCLUDED.sha256
         RETURNING report_result_id",
     )
     .bind(report_id)

@@ -1,14 +1,15 @@
-use super::{Payment, empty_transaction, money, protocol};
+use super::{Payment, money, protocol};
 use crate::{
     client::paypal::PaypalClient,
     error::{AppError, upstream},
+    models::accounting::AccountingDateRange,
     models::{
         CurrencyCode,
         checkout_completion::{ExactMoney, currency_precision},
         paypal::{TransactionDetail, TransactionEvent},
     },
-    services::pagination::{NumberedPage, for_each_numbered_page},
-    validations::accounting::AccountingDateRange,
+    services::{self, pagination::NumberedPage},
+    transformers,
 };
 use chrono::{Duration, Utc};
 use domain::dto::{AccountingGateway, AccountingKind};
@@ -27,7 +28,7 @@ pub(super) async fn collect(
             .checked_add_signed(Duration::days(31))
             .unwrap_or(end)
             .min(end);
-        for_each_numbered_page(
+        services::pagination::for_each_numbered_page(
             |page| async move {
                 let response = client
                     .get_transactions(start, window_end, 500, page)
@@ -121,13 +122,14 @@ fn payment(detail: &TransactionDetail) -> Result<Payment, AppError> {
             rounded(money(&shipping.value)?, factor)
         })
         .transpose()?;
-    let mut transaction = empty_transaction(
+    let mut transaction = transformers::accounting::transaction(
         AccountingGateway::Paypal,
         if info.transaction_event_code == TransactionEvent::Refund {
             AccountingKind::Refund
         } else {
             AccountingKind::Sale
         },
+        None,
     );
     transaction.transaction_date = info.transaction_initiation_date.to_rfc3339();
     transaction

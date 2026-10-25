@@ -1,21 +1,20 @@
 use crate::{
-    error::AppError,
-    models::AuthenticatedAdmin,
-    models::DbAdminRole,
-    repositories::{admin, auth},
-    utils::password,
-    validations::admin::{self as validate, AdminPageRequest},
+    error::AppError, models::AdminPageRequest, models::AuthenticatedAdmin, models::DbAdminRole,
+    repositories, transformers, utils::password,
 };
 use axum::http::StatusCode;
-use domain::dto::{AdminDTO, AdminListResponse, CreateAdminRequest, UpdateAdminRequest};
+use domain::dto::{AdminDTO, AdminListResponse, AdminRole, CreateAdminRequest, UpdateAdminRequest};
 use sqlx::PgPool;
 
 pub async fn list(pool: &PgPool, page: AdminPageRequest) -> Result<AdminListResponse, AppError> {
-    let mut rows = admin::list_page(pool, page).await?;
+    let mut rows = repositories::admin::list_page(pool, page).await?;
     let has_next = rows.len() > page.per_page() as usize;
     rows.truncate(page.per_page() as usize);
     Ok(AdminListResponse {
-        admins: rows.into_iter().map(AdminDTO::from).collect(),
+        admins: rows
+            .into_iter()
+            .map(transformers::admin::response)
+            .collect(),
         page: page.page(),
         per_page: page.per_page(),
         has_next,
@@ -27,11 +26,13 @@ pub async fn add(
     actor: &AuthenticatedAdmin,
     req: CreateAdminRequest,
 ) -> Result<AdminDTO, AppError> {
-    validate::validate_create(&req)?;
     let hash = password::hash(req.password).await?;
-    let current = admin::find_by_id(pool, actor.id).await?.ok_or_else(|| {
-        AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token").with_bearer_challenge()
-    })?;
+    let current = repositories::admin::find_by_id(pool, actor.id)
+        .await?
+        .ok_or_else(|| {
+            AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
+                .with_bearer_challenge()
+        })?;
     if current.role != DbAdminRole::SuperAdmin {
         return Err(AppError::new(
             StatusCode::FORBIDDEN,
@@ -39,8 +40,8 @@ pub async fn add(
         ));
     }
     let mut connection = pool.acquire().await?;
-    let row = admin::add(&mut connection, req.username, hash, req.role).await?;
-    Ok(row.into())
+    let row = repositories::admin::add(&mut connection, req.username, hash, req.role).await?;
+    Ok(transformers::admin::response(row))
 }
 
 pub async fn update(
@@ -49,35 +50,37 @@ pub async fn update(
     id: i64,
     req: UpdateAdminRequest,
 ) -> Result<AdminDTO, AppError> {
-    validate::validate_update(actor, id)?;
-    validate::validate_update_input(&req)?;
-    let current = admin::find_by_id(pool, actor.id).await?.ok_or_else(|| {
-        AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token").with_bearer_challenge()
-    })?;
-    validate::validate_update(&AuthenticatedAdmin::from(&current), id)?;
+    let current = repositories::admin::find_by_id(pool, actor.id)
+        .await?
+        .ok_or_else(|| {
+            AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
+                .with_bearer_challenge()
+        })?;
+    authorize_update(&AuthenticatedAdmin::from(&current), id)?;
     let hash = match req.password {
         Some(value) => Some(password::hash(value).await?),
         None => None,
     };
     let mut tx = pool.begin().await?;
 
-    let row = admin::update(&mut tx, id, req.username, hash)
+    let row = repositories::admin::update(&mut tx, id, req.username, hash)
         .await?
         .ok_or_else(|| {
             AppError::new(StatusCode::UNAUTHORIZED, "Not authorized").with_bearer_challenge()
         })?;
-    auth::delete_account_refresh_tokens(&mut tx, id).await?;
+    repositories::auth::delete_account_refresh_tokens(&mut tx, id).await?;
     tx.commit().await?;
-    Ok(row.into())
+    Ok(transformers::admin::response(row))
 }
 
 pub async fn get(pool: &PgPool, id: i64) -> Result<AdminDTO, AppError> {
-    Ok(admin::find_by_id(pool, id)
-        .await?
-        .ok_or_else(|| {
-            AppError::new(StatusCode::UNAUTHORIZED, "Not authorized").with_bearer_challenge()
-        })?
-        .into())
+    Ok(transformers::admin::response(
+        repositories::admin::find_by_id(pool, id)
+            .await?
+            .ok_or_else(|| {
+                AppError::new(StatusCode::UNAUTHORIZED, "Not authorized").with_bearer_challenge()
+            })?,
+    ))
 }
 
 pub async fn delete(
@@ -85,13 +88,18 @@ pub async fn delete(
     actor: &AuthenticatedAdmin,
     id: i64,
 ) -> Result<AdminDTO, AppError> {
-    validate::validate_delete(actor, id)?;
-    let current = admin::find_by_id(pool, actor.id).await?.ok_or_else(|| {
-        AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token").with_bearer_challenge()
-    })?;
-    let target = admin::find_by_id(pool, id).await?.ok_or_else(|| {
-        AppError::new(StatusCode::UNAUTHORIZED, "Not authorized").with_bearer_challenge()
-    })?;
+    authorize_delete(actor, id)?;
+    let current = repositories::admin::find_by_id(pool, actor.id)
+        .await?
+        .ok_or_else(|| {
+            AppError::new(StatusCode::UNAUTHORIZED, "Invalid or expired token")
+                .with_bearer_challenge()
+        })?;
+    let target = repositories::admin::find_by_id(pool, id)
+        .await?
+        .ok_or_else(|| {
+            AppError::new(StatusCode::UNAUTHORIZED, "Not authorized").with_bearer_challenge()
+        })?;
     if current.role != DbAdminRole::SuperAdmin || target.role == DbAdminRole::SuperAdmin {
         return Err(AppError::new(
             StatusCode::FORBIDDEN,
@@ -99,8 +107,35 @@ pub async fn delete(
         ));
     }
     let mut connection = pool.acquire().await?;
-    let row = admin::delete(&mut connection, id).await?.ok_or_else(|| {
-        AppError::new(StatusCode::UNAUTHORIZED, "Not authorized").with_bearer_challenge()
-    })?;
-    Ok(row.into())
+    let row = repositories::admin::delete(&mut connection, id)
+        .await?
+        .ok_or_else(|| {
+            AppError::new(StatusCode::UNAUTHORIZED, "Not authorized").with_bearer_challenge()
+        })?;
+    Ok(transformers::admin::response(row))
 }
+
+pub fn authorize_update(claims: &AuthenticatedAdmin, target_id: i64) -> Result<(), AppError> {
+    let allowed = claims.role == AdminRole::SuperAdmin || claims.id == target_id;
+    if !allowed {
+        return Err(AppError::new(
+            StatusCode::FORBIDDEN,
+            "Your account is forbidden to make this action",
+        ));
+    }
+    Ok(())
+}
+
+fn authorize_delete(claims: &AuthenticatedAdmin, target_id: i64) -> Result<(), AppError> {
+    if claims.id == target_id {
+        return Err(AppError::new(
+            StatusCode::FORBIDDEN,
+            "Your account is forbidden to make this action",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[path = "../tests/services/admin.rs"]
+mod tests;

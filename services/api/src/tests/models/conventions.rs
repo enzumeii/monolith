@@ -28,12 +28,8 @@ fn stored_inventory_policy_decodes_known_values_null_and_rejects_corruption() {
         ("CONTINUE", domain::dto::CatalogueInventoryPolicy::Continue),
     ] {
         row.inventory_policy = Some(wire.into());
-        assert_eq!(
-            row.clone().into_dto("THB").unwrap().inventory_policy,
-            Some(policy)
-        );
+        assert_eq!(row.display().unwrap().inventory_policy, Some(policy));
     }
     row.inventory_policy = Some("UNKNOWN".into());
     assert!(row.display().is_err());
-    assert!(row.into_dto("THB").is_err());
 }

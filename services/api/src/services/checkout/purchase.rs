@@ -10,7 +10,7 @@ use crate::{
             DraftOrderLineItemInput, Money, PageRequest, ShopifyId,
         },
     },
-    repositories::conventions,
+    repositories, services,
 };
 use chrono::{Duration, Utc};
 use domain::dto::{
@@ -59,14 +59,14 @@ pub(super) async fn prepare(
         .map_err(|_| conflict("Invalid operation identity"))?;
     let convention_id = Uuid::parse_str(&request.convention_id)
         .map_err(|_| conflict("Invalid convention identity"))?;
-    let convention = conventions::find(pool, convention_id)
+    let convention = repositories::conventions::find(pool, convention_id)
         .await?
         .ok_or_else(|| conflict("Convention is unavailable"))?;
     let provider = provider_name(request.provider);
     validate_convention_purchase(&convention, request)?;
     let (account_id, environment) =
         provider_identity(settings, clients, request.provider, existing).await?;
-    let selected = conventions::variants(pool, convention_id).await?;
+    let selected = repositories::conventions::variants(pool, convention_id).await?;
     let (items, total) = prepare_items(request, &selected, &convention.currency_code, provider)?;
     let slug = (completion_version == 2
         || matches!(
@@ -92,58 +92,24 @@ pub(super) async fn prepare(
         },
         slug,
     };
-    let now = Utc::now();
-    let row = Checkout {
+    let identity = PurchaseIdentity {
         id,
+        convention_id,
         completion_version,
         correlation_version,
-        convention_slug: purchase.slug.clone(),
-        payment_amount_minor: (correlation_version == correlation::INDEPENDENT_VERSION)
-            .then_some(purchase.money.minor),
-        payment_currency: (correlation_version == correlation::INDEPENDENT_VERSION)
-            .then(|| purchase.money.currency.clone()),
-        shopify_amount_minor: None,
-        shopify_currency: None,
-        payment_recording_state: PaymentRecordingState::NotStarted,
-        guest_secret_hash: guest_hash.to_vec(),
-        owner_expires_at: now
-            + Duration::seconds(
-                i64::try_from(settings.guest_recovery_secs)
-                    .map_err(|_| conflict("Invalid guest recovery duration"))?,
-            ),
-        request_fingerprint: fingerprint,
-        convention_id,
-        provider: provider.into(),
-        provider_account_id: account_id,
-        provider_environment: environment,
-        evidence_hash: purchase.evidence_hash(completion_version)?,
-        required_tag_hashes: purchase
-            .tags
-            .iter()
-            .map(|tag| Sha256::digest(tag.as_bytes()).to_vec())
-            .collect(),
-        success_url: Some(return_url(
-            settings,
-            &convention.slug,
-            id,
-            &settings.return_path_template,
-        )),
-        cancel_url: Some(return_url(
-            settings,
-            &convention.slug,
-            id,
-            &settings.cancel_path_template,
-        )),
-        gateway_request_fingerprint: None,
-        payment_state: PaymentState::NotStarted,
-        draft_state: DraftState::NotStarted,
-        completion_state: CompletionState::NotStarted,
-        draft_id: None,
-        provider_resource_id: None,
-        order_id: None,
-        reservation_expires_at: None,
-        created_at: existing.map_or(now, |checkout| checkout.created_at),
+        provider: provider.to_owned(),
+        account_id,
+        environment,
+        convention_slug: convention.slug,
     };
+    let row = purchase_record(
+        settings,
+        &purchase,
+        identity,
+        guest_hash,
+        fingerprint,
+        existing,
+    )?;
     Ok((row, purchase))
 }
 
@@ -292,26 +258,7 @@ pub(super) fn validate_purchase(
 ) -> Result<CheckoutMoney, AppError> {
     let money = draft_money(draft)?;
     let evidence_money = purchase_evidence_money(checkout, draft, &money)?;
-    let lines = draft
-        .line_items
-        .as_ref()
-        .ok_or_else(|| conflict("Shopify reservation lines are missing"))?;
-    if lines.page_info.has_next_page {
-        return Err(conflict("Shopify reservation lines are incomplete"));
-    }
-    let mut actual = BTreeMap::new();
-    for line in &lines.nodes {
-        let id = line
-            .variant
-            .as_ref()
-            .ok_or_else(|| conflict("Shopify reservation variant is missing"))?
-            .id
-            .as_ref()
-            .to_owned();
-        if line.quantity <= 0 || actual.insert(id, line.quantity).is_some() {
-            return Err(conflict("Shopify reservation has invalid variants"));
-        }
-    }
+    let actual = reservation_lines(draft)?;
     let email = draft
         .email
         .as_deref()
@@ -400,7 +347,7 @@ pub(super) fn slug_matches(checkout: &Checkout, attributes: &[CustomAttribute]) 
 }
 
 pub(super) fn exact(minor: i64, currency: &str) -> Result<ExactMoney, AppError> {
-    let precision = super::super::conventions::money::precision(currency)
+    let precision = services::conventions::money::precision(currency)
         .map_err(|_| conflict("Unsupported currency"))?;
     ExactMoney::new(
         minor,
@@ -474,6 +421,119 @@ impl PreparedPurchase {
     }
 }
 
+struct PurchaseIdentity {
+    id: Uuid,
+    convention_id: Uuid,
+    completion_version: i16,
+    correlation_version: i16,
+    provider: String,
+    account_id: String,
+    environment: String,
+    convention_slug: String,
+}
+
+fn purchase_record(
+    settings: &CheckoutSettings,
+    purchase: &PreparedPurchase,
+    identity: PurchaseIdentity,
+    guest_hash: &[u8],
+    fingerprint: Vec<u8>,
+    existing: Option<&Checkout>,
+) -> Result<Checkout, AppError> {
+    let now = Utc::now();
+    Ok(Checkout {
+        id: identity.id,
+        completion_version: identity.completion_version,
+        correlation_version: identity.correlation_version,
+        convention_slug: purchase.slug.clone(),
+        payment_amount_minor: (identity.correlation_version == correlation::INDEPENDENT_VERSION)
+            .then_some(purchase.money.minor),
+        payment_currency: (identity.correlation_version == correlation::INDEPENDENT_VERSION)
+            .then(|| purchase.money.currency.clone()),
+        shopify_amount_minor: None,
+        shopify_currency: None,
+        payment_recording_state: PaymentRecordingState::NotStarted,
+        guest_secret_hash: guest_hash.to_vec(),
+        owner_expires_at: now
+            + Duration::seconds(
+                i64::try_from(settings.guest_recovery_secs)
+                    .map_err(|_| conflict("Invalid guest recovery duration"))?,
+            ),
+        request_fingerprint: fingerprint,
+        convention_id: identity.convention_id,
+        provider: identity.provider,
+        provider_account_id: identity.account_id,
+        provider_environment: identity.environment,
+        evidence_hash: purchase.evidence_hash(identity.completion_version)?,
+        required_tag_hashes: purchase
+            .tags
+            .iter()
+            .map(|tag| Sha256::digest(tag.as_bytes()).to_vec())
+            .collect(),
+        success_url: Some(return_url(
+            settings,
+            &identity.convention_slug,
+            identity.id,
+            &settings.return_path_template,
+        )),
+        cancel_url: Some(return_url(
+            settings,
+            &identity.convention_slug,
+            identity.id,
+            &settings.cancel_path_template,
+        )),
+        gateway_request_fingerprint: None,
+        payment_state: PaymentState::NotStarted,
+        draft_state: DraftState::NotStarted,
+        completion_state: CompletionState::NotStarted,
+        draft_id: None,
+        provider_resource_id: None,
+        order_id: None,
+        reservation_expires_at: None,
+        created_at: existing.map_or(now, |checkout| checkout.created_at),
+    })
+}
+
+fn reservation_lines(draft: &CompletionDraft) -> Result<BTreeMap<String, i64>, AppError> {
+    let lines = draft
+        .line_items
+        .as_ref()
+        .ok_or_else(|| conflict("Shopify reservation lines are missing"))?;
+    if lines.page_info.has_next_page {
+        return Err(conflict("Shopify reservation lines are incomplete"));
+    }
+    let mut actual = BTreeMap::new();
+    for line in &lines.nodes {
+        let id = line
+            .variant
+            .as_ref()
+            .ok_or_else(|| conflict("Shopify reservation variant is missing"))?
+            .id
+            .as_ref()
+            .to_owned();
+        if line.quantity <= 0 || actual.insert(id, line.quantity).is_some() {
+            return Err(conflict("Shopify reservation has invalid variants"));
+        }
+    }
+    Ok(actual)
+}
+
+fn bound_evidence_hash(
+    email: &str,
+    money: &CheckoutMoney,
+    lines: &BTreeMap<String, i64>,
+    slug: Option<&str>,
+) -> Result<Vec<u8>, AppError> {
+    match slug {
+        None => evidence_hash(email, money, lines),
+        Some(slug) => Ok(Sha256::digest(
+            serde_json::to_vec(&(email, money, lines, slug))
+                .map_err(|error| AppError::from(anyhow::Error::new(error)))?,
+        )
+        .to_vec()),
+    }
+}
+
 fn validate_convention_purchase(
     convention: &crate::models::conventions::Convention,
     request: &CreateCheckoutRequest,
@@ -540,22 +600,6 @@ fn pin_shopify_money(checkout: &mut Checkout, draft: &CompletionDraft) -> Result
     Ok(())
 }
 
-fn bound_evidence_hash(
-    email: &str,
-    money: &CheckoutMoney,
-    lines: &BTreeMap<String, i64>,
-    slug: Option<&str>,
-) -> Result<Vec<u8>, AppError> {
-    match slug {
-        None => evidence_hash(email, money, lines),
-        Some(slug) => Ok(Sha256::digest(
-            serde_json::to_vec(&(email, money, lines, slug))
-                .map_err(|error| AppError::from(anyhow::Error::new(error)))?,
-        )
-        .to_vec()),
-    }
-}
-
 async fn find_reserved_draft(
     clients: &CheckoutClients<'_>,
     checkout: &Checkout,
@@ -580,7 +624,7 @@ async fn find_reserved_draft(
     let mut found = Vec::new();
     let mut requested_pages = 0;
     let mut scanned = 0;
-    super::super::pagination::for_each_page(
+    services::pagination::for_each_page(
         None,
         |after| {
             requested_pages += 1;
@@ -759,7 +803,7 @@ async fn provider_identity(
                 .ok_or_else(unavailable)?
                 .get_account()
                 .await
-                .map_err(upstream)?
+                .map_err(|error| upstream(error))?
                 .id,
             settings.stripe_livemode.to_string(),
         ),
@@ -824,7 +868,7 @@ fn prepare_items(
             return Err(conflict("Invalid checkout item selection"));
         }
         let money = exact(0, currency)?;
-        let canonical = super::super::conventions::money::validate(
+        let canonical = services::conventions::money::validate(
             &variant.final_price,
             currency,
             &[match request.provider {
@@ -886,10 +930,10 @@ async fn validate_stock(
     let mut found = BTreeSet::new();
     let search = &search;
     let location = &location;
-    super::super::pagination::for_each_page(
+    services::pagination::for_each_page(
         None,
         |after| async move {
-            let page = super::super::catalogue::products(
+            let page = services::catalogue::products(
                 clients.shopify,
                 location.clone(),
                 PageRequest { first: 100, after },

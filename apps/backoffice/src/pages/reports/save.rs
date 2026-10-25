@@ -42,6 +42,8 @@ pub fn SaveReport(rows: Vec<ProductReportRow>, filename: String) -> Element {
                         let rows = rows.clone();
                         let filename = filename.clone();
                         spawn(async move {
+                            let loading = ui::loading_guard();
+                            loading.paint().await;
                             match finish_picker(picker, &rows).await {
                                 Ok(true) => { name.set(filename); format.set(ExportFormat::Csv); open.set(true); }
                                 Ok(false) => {},
@@ -80,6 +82,8 @@ pub fn SaveReport(rows: Vec<ProductReportRow>, filename: String) -> Element {
                                     error.set(None); busy.set(true);
                                     let rows = rows.clone(); let id = id.clone();
                                     spawn(async move {
+                            let loading = ui::loading_guard();
+                            loading.paint().await;
                                         let saved = match encode_report(&rows, selected) {
                                             Ok(bytes) => download(bytes, &filename, selected.mime(), &id).await,
                                             Err(message) => Err(message),
@@ -186,7 +190,7 @@ fn focus_dialog(id: &str) {
         const id = await dioxus.recv();
         const dialog = document.getElementById(id);
         if (!dialog) return;
-        dialog.querySelector('input')?.focus();
+        requestAnimationFrame(() => dialog.querySelector('input')?.focus());
         dialog.addEventListener('keydown', event => {
             if (event.key !== 'Tab') return;
             const controls = [...dialog.querySelectorAll('input, select, button')].filter(control => !control.disabled);

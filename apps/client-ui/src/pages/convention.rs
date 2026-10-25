@@ -64,7 +64,7 @@ pub(crate) fn ConventionFrame(
         PortalNavbar { children: cart_action }
         main { class: "page portal-page",
             if let Some(destination) = back_to {
-                Link { to: destination, class: "button-link ghost portal-back-link", aria_label: "Back to products",
+                Link { to: destination, class: "back-link portal-back-link", aria_label: "Back to products",
                     span { aria_hidden: "true", "<" }
                 }
             }

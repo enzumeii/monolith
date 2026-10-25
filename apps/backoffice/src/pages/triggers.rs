@@ -1,10 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::{
-    api,
-    components::{ErrorMessage, LoadingState},
-    session,
-};
+use crate::{api, components::ErrorMessage, session};
 
 #[derive(Clone, Copy, PartialEq)]
 enum TriggerKind {
@@ -14,7 +10,7 @@ enum TriggerKind {
 
 #[component]
 pub fn Triggers() -> Element {
-    let LoadingState(mut pending) = use_context();
+    let mut pending = use_signal(|| false);
     let mut location_id = use_signal(String::new);
     let mut order_number = use_signal(String::new);
     let mut kind = use_signal(|| TriggerKind::InventoryEnablement);
@@ -25,7 +21,6 @@ pub fn Triggers() -> Element {
     let mut reship = use_trigger(order_number, error, pending, |number: String| async move {
         session::with_session(|| api::orders::reship(&number)).await
     });
-    use_drop(move || pending.set(false));
     let inventory_value = action.value().and_then(Result::ok);
     let inventory_outcome = inventory_value.as_ref().map(|value| value.read());
     let reship_value = reship.value().and_then(Result::ok);
@@ -157,6 +152,7 @@ fn use_trigger<T: 'static, Fut: std::future::Future<Output = api::ApiResult<T>> 
     let mut action = use_action(move |location: String| {
         let future = load.call(location);
         async move {
+            let _loading = ui::loading_guard();
             let result = future.await;
             pending.set(false);
             document::eval(

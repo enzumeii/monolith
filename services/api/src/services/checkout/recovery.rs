@@ -1,4 +1,4 @@
-use super::super::payments;
+use crate::services;
 use crate::{error::AppError, models::checkout::RecoveryCode};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,7 +20,9 @@ pub(super) fn classify(error: &AppError) -> RecoveryOutcome {
     if let Some(marker) = error.find_source::<ManualRecovery>() {
         return RecoveryOutcome::Manual(marker.0);
     }
-    if error.find_source::<payments::EvidenceMismatch>().is_some()
+    if error
+        .find_source::<services::payments::EvidenceMismatch>()
+        .is_some()
         || error
             .find_source::<crate::client::shopify::CheckoutIdentityMismatch>()
             .is_some()

@@ -5,11 +5,9 @@ use crate::utils::{
 use crate::{
     client::{ClientError, ClientErrorKind},
     error::{AppError, upstream},
-    validations::accounting::AccountingDateRange,
+    models::accounting::AccountingDateRange,
 };
-use domain::dto::{
-    AccountingGateway, AccountingKind, AccountingReportResponse, AccountingTransaction,
-};
+use domain::dto::{AccountingReportResponse, AccountingTransaction};
 
 struct Payment {
     transaction: AccountingTransaction,
@@ -53,36 +51,6 @@ fn sort_payments(payments: Vec<Payment>) -> Result<Vec<Payment>, AppError> {
         .collect::<Result<Vec<_>, AppError>>()?;
     rows.sort_by_key(|(payout, transaction, _)| (payout.is_none(), *payout, *transaction));
     Ok(rows.into_iter().map(|(_, _, payment)| payment).collect())
-}
-
-fn empty_transaction(gateway: AccountingGateway, kind: AccountingKind) -> AccountingTransaction {
-    AccountingTransaction {
-        gateway,
-        kind,
-        po_number: String::new(),
-        po_date: None,
-        transaction_date: String::new(),
-        payment_reference: String::new(),
-        description: String::new(),
-        shopify_order_id: 0,
-        shopify_order_number: 0,
-        customer_name: String::new(),
-        customer_address: String::new(),
-        customer_phone: 0,
-        currency: String::new(),
-        exchange_rate: None,
-        net_paid: 0.0,
-        fee: 0.0,
-        vat: 0.0,
-        gross_paid: 0.0,
-        shipping_fee: if gateway == AccountingGateway::Stripe {
-            Some(0.0)
-        } else {
-            None
-        },
-        order_adjusted: false,
-        shopify_order_tags: vec![],
-    }
 }
 
 #[track_caller]

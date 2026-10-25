@@ -4,7 +4,7 @@ pub(crate) mod publication;
 pub(crate) mod report;
 pub mod runtime;
 pub(crate) mod schedule;
-use crate::{error::AppError, repositories, services::cron::config, state::AppState};
+use crate::{error::AppError, repositories, services, state::AppState};
 use chrono::Utc;
 use tokio::task::JoinSet;
 
@@ -135,7 +135,7 @@ pub(crate) async fn dispatch(state: &AppState) -> Result<(), AppError> {
                 return Ok(());
             }
             let kind = crate::models::cron::report_type(&configuration.report_type)?;
-            crate::validations::cron::configs::validate_inputs(
+            services::cron::config::validate_inputs(
                 kind,
                 &configuration.cron_expression,
                 &configuration.parameter,
@@ -149,7 +149,7 @@ pub(crate) async fn dispatch(state: &AppState) -> Result<(), AppError> {
             let mut latest = None;
             for _ in 0..1000 {
                 let due = schedule::next_occurrence(&configuration.cron_expression, cursor)
-                    .map_err(config::schedule_error)?;
+                    .map_err(services::cron::config::schedule_error)?;
                 if due.naive_utc() > now {
                     break;
                 }

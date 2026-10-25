@@ -1,15 +1,13 @@
 use crate::{
     cron::{publication, report},
     error::AppError,
+    models,
     models::cron::{
         Job,
         checkpoint::{ExecutionCheckpoint, MailIntent, MailState},
-        report_type,
     },
-    repositories,
-    services::cron::{email, report as report_service},
+    repositories, services,
     state::AppState,
-    validations,
 };
 use axum::http::StatusCode;
 use chrono::{NaiveDateTime, Utc};
@@ -72,10 +70,10 @@ pub(crate) async fn claim(state: &AppState) -> Result<Option<ClaimedJob>, ClaimF
         Ok(existing)
     } else {
         (|| {
-            let kind = report_type(&config.report_type)?;
+            let kind = models::cron::report_type(&config.report_type)?;
             Ok::<_, AppError>((
                 config.report_type.clone(),
-                validations::cron::report::validate_resolved(
+                services::cron::report::resolve_parameters(
                     kind,
                     &config.parameter,
                     job.scheduled_for,
@@ -128,7 +126,10 @@ pub(crate) async fn execute(state: &AppState, claim: &ClaimedJob) -> Result<(), 
             claim,
             &mut checkpoint,
             attachments,
-            (report_type(&audit.report_type)?, &audit.parameters),
+            (
+                models::cron::report_type(&audit.report_type)?,
+                &audit.parameters,
+            ),
         )
         .await
         .map_err(|e| e.context("email delivery unconfirmed; may have been sent"))?;
@@ -205,8 +206,8 @@ async fn prepare_report(
     let checkpoint = if let Some(checkpoint) = existing {
         if audit.generated_at != Some(checkpoint.generated_at)
             || checkpoint.storage_prefix
-                != report_service::storage_prefix(
-                    report_type(&audit.report_type)?,
+                != crate::models::cron::report::storage_prefix(
+                    models::cron::report_type(&audit.report_type)?,
                     checkpoint.generated_at,
                     audit.id,
                 )
@@ -222,14 +223,14 @@ async fn prepare_report(
                 "Generated checkpoint is missing; regeneration is disabled",
             ));
         }
-        let kind = report_type(&audit.report_type)?;
+        let kind = models::cron::report_type(&audit.report_type)?;
         let shopify = crate::state::required_client(&state.shopify, "Shopify client unavailable")?;
         let providers = match kind {
             domain::dto::ScheduleReportType::Inventory => {
-                report_service::Providers::Inventory(shopify)
+                services::cron::report::Providers::Inventory(shopify)
             }
             domain::dto::ScheduleReportType::Transaction => {
-                report_service::Providers::Transaction {
+                services::cron::report::Providers::Transaction {
                     shopify,
                     stripe: crate::state::required_client(
                         &state.stripe,
@@ -242,7 +243,7 @@ async fn prepare_report(
                 }
             }
         };
-        let data = report_service::generate(audit, providers).await?;
+        let data = services::cron::report::generate(audit, providers).await?;
         let prepared = report::prepare(
             audit.id,
             kind,
@@ -349,23 +350,26 @@ async fn send_report(
     }
     let client = crate::state::required_client(&state.resend, "Resend client unavailable")?;
     if matches!(checkpoint.mail, MailState::NotStarted) {
-        validations::cron::report::validate_saved_parameters(
-            saved_parameters.0,
-            saved_parameters.1,
-        )?;
+        services::cron::report::saved_parameters(saved_parameters.0, saved_parameters.1)?;
         let report = match saved_parameters.0 {
-            domain::dto::ScheduleReportType::Inventory => email::Report::Inventory {
-                id: saved_parameters.1,
-            },
+            domain::dto::ScheduleReportType::Inventory => {
+                services::cron::email::Report::Inventory {
+                    id: saved_parameters.1,
+                }
+            }
             domain::dto::ScheduleReportType::Transaction => {
                 let (start, end) = saved_parameters
                     .1
                     .split_once(" - ")
                     .ok_or_else(crate::models::cron::saved_invalid)?;
-                email::Report::Transaction { start, end }
+                services::cron::email::Report::Transaction { start, end }
             }
         };
-        let content = email::report_content(&claim.recipient, report, checkpoint.generated_at);
+        let content = services::cron::email::report_content(
+            &claim.recipient,
+            report,
+            checkpoint.generated_at,
+        );
         let mut next = checkpoint.clone();
         next.mail = MailState::Sending(MailIntent {
             from: content.from,

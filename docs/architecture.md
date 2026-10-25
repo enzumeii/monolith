@@ -6,7 +6,7 @@ The application consists of an Axum API, two static Dioxus CSR applications, and
 
 ```mermaid
 flowchart LR
-    STATIC["Static /backoffice/ and /user/ HTML · WASM · assets"] --> UI["Dioxus browser applications"]
+    STATIC["Static backoffice and root portal HTML · WASM · assets"] --> UI["Dioxus browser applications"]
     UI -->|"Same-origin /api/v1"| API["Axum routes and handlers"]
     CRON["Daily Vercel Cron"] -->|"Authenticated GET /_cron"| API
     API --> SERVICES["Services: use cases and transactions"]
@@ -30,7 +30,7 @@ flowchart LR
 | `crates/ui` | Shared form/error/loading components, CSS and sanitized Markdown preview | No routing, authentication, API calls or persistence |
 | `crates/report-generator` | Shared inventory/accounting table projections and CSV serialization for API scheduled reports and backoffice exports | Wire DTO inputs; no provider calls, persistence or browser download transport |
 | `apps/backoffice` | CSR browser pages and session coordination; static metadata in `vercel/` | Direct public API calls; API owns cookies and authorization |
-| `apps/client-ui` | Existing CSR browser shell; static metadata in `vercel/` | Owns `/user`; browser feature coverage remains limited |
+| `apps/client-ui` | Customer convention catalogue, cart and checkout UI; static metadata in `vercel/` | Owns root portal routes; cart/browser mechanics remain feature-owned |
 
 AppState constructs optional outbound clients once and shares their HTTP pools. Handlers resolve shared client availability and pass only concrete dependencies to services; optional initialization failures affect dependent endpoint availability without stopping unrelated endpoints.
 
@@ -45,11 +45,13 @@ AppState constructs optional outbound clients once and shares their HTTP pools. 
 | `src/handlers/dependencies.rs` | Resolve shared optional clients and preserve availability errors before service calls; accounting requires concrete Stripe, PayPal and Shopify references |
 | `src/middleware/cookies.rs` | Cookie helpers, session transport, origin enforcement using BrowserConfig |
 | `src/middleware/token.rs` | JWT validation and role checks using the signing key and BrowserConfig |
-| `src/services/` / `src/repositories/` | Business use cases and transaction boundaries / SQL queries |
-| `services/files.rs` / `services/conventions/logo.rs` | Shared upload orchestration through the injected S3 client / Convention attachment ownership and signed preview projection; payment capability checks remain in the convention service |
+| `src/services/` / `src/repositories/` | Business use cases, persisted-state merges, eligibility and transaction boundaries / SQL queries, row mapping and atomic database operations |
+| `services/files.rs` / `services/conventions/logo.rs` | Shared upload orchestration through the injected S3 client / Convention attachment and signed-preview resolution; structural response mapping lives in the convention transformer, and payment capability checks remain in the service |
 | `src/cron.rs` / `src/cron/` | Scheduler loop, dispatch, leases, technical retries, checkpoints and publication; checkout recovery shares this runtime owner. Business report/configuration and checkout advancement rules stay in services (see [scheduled work](cron.md)) |
-| `src/models/` | Persistence/authentication models and API-owned Shopify contracts |
-| `src/validations/` / `src/utils/` | Input rules; upload image/directory and convention logo location validators have no service dependencies / Argon2 operations and native number parsing and multiplication |
+| `src/models/` | Persistence/authentication models, checked application inputs and API-owned provider contracts; saved report/checkpoint integrity is independent of HTTP validators |
+| `src/validations/` | Pure supplied-request checks, canonical typed parsing and bounded content decoding; `common.rs` reuses matching extraction/page/name/email contracts without business or response ownership |
+| `src/transformers/` | Feature-owned structural accepted-input and response DTO mappings; services supply business decisions and calculated values |
+| `src/utils/` | Reused password, contact, number and payment-reference mechanics; feature/provider eligibility and money policies remain with their owners |
 | `src/error.rs` | Public and upstream error mapping, retained source diagnostics and centralized boundary logging |
 | `src/client.rs` | Generic HTTP/GraphQL request envelopes, decoding, failures, throttling backoff |
 | `src/client/shopify.rs` / `src/client/shopify/*.graphql` | Shopify authentication and single-operation proxy methods / matching query documents |
@@ -67,10 +69,18 @@ AppState constructs optional outbound clients once and shares their HTTP pools. 
 | `src/pagination.rs` | Shared cursor collection/history for Reports and Orders |
 | `src/session/` | Viewer state, response ownership, browser synchronization |
 | `src/route.rs`, `src/pages/`, `src/components/` | Route mapping, owning features, confirmations and shared session-scoped draft navigation |
-| `src/components/heading.rs`, `src/components/report_table.rs` | Stateless title/back/action layout and accessible rich-row tables; callers own routes, data, requests and feature styling |
-| `src/pages/conventions/` | Convention metadata, catalogue selection, exact price drafts and independent logo uploads |
+| `crates/ui/src/heading.rs`, `src/components/report_table.rs` | Stateless title/back/action layout and accessible rich-row tables; callers own routes, data, requests and feature styling |
+| `src/pages/conventions/` | Convention metadata, catalogue selection, exact price drafts and independent logo uploads; metadata/logo editors retain their request ownership and draft lifecycle |
+| `src/components/draft_navigation.rs` | Shared draft-history setup and navigation guards; startup calls the generic owner |
 | `crates/ui` | Presentation and safe Markdown shared by backoffice and client UI |
+| `crates/ui/src/loading.rs`, `src/dialog.rs` | Reference-counted operation guards and a full-page native modal; mounted page content remains inert until every active operation finishes, preserving drafts and focus |
 | `src/tests/` | Configuration, HTTP boundary, and session tests |
+
+| Customer UI path | Responsibility |
+| --- | --- |
+| `apps/client-ui/src/cart.rs` | Application-scope cart cache initialization and feature state; route remounts reuse the same cache |
+| `apps/client-ui/src/country.rs` / `pages.rs` | Synchronous English country-name presentation / shared convention header; stored and request country codes remain ISO2 |
+| `apps/client-ui/src/checkout/view.rs` | Optional customer note input and illustrative placeholder; only entered note text participates in checkout |
 
 ## HTTP and authentication
 

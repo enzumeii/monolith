@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::float_cmp)]
 use super::{CurrencyCode, identity, precision_factor, records};
-use crate::{models::paypal::TransactionDetail, validations::accounting::AccountingDateRange};
+use crate::{models::accounting::AccountingDateRange, models::paypal::TransactionDetail};
 use serde_json::json;
 
 fn detail(id: &str, event: &str, date: &str, currency: &str, amount: &str) -> TransactionDetail {

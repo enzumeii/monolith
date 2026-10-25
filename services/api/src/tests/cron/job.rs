@@ -48,7 +48,7 @@ async fn fixture(
     );
     let generated_at = Utc::now().naive_utc().trunc_subsecs(6);
     let kind = configuration.report_type;
-    let prefix = report_service::storage_prefix(kind, generated_at, claim.job.id);
+    let prefix = crate::models::cron::report::storage_prefix(kind, generated_at, claim.job.id);
     let files = if transaction {
         vec!["transactions.csv", "items.csv"]
     } else {
@@ -119,7 +119,7 @@ async fn partial_two_file_recovery_keeps_available_receipt_and_never_generates_o
     assert_eq!(audit.files.len(), 1);
     assert_eq!(audit.generated_at, Some(checkpoint.generated_at));
     assert_eq!(blob.data.lock().unwrap().puts.len(), 0);
-    let public = serde_json::to_value(audit.into_dto().unwrap()).unwrap();
+    let public = serde_json::to_value(services::cron::report::result_dto(audit).unwrap()).unwrap();
     for private in [
         "execution_checkpoint",
         "mail",
@@ -409,7 +409,7 @@ async fn generated_checkpoint_matches_database_timestamp_precision() {
     let mut prepared = report::prepare(
         claim.job.id,
         domain::dto::ScheduleReportType::Inventory,
-        report_service::ReportData::Inventory(vec![]),
+        services::cron::report::ReportData::Inventory(vec![]),
         1024,
     )
     .await

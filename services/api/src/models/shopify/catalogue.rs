@@ -1,8 +1,6 @@
 use super::{Connection, InventoryLevel, Money, ShopifyId};
 use crate::client::{ClientError, ClientErrorKind};
-use domain::dto::{
-    CatalogueImage, CatalogueInventoryPolicy, CatalogueOption, CataloguePrice, CatalogueVariant,
-};
+use domain::dto::{CatalogueImage, CatalogueInventoryPolicy, CatalogueOption};
 use serde::{Deserialize, Deserializer};
 
 #[derive(Deserialize)]
@@ -80,25 +78,6 @@ impl SelectionVariant {
             return Err(invalid("available quantity is duplicated"));
         }
         Ok(Some(quantity.quantity))
-    }
-
-    pub(crate) fn into_dto(self, quantity: Option<i64>) -> CatalogueVariant {
-        CatalogueVariant {
-            id: self.id.as_ref().to_owned(),
-            inventory_item_id: self.inventory_item.id.as_ref().to_owned(),
-            title: self.title,
-            sku: self.sku,
-            image: self.image,
-            selected_options: self.selected_options,
-            price: CataloguePrice {
-                amount: self.contextual_pricing.price.amount,
-                currency_code: self.contextual_pricing.price.currency_code,
-            },
-            tracked: self.inventory_item.tracked,
-            inventory_policy: self.inventory_policy,
-            available_quantity: quantity,
-            eligible: quantity.is_some(),
-        }
     }
 }
 

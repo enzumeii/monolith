@@ -1,9 +1,9 @@
-use super::super::pagination::for_each_page;
 use crate::{
     client::shopify::TagAction,
     client::{ClientError, ClientErrorKind},
     error::{AppError, upstream},
     models::shopify::ShopifyId,
+    services,
 };
 use axum::http::StatusCode;
 use domain::dto::orders::{FulfillOrderRequest, FulfillOrderResponse};
@@ -16,7 +16,7 @@ pub async fn fulfill(
     request: FulfillOrderRequest,
 ) -> Result<FulfillOrderResponse, AppError> {
     let mut orders = Vec::new();
-    for_each_page(
+    services::pagination::for_each_page(
         None,
         async |after| {
             client

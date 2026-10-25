@@ -10,7 +10,7 @@
 .portal-contact-link:focus-visible { outline: 2px solid var(--heading); outline-offset: 3px; }
 .portal-brand { border-bottom: 1px solid var(--panel-border); }
 .portal-navbar { max-width: 1200px; margin: 0 auto; padding: .75rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-.portal-back-link { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: .3rem .6rem; margin-bottom: .75rem; font-size: 1.3rem; }
+.portal-back-link { margin-bottom: .75rem; }
 .portal-brand-link { display: inline-flex; align-items: center; gap: .65rem; font-size: 1.4rem; font-weight: bold; }
 .portal-brand-logo { width: 48px; height: 48px; object-fit: contain; }
 .portal-nav-actions { display: flex; align-items: center; gap: 1rem; }

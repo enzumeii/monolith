@@ -1,16 +1,10 @@
-use crate::error::AppError;
+use crate::{error::AppError, models::accounting::AccountingDateRange};
 use axum::{
     extract::{Query, rejection::QueryRejection},
     http::StatusCode,
 };
-use chrono::{DateTime, FixedOffset};
+use chrono::DateTime;
 use domain::dto::AccountingReportQuery;
-
-#[derive(Clone, Debug)]
-pub struct AccountingDateRange {
-    pub start: DateTime<FixedOffset>,
-    pub end: DateTime<FixedOffset>,
-}
 
 pub fn extract_accounting_query(
     query: Result<Query<AccountingReportQuery>, QueryRejection>,
