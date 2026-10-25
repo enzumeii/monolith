@@ -14,8 +14,18 @@ pub struct ApiConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ContactConfig {
+    pub email: String,
+    pub facebook_url: String,
+    pub instagram_url: String,
+    pub x_url: String,
+    pub tiktok_url: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Settings {
     pub api: ApiConfig,
+    pub contact: ContactConfig,
 }
 
 impl Settings {
@@ -43,11 +53,51 @@ impl Settings {
             .map_err(|error| ApiError::transport(&error, "Unable to read application.toml"))?;
         let contents = std::str::from_utf8(&bytes)
             .map_err(|_| invalid("Invalid application.toml: contents are not UTF-8"))?;
+        Self::parse(contents, page_url)
+    }
+
+    fn parse(contents: &str, page_url: &str) -> ApiResult<Self> {
         let mut settings: Self = toml::from_str(contents)
             .map_err(|error| invalid(format!("Invalid application.toml: {error}")))?;
         settings.api.base_url =
             resolve_api_url(&settings.api.base_url, page_url).map_err(invalid)?;
+        settings.contact.validate().map_err(invalid)?;
         Ok(settings)
+    }
+}
+
+impl ContactConfig {
+    fn validate(&self) -> Result<(), String> {
+        let (local, domain) = self.email.split_once('@').ok_or("Invalid contact email")?;
+        if local.is_empty()
+            || domain.is_empty()
+            || domain.contains('@')
+            || self
+                .email
+                .bytes()
+                .any(|byte| !byte.is_ascii_graphic() || b"<>\"?#%/\\:&".contains(&byte))
+        {
+            return Err("Invalid contact email".into());
+        }
+        for (name, value) in [
+            ("Facebook", &self.facebook_url),
+            ("Instagram", &self.instagram_url),
+            ("X", &self.x_url),
+            ("TikTok", &self.tiktok_url),
+        ] {
+            let url =
+                reqwest::Url::parse(value).map_err(|_| format!("Invalid contact {name} URL"))?;
+            if !matches!(url.scheme(), "http" | "https")
+                || url.host_str().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || value.trim() != value
+                || value.chars().any(char::is_control)
+            {
+                return Err(format!("Invalid contact {name} URL"));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -83,4 +133,4 @@ fn resolve_config_url(asset_path: &str, page_url: &str) -> Result<reqwest::Url, 
 
 #[cfg(test)]
 #[path = "tests/config.rs"]
-mod tests;
+pub(crate) mod tests;

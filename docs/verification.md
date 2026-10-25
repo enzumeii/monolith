@@ -1037,3 +1037,14 @@ Ignored source hashes, full logs, strict readbacks and redacted exports remain u
 | Postman |94 entities, zero errors, one existing cron-preview warning. Current-account and Stripe webhook descriptions match discovered account identity; provider mutation requests were not executed as a collection |
 | Actual payment evidence | Recorded V9 Stripe TEST card0077 payment completed Shopify#5628, including the exact native customer note and sole convention-slug tag. Existing PayPal Sandbox#5627 capture and its item appear linked in the native accounting export; both orders pass34 strict payment/order readback checks |
 | Remaining financial acceptance | Stripe#5628 has available funds but no automatic paid payout in the recorded provider scan, so its actual accounting row/item remain absent. Settlement timing is unchanged. The user authorized publication before this acceptance step completes. No additional payment, manual payout, old-order edit, release or deployment accompanies this configuration follow-up |
+
+
+### Footer settings and checkout migration consolidation — 2026-10-25
+
+| Check | Evidence and limits |
+| --- | --- |
+| Public contacts | Email and all four social destinations come from required typed public TOML settings. Strict native/WASM checks, production build, 103 Rust and 21 JavaScript tests passed; client LCOV1424/1467=97.0688%. Browser DOM checks verified alternate configured destinations and restoration of the existing defaults, including accessible labels and safe new-tab attributes |
+| Migration scope | Only this PR’s three migrations were combined into the earliest recovery migration. Their statements are byte-equivalent in original order apart from blank separators; all six migrations already on main remain byte-identical. Existing historical QA migration ledgers were not rewritten |
+| Database regression | Fresh-schema and preexisting-checkout upgrade tests passed against isolated schemas in the Compose PostgreSQL database. Final strict API checks and615 native tests passed; affected real-TCP checkout47 and recovery17 tests passed with zero failures or ignored tests. All272 recorded inputs remained unchanged; owned dependencies were removed |
+| Repository tooling | Focused SIGINT lifecycle test and full root check passed:123 Node tests, actionlint, shellcheck, Bash syntax and pinned Vercel validation. An earlier startup assertion exceeded its two-second polling window during concurrent checks; the unchanged test passed both reruns |
+| Limits | This follow-up creates no payment or payout, changes no settlement timing and does not establish pending Stripe accounting acceptance. Full current-head hosted coverage is tracked separately from these local focused checks |

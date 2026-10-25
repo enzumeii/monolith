@@ -16,7 +16,7 @@
 | Failure handling | Malformed or unavailable cart storage has an in-memory fallback; payment requires durable secure recovery storage. Configuration, directory, catalogue and quote reads retry transient network/408/429/5xx failures automatically with serial 5/10/20/30-second capped backoff. Protocol, local validation and terminal HTTP failures stop. API/provider failure remains an error rather than zero stock; signed logo preview failures use placeholders |
 | Prices | Exact decimal strings and checked arithmetic; convention-inclusive line prices, one currency and zero shipping. Browser totals are not authority |
 | Boundaries | Browsing and cart edits create no order, checkout record, provider payment or stock hold. Payment initiation uses the accepted quote and confirmation email, then the backend validates and reserves a Shopify draft before opening the hosted gateway |
-| Contact footer | Every customer route includes icon-only email, Facebook, Instagram, X and TikTok links with accessible names, visible keyboard focus and new-tab navigation |
+| Contact footer | Every customer route includes icon-only email, Facebook, Instagram, X and TikTok links with accessible names, visible keyboard focus and new-tab navigation. Destinations come from typed public `[contact]` settings loaded once at startup and inherited by environment overrides |
 | Shared presentation | Customer pages use the shared logo/favicon, existing common theme, sanitized Markdown with smaller product/variant descriptions, forms/loading/errors and shared Heading. Routing owns navigation; pages/cart own feature state; API services own quote policy |
 
 ## Guest payment and confirmation

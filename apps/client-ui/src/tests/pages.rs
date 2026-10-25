@@ -156,11 +156,10 @@ pub(crate) fn mounted(
             captured: captured.clone(),
         })
         .with_root_context(document as Rc<dyn Document>);
-    if let Some(settings) = dioxus::dioxus_core::Runtime::try_current()
+    let settings = dioxus::dioxus_core::Runtime::try_current()
         .and_then(|_| try_consume_context::<crate::config::Settings>())
-    {
-        dom = dom.with_root_context(settings);
-    }
+        .unwrap_or_else(crate::config::tests::settings);
+    dom = dom.with_root_context(settings);
     dom.rebuild_in_place();
     (dom, captured)
 }

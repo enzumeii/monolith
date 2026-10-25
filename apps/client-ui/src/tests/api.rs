@@ -14,6 +14,7 @@ fn requests_require_loaded_settings_and_use_the_public_base_without_admin_creden
         api: ApiConfig {
             base_url: "https://api.example.test/custom/v1".into(),
         },
+        ..crate::config::tests::settings()
     });
     let request = dom.in_scope(ScopeId::ROOT, || {
         request(Method::POST, "/conventions/summer-fair/quote")
@@ -195,6 +196,7 @@ pub(crate) async fn responses_with_lengths<T>(
     });
     let dom = VirtualDom::new(|| rsx! {}).with_root_context(Settings {
         api: ApiConfig { base_url },
+        ..crate::config::tests::settings()
     });
     let mut operation = std::pin::pin!(operation);
     let result =

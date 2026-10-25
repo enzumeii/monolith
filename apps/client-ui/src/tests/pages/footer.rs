@@ -5,7 +5,7 @@ use crate::pages::tests::{Screen, TestDocument, empty_cart, mounted};
 
 #[test]
 fn contact_links_expose_accessible_names_and_safe_external_destinations() {
-    let mut dom = VirtualDom::new(PortalFooter);
+    let mut dom = VirtualDom::new(PortalFooter).with_root_context(crate::config::tests::settings());
     dom.rebuild_in_place();
     let html = dioxus_ssr::render(&dom);
     assert!(html.contains(r#"aria-label="Contact Enzumeii""#));
@@ -13,13 +13,16 @@ fn contact_links_expose_accessible_names_and_safe_external_destinations() {
     assert_eq!(links.len(), 5);
     for (link, (href, label)) in links.iter().zip([
         (
-            "mailto:order@enzumeii.com",
+            "mailto:orders@example.test",
             "Email Enzumeii about your order",
         ),
-        ("https://www.facebook.com/enzumeii", "Enzumeii on Facebook"),
-        ("http://instagram.com/enzumeii", "Enzumeii on Instagram"),
-        ("https://twitter.com/enzumeii", "Enzumeii on X (Twitter)"),
-        ("https://www.tiktok.com/@enzumei", "Enzumeii on TikTok"),
+        ("https://facebook.example.test/shop", "Enzumeii on Facebook"),
+        (
+            "https://instagram.example.test/shop",
+            "Enzumeii on Instagram",
+        ),
+        ("https://x.example.test/shop", "Enzumeii on X (Twitter)"),
+        ("https://tiktok.example.test/@shop", "Enzumeii on TikTok"),
     ]) {
         let anchor = link.split("</a>").next().expect("contact anchor");
         assert!(anchor.contains(&format!(r#"href="{href}""#)));
@@ -52,7 +55,7 @@ async fn shared_layout_keeps_one_contact_footer_across_portal_routes() {
         let html = dioxus_ssr::render(&dom);
         assert_eq!(html.matches("<footer").count(), 1, "{path}");
         assert_eq!(
-            html.matches(r#"href="mailto:order@enzumeii.com""#).count(),
+            html.matches(r#"href="mailto:orders@example.test""#).count(),
             1,
             "{path}"
         );
