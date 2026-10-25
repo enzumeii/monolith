@@ -1,10 +1,10 @@
-use super::{ApiError, ApiResult, decode, request};
+use super::{ApiError, ApiResult, decode_background, request};
 use domain::dto::checkout::{CheckoutResponse, CreateCheckoutRequest};
 use reqwest::{Method, StatusCode};
 
 pub async fn create(body: &CreateCheckoutRequest, credential: &str) -> ApiResult<CheckoutResponse> {
     validate_identity(&body.operation_id, credential)?;
-    decode(
+    decode_background(
         request(Method::POST, "/order/checkout")?
             .bearer_auth(credential)
             .json(body),
@@ -14,7 +14,10 @@ pub async fn create(body: &CreateCheckoutRequest, credential: &str) -> ApiResult
 
 pub async fn verify(id: &str, credential: &str) -> ApiResult<CheckoutResponse> {
     validate_identity(id, credential)?;
-    decode(request(Method::POST, &format!("/order/{id}/verify"))?.bearer_auth(credential)).await
+    decode_background(
+        request(Method::POST, &format!("/order/{id}/verify"))?.bearer_auth(credential),
+    )
+    .await
 }
 
 fn validate_identity(id: &str, credential: &str) -> ApiResult<()> {

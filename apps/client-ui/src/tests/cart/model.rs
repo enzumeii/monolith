@@ -88,6 +88,10 @@ fn authoritative_quote_price_race_requires_acknowledgement() {
 
 fn catalogue() -> domain::dto::PublicCatalogueResponse {
     domain::dto::PublicCatalogueResponse {
+        payment_methods: vec![
+            domain::dto::ConventionPaymentMethod::Stripe,
+            domain::dto::ConventionPaymentMethod::Paypal,
+        ],
         convention: domain::dto::PublicConvention {
             id: "convention-a".into(),
             slug: "shared-slug".into(),

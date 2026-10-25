@@ -80,3 +80,7 @@ dialog.popup.convention-catalogue-popup { width: 80vw; max-width: 80vw; height: 
 .convention-variant-title { margin: 0; color: var(--text); font-size: 1rem; }
 
 .convention-source-price { display: block; margin-top: .35rem; }
+
+.convention-advanced-actions { margin: 2rem 0 1rem; padding-top: 1rem; border-top: 1px solid var(--panel-border); }
+.convention-advanced-actions summary { cursor: pointer; color: var(--muted); font-size: .9rem; padding: .5rem 0; }
+.convention-advanced-actions .convention-delete-action { margin-top: .75rem; }

@@ -83,6 +83,7 @@ pub(crate) async fn products(
         }
     }
     Ok(PublicCatalogueResponse {
+        payment_methods: convention.methods()?,
         convention: project(convention, s3).await?,
         products,
     })

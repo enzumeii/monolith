@@ -5,11 +5,15 @@ use ui::{ErrorMessage, Heading, LoadingMessage};
 
 #[component]
 pub fn Directory() -> Element {
-    let conventions = use_resource(|| async {
-        let (today, country) = browser::visitor().await.map_err(|message| {
-            api::ApiError::new(reqwest::StatusCode::SERVICE_UNAVAILABLE, message)
-        })?;
-        api::retry(|| api::conventions::directory(today.clone(), country.clone())).await
+    let settings = consume_context::<crate::config::Settings>();
+    let conventions = use_resource(move || {
+        let visitor = settings.visitor.clone();
+        async move {
+            let (today, country) = browser::visitor(&visitor).await.map_err(|message| {
+                api::ApiError::new(reqwest::StatusCode::SERVICE_UNAVAILABLE, message)
+            })?;
+            api::retry(|| api::conventions::directory(today.clone(), country.clone())).await
+        }
     });
     let state = conventions.read().clone();
     rsx! { PortalNavbar {} main { class: "page portal-page",

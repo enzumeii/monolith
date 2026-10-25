@@ -64,10 +64,19 @@ pub(super) async fn prepare(
         .ok_or_else(|| conflict("Convention is unavailable"))?;
     let provider = provider_name(request.provider);
     validate_convention_purchase(&convention, request)?;
-    let (account_id, environment) =
+    let (account_id, environment, settlement_currency) =
         provider_identity(settings, clients, request.provider, existing).await?;
     let selected = repositories::conventions::variants(pool, convention_id).await?;
     let (items, total) = prepare_items(request, &selected, &convention.currency_code, provider)?;
+    if provider == "stripe" {
+        validate_stripe_minimum(
+            settlement_currency.as_deref(),
+            &CheckoutMoney {
+                minor: total,
+                currency: convention.currency_code.clone(),
+            },
+        )?;
+    }
     let slug = (completion_version == 2
         || matches!(
             correlation_version,
@@ -121,73 +130,57 @@ pub(super) async fn reserve(
     purchase: &PreparedPurchase,
     token: Uuid,
 ) -> Result<(), AdvanceError> {
-    validate_stock(settings, clients, purchase).await?;
+    if let Err(error) = validate_stock(settings, clients, purchase).await {
+        if checkout.correlation_version == correlation::INDEPENDENT_VERSION
+            && checkout.payment_state == PaymentState::NotStarted
+            && checkout.provider_resource_id.is_none()
+            && checkout.gateway_request_fingerprint.is_none()
+            && error.find_source::<crate::client::ClientError>().is_some()
+        {
+            checkout.payment_state = PaymentState::Unpaid;
+            super::save(pool, checkout, token).await?;
+            crate::error::log_background_error(
+                "Checkout stock read failed before reservation",
+                &error,
+            );
+            return Ok(());
+        }
+        return Err(error.into());
+    }
     let deadline = Utc::now()
         + Duration::seconds(
             i64::try_from(settings.reservation_secs)
                 .map_err(|_| conflict("Invalid reservation duration"))?,
         );
-    let input = CreateDraftOrderInput {
-        note: purchase.note.clone(),
-        line_items: purchase
-            .items
-            .iter()
-            .map(|item| {
-                Ok(DraftOrderLineItemInput {
-                    variant_id: ShopifyId::new(&item.shopify_variant_id)
-                        .map_err(|error| upstream(error))?,
-                    quantity: i32::try_from(item.quantity)
-                        .map_err(|_| conflict("Invalid quantity"))?,
-                    price_override: (checkout.correlation_version
-                        != correlation::INDEPENDENT_VERSION)
-                        .then(|| {
-                            Ok::<_, AppError>(Money {
-                                amount: amount(item.unit_price_minor, &purchase.money.currency)?,
-                                currency_code: purchase.money.currency.clone(),
-                            })
-                        })
-                        .transpose()?,
-                })
-            })
-            .collect::<Result<_, AppError>>()?,
-        tags: purchase.tags.clone(),
-        custom_attributes: if matches!(
-            checkout.correlation_version,
-            correlation::METADATA_VERSION | correlation::INDEPENDENT_VERSION
-        ) {
-            correlation::identity_attributes(checkout)?
-        } else {
-            purchase
-                .slug
-                .iter()
-                .map(|slug| CustomAttribute {
-                    key: correlation::SLUG_KEY.into(),
-                    value: slug.clone(),
-                })
-                .collect()
-        },
-        email: Some(purchase.email.clone()),
-        presentment_currency_code: (checkout.correlation_version
-            != correlation::INDEPENDENT_VERSION)
-            .then(|| purchase.money.currency.clone()),
-        reserve_inventory_until: Some(deadline),
-        session_token: Some(checkout.id.to_string()),
-        ..Default::default()
-    };
+    let input = reservation_input(checkout, purchase, deadline)?;
     checkout.draft_state = DraftState::Creating;
     checkout.reservation_expires_at = Some(deadline);
     super::save(pool, checkout, token).await?;
     let created = match clients.shopify.create_draft_order(&input).await {
         Ok(payload) if payload.user_errors.is_empty() => payload.draft_order,
         Ok(payload) => {
-            checkout.draft_state = DraftState::Uncertain;
+            let rejected = checkout.correlation_version == correlation::INDEPENDENT_VERSION
+                && payload.draft_order.is_none()
+                && checkout.payment_state == PaymentState::NotStarted;
+            checkout.draft_state = if rejected {
+                DraftState::NotStarted
+            } else {
+                DraftState::Uncertain
+            };
+            if rejected {
+                checkout.payment_state = PaymentState::Unpaid;
+            }
             super::save(pool, checkout, token).await?;
-            return Err(upstream(crate::client::ClientError::new(
+            let error = upstream(crate::client::ClientError::new(
                 crate::client::ClientErrorKind::Mutation {
                     errors: payload.user_errors,
                 },
-            ))
-            .into());
+            ));
+            if rejected {
+                crate::error::log_background_error("Checkout draft rejected", &error);
+                return Ok(());
+            }
+            return Err(error.into());
         }
         Err(error) => {
             checkout.draft_state = DraftState::Uncertain;
@@ -401,6 +394,22 @@ pub(super) fn validate_reservation(
     Ok(())
 }
 
+pub(super) fn validate_stripe_minimum(
+    settlement: Option<&str>,
+    money: &CheckoutMoney,
+) -> Result<(), AppError> {
+    if money.currency == "THB"
+        && settlement.is_some_and(|currency| currency.eq_ignore_ascii_case("THB"))
+        && money.minor < 1000
+    {
+        return Err(AppError::new(
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            "Stripe requires a minimum payment of THB 10.00",
+        ));
+    }
+    Ok(())
+}
+
 impl PreparedPurchase {
     fn evidence_hash(&self, completion_version: i16) -> Result<Vec<u8>, AppError> {
         let lines = self
@@ -430,6 +439,60 @@ struct PurchaseIdentity {
     account_id: String,
     environment: String,
     convention_slug: String,
+}
+
+fn reservation_input(
+    checkout: &Checkout,
+    purchase: &PreparedPurchase,
+    deadline: chrono::DateTime<Utc>,
+) -> Result<CreateDraftOrderInput, AppError> {
+    Ok(CreateDraftOrderInput {
+        note: purchase.note.clone(),
+        line_items: purchase
+            .items
+            .iter()
+            .map(|item| {
+                Ok(DraftOrderLineItemInput {
+                    variant_id: ShopifyId::new(&item.shopify_variant_id)
+                        .map_err(|error| upstream(error))?,
+                    quantity: i32::try_from(item.quantity)
+                        .map_err(|_| conflict("Invalid quantity"))?,
+                    price_override: (checkout.correlation_version
+                        != correlation::INDEPENDENT_VERSION)
+                        .then(|| {
+                            Ok::<_, AppError>(Money {
+                                amount: amount(item.unit_price_minor, &purchase.money.currency)?,
+                                currency_code: purchase.money.currency.clone(),
+                            })
+                        })
+                        .transpose()?,
+                })
+            })
+            .collect::<Result<_, AppError>>()?,
+        tags: purchase.tags.clone(),
+        custom_attributes: if matches!(
+            checkout.correlation_version,
+            correlation::METADATA_VERSION | correlation::INDEPENDENT_VERSION
+        ) {
+            correlation::identity_attributes(checkout)?
+        } else {
+            purchase
+                .slug
+                .iter()
+                .map(|slug| CustomAttribute {
+                    key: correlation::SLUG_KEY.into(),
+                    value: slug.clone(),
+                })
+                .collect()
+        },
+        email: Some(purchase.email.clone()),
+        presentment_currency_code: (checkout.correlation_version
+            != correlation::INDEPENDENT_VERSION)
+            .then(|| purchase.money.currency.clone()),
+        reserve_inventory_until: Some(deadline),
+        session_token: Some(checkout.id.to_string()),
+        ..Default::default()
+    })
 }
 
 fn purchase_record(
@@ -795,18 +858,21 @@ async fn provider_identity(
     clients: &CheckoutClients<'_>,
     provider: CheckoutProvider,
     existing: Option<&Checkout>,
-) -> Result<(String, String), AppError> {
+) -> Result<(String, String, Option<String>), AppError> {
     let identity = match provider {
-        CheckoutProvider::Stripe => (
-            clients
+        CheckoutProvider::Stripe => {
+            let account = clients
                 .stripe
                 .ok_or_else(unavailable)?
                 .get_account()
                 .await
-                .map_err(|error| upstream(error))?
-                .id,
-            settings.stripe_livemode.to_string(),
-        ),
+                .map_err(|error| upstream(error))?;
+            (
+                account.id,
+                settings.stripe_livemode.to_string(),
+                account.default_currency,
+            )
+        }
         CheckoutProvider::Paypal => (
             settings
                 .paypal_merchant_id
@@ -814,6 +880,7 @@ async fn provider_identity(
                 .filter(|value| !value.is_empty())
                 .ok_or_else(unavailable)?,
             clients.paypal.ok_or_else(unavailable)?.api_origin(),
+            None,
         ),
     };
     if existing.is_some_and(|checkout| {

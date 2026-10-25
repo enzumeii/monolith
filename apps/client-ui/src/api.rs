@@ -30,29 +30,11 @@ pub fn request(method: Method, path: &str) -> ApiResult<RequestBuilder> {
 }
 
 pub async fn decode<T: DeserializeOwned>(request: RequestBuilder) -> ApiResult<T> {
-    let _loading = ui::loading_guard();
-    let response = request
-        .send()
-        .await
-        .map_err(|error| ApiError::transport(&error, "The shop is temporarily unavailable."))?;
-    let status = response.status();
-    if !status.is_success() {
-        let message = response.json::<ErrorResponse>().await.map_or_else(
-            |_| "Unable to complete the request.".into(),
-            |body| body.error,
-        );
-        return Err(ApiError::http(status, message));
-    }
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|error| ApiError::transport(&error, "The shop response was interrupted."))?;
-    serde_json::from_slice(&bytes).map_err(|_| {
-        ApiError::new(
-            StatusCode::BAD_GATEWAY,
-            "The shop returned an invalid response.",
-        )
-    })
+    decode_with_loading(request, true).await
+}
+
+pub async fn decode_background<T: DeserializeOwned>(request: RequestBuilder) -> ApiResult<T> {
+    decode_with_loading(request, false).await
 }
 
 impl ApiError {
@@ -122,6 +104,35 @@ pub async fn delay(seconds: u32) -> bool {
     .recv::<bool>()
     .await
     .unwrap_or(false)
+}
+
+async fn decode_with_loading<T: DeserializeOwned>(
+    request: RequestBuilder,
+    loading: bool,
+) -> ApiResult<T> {
+    let _loading = loading.then(ui::loading_guard);
+    let response = request
+        .send()
+        .await
+        .map_err(|error| ApiError::transport(&error, "The shop is temporarily unavailable."))?;
+    let status = response.status();
+    if !status.is_success() {
+        let message = response.json::<ErrorResponse>().await.map_or_else(
+            |_| "Unable to complete the request.".into(),
+            |body| body.error,
+        );
+        return Err(ApiError::http(status, message));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| ApiError::transport(&error, "The shop response was interrupted."))?;
+    serde_json::from_slice(&bytes).map_err(|_| {
+        ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "The shop returned an invalid response.",
+        )
+    })
 }
 
 #[cfg(test)]

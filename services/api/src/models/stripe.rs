@@ -207,6 +207,7 @@ pub struct PaymentIntent {
 pub struct Account {
     pub id: String,
     pub object: String,
+    pub default_currency: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

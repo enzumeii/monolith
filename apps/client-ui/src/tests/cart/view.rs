@@ -43,6 +43,33 @@ mod mounted {
     }
 
     #[tokio::test]
+    async fn current_catalogue_hides_disabled_payment_methods() {
+        for (methods, paypal, card) in [
+            (serde_json::json!(["stripe"]), false, true),
+            (serde_json::json!(["paypal"]), true, false),
+            (serde_json::json!(["stripe", "paypal"]), true, true),
+            (serde_json::json!([]), false, false),
+        ] {
+            let mut value = serde_json::to_value(catalogue()).expect("catalogue fixture");
+            value["payment_methods"] = methods;
+            let data = value.to_string();
+            let quoted = quote("12.30", 2);
+            let ((), requests) = responses(&[(200, &data), (200, &quoted), (200, &data)], async {
+                let (mut dom, _) = mounted(
+                    Screen::Cart(catalogue(), CHECKOUT.into()),
+                    populated(),
+                    TestDocument::new(vec![]),
+                );
+                let html = until(&mut dom, "Current total").await;
+                assert_eq!(html.contains("id=\"checkout-paypal\""), paypal, "{html}");
+                assert_eq!(html.contains("id=\"checkout-card\""), card, "{html}");
+            })
+            .await;
+            assert_eq!(requests.len(), 3);
+        }
+    }
+
+    #[tokio::test]
     async fn cart_resources_quote_edit_remove_and_never_render_stale_totals() {
         let data = encoded();
         let quoted = quote("12.30", 2);

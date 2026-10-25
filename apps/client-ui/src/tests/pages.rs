@@ -137,7 +137,7 @@ fn Content() -> Element {
         }
         Screen::Checkout(snapshot, quote) => {
             let busy = use_signal(|| false);
-            rsx! {crate::checkout::CheckoutControls {slug:"fair-a", snapshot, quote, busy}}
+            rsx! {crate::checkout::CheckoutControls {slug:"fair-a", snapshot, quote, payment_methods:crate::api::tests::catalogue().payment_methods, busy}}
         }
         Screen::Route(_) => unreachable!(),
     }
@@ -247,6 +247,45 @@ async fn customer_routes_render_directory_resources_and_safe_convention_metadata
         },
     )
     .await;
+}
+
+#[tokio::test]
+async fn directory_resolves_visitor_once_across_retry_and_multiple_pages() {
+    let first = serde_json::json!({"items":[crate::api::tests::convention("a")],"page":1,"per_page":100,"has_next":true,"visitor_country":"TH"}).to_string();
+    let last = serde_json::json!({"items":[crate::api::tests::convention("b")],"page":2,"per_page":100,"has_next":false,"visitor_country":"TH"}).to_string();
+    let document = TestDocument::new(vec![
+        serde_json::json!(["2099-01-01", "TH"]),
+        serde_json::json!(true),
+    ]);
+    let inspected = document.clone();
+    let ((), requests) = responses(
+        &[
+            (503, r#"{"error":"Temporary"}"#),
+            (200, &first),
+            (200, &last),
+        ],
+        async {
+            let (mut dom, _) = mounted(Screen::Route("/".into()), empty_cart(), document);
+            let html = until(&mut dom, "Browse products").await;
+            assert_eq!(html.matches("Browse products").count(), 2);
+        },
+    )
+    .await;
+    assert_eq!(requests.len(), 3);
+    assert_eq!(
+        inspected
+            .scripts
+            .borrow()
+            .iter()
+            .filter(|script| script.contains("AbortController"))
+            .count(),
+        1
+    );
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.contains("locale_country=TH"))
+    );
 }
 
 #[tokio::test]
@@ -364,7 +403,7 @@ async fn terminal_browser_and_protocol_failures_do_not_schedule_customer_retries
                     .scripts
                     .borrow()
                     .iter()
-                    .any(|script| script.contains("setTimeout"))
+                    .any(|script| script.starts_with("await new Promise(resolve => setTimeout"))
             );
         })
         .await;

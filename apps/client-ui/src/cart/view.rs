@@ -32,6 +32,7 @@ pub fn CartView(catalogue: PublicCatalogueResponse, checkout_id: String) -> Elem
             }
         },
     ));
+    use_focus_refresh(current, busy);
     let cart = context.cart.read().clone();
     let active_route = Route::CartPage {
         slug: catalogue.convention.slug.clone(),
@@ -66,6 +67,8 @@ pub fn CartView(catalogue: PublicCatalogueResponse, checkout_id: String) -> Elem
         .and_then(|quote| quote.as_ref().ok())
         .filter(|_| !unresolved)
         .cloned();
+    let payment_methods =
+        fresh.map_or_else(Vec::new, |value| value.catalogue.payment_methods.clone());
     rsx! {
         Heading { title: "Your cart", level: HeadingLevel::Section }
         p { class: "meta", "Review your selections and current total before paying." }
@@ -96,8 +99,28 @@ pub fn CartView(catalogue: PublicCatalogueResponse, checkout_id: String) -> Elem
                 }
             }
         }
-        crate::checkout::CheckoutControls { slug: catalogue.convention.slug.clone(), snapshot: cart, quote: checkout_quote, busy }
+        crate::checkout::CheckoutControls { slug: catalogue.convention.slug.clone(), snapshot: cart, quote: checkout_quote, payment_methods, busy }
     }
+}
+
+fn use_focus_refresh(current: Resource<api::ApiResult<Option<CurrentCart>>>, busy: Signal<bool>) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut bridge = use_hook(|| document::eval(include_str!("focus.js")));
+        use_drop(move || {
+            let _ = bridge.send(false);
+        });
+        use_future(move || async move {
+            let mut current = current;
+            while bridge.recv::<bool>().await.is_ok() {
+                if !*busy.peek() {
+                    current.restart();
+                }
+            }
+        });
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (current, busy);
 }
 
 async fn refresh_cart(

@@ -416,6 +416,17 @@ async fn reply(
         barrier.wait().await;
     }
     if let Some(failure) = failure {
+        if operation == "CreateDraftOrder" && failure == "draft_and_errors" {
+            let mut scenario = state.lock().unwrap();
+            scenario.reserved = true;
+            scenario.draft_input = body["variables"]["input"].clone();
+            scenario.draft_created_at = chrono::Utc::now().to_rfc3339();
+            scenario.tags = shopify_tags(&body["variables"]["input"]["tags"]);
+            return axum::Json(json!({"data":{"draftOrderCreate":{"draftOrder":{
+                "id":draft_id(&scenario),"name":"#D1","email":scenario.draft_input["email"],
+                "phone":null,"tags":scenario.tags,"reserveInventoryUntil":scenario.draft_input["reserveInventoryUntil"]},
+                "userErrors":[{"field":["lineItems"],"message":"Synthetic partial mutation diagnostic"}]}}})).into_response();
+        }
         if operation == "CreateDraftOrder" && failure == "user_error" {
             return axum::Json(json!({"data":{"draftOrderCreate":{"draftOrder":null,"userErrors":[{"field":["presentmentCurrencyCode"],"message":"Synthetic private Shopify currency rejection"}]}}})).into_response();
         }
@@ -482,6 +493,11 @@ async fn reply(
                 .into_response();
         }
         return match failure.as_str() {
+            "status_400" | "status_401" | "status_403" | "status_422" => (
+                axum::http::StatusCode::from_u16(failure[7..].parse().unwrap()).unwrap(),
+                "private provider rejection",
+            )
+                .into_response(),
             "http" => (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
                 "private provider diagnostic",

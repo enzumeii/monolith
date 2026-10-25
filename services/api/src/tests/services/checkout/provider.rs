@@ -214,3 +214,24 @@ async fn unsupported_version_combination_stops_before_provider_effects_or_checkp
     assert!(row.provider_resource_id.is_none());
     assert_eq!(shop.requests(), Vec::new());
 }
+
+#[test]
+fn only_fresh_definitive_mutation_rejections_are_terminal() {
+    for mode in [InitiationMode::Fresh, InitiationMode::Recover] {
+        for status in [400, 401, 403, 422, 408, 409, 429, 500, 503] {
+            let error = crate::client::ClientError::new(crate::client::ClientErrorKind::Http {
+                status,
+                request_id: None,
+            });
+            let result = initiation_rejection(error, mode);
+            assert_eq!(
+                matches!(result, Ok(InitiationOutcome::Rejected(_))),
+                mode == InitiationMode::Fresh && matches!(status, 400 | 401 | 403 | 422)
+            );
+        }
+        let error = crate::client::ClientError::new(crate::client::ClientErrorKind::Protocol(
+            "Synthetic incomplete response",
+        ));
+        assert!(initiation_rejection(error, mode).is_err());
+    }
+}

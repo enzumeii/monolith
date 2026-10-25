@@ -88,14 +88,20 @@ pub(super) async fn advance(
         checkout.payment_state = PaymentState::Creating;
         super::save(pool, checkout, token).await?;
         let outcome = start_or_recover_payment(clients, checkout, money, initiation).await?;
-        checkout.payment_state = match outcome {
+        checkout.payment_state = match &outcome {
             InitiationOutcome::RequiresAction => PaymentState::RequiresAction,
             InitiationOutcome::Reconcile => PaymentState::Processing,
+            InitiationOutcome::Rejected(error) => {
+                checkout.payment_state = PaymentState::Unpaid;
+                super::save(pool, checkout, token).await?;
+                crate::error::log_background_error("Checkout payment rejected", error);
+                return Ok(RecoveryOutcome::Observed(RecoveryCode::Observed));
+            }
         };
         checkout.success_url = None;
         checkout.cancel_url = None;
         super::save(pool, checkout, token).await?;
-        if outcome == InitiationOutcome::RequiresAction {
+        if matches!(outcome, InitiationOutcome::RequiresAction) {
             return Ok(RecoveryOutcome::Observed(RecoveryCode::WaitingForPayment));
         }
     }
@@ -403,10 +409,10 @@ enum InitiationMode {
     Recover,
 }
 
-#[derive(PartialEq, Eq)]
 enum InitiationOutcome {
     RequiresAction,
     Reconcile,
+    Rejected(AppError),
 }
 
 async fn pending(
@@ -441,7 +447,27 @@ async fn start_or_recover_payment(
     if checkout.provider == "stripe" {
         initiate_stripe(clients, checkout, money, mode, success, cancel).await
     } else {
-        initiate_paypal(clients, checkout, money, success, cancel).await
+        initiate_paypal(clients, checkout, money, mode, success, cancel).await
+    }
+}
+
+fn initiation_rejection(
+    error: crate::client::ClientError,
+    mode: InitiationMode,
+) -> Result<InitiationOutcome, AppError> {
+    let definitive = mode == InitiationMode::Fresh
+        && matches!(
+            error.kind(),
+            crate::client::ClientErrorKind::Http {
+                status: 400 | 401 | 403 | 422,
+                ..
+            }
+        );
+    let error = upstream(error);
+    if definitive {
+        Ok(InitiationOutcome::Rejected(error))
+    } else {
+        Err(error)
     }
 }
 
@@ -469,6 +495,7 @@ async fn initiate_stripe(
             "Stripe account does not match checkout",
         ));
     }
+    purchase::validate_stripe_minimum(account.default_currency.as_deref(), money)?;
     let request = CreateCheckoutSession {
         amount: money.minor,
         currency: money.currency.clone(),
@@ -479,11 +506,13 @@ async fn initiate_stripe(
         expires_at: Some(expiry.timestamp()),
         metadata: metadata(checkout),
     };
-    let session = match mode {
+    let session = match match mode {
         InitiationMode::Fresh => client.create_checkout_session(&request).await,
         InitiationMode::Recover => client.recover_checkout_session(&request).await,
-    }
-    .map_err(|error| upstream(error))?;
+    } {
+        Ok(session) => session,
+        Err(error) => return initiation_rejection(error, mode),
+    };
     if session.object != "checkout.session"
         || session.mode != CheckoutMode::Payment
         || session.livemode.to_string() != checkout.provider_environment
@@ -516,6 +545,7 @@ async fn initiate_paypal(
     clients: &CheckoutClients<'_>,
     checkout: &mut Checkout,
     money: &CheckoutMoney,
+    mode: InitiationMode,
     success: String,
     cancel: String,
 ) -> Result<InitiationOutcome, AppError> {
@@ -525,7 +555,7 @@ async fn initiate_paypal(
             "PayPal environment does not match checkout",
         ));
     }
-    let order = client
+    let order = match client
         .create_order(
             &format!("checkout-{}", checkout.id),
             &CreateOrderRequest {
@@ -554,7 +584,10 @@ async fn initiate_paypal(
             },
         )
         .await
-        .map_err(|error| upstream(error))?;
+    {
+        Ok(order) => order,
+        Err(error) => return initiation_rejection(error, mode),
+    };
     let expected = paypal::payment::ExpectedPayment {
         order_id: order.id.clone(),
         merchant_id: checkout.provider_account_id.clone(),

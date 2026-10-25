@@ -4,7 +4,9 @@ use crate::{
     models::shopify::{PageRequest, ShopifyId, catalogue::SelectionVariant},
     services, transformers,
 };
-use domain::dto::{CatalogueProduct, CatalogueResponse, CatalogueVariant};
+use domain::dto::{
+    CatalogueInventoryPolicy, CatalogueProduct, CatalogueResponse, CatalogueVariant,
+};
 
 pub async fn products(
     client: &ShopifyClient,
@@ -63,9 +65,10 @@ fn selection_variant(variant: SelectionVariant) -> Result<CatalogueVariant, AppE
     let quantity = variant
         .available_quantity()
         .map_err(|error| upstream(error))?;
+    let eligible = quantity.is_some_and(|available| {
+        available > 0 || variant.inventory_policy == CatalogueInventoryPolicy::Continue
+    });
     Ok(transformers::catalogue::variant(
-        variant,
-        quantity,
-        quantity.is_some(),
+        variant, quantity, eligible,
     ))
 }

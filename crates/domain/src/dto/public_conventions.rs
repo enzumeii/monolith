@@ -36,6 +36,8 @@ pub struct PublicConventionListResponse {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct PublicCatalogueResponse {
     pub convention: PublicConvention,
+    #[serde(default)]
+    pub payment_methods: Vec<super::ConventionPaymentMethod>,
     pub products: Vec<PublicProduct>,
 }
 

@@ -1,0 +1,7 @@
+$kind: http-request
+description: 'Country.is anonymous browser IP-country lookup. No credentials or explicit IP query. Returns200 with country alpha2 and ip; application consumes country only and discards ip. Frontend settings configure endpoint and bounded timeout; invalid/unavailable responses fall back to browser locale. This request uses the production public default.'
+url: https://api.country.is/
+method: GET
+auth:
+  type: noauth
+order: 1000
