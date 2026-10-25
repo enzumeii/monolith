@@ -1,9 +1,5 @@
-use crate::{
-    error::AppError,
-    models::cron::{report_type, timestamp},
-};
 use chrono::NaiveDateTime;
-use domain::dto::{CronConfigurationDTO, ScheduleReportType};
+use domain::dto::ScheduleReportType;
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -19,22 +15,6 @@ pub(crate) struct CronConfiguration {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
-impl CronConfiguration {
-    pub fn into_dto(self) -> Result<CronConfigurationDTO, AppError> {
-        Ok(CronConfigurationDTO {
-            id: self.id.to_string(),
-            name: self.name,
-            report_type: report_type(&self.report_type)?,
-            cron_expression: self.cron_expression,
-            receiver_email: self.receiver_email,
-            parameter: self.parameter,
-            enabled: self.enabled,
-            schedule_timezone: "Asia/Bangkok".into(),
-            created_at: timestamp(self.created_at),
-            updated_at: timestamp(self.updated_at),
-        })
-    }
-}
 #[derive(Clone, Copy)]
 pub(crate) struct ConfigurationFilter {
     pub report_type: Option<ScheduleReportType>,
@@ -49,4 +29,8 @@ pub(crate) struct ConfigurationInput {
     pub receiver_email: String,
     pub parameter: String,
     pub enabled: bool,
+}
+
+pub(crate) fn valid_inventory_id(id: &str) -> bool {
+    !id.is_empty() && !id.starts_with('0') && id.bytes().all(|byte| byte.is_ascii_digit())
 }

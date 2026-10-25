@@ -1,10 +1,12 @@
 mod enable;
+pub(crate) mod report;
 pub use enable::enable_inventory;
 
 use crate::{
     client::shopify::ShopifyClient,
     error::{AppError, upstream},
     models::shopify::{ListProductsRequest, PageRequest, ProductStatus, ShopifyId},
+    services,
 };
 use axum::http::StatusCode;
 use domain::dto::InventoryResponse;
@@ -33,9 +35,12 @@ pub async fn inventory_report(
             .into_complete_nodes()
             .map_err(|error| upstream(error))?
         {
-            if let Some(row) = variant
-                .into_report_row(&product.title, &product.product_type)
-                .map_err(|error| upstream(error))?
+            if let Some(row) = services::inventories::report::inventory_row(
+                variant,
+                &product.title,
+                &product.product_type,
+            )
+            .map_err(|error| upstream(error))?
             {
                 rows.push(row.into_dto());
             }

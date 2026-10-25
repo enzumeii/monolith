@@ -645,40 +645,17 @@ async fn linked_completed_order_never_calls_before_completion_hook() {
 }
 
 #[test]
-fn payment_references_fit_shopify_tags_without_losing_kind_or_id_binding() {
-    let boundary = "s".repeat(17);
-    assert_eq!(
-        reference("stripe:session", &boundary).unwrap(),
-        format!("payment:stripe:session:{boundary}")
-    );
+fn completion_matches_only_the_expected_payment_reference_kind() {
     let session_id = format!("cs_test_{}", "s".repeat(90));
-    let tag = reference("stripe:session", &session_id).unwrap();
-    assert_eq!(tag, "payment:XvGzmVJpPMv7bbJ-aojDbsffsYUoKToE");
-    assert_eq!(tag.len(), 40);
-    assert_eq!(reference("stripe:session", &session_id).unwrap(), tag);
-    assert_ne!(reference("stripe:intent", &session_id).unwrap(), tag);
-    assert_ne!(
-        reference("stripe:session", &format!("{session_id}x")).unwrap(),
-        tag
-    );
+    let tag = crate::utils::payment_reference::tag("stripe:session", &session_id).unwrap();
     assert!(validate_references(std::slice::from_ref(&tag), std::slice::from_ref(&tag)).is_ok());
     assert!(
         validate_references(
-            &[reference("stripe:intent", &session_id).unwrap()],
-            &[reference("stripe:session", &session_id).unwrap()],
+            &[crate::utils::payment_reference::tag("stripe:intent", &session_id).unwrap()],
+            &[crate::utils::payment_reference::tag("stripe:session", &session_id).unwrap()],
         )
         .is_err()
     );
-    for id in [
-        String::new(),
-        "bad id".into(),
-        "bad:id".into(),
-        "bad,id".into(),
-        "bad\nid".into(),
-        "s".repeat(234),
-    ] {
-        assert!(reference("stripe:session", &id).is_err());
-    }
 }
 
 #[tokio::test]

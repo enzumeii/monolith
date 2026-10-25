@@ -5,7 +5,7 @@ const CHECKOUT: &str = "f79b7e64-8e36-4aca-9e21-ecb7cb513700";
 type Captured = Rc<Cell<Option<CartContext>>>;
 
 fn harness() -> Element {
-    use_context_provider(|| Signal::new(BTreeMap::<String, browser::Restored>::new()));
+    use_cart_cache();
     let screen = use_signal(|| 0_u32);
     use_context::<Rc<Cell<Option<Signal<u32>>>>>().set(Some(screen));
     rsx! { Session { key: "{screen}", screen: *screen.read() } }

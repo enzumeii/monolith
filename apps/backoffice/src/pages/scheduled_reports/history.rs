@@ -91,14 +91,14 @@ pub fn History(query: String) -> Element {
                         option { value: "50", "50" } option { value: "100", "100" }
                     }
                 }
-                p { id: "history-bounds-help", "Either date bound may be empty. Start is included; end is excluded." }
-                div { id: "history-filter-error", role: "alert", if let Some(message) = validation() { "{message}" } }
                 div { class: "schedule-actions",
                     button { r#type: "submit", class: "primary", "Apply filters" }
                     Link { to: Route::ScheduledReportHistory { query: "page=1&per_page=25".into() }, "Clear filters" }
                     button { r#type: "button", class: "ghost", disabled: loading,
                         onclick: move |_| load.restart(), if loading { "Refreshing…" } else { "Refresh" } }
                 }
+                p { class: "schedule-filter-help", id: "history-bounds-help", "Either date bound may be empty. Start is included; end is excluded." }
+                div { class: "schedule-filter-error", id: "history-filter-error", role: "alert", if let Some(message) = validation() { "{message}" } }
             }
             ErrorMessage { message: error.clone() }
             if error.is_some() {

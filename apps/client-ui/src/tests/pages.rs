@@ -189,6 +189,25 @@ pub(crate) fn empty_cart() -> Cart {
     Cart::new("a".into(), CHECKOUT.into())
 }
 
+#[test]
+fn convention_header_displays_country_names_and_safe_unknown_metadata() {
+    for (code, expected) in [
+        ("TH", "Thailand"),
+        ("TR", "Türkiye"),
+        ("CI", "Côte d’Ivoire"),
+        ("ZZ", "Unknown country"),
+    ] {
+        let mut convention = crate::api::tests::convention("a");
+        convention.country_code = code.into();
+        let mut dom =
+            VirtualDom::new_with_props(ConventionHeader, ConventionHeaderProps { convention });
+        dom.rebuild_in_place();
+        let html = dioxus_ssr::render(&dom);
+        assert!(html.contains(&format!("{expected} ·")), "{html}");
+        assert!(!html.contains(&format!("{code} ·")), "{html}");
+    }
+}
+
 #[tokio::test]
 async fn customer_routes_render_directory_resources_and_safe_convention_metadata() {
     let mut event = crate::api::tests::convention("a");

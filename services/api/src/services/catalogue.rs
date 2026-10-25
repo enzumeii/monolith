@@ -2,6 +2,7 @@ use crate::{
     client::shopify::ShopifyClient,
     error::{AppError, upstream},
     models::shopify::{PageRequest, ShopifyId, catalogue::SelectionVariant},
+    services, transformers,
 };
 use domain::dto::{CatalogueProduct, CatalogueResponse, CatalogueVariant};
 
@@ -11,7 +12,7 @@ pub async fn products(
     page: PageRequest,
     search: Option<&str>,
 ) -> Result<CatalogueResponse, AppError> {
-    super::inventories::validate_location(client, &location_id).await?;
+    services::inventories::validate_location(client, &location_id).await?;
     let search = search.map_or_else(
         || "status:active AND tracks_inventory:true".to_owned(),
         |search| format!("status:active AND tracks_inventory:true AND ({search})"),
@@ -62,5 +63,9 @@ fn selection_variant(variant: SelectionVariant) -> Result<CatalogueVariant, AppE
     let quantity = variant
         .available_quantity()
         .map_err(|error| upstream(error))?;
-    Ok(variant.into_dto(quantity))
+    Ok(transformers::catalogue::variant(
+        variant,
+        quantity,
+        quantity.is_some(),
+    ))
 }

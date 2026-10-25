@@ -18,8 +18,8 @@ use crate::{
         stripe::{self, CheckoutMode, CreateCheckoutSession},
     },
     services::{
-        checkout_completion::{self, CompletionMode, CompletionOutcome, PaymentContext},
-        payments,
+        self,
+        checkout_completion::{CompletionMode, CompletionOutcome, PaymentContext},
     },
 };
 use chrono::{Duration, Utc};
@@ -147,12 +147,12 @@ pub(super) async fn bind_authenticated_resource(
             return Err(conflict("Stripe checkout resource is invalid").into());
         }
         let client = clients.stripe.ok_or_else(unavailable)?;
-        payments::stripe::verify_payment(client, &stripe_expected(checkout, money)?)
+        services::payments::stripe::verify_payment(client, &stripe_expected(checkout, money)?)
             .await
             .map_err(|error| upstream(error))?;
     } else {
         let client = clients.paypal.ok_or_else(unavailable)?;
-        payments::paypal::verify_payment(client, &paypal_expected(checkout, money)?)
+        services::payments::paypal::verify_payment(client, &paypal_expected(checkout, money)?)
             .await
             .map_err(|error| upstream(error))?;
         let order = client
@@ -240,7 +240,7 @@ async fn reconcile_stripe_payment(
 ) -> Result<RecoveryOutcome, AdvanceError> {
     let client = clients.stripe.ok_or_else(unavailable)?;
     let expected = stripe_expected(checkout, money)?;
-    let outcome = payments::stripe::verify_payment(client, &expected)
+    let outcome = services::payments::stripe::verify_payment(client, &expected)
         .await
         .map_err(|error| upstream(error))?;
     if checkout.payment_state == PaymentState::Paid
@@ -297,7 +297,7 @@ async fn reconcile_paypal_payment(
 ) -> Result<RecoveryOutcome, AdvanceError> {
     let client = clients.paypal.ok_or_else(unavailable)?;
     let expected = paypal_expected(checkout, money)?;
-    let mut outcome = payments::paypal::verify_payment(client, &expected)
+    let mut outcome = services::payments::paypal::verify_payment(client, &expected)
         .await
         .map_err(|error| upstream(error))?;
     if checkout.payment_state == PaymentState::Paid
@@ -313,35 +313,16 @@ async fn reconcile_paypal_payment(
             .await
             .map_err(|error| upstream(error))?;
         if order.status == OrderStatus::Approved {
-            if !reservation_safe {
-                return pending(pool, checkout, token, false).await;
-            }
-            let current = purchase::read(clients, checkout).await?;
-            if purchase::validate_reservation(checkout, &current).is_err()
-                || checkout
-                    .reservation_expires_at
-                    .is_none_or(|expiry| expiry <= Utc::now())
+            if let Some(outcome) =
+                checkpoint_paypal_capture(pool, clients, checkout, token, reservation_safe).await?
             {
-                return pending(pool, checkout, token, false).await;
-            }
-            if Utc::now() >= checkout.created_at + Duration::hours(5) {
-                checkout.payment_state = PaymentState::Uncertain;
-                super::save(pool, checkout, token).await?;
-                return Ok(RecoveryOutcome::Manual(RecoveryCode::MutationWindowExpired));
-            }
-            checkout.payment_state = PaymentState::Processing;
-            super::save(pool, checkout, token).await?;
-            if checkout
-                .reservation_expires_at
-                .is_none_or(|expiry| expiry <= Utc::now())
-            {
-                return Ok(RecoveryOutcome::Observed(RecoveryCode::WaitingForPayment));
+                return Ok(outcome);
             }
             client
                 .capture_order(&expected.order_id, &format!("capture-{}", checkout.id))
                 .await
                 .map_err(|error| upstream(error))?;
-            outcome = payments::paypal::verify_payment(client, &expected)
+            outcome = services::payments::paypal::verify_payment(client, &expected)
                 .await
                 .map_err(|error| upstream(error))?;
         }
@@ -375,6 +356,44 @@ async fn reconcile_paypal_payment(
         },
     )
     .await
+}
+
+async fn checkpoint_paypal_capture(
+    pool: &PgPool,
+    clients: &CheckoutClients<'_>,
+    checkout: &mut Checkout,
+    token: Uuid,
+    reservation_safe: bool,
+) -> Result<Option<RecoveryOutcome>, AdvanceError> {
+    if !reservation_safe {
+        return pending(pool, checkout, token, false).await.map(Some);
+    }
+    let current = purchase::read(clients, checkout).await?;
+    if purchase::validate_reservation(checkout, &current).is_err()
+        || checkout
+            .reservation_expires_at
+            .is_none_or(|expiry| expiry <= Utc::now())
+    {
+        return pending(pool, checkout, token, false).await.map(Some);
+    }
+    if Utc::now() >= checkout.created_at + Duration::hours(5) {
+        checkout.payment_state = PaymentState::Uncertain;
+        super::save(pool, checkout, token).await?;
+        return Ok(Some(RecoveryOutcome::Manual(
+            RecoveryCode::MutationWindowExpired,
+        )));
+    }
+    checkout.payment_state = PaymentState::Processing;
+    super::save(pool, checkout, token).await?;
+    if checkout
+        .reservation_expires_at
+        .is_none_or(|expiry| expiry <= Utc::now())
+    {
+        return Ok(Some(RecoveryOutcome::Observed(
+            RecoveryCode::WaitingForPayment,
+        )));
+    }
+    Ok(None)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -544,7 +563,7 @@ async fn initiate_paypal(
         amount: paypal_minor(money)?,
         currency: money.currency.clone(),
     };
-    payments::paypal::verify_payment(client, &expected)
+    services::payments::paypal::verify_payment(client, &expected)
         .await
         .map_err(|error| upstream(error))?;
     let outcome = if matches!(
@@ -679,7 +698,7 @@ async fn complete_with_checkpoint(
         let checkout = &mut *checkout;
         let attempted = &mut attempted;
         let checkpoint_error = &mut checkpoint_error;
-        checkout_completion::complete_paid_draft_with_before_completion(
+        services::checkout_completion::complete_paid_draft_with_before_completion(
             clients.shopify,
             &draft,
             payment,
@@ -756,7 +775,7 @@ async fn complete_external_with_checkpoint(
             .into());
         }
     };
-    let recording = checkout_completion::ExternalPaymentRecording {
+    let recording = services::checkout_completion::ExternalPaymentRecording {
         state: checkout.payment_recording_state,
         required_tag_hashes: &required_tag_hashes,
         convention_slug: &slug,
@@ -771,7 +790,7 @@ async fn complete_external_with_checkpoint(
         attempted: false,
         checkpoint_error: None,
     };
-    let result = checkout_completion::complete_external_paid_draft(
+    let result = services::checkout_completion::complete_external_paid_draft(
         clients.shopify,
         draft,
         payment,
@@ -797,14 +816,14 @@ struct CheckoutCompletionProgress<'a, 'clients> {
     attempted: bool,
     checkpoint_error: Option<AppError>,
 }
-impl checkout_completion::CompletionProgress for CheckoutCompletionProgress<'_, '_> {
+impl services::checkout_completion::CompletionProgress for CheckoutCompletionProgress<'_, '_> {
     async fn before_mutation(
         &mut self,
-        stage: checkout_completion::CompletionStage,
+        stage: services::checkout_completion::CompletionStage,
     ) -> Result<(), AppError> {
         let current = purchase::read(self.clients, self.checkout).await?;
         match stage {
-            checkout_completion::CompletionStage::ConvertDraft => {
+            services::checkout_completion::CompletionStage::ConvertDraft => {
                 purchase::validate_payable(&current)?;
                 purchase::validate_reservation(self.checkout, &current)
                     .map_err(|error| recovery::manual(error, RecoveryCode::ReservationUnsafe))?;
@@ -820,7 +839,7 @@ impl checkout_completion::CompletionProgress for CheckoutCompletionProgress<'_, 
                 }
                 self.checkout.completion_state = CompletionState::Completing;
             }
-            checkout_completion::CompletionStage::RecordExternalPayment => {
+            services::checkout_completion::CompletionStage::RecordExternalPayment => {
                 if !matches!(
                     current.status,
                     crate::models::shopify::CompletionDraftStatus::Completed
@@ -863,7 +882,7 @@ impl checkout_completion::CompletionProgress for CheckoutCompletionProgress<'_, 
                 "Checkout completion checkpoint could not be saved",
             ));
         }
-        if stage == checkout_completion::CompletionStage::ConvertDraft
+        if stage == services::checkout_completion::CompletionStage::ConvertDraft
             && self
                 .checkout
                 .reservation_expires_at
@@ -913,8 +932,9 @@ async fn save_completed_order(
             }
         };
         let money = purchase::validate_purchase(checkout, &draft)?;
-        let recording = checkout_completion::ExternalPaymentRecording::from_checkout(checkout)?;
-        if let Err(error) = checkout_completion::validate_external_paid_order(
+        let recording =
+            services::checkout_completion::ExternalPaymentRecording::from_checkout(checkout)?;
+        if let Err(error) = services::checkout_completion::validate_external_paid_order(
             &order,
             &purchase::exact(money.minor, &money.currency)?,
             &recording,

@@ -5,6 +5,7 @@ mod api;
 mod cart;
 mod checkout;
 mod config;
+mod country;
 mod pages;
 mod route;
 
@@ -14,15 +15,18 @@ fn main() {
 
 #[component]
 fn App() -> Element {
-    let settings = use_resource(config::Settings::new);
     rsx! {
         document::Link { rel: "icon", r#type: "image/png", href: SITE_LOGO }
         document::Stylesheet { href: COMMON_STYLESHEET }
         document::Stylesheet { href: asset!("/assets/portal.css") }
-        Configuration {
-            state: settings.read().clone(),
-        }
+        ui::LoadingBoundary { Startup {} }
     }
+}
+
+#[component]
+fn Startup() -> Element {
+    let settings = use_resource(config::Settings::new);
+    rsx! { Configuration { state: settings.read().clone() } }
 }
 
 #[component]
@@ -39,9 +43,7 @@ fn Configuration(state: Option<api::ApiResult<config::Settings>>) -> Element {
 #[component]
 fn Application(settings: config::Settings) -> Element {
     use_context_provider(move || settings);
-    use_context_provider(|| {
-        Signal::new(std::collections::BTreeMap::<String, cart::browser::Restored>::new())
-    });
+    cart::use_cart_cache();
     rsx! {
         Router::<route::Route> {}
     }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                UPDATE admin\n                SET \n                    username = COALESCE($2, username),\n                    password_hash = COALESCE($3, password_hash),\n                    updated_at = NOW()\n                WHERE id = $1\n                RETURNING id, username, password_hash, role AS \"role: DbAdminRole\", created_at, updated_at\n            ",
+  "query": "\n            SELECT id, username, password_hash, role AS \"role: DbAdminRole\"\n            FROM admin\n            WHERE id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -56,45 +56,19 @@
             "name": "role"
           }
         }
-      },
-      {
-        "ordinal": 4,
-        "name": "created_at",
-        "type_info": "Timestamptz",
-        "origin": {
-          "Table": {
-            "table": "admin",
-            "name": "created_at"
-          }
-        }
-      },
-      {
-        "ordinal": 5,
-        "name": "updated_at",
-        "type_info": "Timestamptz",
-        "origin": {
-          "Table": {
-            "table": "admin",
-            "name": "updated_at"
-          }
-        }
       }
     ],
     "parameters": {
       "Left": [
-        "Int8",
-        "Varchar",
-        "Varchar"
+        "Int8"
       ]
     },
     "nullable": [
       false,
       false,
       false,
-      false,
-      false,
       false
     ]
   },
-  "hash": "0e1b604fc98862baf98bf894d95cda60afab92cff383e91f490a4ad8706cf38f"
+  "hash": "40825a59373ae8a27fb1988c60fd608ed4d5943c8af11e577fddc7e1d0748272"
 }

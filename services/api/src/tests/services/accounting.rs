@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::float_cmp, clippy::needless_pass_by_value)]
-use super::super::accounting::{Payment, date, empty_transaction, money};
+use super::super::accounting::{Payment, date, money};
 use crate::models::shopify::Order;
 use domain::dto::{AccountingGateway, AccountingKind};
 use serde_json::{Value, json};
@@ -21,7 +21,11 @@ pub(super) fn payment(
     kind: AccountingKind,
     reference: &str,
 ) -> Payment {
-    let mut transaction = empty_transaction(gateway, kind);
+    let mut transaction = crate::transformers::accounting::transaction(
+        gateway,
+        kind,
+        (gateway == AccountingGateway::Stripe).then_some(0.0),
+    );
     transaction.payment_reference = reference.into();
     transaction.transaction_date = "2026-10-02T00:00:00Z".into();
     transaction.exchange_rate = Some(36.0);

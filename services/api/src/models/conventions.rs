@@ -1,6 +1,6 @@
-use crate::{error::AppError, services::conventions::money};
+use crate::error::AppError;
 use chrono::{DateTime, NaiveDate, Utc};
-use domain::dto::{ConventionPaymentMethod, ConventionVariantDTO, ConventionVariantInput};
+use domain::dto::{ConventionPaymentMethod, ConventionVariantInput, CreateConvention, PatchField};
 #[derive(Clone, Debug, sqlx::FromRow)]
 pub(crate) struct Convention {
     pub id: uuid::Uuid,
@@ -45,6 +45,23 @@ pub(crate) struct ConventionInput {
     pub currency_code: String,
     pub payment_methods: Vec<ConventionPaymentMethod>,
     pub preorder_enabled: bool,
+}
+#[derive(Clone, Debug)]
+pub(crate) struct CheckedConventionCreate {
+    pub request: CreateConvention,
+    pub event_starts_on: NaiveDate,
+    pub event_ends_on: NaiveDate,
+}
+#[derive(Clone, Debug)]
+pub(crate) struct CheckedConventionPatch {
+    pub name: PatchField<String>,
+    pub logo_url: PatchField<String>,
+    pub country_code: PatchField<String>,
+    pub event_starts_on: PatchField<NaiveDate>,
+    pub event_ends_on: PatchField<NaiveDate>,
+    pub description_markdown: PatchField<String>,
+    pub payment_methods: PatchField<Vec<ConventionPaymentMethod>>,
+    pub preorder_enabled: PatchField<bool>,
 }
 impl Convention {
     pub(crate) fn methods(&self) -> Result<Vec<ConventionPaymentMethod>, AppError> {
@@ -102,25 +119,6 @@ impl ConventionVariant {
             shopify_variant_id: self.shopify_variant_id.clone(),
             final_price: self.final_price.clone(),
         }
-    }
-    pub(crate) fn into_dto(self, currency: &str) -> Result<ConventionVariantDTO, AppError> {
-        let display = self.display()?;
-        Ok(ConventionVariantDTO {
-            inventory_policy: display.inventory_policy,
-            product_title: display.product_title,
-            variant_title: display.variant_title,
-            sku: display.sku,
-            product_image: display.product_image,
-            variant_image: display.variant_image,
-            id: self.id.to_string(),
-            convention_id: self.convention_id.to_string(),
-            shopify_product_id: self.shopify_product_id,
-            shopify_variant_id: self.shopify_variant_id,
-            final_price: money::canonical(&self.final_price, currency)
-                .map_err(|error| AppError::from(anyhow::Error::new(error)))?,
-            created_at: self.created_at.to_rfc3339(),
-            updated_at: self.updated_at.to_rfc3339(),
-        })
     }
 }
 pub(crate) fn method_values(methods: &[ConventionPaymentMethod]) -> Vec<String> {

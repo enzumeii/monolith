@@ -1,5 +1,5 @@
 use crate::models::{AuthSource, AuthenticatedAdmin};
-use crate::{error::AppError, services, state::AppState, validations::admin as validate};
+use crate::{error::AppError, services, state::AppState, validations};
 use axum::response::{IntoResponse, Response};
 use axum::{
     Extension, Json,
@@ -15,7 +15,7 @@ pub async fn list(
     State(state): State<AppState>,
     Query(query): Query<ListAdminsQuery>,
 ) -> Result<Json<AdminListResponse>, AppError> {
-    let page = validate::validate_page(&query)?;
+    let page = validations::admin::validate_page(&query)?;
     let response = services::admin::list(&state.pool, page).await?;
     Ok(Json(response))
 }
@@ -25,6 +25,7 @@ pub async fn add(
     Extension(actor): Extension<AuthenticatedAdmin>,
     Json(payload): Json<CreateAdminRequest>,
 ) -> Result<(StatusCode, Json<AdminDTO>), AppError> {
+    validations::admin::validate_create(&payload)?;
     let response = services::admin::add(&state.pool, &actor, payload).await?;
 
     Ok((StatusCode::CREATED, Json(response)))
@@ -38,6 +39,8 @@ pub async fn update(
     jar: CookieJar,
     Json(payload): Json<UpdateAdminRequest>,
 ) -> Result<Response, AppError> {
+    services::admin::authorize_update(&actor, id)?;
+    validations::admin::validate_update_input(&payload)?;
     let response = services::admin::update(&state.pool, &actor, id, payload).await?;
     if source == AuthSource::Cookie && actor.id == id {
         Ok((

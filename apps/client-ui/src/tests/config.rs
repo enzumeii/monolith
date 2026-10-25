@@ -287,3 +287,54 @@ fn contact_settings_are_required_and_reject_unsafe_destinations() {
         source["contact"][field] = original;
     }
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn startup_configuration_retry_delay_releases_page_loading_overlay() {
+    use crate::{api, pages::tests::TestDocument};
+    use dioxus::{document::Document, prelude::*};
+    use futures::FutureExt;
+    use std::{rc::Rc, time::Duration};
+    fn app() -> Element {
+        rsx! { ui::LoadingBoundary { crate::Startup {} } }
+    }
+    let ((html, scripts), requests) =
+        api::tests::responses(&[(503, "temporarily unavailable")], async {
+            let page_url = api::request(reqwest::Method::GET, "/cart")
+                .expect("fixture page")
+                .build()
+                .expect("URL")
+                .url()
+                .to_string();
+            let document = TestDocument::new(vec![
+                serde_json::json!(page_url),
+                serde_json::json!({"__eval_pending":true}),
+            ]);
+            let mut dom =
+                VirtualDom::new(app).with_root_context(document.clone() as Rc<dyn Document>);
+            dom.rebuild_in_place();
+            for _ in 0..200 {
+                let _ = dom.wait_for_work().now_or_never();
+                dom.render_immediate(&mut dioxus::dioxus_core::NoOpMutations);
+                if document.scripts.borrow().len() == 2 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            for _ in 0..5 {
+                let _ = dom.wait_for_work().now_or_never();
+                dom.render_immediate(&mut dioxus::dioxus_core::NoOpMutations);
+            }
+            (dioxus_ssr::render(&dom), document.scripts.borrow().clone())
+        })
+        .await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(scripts.len(), 2);
+    assert!(scripts[1].contains("setTimeout(resolve, 5000)"));
+    assert!(html.contains("Loading configuration"));
+    assert!(
+        !html.contains("page-loading"),
+        "retry delay is not active network work: {html}"
+    );
+    assert!(!html.contains("inert="));
+}

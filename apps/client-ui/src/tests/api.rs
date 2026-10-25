@@ -350,3 +350,190 @@ async fn interrupted_success_body_recovers_but_complete_malformed_json_stops() {
         }
     }
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone)]
+struct LoadingProbeRequest {
+    url: String,
+    unit: bool,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[component]
+fn LoadingProbe() -> Element {
+    let request = use_context::<LoadingProbeRequest>();
+    let response = use_resource(move || {
+        let request = request.clone();
+        async move {
+            let _ = request.unit;
+            decode::<serde_json::Value>(reqwest::Client::new().get(request.url))
+                .await
+                .map(|_| ())
+                .map_err(|error| error.status)
+        }
+    });
+    rsx! { p { if response.read().is_some() { "Operation finished" } else { "Operation pending" } } }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn loading_covers_delayed_headers_and_body_then_releases_for_every_outcome() {
+    for (status, body, interrupted, cancelled, unit) in [
+        (200, r#"{"ready":true}"#, false, false, false),
+        (
+            400,
+            r#"{"error":"Controlled rejection"}"#,
+            false,
+            false,
+            false,
+        ),
+        (200, "malformed JSON", false, false, false),
+        (200, "interrupted", true, false, false),
+        (200, r#"{"ready":true}"#, false, true, false),
+    ] {
+        loading_case(status, body, interrupted, cancelled, unit).await;
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn loading_case(
+    status: u16,
+    body: &'static str,
+    interrupted: bool,
+    cancelled: bool,
+    unit: bool,
+) {
+    use futures::FutureExt;
+    use std::time::Duration;
+    fn app() -> Element {
+        rsx! { ui::LoadingBoundary { LoadingProbe {} } }
+    }
+    fn pump(dom: &mut VirtualDom) {
+        for _ in 0..5 {
+            let _ = dom.wait_for_work().now_or_never();
+            dom.render_immediate(&mut dioxus::dioxus_core::NoOpMutations);
+        }
+    }
+
+    let DelayedLoadingServer {
+        url,
+        seen_rx,
+        headers_tx,
+        body_tx,
+        server,
+    } = delayed_loading_server(status, body, interrupted);
+    let mut dom = VirtualDom::new(app).with_root_context(LoadingProbeRequest { url, unit });
+    dom.rebuild_in_place();
+    let mut seen = false;
+    for _ in 0..200 {
+        pump(&mut dom);
+        if seen_rx.try_recv().is_ok() {
+            seen = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert!(seen, "mounted operation reached controlled HTTP server");
+    pump(&mut dom);
+    let html = dioxus_ssr::render(&dom);
+    assert!(
+        html.contains("page-loading"),
+        "loading before headers: {html}"
+    );
+    assert!(html.contains("inert"), "underlying page is blocked: {html}");
+    headers_tx.send(()).expect("headers");
+    for _ in 0..10 {
+        pump(&mut dom);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    if !unit {
+        assert!(
+            dioxus_ssr::render(&dom).contains("page-loading"),
+            "body transfer retains guard"
+        );
+    }
+    if cancelled {
+        drop(dom);
+        body_tx.send(()).expect("body");
+        server.join().expect("server");
+        return;
+    }
+    body_tx.send(()).expect("body");
+    let mut finished = false;
+    for _ in 0..200 {
+        pump(&mut dom);
+        if dioxus_ssr::render(&dom).contains("Operation finished") {
+            finished = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let html = dioxus_ssr::render(&dom);
+    server.join().expect("server");
+    assert!(finished, "operation completed: {html}");
+    assert!(
+        !html.contains("page-loading"),
+        "success/error releases the overlay: {html}"
+    );
+    assert!(
+        !html.contains("inert="),
+        "page is interactive again: {html}"
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct DelayedLoadingServer {
+    url: String,
+    seen_rx: std::sync::mpsc::Receiver<()>,
+    headers_tx: std::sync::mpsc::Sender<()>,
+    body_tx: std::sync::mpsc::Sender<()>,
+    server: std::thread::JoinHandle<()>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn delayed_loading_server(
+    status: u16,
+    body: &'static str,
+    interrupted: bool,
+) -> DelayedLoadingServer {
+    use std::{
+        io::{Read, Write},
+        sync::mpsc,
+        time::Duration,
+    };
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+    let url = format!("http://{}", listener.local_addr().expect("address"));
+    let (seen_tx, seen_rx) = mpsc::channel();
+    let (headers_tx, headers_rx) = mpsc::channel();
+    let (body_tx, body_rx) = mpsc::channel();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("connection");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("timeout");
+        let mut bytes = [0; 4096];
+        assert!(stream.read(&mut bytes).expect("request") > 0);
+        seen_tx.send(()).expect("request observed");
+        headers_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("release headers");
+        write!(
+            stream,
+            "HTTP/1.1 {status} Fixture\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len() + usize::from(interrupted)
+        )
+        .expect("headers");
+        stream.flush().expect("flush");
+        body_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("release body");
+        let _ = stream.write_all(body.as_bytes());
+    });
+    DelayedLoadingServer {
+        url,
+        seen_rx,
+        headers_tx,
+        body_tx,
+        server,
+    }
+}

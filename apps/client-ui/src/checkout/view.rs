@@ -131,6 +131,7 @@ pub fn CheckoutControls(
             if !email.read().is_empty() && !model::valid_email(&email.read()) { p { class: "hint", "Enter a valid email address to continue." } }
             label { r#for: "checkout-note", "Order note (optional)" }
             textarea { id: "checkout-note", rows: "3", value: "{note}", disabled: *busy.read(),
+                placeholder: "Pickup day 1. Freebies character request : Zhongli",
                 aria_describedby: if note_error.is_some() { "checkout-note-hint checkout-note-error" } else { "checkout-note-hint" }, aria_invalid: note_error.is_some(),
                 oninput: move |event| note.set(event.value()) }
             p { id: "checkout-note-hint", class: "hint", "Anything we should know about your order? Up to 2,000 characters." }
@@ -384,6 +385,7 @@ async fn begin(
     provider: CheckoutProvider,
     state: SubmissionState,
 ) {
+    let _loading = ui::loading_guard();
     let SubmissionState {
         mut busy,
         mut error,
@@ -444,6 +446,7 @@ async fn begin(
 }
 
 async fn inspect(attempt: &Attempt) -> Result<CheckoutResponse, AttemptError> {
+    let _loading = ui::loading_guard();
     let (ownership, started) = browser::recover(attempt).await.map_err(recovery_error)?;
     let result = advance(started).await;
     let status = result
@@ -537,6 +540,7 @@ async fn hosted_redirect(
     response: &CheckoutResponse,
     provider: CheckoutProvider,
 ) -> Result<(), String> {
+    let _loading = ui::loading_guard();
     let settings = try_consume_context::<crate::config::Settings>();
     let mut page = document::eval("dioxus.send(window.location.href);");
     let page = page

@@ -2,7 +2,7 @@
 
 ## Prerequisites and setup
 
-Install the root prerequisites with `../../init.sh`. No separate setup is required.
+Install the root prerequisites with `../../init.sh` and Node.js for browser-bridge tests. No separate setup is required.
 
 ## Commands
 

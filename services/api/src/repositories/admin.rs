@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::{
+    models::AdminPageRequest,
     models::{Admin, DbAdminRole},
-    validations::admin::AdminPageRequest,
 };
 use domain::dto::AdminRole;
 use sqlx::PgPool;
@@ -13,10 +13,10 @@ pub async fn list_page(pool: &PgPool, page: AdminPageRequest) -> Result<Vec<Admi
     let admins = sqlx::query_as!(
         Admin,
         r#"
-                SELECT id, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
-                FROM admin
-                ORDER BY id ASC
-                LIMIT $1 OFFSET $2
+            SELECT id, username, password_hash, role AS "role: DbAdminRole"
+            FROM admin
+            ORDER BY id ASC
+            LIMIT $1 OFFSET $2
             "#,
         limit,
         offset
@@ -37,9 +37,9 @@ pub(crate) async fn add(
     let admin = sqlx::query_as!(
         Admin,
         r#"
-                INSERT INTO admin (username, password_hash, role)
-                VALUES ($1, $2, $3::ADMIN_ROLE)
-                RETURNING id, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
+            INSERT INTO admin (username, password_hash, role)
+            VALUES ($1, $2, $3::ADMIN_ROLE)
+            RETURNING id, username, password_hash, role AS "role: DbAdminRole"
             "#,
         username,
         password_hash,
@@ -61,13 +61,13 @@ pub(crate) async fn update(
     let admin = sqlx::query_as!(
         Admin,
         r#"
-                UPDATE admin
-                SET 
-                    username = COALESCE($2, username),
-                    password_hash = COALESCE($3, password_hash),
-                    updated_at = NOW()
-                WHERE id = $1
-                RETURNING id, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
+            UPDATE admin
+            SET
+                username = COALESCE($2, username),
+                password_hash = COALESCE($3, password_hash),
+                updated_at = NOW()
+            WHERE id = $1
+            RETURNING id, username, password_hash, role AS "role: DbAdminRole"
             "#,
         id,
         username,
@@ -84,9 +84,9 @@ pub async fn find_by_username(pool: &PgPool, username: &str) -> Result<Option<Ad
     let admin = sqlx::query_as!(
         Admin,
         r#"
-                SELECT id, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
-                FROM admin
-                WHERE username = $1
+            SELECT id, username, password_hash, role AS "role: DbAdminRole"
+            FROM admin
+            WHERE username = $1
             "#,
         username
     )
@@ -101,9 +101,9 @@ pub async fn find_by_id(pool: &PgPool, id: i64) -> Result<Option<Admin>, AppErro
     let admin = sqlx::query_as!(
         Admin,
         r#"
-                SELECT id, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
-                FROM admin
-                WHERE id = $1
+            SELECT id, username, password_hash, role AS "role: DbAdminRole"
+            FROM admin
+            WHERE id = $1
             "#,
         id
     )
@@ -121,9 +121,9 @@ pub(crate) async fn delete(
     let admin = sqlx::query_as!(
         Admin,
         r#"
-                DELETE FROM admin 
-                WHERE id = $1 AND role != 'SUPER_ADMIN'::ADMIN_ROLE
-                RETURNING id, username, password_hash, role AS "role: DbAdminRole", created_at, updated_at
+            DELETE FROM admin
+            WHERE id = $1 AND role != 'SUPER_ADMIN'::ADMIN_ROLE
+            RETURNING id, username, password_hash, role AS "role: DbAdminRole"
             "#,
         id
     )

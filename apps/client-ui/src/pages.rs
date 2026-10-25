@@ -44,13 +44,14 @@ pub(crate) fn safe_image(url: &str) -> bool {
 
 #[component]
 fn ConventionHeader(convention: PublicConvention) -> Element {
+    let country = crate::country::country_name(&convention.country_code);
     rsx! {
         Heading { title: convention.name.clone() }
         div { class: "portal-event",
             if let Some(url) = convention.logo_preview_url.as_ref().filter(|url| safe_image(url)) {
                 img { class: "portal-logo", src: "{url}", alt: "{convention.name} logo" }
             } else { div { class: "portal-logo portal-placeholder", aria_hidden: "true", "✦" } }
-            div { p { class: "meta", "{convention.country_code} · {convention.event_starts_on} – {convention.event_ends_on}" } MarkdownPreview { markdown: convention.description_markdown } }
+            div { p { class: "meta", "{country} · {convention.event_starts_on} – {convention.event_ends_on}" } MarkdownPreview { markdown: convention.description_markdown } }
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::{handlers::admin, state::AppState};
+use crate::{handlers, state::AppState};
 use axum::{
     Router,
     routing::{delete, get, patch, post},
@@ -6,13 +6,13 @@ use axum::{
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/", get(admin::list))
-        .route("/{id}", get(admin::get))
-        .route("/{id}", patch(admin::update))
+        .route("/", get(handlers::admin::list))
+        .route("/{id}", get(handlers::admin::get))
+        .route("/{id}", patch(handlers::admin::update))
 }
 
 pub fn super_admin_router() -> Router<AppState> {
     Router::new()
-        .route("/", post(admin::add))
-        .route("/{id}", delete(admin::delete))
+        .route("/", post(handlers::admin::add))
+        .route("/{id}", delete(handlers::admin::delete))
 }

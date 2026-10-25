@@ -2,8 +2,11 @@ use crate::{
     config::CheckoutRecoveryConfig,
     error::AppError,
     models::checkout::{Checkout, RecoveryCode},
-    repositories::checkout as repository,
-    services::checkout::{self as service, CheckoutClients, RecoveryOutcome},
+    repositories,
+    services::{
+        self,
+        checkout::{CheckoutClients, RecoveryOutcome},
+    },
     state::{AppState, required_client},
 };
 use axum::http::StatusCode;
@@ -118,7 +121,7 @@ struct Disposition {
 async fn execute_one(state: &AppState) -> Result<bool, AppError> {
     let settings = &state.settings.checkout_recovery;
     let token = Uuid::new_v4();
-    let Some(claim) = repository::claim_due(
+    let Some(claim) = repositories::checkout::claim_due(
         &state.pool,
         token,
         settings.lease_secs,
@@ -130,14 +133,14 @@ async fn execute_one(state: &AppState) -> Result<bool, AppError> {
         return Ok(false);
     };
     match claim {
-        repository::DueClaim::Stopped { id } => {
+        repositories::checkout::DueClaim::Stopped { id } => {
             tracing::warn!(checkout_id = %id, code = ?RecoveryCode::AttemptsExhausted, "Checkout recovery needs operator review");
         }
-        repository::DueClaim::Abandoned { id, failures } => {
+        repositories::checkout::DueClaim::Abandoned { id, failures } => {
             let disposition = retry(settings, failures, RecoveryCode::ClaimAbandoned);
             finish(state, id, token, disposition).await?;
         }
-        repository::DueClaim::Ready {
+        repositories::checkout::DueClaim::Ready {
             mut checkout,
             failures,
         } => {
@@ -148,7 +151,7 @@ async fn execute_one(state: &AppState) -> Result<bool, AppError> {
                         let Some(checkout_settings) = state.settings.checkout.as_ref() else {
                             return Err(unavailable());
                         };
-                        service::recover_claimed(
+                        services::checkout::recover_claimed(
                             &state.pool,
                             checkout_settings,
                             &clients,
@@ -205,7 +208,7 @@ async fn with_lease<T>(
     let renewal = async {
         loop {
             heartbeat.tick().await;
-            repository::renew(&state.pool, id, token, lease_secs)
+            repositories::checkout::renew(&state.pool, id, token, lease_secs)
                 .await
                 .map_err(|_| unavailable())?;
         }
@@ -219,7 +222,7 @@ async fn finish(
     token: Uuid,
     disposition: Disposition,
 ) -> Result<(), AppError> {
-    repository::finish_recovery(
+    repositories::checkout::finish_recovery(
         &state.pool,
         id,
         token,

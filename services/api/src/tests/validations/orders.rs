@@ -81,11 +81,34 @@ fn listing_accepts_the_reported_tag_and_fulfillment_query() {
     let uri: Uri = "/v1/admin/orders?tag=shipping&fulfillment=UNFULFILLED&page_size=1"
         .parse()
         .unwrap();
-    let (search, page) = extract_list_query(Query::try_from_uri(&uri)).unwrap();
-    assert_eq!(
-        search,
-        "tag:\"shipping\" AND fulfillment_status:unfulfilled"
-    );
+    let (filter, page) = extract_list_query(Query::try_from_uri(&uri)).unwrap();
+    assert_eq!(filter.tags, Some(vec!["shipping".into()]));
+    assert!(matches!(
+        filter.fulfillment,
+        Some(domain::dto::orders::FulfillmentStatus::Unfulfilled)
+    ));
     assert_eq!(page.first, 1);
     assert!(page.after.is_none());
+}
+
+#[test]
+fn listing_rejects_blank_tag_and_invalid_pagination_before_business_search() {
+    for query in [
+        "tag=",
+        "tag=%20",
+        "tag=x,",
+        "tag=,x",
+        "tag=x,%20",
+        "page_size=0",
+        "page_size=251",
+        "cursor=%20",
+        "fulfillment=unknown",
+        "unknown=x",
+    ] {
+        let uri: Uri = format!("/v1/admin/orders?{query}").parse().unwrap();
+        assert!(
+            extract_list_query(Query::try_from_uri(&uri)).is_err(),
+            "{query}"
+        );
+    }
 }

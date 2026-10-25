@@ -5,19 +5,17 @@ use crate::{
     },
     error::AppError,
     models::{
-        cron::{
-            report::{ReportResult, ResultFilter},
-            report_type,
-        },
+        self,
+        cron::report::{ReportResult, ResultFilter},
         shopify::{Connection, PageRequest, ShopifyId},
     },
-    repositories, services,
+    repositories, services, transformers,
 };
 use axum::http::StatusCode;
-use chrono::NaiveDateTime;
-use chrono_tz::Asia::Bangkok;
+use chrono::Timelike;
 use domain::dto::{
     AccountingReportResponse, ProductReportRow, ReportResultDTO, ScheduleReportType,
+    report_results::ReportStatus,
 };
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -48,7 +46,7 @@ pub(crate) async fn list(pool: &PgPool, filter: ResultFilter) -> Result<ReportPa
     Ok(ReportPage {
         items: records
             .into_iter()
-            .map(ReportResult::into_dto)
+            .map(result_dto)
             .collect::<Result<_, _>>()?,
         page: filter.page,
         per_page: filter.per_page,
@@ -56,10 +54,11 @@ pub(crate) async fn list(pool: &PgPool, filter: ResultFilter) -> Result<ReportPa
     })
 }
 pub(crate) async fn detail(pool: &PgPool, id: Uuid) -> Result<ReportResultDTO, AppError> {
-    repositories::report_results::find(pool, id)
-        .await?
-        .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Report result not found"))?
-        .into_dto()
+    result_dto(
+        repositories::report_results::find(pool, id)
+            .await?
+            .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Report result not found"))?,
+    )
 }
 pub(crate) async fn download_url(
     pool: &PgPool,
@@ -76,9 +75,8 @@ pub(crate) async fn download_url(
         .iter()
         .find(|file| file.filename == filename)
         .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "Report file not found"))?;
-    crate::validations::cron::report::validate_saved_file_for_report(
-        file,
-        report_type(&report.report_type)?,
+    file.validate_for_report(
+        models::cron::report_type(&report.report_type)?,
         report.id,
         report.generated_at,
     )?;
@@ -103,42 +101,94 @@ pub(crate) async fn download_url(
         .presign_download(client.bucket(), &file.storage_key, &file.filename, ttl_secs)
         .await
         .map_err(|error| crate::error::upstream(error))?;
-    Ok(domain::dto::ReportDownloadUrlDTO {
-        url: download.url,
-        expires_at: download
-            .expires_at
-            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-    })
+    Ok(transformers::cron::report::download(download))
+}
+
+pub(crate) fn result_dto(record: ReportResult) -> Result<ReportResultDTO, AppError> {
+    let status = match record.status.as_str() {
+        "PENDING" => ReportStatus::Pending,
+        "SUCCESS" => ReportStatus::Success,
+        "FAILED" => ReportStatus::Failed,
+        _ => return Err(crate::models::cron::saved_invalid()),
+    };
+    let kind = models::cron::report_type(&record.report_type)?;
+    saved_parameters(kind, &record.parameters)?;
+    for file in &record.files {
+        file.validate_for_report(kind, record.id, record.generated_at)?;
+    }
+    Ok(transformers::cron::report::result(record, kind, status))
+}
+
+pub(crate) fn resolve_parameters(
+    kind: ScheduleReportType,
+    value: &str,
+    due: chrono::NaiveDateTime,
+) -> Result<String, AppError> {
+    if kind == ScheduleReportType::Inventory {
+        if !crate::models::cron::configs::valid_inventory_id(value) {
+            return Err(invalid(
+                "Inventory schedules require a positive inventory ID",
+            ));
+        }
+        return Ok(value.into());
+    }
+    let window = crate::services::cron::config::transaction_window(
+        services::cron::config::validate_period(value)?,
+        due.and_utc(),
+    )
+    .map_err(|_| invalid("Invalid report period"))?;
+    let start = window
+        .start
+        .and_utc()
+        .with_timezone(&chrono_tz::Asia::Bangkok);
+    let end = (window.end_exclusive - chrono::Duration::seconds(1))
+        .and_utc()
+        .with_timezone(&chrono_tz::Asia::Bangkok);
+    Ok(format!(
+        "{} - {}",
+        start.to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
+        end.to_rfc3339_opts(chrono::SecondsFormat::Secs, false)
+    ))
+}
+pub(crate) fn saved_parameters(
+    kind: ScheduleReportType,
+    value: &str,
+) -> Result<Option<crate::models::accounting::AccountingDateRange>, AppError> {
+    if kind == ScheduleReportType::Inventory {
+        return if crate::models::cron::configs::valid_inventory_id(value) {
+            Ok(None)
+        } else {
+            Err(crate::models::cron::saved_invalid())
+        };
+    }
+    let invalid = crate::models::cron::saved_invalid;
+    let (start, end) = value.split_once(" - ").ok_or_else(invalid)?;
+    let start = chrono::DateTime::parse_from_rfc3339(start).map_err(|_| invalid())?;
+    let end = chrono::DateTime::parse_from_rfc3339(end).map_err(|_| invalid())?;
+    if start >= end
+        || start.offset().local_minus_utc() != 25200
+        || end.offset().local_minus_utc() != 25200
+        || (
+            start.hour(),
+            start.minute(),
+            start.second(),
+            start.nanosecond(),
+        ) != (0, 0, 0, 0)
+        || (end.hour(), end.minute(), end.second(), end.nanosecond()) != (23, 59, 59, 0)
+    {
+        return Err(invalid());
+    }
+    Ok(Some(crate::models::accounting::AccountingDateRange {
+        start,
+        end: end + chrono::Duration::seconds(1) - chrono::Duration::nanoseconds(1),
+    }))
 }
 
 pub(crate) async fn generate(
     audit: &ReportResult,
     providers: Providers<'_>,
 ) -> Result<ReportData, AppError> {
-    generate_report(audit, providers).await
-}
-
-pub(crate) fn storage_prefix(
-    kind: ScheduleReportType,
-    generated_at: NaiveDateTime,
-    id: Uuid,
-) -> String {
-    let day = generated_at
-        .and_utc()
-        .with_timezone(&Bangkok)
-        .format("%Y%m%d");
-    let report_type = match kind {
-        ScheduleReportType::Inventory => "inventory",
-        ScheduleReportType::Transaction => "transaction",
-    };
-    format!("{report_type}/{day}/{id}")
-}
-
-async fn generate_report(
-    audit: &ReportResult,
-    providers: Providers<'_>,
-) -> Result<ReportData, AppError> {
-    match (report_type(&audit.report_type)?, providers) {
+    match (models::cron::report_type(&audit.report_type)?, providers) {
         (
             ScheduleReportType::Transaction,
             Providers::Transaction {
@@ -147,21 +197,15 @@ async fn generate_report(
                 paypal,
             },
         ) => {
-            let range = crate::validations::cron::report::validate_saved_parameters(
-                ScheduleReportType::Transaction,
-                &audit.parameters,
-            )?
-            .ok_or_else(crate::models::cron::saved_invalid)?;
+            let range = saved_parameters(ScheduleReportType::Transaction, &audit.parameters)?
+                .ok_or_else(crate::models::cron::saved_invalid)?;
             Ok(ReportData::Transaction(
                 services::accounting::report(shopify, stripe, paypal, range).await?,
             ))
         }
         (ScheduleReportType::Inventory, Providers::Inventory(shopify)) => {
             let id = &audit.parameters;
-            crate::validations::cron::report::validate_saved_parameters(
-                ScheduleReportType::Inventory,
-                id,
-            )?;
+            saved_parameters(ScheduleReportType::Inventory, id)?;
             let location =
                 ShopifyId::new(format!("gid://shopify/Location/{id}")).map_err(|error| {
                     AppError::new(
@@ -209,3 +253,11 @@ async fn generate_report(
         _ => Err(crate::models::cron::saved_invalid()),
     }
 }
+
+fn invalid(message: &'static str) -> AppError {
+    AppError::new(StatusCode::BAD_REQUEST, message)
+}
+
+#[cfg(test)]
+#[path = "../../tests/services/cron/report.rs"]
+mod tests;

@@ -90,3 +90,26 @@ pub(crate) enum PaymentRecordingState {
     Uncertain,
     Recorded,
 }
+#[derive(Clone, Copy)]
+pub(crate) struct StripeAuthentication<'a> {
+    pub signature: &'a str,
+    pub secret: &'a str,
+}
+
+pub(crate) struct PaypalAuthentication {
+    pub auth_algo: String,
+    pub cert_url: String,
+    pub transmission_id: String,
+    pub transmission_sig: String,
+    pub transmission_time: String,
+    pub webhook_id: String,
+    pub webhook_event: Box<serde_json::value::RawValue>,
+}
+
+pub(crate) enum WebhookInput<'a> {
+    Stripe {
+        raw: &'a [u8],
+        authentication: StripeAuthentication<'a>,
+    },
+    Paypal(crate::models::paypal::VerifyWebhookSignatureRequest),
+}

@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     api,
-    components::{Confirm, ErrorMessage, Popup, TimePicker},
+    components::{Confirm, DraftDepartureGuard, ErrorMessage, Popup, TimePicker},
     session,
 };
 use dioxus::prelude::*;
@@ -277,7 +277,7 @@ pub fn ScheduleEditor(
             }
         }
         }
-        super::navigation::DraftDepartureGuard { dirty }
+        DraftDepartureGuard { dirty }
         Confirm { open: dismiss(), title: "Discard unsaved changes?", message: "Your unsaved schedule changes will be lost.", confirm_label: "Discard changes", danger: true,
             on_cancel: move |()| dismiss.set(false), on_confirm: move |()| { dismiss.set(false); on_close(()); } }
         Confirm { open: confirm_reload(), title: "Reload schedule?", message: if dirty { "Reloading replaces your unsaved changes with the current saved schedule." } else { "Load the current saved schedule." }, confirm_label: "Reload schedule", danger: dirty,

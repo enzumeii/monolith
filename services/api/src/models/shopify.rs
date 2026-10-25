@@ -137,18 +137,22 @@ impl ListProductsRequest {
 impl OrdersByTagRequest {
     pub(crate) fn variables(&self, page: &PageRequest) -> Result<Value, ClientError> {
         page.validate()?;
+        let search = self.search()?;
+        Ok(json!({"search": search, "after": page.after, "first": page.first}))
+    }
+
+    pub(crate) fn search(&self) -> Result<String, ClientError> {
         if self.tags.is_empty() || self.tags.iter().any(|tag| tag.trim().is_empty()) {
             return Err(ClientError::new(ClientErrorKind::InvalidInput(
                 "order tag is empty",
             )));
         }
-        let search = self
+        Ok(self
             .tags
             .iter()
             .map(|tag| format!("tag:\"{}\"", escape_search(tag)))
             .collect::<Vec<_>>()
-            .join(" AND ");
-        Ok(json!({"search": search, "after": page.after, "first": page.first}))
+            .join(" AND "))
     }
 }
 impl InventoryDiscoveryRequest {
@@ -579,7 +583,6 @@ impl<T> Connection<T> {
 }
 
 mod inventory;
-pub(crate) use inventory::InventoryActivationItem;
 
 #[derive(Deserialize)]
 pub(crate) struct ReshipOrder {

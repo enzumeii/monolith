@@ -204,31 +204,6 @@ fn bounded_nested_connections_reject_incomplete_data() {
 }
 
 #[test]
-fn activation_candidates_reject_zero_and_overflowed_resource_ids() {
-    for (item, variant, product) in [
-        ("0", "1", "42"),
-        ("18446744073709551616", "1", "42"),
-        ("1", "0", "42"),
-        ("1", "18446744073709551616", "42"),
-        ("1", "1", "0"),
-        ("1", "1", "18446744073709551616"),
-    ] {
-        let candidate: InventoryActivationCandidate = serde_json::from_value(json!({
-            "id":"level","isActive":false,
-            "quantities":[{"name":"on_hand","quantity":1},{"name":"available","quantity":0}],
-            "item":{"id":format!("gid://shopify/InventoryItem/{item}"),"sku":null,"tracked":true,
-                "variant":{"id":format!("gid://shopify/ProductVariant/{variant}"),"title":"Variant",
-                    "product":{"id":format!("gid://shopify/Product/{product}"),"title":"Product"}}}
-        }))
-        .unwrap();
-        assert!(
-            candidate.activation_item().is_err(),
-            "item={item}, variant={variant}, product={product}"
-        );
-    }
-}
-
-#[test]
 fn fulfillment_resource_kinds_share_checked_shopify_numeric_extraction() {
     for kind in [
         "Order",

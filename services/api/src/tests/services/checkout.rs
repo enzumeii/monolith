@@ -232,9 +232,21 @@ fn reservation_deadline_response_is_stable_after_database_precision_roundtrip() 
         .expect("timestamp")
         .with_timezone(&Utc);
     row.reservation_expires_at = Some(deadline);
-    let first = response(&row, CheckoutStatus::Processing, money(), None, None);
+    let first = crate::transformers::checkout::response(
+        &row,
+        CheckoutStatus::Processing,
+        money(),
+        None,
+        None,
+    );
     row.reservation_expires_at = Some(deadline.trunc_subsecs(6));
-    let recovered = response(&row, CheckoutStatus::Processing, money(), None, None);
+    let recovered = crate::transformers::checkout::response(
+        &row,
+        CheckoutStatus::Processing,
+        money(),
+        None,
+        None,
+    );
     assert_eq!(
         first.reservation_expires_at,
         recovered.reservation_expires_at

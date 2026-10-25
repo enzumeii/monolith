@@ -1,9 +1,9 @@
-use super::super::pagination::for_each_page;
 use crate::{
     client::shopify::TagAction,
     config::ShippingSender,
     error::{AppError, upstream},
     models::shopify::{ShippingOrder, ShopifyId},
+    services,
 };
 use axum::http::StatusCode;
 use common::{Parcel, select_courier};
@@ -20,9 +20,9 @@ pub async fn labels(
     sender: Option<&ShippingSender>,
 ) -> Result<ShippingLabels, AppError> {
     let mut orders = Vec::new();
-    for_each_page(
+    services::pagination::for_each_page(
         None,
-        async |after| client.shipping_orders(after).await,
+        async |after| client.shipping_orders("status:open AND financial_status:paid AND fulfillment_status:unfulfilled AND tag:\"PACKING\"", after).await,
         |page| {
             orders.extend(page);
             Ok(())

@@ -1,7 +1,23 @@
-use chrono::{DateTime, Utc};
 use sqlx::FromRow;
 
-use domain::dto::{AdminDTO, AdminRole};
+use domain::dto::AdminRole;
+
+#[derive(Debug, Clone, Copy)]
+pub struct AdminPageRequest {
+    pub(crate) page: u32,
+    pub(crate) per_page: u32,
+}
+
+impl AdminPageRequest {
+    #[must_use]
+    pub fn page(self) -> u32 {
+        self.page
+    }
+    #[must_use]
+    pub fn per_page(self) -> u32 {
+        self.per_page
+    }
+}
 
 #[derive(FromRow)]
 pub struct Admin {
@@ -9,8 +25,6 @@ pub struct Admin {
     pub username: String,
     pub password_hash: String,
     pub role: DbAdminRole,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
@@ -33,15 +47,6 @@ impl From<DbAdminRole> for AdminRole {
         match role {
             DbAdminRole::SuperAdmin => Self::SuperAdmin,
             DbAdminRole::Admin => Self::Admin,
-        }
-    }
-}
-impl From<Admin> for AdminDTO {
-    fn from(admin: Admin) -> Self {
-        Self {
-            id: admin.id,
-            username: admin.username,
-            role: admin.role.into(),
         }
     }
 }

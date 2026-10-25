@@ -46,13 +46,9 @@ impl FileCheckpoint {
         if self.content_type != report_generator::CSV_CONTENT_TYPE {
             return Err(super::saved_invalid());
         }
-        crate::validations::cron::report::validate_storage_key(
-            &self.key,
-            &self.filename,
-            &self.sha256,
-        )?;
+        super::report::validate_storage_key(&self.key, &self.filename, &self.sha256)?;
         if let Some(receipt) = &self.receipt {
-            crate::validations::cron::report::validate_saved_file(receipt)?;
+            receipt.validate()?;
             if receipt.filename != self.filename
                 || receipt.storage_key != self.key
                 || receipt.content_type != self.content_type

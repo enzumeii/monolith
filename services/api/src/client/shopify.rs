@@ -211,9 +211,16 @@ impl ShopifyClient {
     }
     pub(crate) async fn shipping_orders(
         &self,
+        search: &str,
         after: Option<String>,
     ) -> Result<Connection<ShippingOrder>, ClientError> {
-        let data: OrdersPage<ShippingOrder> = self.execute("ShippingOrders",include_str!("shopify/shipping_orders.graphql"),json!({"first":250,"after":after,"search":"status:open AND financial_status:paid AND fulfillment_status:unfulfilled AND tag:\"PACKING\""})).await?;
+        let data: OrdersPage<ShippingOrder> = self
+            .execute(
+                "ShippingOrders",
+                include_str!("shopify/shipping_orders.graphql"),
+                json!({"first":250,"after":after,"search":search}),
+            )
+            .await?;
         Ok(data.orders)
     }
     pub(crate) async fn fulfillment_orders(

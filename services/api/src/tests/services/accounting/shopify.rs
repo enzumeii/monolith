@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::float_cmp)]
-use super::{address, apply, complete, matching_position, native_index, phone, reference, thb};
+use super::{apply, complete, matching_position, native_index, reference, thb};
 use crate::{
     models::{
         SkuCategory,
@@ -56,8 +56,11 @@ fn sales_ship_once_and_use_the_receipt_reference() {
     assert_eq!(payment.transaction.shopify_order_id, 1);
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].price, 95.0);
-    assert_eq!(address(&order()), "1 Road, Bangkok, 10000");
-    assert_eq!(phone(&order()), 66_812_345_678);
+    assert_eq!(
+        payment.transaction.customer_address,
+        "1 Road, Bangkok, 10000"
+    );
+    assert_eq!(payment.transaction.customer_phone, 66_812_345_678);
     assert_eq!(SkuCategory::from_sku("ABCKEY001").as_str(), "KEYCHAIN");
     assert_eq!(SkuCategory::from_sku("ABCAPP001").as_str(), "APPAREL");
     assert_eq!(SkuCategory::from_sku("ABCUNK001").as_str(), "");
@@ -186,10 +189,21 @@ fn report_contact_preserves_locality_unicode_and_numeric_phone_policy() {
     let mut value = order_value();
     value["shippingAddress"] = json!({"name":"Name","address1":" บ้าน 1 ","address2":" ","city":" กรุงเทพ ","provinceCode":" TH-10 ","country":" Thailand ","zip":" 00100 ","phone":"00 (081) ٢3-45"});
     let order = serde_json::from_value(value.clone()).unwrap();
-    assert_eq!(address(&order), "บ้าน 1, กรุงเทพ, TH-10, Thailand, 00100");
-    assert_eq!(phone(&order), 81345);
+    let mut row = payment(AccountingGateway::Stripe, AccountingKind::Sale, "ch_1");
+    apply(&mut row, &order, &mut Vec::new()).unwrap();
+    assert_eq!(
+        row.transaction.customer_address,
+        "บ้าน 1, กรุงเทพ, TH-10, Thailand, 00100"
+    );
+    assert_eq!(row.transaction.customer_phone, 81345);
     value["shippingAddress"]["phone"] = json!("18446744073709551616");
-    assert_eq!(phone(&serde_json::from_value(value).unwrap()), 0);
+    apply(
+        &mut row,
+        &serde_json::from_value(value).unwrap(),
+        &mut Vec::new(),
+    )
+    .unwrap();
+    assert_eq!(row.transaction.customer_phone, 0);
 }
 
 #[test]
@@ -229,7 +243,7 @@ fn external_order(gateway: AccountingGateway, id: &str) -> crate::models::shopif
         "co:11111111-1111-4111-8111-111111111111",
         "cv:22222222-2222-4222-8222-222222222222",
         "qa-convention",
-        crate::services::checkout_completion::reference(kind, id).unwrap()
+        crate::utils::payment_reference::tag(kind, id).unwrap()
     ]);
     value["displayFinancialStatus"] = json!("PAID");
     value["cancelledAt"] = json!(null);
@@ -521,7 +535,7 @@ async fn enrich_orders(
         access_token: Some("fixture-token".into()),
     })
     .unwrap();
-    let range = crate::validations::accounting::AccountingDateRange {
+    let range = crate::models::accounting::AccountingDateRange {
         start: "2026-10-01T00:00:00Z".parse().unwrap(),
         end: "2026-10-31T23:59:59Z".parse().unwrap(),
     };
@@ -548,18 +562,13 @@ async fn external_sale_rejects_distinct_provider_claims_for_one_shopify_transact
             let mut order = external_order(gateway, first);
             order
                 .tags
-                .push(crate::services::checkout_completion::reference(kind, second).unwrap());
+                .push(crate::utils::payment_reference::tag(kind, second).unwrap());
             if gateway == AccountingGateway::Stripe {
                 order.tags.push(
-                    crate::services::checkout_completion::reference(
-                        "stripe:session",
-                        "cs_checkout",
-                    )
-                    .unwrap(),
+                    crate::utils::payment_reference::tag("stripe:session", "cs_checkout").unwrap(),
                 );
                 order.tags.push(
-                    crate::services::checkout_completion::reference("stripe:intent", "pi_checkout")
-                        .unwrap(),
+                    crate::utils::payment_reference::tag("stripe:intent", "pi_checkout").unwrap(),
                 );
             }
             let mut payments = vec![
@@ -949,8 +958,7 @@ async fn metadata_both_provider_or_legacy_reference_conflicts_fail_closed() {
             AccountingGateway::Paypal => "paypal:capture",
         };
         legacy_conflict["tags"].as_array_mut().unwrap().push(json!(
-            crate::services::checkout_completion::reference(kind, "different_source_reference")
-                .unwrap()
+            crate::utils::payment_reference::tag(kind, "different_source_reference").unwrap()
         ));
         assert!(
             enrich_orders(

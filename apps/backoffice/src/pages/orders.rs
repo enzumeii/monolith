@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::{
     api::{self, ApiError, ApiResult},
     components::ReportSkeleton,
-    components::{DataTable, DownloadFile, DownloadTable, ErrorMessage, LoadingState, TableData},
+    components::{DataTable, DownloadFile, DownloadTable, ErrorMessage, TableData},
     export::ExportFormat,
     session,
 };
@@ -40,13 +40,13 @@ pub fn Orders() -> Element {
     let mut view = use_signal(|| OrderView::Fulfillment);
     let mut submitted = use_signal(|| None::<OrderView>);
     let mut tracking_numbers = use_signal(HashMap::<u64, String>::new);
-    let LoadingState(mut overlay_pending) = use_context();
-    let mut fulfillment = use_fulfillment_action(overlay_pending);
+    let mut pending = use_signal(|| false);
+    let mut fulfillment = use_fulfillment_action(pending);
     let mut report = use_order_report(
         submitted,
         tracking_numbers,
         fulfillment,
-        overlay_pending,
+        pending,
         |view| async move { session::with_session(|| generate(view)).await },
     );
     let loading = submitted.read().is_some() && report.pending();
@@ -87,7 +87,7 @@ pub fn Orders() -> Element {
             orders: fulfillment_orders.clone(),
             tracking_numbers: tracking_numbers.read().clone(),
         };
-        overlay_pending.set(true);
+        pending.set(true);
         fulfillment.call(request);
     };
 
@@ -141,13 +141,16 @@ fn use_order_report<Fut: std::future::Future<Output = ApiResult<OrderData>> + 's
     mut submitted: Signal<Option<OrderView>>,
     mut tracking_numbers: Signal<HashMap<u64, String>>,
     mut fulfillment: Action<(FulfillmentRequest,), ApiResult<Vec<FulfillmentResult>>>,
-    mut overlay_pending: Signal<bool>,
+    mut pending: Signal<bool>,
     load: impl FnMut(OrderView) -> Fut + 'static,
 ) -> Action<(OrderView,), (OrderView, ApiResult<OrderData>)> {
     let load = use_callback(load);
     let mut action = use_action(move |view: OrderView| {
         let future = load.call(view);
-        async move { Ok::<_, ApiError>((view, future.await)) }
+        async move {
+            let _loading = ui::loading_guard();
+            Ok::<_, ApiError>((view, future.await))
+        }
     });
     use_effect(move || {
         if let Some(view) = submitted() {
@@ -173,16 +176,20 @@ fn use_order_report<Fut: std::future::Future<Output = ApiResult<OrderData>> + 's
             tracking_numbers.write().clear();
             action.reset();
             fulfillment.reset();
-            overlay_pending.set(false);
+            pending.set(false);
         }
     });
     action
 }
 
 fn use_fulfillment_action(
-    mut overlay_pending: Signal<bool>,
+    mut pending: Signal<bool>,
 ) -> Action<(FulfillmentRequest,), ApiResult<Vec<FulfillmentResult>>> {
-    use_drop(move || overlay_pending.set(false));
+    use_drop(move || {
+        if let Ok(mut value) = pending.try_write() {
+            *value = false;
+        }
+    });
     use_action(move |request: FulfillmentRequest| {
         let future = session::with_session(|| {
             fulfill_selected(
@@ -192,8 +199,9 @@ fn use_fulfillment_action(
             )
         });
         async move {
+            let _loading = ui::loading_guard();
             let result = future.await;
-            overlay_pending.set(false);
+            pending.set(false);
             Ok::<_, ApiError>(result)
         }
     })

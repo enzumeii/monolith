@@ -204,6 +204,9 @@ button.ghost:hover:not(:disabled),
 }
 
 
+.back-link { display: inline-flex; align-items: center; justify-content: center; min-width: 2.75rem; min-height: 2.75rem; padding: .3rem .6rem; color: var(--muted); font-size: 1.25rem; line-height: 1.3; }
+.back-link:hover { color: var(--text); }
+
 /* ---- Feedback ---- */
 .error {
     color: var(--error-text);
@@ -239,6 +242,53 @@ a:focus-visible {
 .content-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
 .content-heading-title { display: flex; align-items: center; gap: .75rem; min-width: 0; flex: 1; }
 .content-heading-title h2, .content-heading-title h3 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.content-heading-title > .button-link { flex-shrink: 0; min-width: 2.75rem; font-size: 1.25rem; }
+.content-heading-title > .button-link, .content-heading-title > .back-link { flex-shrink: 0; }
 .content-heading-actions { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
 .content-heading-actions > button, .content-heading-actions > .button-link { margin-top: 0; }
+
+.loading-page { min-height: 100%; }
+dialog.page-loading {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 1rem;
+    border: 0;
+    box-sizing: border-box;
+    background: var(--modal-overlay-bg);
+    color: var(--text);
+    touch-action: none;
+    overscroll-behavior: contain;
+    outline: none;
+}
+dialog.page-loading::backdrop { background: transparent; }
+.page-loading-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: max-content;
+    max-width: calc(100% - 2rem);
+    box-sizing: border-box;
+    padding: 1.5rem;
+    border: 1px solid var(--panel-border);
+    border-radius: 1rem;
+    background: var(--panel);
+    text-align: center;
+}
+.page-loading-spinner {
+    display: inline-block;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: .25rem solid var(--panel-border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: page-loading-spin .8s linear infinite;
+}
+@keyframes page-loading-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+    .page-loading-spinner { animation: none; }
+}

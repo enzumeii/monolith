@@ -30,6 +30,7 @@ pub(crate) fn now_unix() -> u64 {
         .map_or(0, |duration| duration.as_secs())
 }
 pub async fn restore() -> api::ApiResult<()> {
+    let _loading = ui::loading_guard();
     let ticket = request();
     let result = async {
         let _lock = sync::lock().await?;
@@ -51,6 +52,7 @@ pub async fn restore() -> api::ApiResult<()> {
     }
 }
 pub async fn sign_in(username: String, password: String) -> api::ApiResult<()> {
+    let _loading = ui::loading_guard();
     let ticket = transition();
     let _lock = sync::lock().await?;
     let viewer = api::login(LoginRequest { username, password }).await?;
@@ -59,6 +61,7 @@ pub async fn sign_in(username: String, password: String) -> api::ApiResult<()> {
     Ok(())
 }
 pub async fn sign_out() -> api::ApiResult<()> {
+    let _loading = ui::loading_guard();
     let ticket = transition();
     let _lock = sync::lock().await?;
     if restore_session_from_cookie().await?.is_some() {
@@ -72,6 +75,7 @@ pub async fn update_self(
     id: i64,
     req: domain::dto::UpdateAdminRequest,
 ) -> api::ApiResult<domain::dto::AdminDTO> {
+    let _loading = ui::loading_guard();
     let ticket = transition();
     let _lock = sync::lock().await?;
     let current = restore_session_from_cookie()
@@ -93,6 +97,7 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = api::ApiResult<T>>,
 {
+    let _loading = ui::loading_guard();
     let version = epoch();
     ensure_valid().await?;
     let result = call().await;

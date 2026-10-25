@@ -1,12 +1,12 @@
-use crate::{handlers::cron::report, state::AppState};
+use crate::{handlers, state::AppState};
 use axum::{Router, routing::get};
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/", get(report::list))
-        .route("/{id}", get(report::detail))
+        .route("/", get(handlers::cron::report::list))
+        .route("/{id}", get(handlers::cron::report::detail))
         .route(
             "/{id}/files/{filename}/download-url",
-            get(report::download_url),
+            get(handlers::cron::report::download_url),
         )
 }

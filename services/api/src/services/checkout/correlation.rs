@@ -132,7 +132,7 @@ pub(crate) fn parse_identity(attributes: &[CustomAttribute]) -> Result<Option<Id
         (PAYPAL_CAPTURE_KEY, "paypal:capture"),
     ] {
         if let Some(value) = unique_value(attributes, key)? {
-            super::super::checkout_completion::reference(kind, value).map_err(|_| invalid())?;
+            crate::utils::payment_reference::tag(kind, value).map_err(|_| invalid())?;
         }
     }
     Ok(Some(identity))

@@ -44,6 +44,7 @@ fn SavedFile(report_id: String, file: ReportFileDTO, compact: bool) -> Element {
                     let report_id = report_id.clone();
                     let filename = file.filename.clone();
                     spawn(async move {
+                            let _loading = ui::loading_guard();
                         let result = async {
                             let signed = session::with_session(|| api::report_results::get_download_url(&report_id, &filename))
                                 .await.map_err(|error| error.to_string())?;

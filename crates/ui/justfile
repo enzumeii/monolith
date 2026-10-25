@@ -12,10 +12,11 @@ check:
 test coverage="":
     bash ../../scripts/test-coverage.sh ui {{quote(coverage)}}
 
-# Run shared presentation and Markdown tests with optional coverage instrumentation.
+# Run shared presentation, Markdown and browser-bridge tests with optional coverage instrumentation.
 [private]
 _test:
     cargo test --locked -p ui
+    node --test src/tests/loading.mjs
 
 # Apply Rust formatting and lint fixes.
 fix:

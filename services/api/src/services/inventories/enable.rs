@@ -3,10 +3,10 @@ use crate::{
     client::{ClientError, ClientErrorKind, shopify::ShopifyClient},
     error::{AppError, client_timeout, log_background_error, upstream},
     models::shopify::{
-        ActivateInventoryRequest, InventoryActivationItem, InventoryDiscoveryRequest, PageRequest,
-        ShopifyId,
+        ActivateInventoryRequest, InventoryActivationCandidate, InventoryDiscoveryRequest,
+        PageRequest, ShopifyId,
     },
-    services::pagination::for_each_page,
+    services,
 };
 use axum::http::StatusCode;
 use domain::dto::{InventoryEnableError, InventoryEnableResponse};
@@ -47,6 +47,30 @@ pub async fn enable_inventory(
     Ok(result)
 }
 
+pub(crate) fn activation_item(
+    candidate: &InventoryActivationCandidate,
+) -> Result<Option<InventoryActivationItem>, ClientError> {
+    if candidate.is_active || !candidate.item.tracked {
+        return Ok(None);
+    }
+    let on_hand = candidate.quantity("on_hand")?;
+    if on_hand <= 0 {
+        return Ok(None);
+    }
+    candidate.item.id.numeric_id("InventoryItem")?;
+    candidate.item.variant.id.numeric_id("ProductVariant")?;
+    let product_id = candidate.item.variant.product.id.numeric_id("Product")?;
+    Ok(Some(InventoryActivationItem {
+        inventory_item_id: candidate.item.id.clone(),
+        product_id,
+    }))
+}
+
+pub(crate) struct InventoryActivationItem {
+    inventory_item_id: ShopifyId,
+    product_id: u64,
+}
+
 async fn discover(
     client: &ShopifyClient,
     location: &ShopifyId,
@@ -56,7 +80,7 @@ async fn discover(
     };
     let mut seen = HashMap::new();
     let mut items = Vec::new();
-    for_each_page(
+    services::pagination::for_each_page(
         None,
         async |after| {
             client
@@ -75,10 +99,7 @@ async fn discover(
                     }
                     continue;
                 }
-                if let Some(item) = candidate
-                    .activation_item()
-                    .map_err(|error| upstream(error))?
-                {
+                if let Some(item) = activation_item(&candidate).map_err(|error| upstream(error))? {
                     items.push(item);
                 }
                 seen.insert(candidate.item.id.clone(), candidate);

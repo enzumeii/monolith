@@ -26,8 +26,13 @@ pub fn extract_order_query(
 
 pub fn extract_list_query(
     query: Result<Query<domain::dto::orders::ListOrdersQuery>, QueryRejection>,
-) -> Result<(String, crate::models::shopify::PageRequest), AppError> {
-    use domain::dto::orders::FulfillmentStatus;
+) -> Result<
+    (
+        crate::models::orders::OrderListFilter,
+        crate::models::shopify::PageRequest,
+    ),
+    AppError,
+> {
     let invalid = || {
         AppError::new(
             StatusCode::BAD_REQUEST,
@@ -35,40 +40,27 @@ pub fn extract_list_query(
         )
     };
     let Query(query) = query.map_err(|_| invalid())?;
-    let request = query
+    let tags: Option<Vec<String>> = query
         .tag
-        .map(|tag| crate::models::shopify::OrdersByTagRequest {
-            tags: tag.split(',').map(|tag| tag.trim().to_owned()).collect(),
-        });
+        .map(|tag| tag.split(',').map(|tag| tag.trim().to_owned()).collect());
     let page = crate::models::shopify::PageRequest {
         first: query.page_size.unwrap_or(50),
         after: query.cursor,
     };
     page.validate().map_err(|_| invalid())?;
-    let mut search = if let Some(request) = request {
-        request.variables(&page).map_err(|_| invalid())?["search"]
-            .as_str()
-            .ok_or_else(invalid)?
-            .to_owned()
-    } else {
-        String::new()
-    };
-    if let Some(status) = query.fulfillment {
-        let status = match status {
-            FulfillmentStatus::Unfulfilled => "unfulfilled",
-            FulfillmentStatus::Fulfilled => "fulfilled",
-            FulfillmentStatus::Partial => "partial",
-            FulfillmentStatus::Unshipped => "unshipped",
-            FulfillmentStatus::Shipped => "shipped",
-            FulfillmentStatus::Any => "any",
-        };
-        if !search.is_empty() {
-            search.push_str(" AND ");
-        }
-        search.push_str("fulfillment_status:");
-        search.push_str(status);
+    if tags
+        .as_ref()
+        .is_some_and(|tags| tags.iter().any(String::is_empty))
+    {
+        return Err(invalid());
     }
-    Ok((search, page))
+    Ok((
+        crate::models::orders::OrderListFilter {
+            tags,
+            fulfillment: query.fulfillment,
+        },
+        page,
+    ))
 }
 
 pub fn extract_fulfill_request(

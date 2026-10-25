@@ -1,7 +1,10 @@
 use crate::{
     config::CheckoutSettings,
     error::AppError,
-    models::{paypal::VerifyWebhookSignatureRequest, shopify::ShopifyId},
+    models::{
+        checkout::{PaypalAuthentication, StripeAuthentication},
+        shopify::ShopifyId,
+    },
 };
 use axum::{
     body::Bytes,
@@ -12,12 +15,6 @@ use domain::dto::checkout::{CreateCheckoutRequest, MAX_CHECKOUT_NOTE_CHARS};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use uuid::Uuid;
-
-#[derive(Clone, Copy)]
-pub(crate) struct StripeAuthentication<'a> {
-    pub signature: &'a str,
-    pub secret: &'a str,
-}
 
 pub(crate) fn credential(headers: &HeaderMap) -> Result<Vec<u8>, AppError> {
     let raw = headers
@@ -49,8 +46,7 @@ pub(crate) fn body_error(status: StatusCode) -> AppError {
 pub(crate) fn create(request: &CreateCheckoutRequest) -> Result<(), AppError> {
     id(&request.operation_id)?;
     id(&request.convention_id)?;
-    let email = super::cron::configs::validate_email(&request.email)
-        .map_err(|_| invalid("email must be a valid email address"))?;
+    let email = super::common::email(&request.email, "email must be a valid email address")?;
     if email != request.email {
         return Err(invalid("email must not contain surrounding whitespace"));
     }
@@ -150,7 +146,7 @@ pub(crate) fn paypal_authentication(
     config: &CheckoutSettings,
     headers: &HeaderMap,
     raw: &[u8],
-) -> Result<VerifyWebhookSignatureRequest, AppError> {
+) -> Result<PaypalAuthentication, AppError> {
     if headers.contains_key("stripe-signature") {
         return Err(invalid("Ambiguous webhook authentication"));
     }
@@ -172,7 +168,7 @@ pub(crate) fn paypal_authentication(
         })?;
     let webhook_event =
         serde_json::from_slice(raw).map_err(|_| invalid("Invalid PayPal webhook event"))?;
-    Ok(VerifyWebhookSignatureRequest {
+    Ok(PaypalAuthentication {
         auth_algo: webhook_header(headers, "paypal-auth-algo")?.into(),
         cert_url: webhook_header(headers, "paypal-cert-url")?.into(),
         transmission_id: webhook_header(headers, "paypal-transmission-id")?.into(),

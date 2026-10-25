@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
 use chrono::{DateTime, Utc};
+use serde_json::json;
 
 #[tokio::test]
 #[expect(
@@ -8,16 +9,7 @@ use chrono::{DateTime, Utc};
     reason = "Keep the rollback-only session, schema and atomic snapshot timestamp assertions together"
 )]
 async fn convention_timestamps_stay_utc_in_a_non_utc_database_session() {
-    let url = std::env::var("E2E_DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://e2e:e2e@127.0.0.1:5433/e2e".into());
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&url)
-        .await
-        .unwrap();
-    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-    // The owned single connection keeps repository pool calls in this rollback-only transaction.
-    sqlx::query("BEGIN").execute(&pool).await.unwrap();
+    let pool = rollback_pool().await;
     sqlx::query("SET LOCAL TIME ZONE 'Asia/Bangkok'")
         .execute(&pool)
         .await
@@ -28,7 +20,7 @@ async fn convention_timestamps_stay_utc_in_a_non_utc_database_session() {
             .await
             .unwrap();
     assert!(local_time.ends_with("+07"), "{local_time}");
-    let mut input = validate::create(
+    let checked = validations::conventions::create(
         serde_json::from_value(serde_json::json!({
             "slug": format!("native-{}", Uuid::new_v4().simple()), "name": "Native", "country_code": "TH",
             "event_starts_on": "2028-02-29", "event_ends_on": "2028-03-01",
@@ -37,8 +29,9 @@ async fn convention_timestamps_stay_utc_in_a_non_utc_database_session() {
         .unwrap(),
     )
     .unwrap();
+    let mut input = transformers::conventions::create(checked);
     let fixture = crate::s3_fixture::Fixture::new().await;
-    let record = create(&pool, &fixture.client, &input).await.unwrap();
+    let record = create(&pool, Ok(&fixture.client), &input).await.unwrap();
     let id = Uuid::parse_str(&record.id).unwrap();
     assert_eq!(
         DateTime::parse_from_rfc3339(&record.created_at).unwrap(),
@@ -56,12 +49,14 @@ async fn convention_timestamps_stay_utc_in_a_non_utc_database_session() {
             ..VariantDisplay::default()
         },
     }];
-    let first = repo::replace(&mut connection, id, &items)
-        .await
-        .unwrap()
-        .remove(0)
-        .into_dto("THB")
-        .unwrap();
+    let first = variant_response(
+        repositories::conventions::replace(&mut connection, id, &items)
+            .await
+            .unwrap()
+            .remove(0),
+        "THB",
+    )
+    .unwrap();
     assert_eq!(first.inventory_policy, None);
     let mut previous = first.clone();
     for policy in [
@@ -69,12 +64,14 @@ async fn convention_timestamps_stay_utc_in_a_non_utc_database_session() {
         domain::dto::CatalogueInventoryPolicy::Continue,
     ] {
         items[0].display.inventory_policy = Some(policy);
-        let saved = repo::replace(&mut connection, id, &items)
-            .await
-            .unwrap()
-            .remove(0)
-            .into_dto("THB")
-            .unwrap();
+        let saved = variant_response(
+            repositories::conventions::replace(&mut connection, id, &items)
+                .await
+                .unwrap()
+                .remove(0),
+            "THB",
+        )
+        .unwrap();
         assert_eq!(saved.inventory_policy, Some(policy));
         assert_eq!(saved.id, first.id);
         assert_eq!(saved.created_at, first.created_at);
@@ -85,12 +82,14 @@ async fn convention_timestamps_stay_utc_in_a_non_utc_database_session() {
         previous = saved;
     }
     items[0].display.inventory_policy = None;
-    let cleared = repo::replace(&mut connection, id, &items)
-        .await
-        .unwrap()
-        .remove(0)
-        .into_dto("THB")
-        .unwrap();
+    let cleared = variant_response(
+        repositories::conventions::replace(&mut connection, id, &items)
+            .await
+            .unwrap()
+            .remove(0),
+        "THB",
+    )
+    .unwrap();
     assert_eq!(cleared.inventory_policy, None);
     assert!(
         DateTime::parse_from_rfc3339(&cleared.updated_at).unwrap()
@@ -131,18 +130,22 @@ async fn convention_timestamps_stay_utc_in_a_non_utc_database_session() {
         .unwrap();
     input.preorder_enabled = true;
     let updated = logo::project(
-        repo::update(&mut connection, id, &input).await.unwrap(),
+        repositories::conventions::update(&mut connection, id, &input)
+            .await
+            .unwrap(),
         &fixture.client,
     )
     .await
     .unwrap();
     items[0].input.final_price = "13.99".into();
-    let changed = repo::replace(&mut connection, id, &items)
-        .await
-        .unwrap()
-        .remove(0)
-        .into_dto("THB")
-        .unwrap();
+    let changed = variant_response(
+        repositories::conventions::replace(&mut connection, id, &items)
+            .await
+            .unwrap()
+            .remove(0),
+        "THB",
+    )
+    .unwrap();
     assert_eq!(updated.created_at, record.created_at);
     assert!(DateTime::parse_from_rfc3339(&updated.updated_at).unwrap() > database_now);
     assert_eq!(first.created_at, changed.created_at);
@@ -185,7 +188,12 @@ async fn convention_timestamps_stay_utc_in_a_non_utc_database_session() {
         .unwrap();
     assert!(disabled.items.iter().all(|v| v.id != record.id));
     sqlx::query("ROLLBACK").execute(&pool).await.unwrap();
-    assert!(repo::find(&pool, id).await.unwrap().is_none());
+    assert!(
+        repositories::conventions::find(&pool, id)
+            .await
+            .unwrap()
+            .is_none()
+    );
     pool.close().await;
 }
 
@@ -316,17 +324,8 @@ fn options_follow_intrinsic_currency_and_provider_policy_without_runtime_configu
 
 #[tokio::test]
 async fn convention_logo_urls_reuse_the_published_logo_url_column() {
-    let url = std::env::var("E2E_DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://e2e:e2e@127.0.0.1:5433/e2e".into());
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&url)
-        .await
-        .unwrap();
-    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-    // The owned connection keeps repository pool calls in this rollback-only transaction.
-    sqlx::query("BEGIN").execute(&pool).await.unwrap();
-    let mut input = validate::create(
+    let pool = rollback_pool().await;
+    let checked = validations::conventions::create(
         serde_json::from_value(serde_json::json!({
             "slug": format!("native-logo-{}", Uuid::new_v4().simple()),
             "name": "Legacy fair", "country_code": "TH",
@@ -337,9 +336,12 @@ async fn convention_logo_urls_reuse_the_published_logo_url_column() {
         .unwrap(),
     )
     .unwrap();
+    let mut input = transformers::conventions::create(checked);
     let legacy_url = "https://legacy.example.test/convention.png";
     input.logo_url = Some(legacy_url.into());
-    let inserted = repo::insert(&pool, &input).await.unwrap();
+    let inserted = repositories::conventions::insert(&pool, &input)
+        .await
+        .unwrap();
     let id = inserted.id;
     assert_eq!(inserted.logo_url.as_deref(), Some(legacy_url));
     let fixture = crate::s3_fixture::Fixture::new().await;
@@ -355,10 +357,15 @@ async fn convention_logo_urls_reuse_the_published_logo_url_column() {
     );
     assert_eq!(fixture.data.lock().unwrap().calls, Vec::<String>::new());
     let mut connection = pool.acquire().await.unwrap();
-    let locked = repo::lock(&mut connection, id).await.unwrap().unwrap();
+    let locked = repositories::conventions::lock(&mut connection, id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(locked.logo_url.as_deref(), Some(legacy_url));
     input.name = "Updated fair".into();
-    let updated = repo::update(&mut connection, id, &input).await.unwrap();
+    let updated = repositories::conventions::update(&mut connection, id, &input)
+        .await
+        .unwrap();
     assert_eq!(updated.logo_url.as_deref(), Some(legacy_url));
     let retained: String = sqlx::query_scalar(
         "SELECT logo_url
@@ -372,7 +379,9 @@ async fn convention_logo_urls_reuse_the_published_logo_url_column() {
     assert_eq!(retained, legacy_url);
     let location = format!("conventions/{}/{}.png", input.slug, Uuid::new_v4());
     input.logo_url = Some(location.clone());
-    let saved = repo::update(&mut connection, id, &input).await.unwrap();
+    let saved = repositories::conventions::update(&mut connection, id, &input)
+        .await
+        .unwrap();
     assert_eq!(saved.logo_url.as_deref(), Some(location.as_str()));
     let stored: String = sqlx::query_scalar(
         "SELECT logo_url
@@ -385,9 +394,14 @@ async fn convention_logo_urls_reuse_the_published_logo_url_column() {
     .unwrap();
     assert_eq!(stored, location);
     drop(connection);
-    let found = repo::find(&pool, id).await.unwrap().unwrap();
+    let found = repositories::conventions::find(&pool, id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(found.logo_url.as_deref(), Some(location.as_str()));
-    let listed = repo::list(&pool, 1, u32::MAX, None).await.unwrap();
+    let listed = repositories::conventions::list(&pool, 1, u32::MAX, None)
+        .await
+        .unwrap();
     assert!(
         listed
             .iter()
@@ -403,6 +417,96 @@ async fn convention_logo_urls_reuse_the_published_logo_url_column() {
     assert!(signed.logo_preview_url_expires_at.is_some());
     assert_eq!(fixture.data.lock().unwrap().calls, Vec::<String>::new());
     sqlx::query("ROLLBACK").execute(&pool).await.unwrap();
-    assert!(repo::find(&pool, id).await.unwrap().is_none());
+    assert!(
+        repositories::conventions::find(&pool, id)
+            .await
+            .unwrap()
+            .is_none()
+    );
     pool.close().await;
+}
+
+fn request(country: &str) -> domain::dto::CreateConvention {
+    serde_json::from_value(serde_json::json!({"slug":"country-test","name":"Convention","country_code":country,"event_starts_on":"2028-02-29","event_ends_on":"2028-02-29","description_markdown":"Event","currency_code":"THB","payment_methods":["stripe"]})).unwrap()
+}
+
+#[test]
+fn patch_preserves_omitted_legacy_logos_and_validates_supplied_locations() {
+    let input =
+        transformers::conventions::create(validations::conventions::create(request("TH")).unwrap());
+    let legacy_url = "https://legacy.example.test/convention.png";
+    let current = Convention {
+        id: uuid::Uuid::new_v4(),
+        slug: input.slug,
+        name: input.name,
+        logo_url: Some(legacy_url.into()),
+        country_code: input.country_code,
+        event_starts_on: input.event_starts_on,
+        event_ends_on: input.event_ends_on,
+        description_markdown: input.description_markdown,
+        preorder_enabled: false,
+        currency_code: input.currency_code,
+        payment_methods: vec!["stripe".into()],
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    let patch = serde_json::from_value(json!({"name":"Updated convention"})).unwrap();
+    let merged = merge(validations::conventions::patch(patch).unwrap(), &current).unwrap();
+    assert_eq!(merged.name, "Updated convention");
+    assert_eq!(merged.logo_url.as_deref(), Some(legacy_url));
+    let patch = serde_json::from_value(json!({"logo_url":null})).unwrap();
+    assert!(
+        merge(validations::conventions::patch(patch).unwrap(), &current)
+            .unwrap()
+            .logo_url
+            .is_none()
+    );
+    let location = "conventions/country-test/550e8400-e29b-41d4-a716-446655440000.png";
+    let patch = serde_json::from_value(json!({"logo_url":location})).unwrap();
+    assert_eq!(
+        merge(validations::conventions::patch(patch).unwrap(), &current)
+            .unwrap()
+            .logo_url
+            .as_deref(),
+        Some(location)
+    );
+    let patch = serde_json::from_value(json!({"logo_url":legacy_url})).unwrap();
+    assert!(validations::conventions::patch(patch).is_err());
+    let mut new_convention = request("TH");
+    new_convention.logo_url = Some(legacy_url.into());
+    assert!(validations::conventions::create(new_convention).is_err());
+}
+
+#[test]
+fn variant_projection_rejects_corrupt_saved_display_before_price() {
+    let record = ConventionVariant {
+        product_title: None,
+        variant_title: None,
+        sku: None,
+        product_image_url: None,
+        variant_image_url: None,
+        inventory_policy: Some("UNKNOWN".into()),
+        id: Uuid::new_v4(),
+        convention_id: Uuid::new_v4(),
+        shopify_product_id: "gid://shopify/Product/1".into(),
+        shopify_variant_id: "gid://shopify/ProductVariant/2".into(),
+        final_price: "12.99".into(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+    assert!(variant_response(record, "THB").is_err());
+}
+
+async fn rollback_pool() -> sqlx::PgPool {
+    let url = std::env::var("E2E_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://e2e:e2e@127.0.0.1:5433/e2e".into());
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .unwrap();
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+    // A single connection keeps repository pool calls inside this rollback-only transaction.
+    sqlx::query("BEGIN").execute(&pool).await.unwrap();
+    pool
 }

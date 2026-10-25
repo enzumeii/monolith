@@ -1,9 +1,4 @@
-use crate::{
-    error::AppError,
-    services::conventions as service,
-    state::AppState,
-    validations::{conventions as validate, cron::configs::validate_page},
-};
+use crate::{error::AppError, services, state::AppState, transformers, validations};
 use axum::{
     Json,
     extract::{
@@ -21,9 +16,9 @@ pub async fn list(
     State(state): State<AppState>,
     query: Result<Query<ListConventionsQuery>, QueryRejection>,
 ) -> Result<Json<ConventionListResponse>, AppError> {
-    let q = validate::query(query)?;
-    let (page, per_page) = validate_page(q.page, q.per_page)?;
-    let response = service::list(
+    let q = validations::common::query(query, "Invalid convention query")?;
+    let (page, per_page) = validations::common::validate_page(q.page, q.per_page)?;
+    let response = services::conventions::list(
         &state.pool,
         super::dependencies::s3_client(&state)?,
         page,
@@ -38,12 +33,22 @@ pub async fn create(
     uri: Uri,
     body: Result<Json<CreateConvention>, JsonRejection>,
 ) -> Result<(StatusCode, Json<ConventionDTO>), AppError> {
-    validate::no_query(uri.query())?;
-    let input = service::prepare_create(validate::body(body)?)?;
-    let s3 = super::dependencies::s3_client(&state)?;
+    validations::conventions::no_query(uri.query())?;
+    let checked = validations::conventions::create(validations::common::body(
+        body,
+        "Invalid convention request body",
+    )?)?;
+    let input = transformers::conventions::create(checked);
     Ok((
         StatusCode::CREATED,
-        Json(service::create(&state.pool, s3, &input).await?),
+        Json(
+            services::conventions::create(
+                &state.pool,
+                super::dependencies::s3_client(&state),
+                &input,
+            )
+            .await?,
+        ),
     ))
 }
 pub async fn get(
@@ -51,11 +56,15 @@ pub async fn get(
     uri: Uri,
     path: Result<Path<String>, PathRejection>,
 ) -> Result<Json<ConventionDTO>, AppError> {
-    validate::no_query(uri.query())?;
-    let id = validate::id(path)?;
+    validations::conventions::no_query(uri.query())?;
+    let id = validations::common::uuid_path(path, "Invalid convention identifier")?;
     let s3 = super::dependencies::s3_client(&state)?;
     Ok(Json(
-        service::logo::project(service::get(&state.pool, id).await?, s3).await?,
+        services::conventions::logo::project(
+            services::conventions::get(&state.pool, id).await?,
+            s3,
+        )
+        .await?,
     ))
 }
 pub async fn patch(
@@ -64,32 +73,38 @@ pub async fn patch(
     path: Result<Path<String>, PathRejection>,
     body: Result<Json<PatchConvention>, JsonRejection>,
 ) -> Result<Json<ConventionDTO>, AppError> {
-    validate::no_query(uri.query())?;
-    let id = validate::id(path)?;
-    let changes = validate::body(body)?;
-    validate::patch_shape(&changes)?;
+    validations::conventions::no_query(uri.query())?;
+    let id = validations::common::uuid_path(path, "Invalid convention identifier")?;
+    let changes = validations::conventions::patch(validations::common::body(
+        body,
+        "Invalid convention request body",
+    )?)?;
     let s3 = super::dependencies::s3_client(&state)?;
-    let prepared = service::prepare_patch(&state.pool, s3, id, changes).await?;
-    if !prepared.checks.is_empty() {
-        service::validate_selection(
-            super::dependencies::shopify_client(&state)?,
-            &prepared.checks,
-        )
-        .await?;
-    }
     Ok(Json(
-        service::finish_patch(&state.pool, s3, prepared).await?,
+        services::conventions::patch(
+            &state.pool,
+            s3,
+            super::dependencies::shopify_client(&state),
+            id,
+            changes,
+        )
+        .await?,
     ))
 }
+
 pub async fn delete(
     State(state): State<AppState>,
     uri: Uri,
     path: Result<Path<String>, PathRejection>,
     body: Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
 ) -> Result<StatusCode, AppError> {
-    validate::no_query(uri.query())?;
-    validate::delete_body(body)?;
-    service::delete(&state.pool, validate::id(path)?).await?;
+    validations::conventions::no_query(uri.query())?;
+    validations::conventions::delete_body(body)?;
+    services::conventions::delete(
+        &state.pool,
+        validations::common::uuid_path(path, "Invalid convention identifier")?,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 pub async fn variants(
@@ -97,11 +112,11 @@ pub async fn variants(
     path: Result<Path<String>, PathRejection>,
     query: Result<Query<ListConventionVariantsQuery>, QueryRejection>,
 ) -> Result<Json<ConventionVariantListResponse>, AppError> {
-    let id = validate::id(path)?;
-    let q = validate::query(query)?;
-    let (page, per_page) = validate_page(q.page, q.per_page)?;
+    let id = validations::common::uuid_path(path, "Invalid convention identifier")?;
+    let q = validations::common::query(query, "Invalid convention query")?;
+    let (page, per_page) = validations::common::validate_page(q.page, q.per_page)?;
     Ok(Json(
-        service::list_variants(&state.pool, id, page, per_page).await?,
+        services::conventions::list_variants(&state.pool, id, page, per_page).await?,
     ))
 }
 pub async fn replace(
@@ -110,21 +125,20 @@ pub async fn replace(
     path: Result<Path<String>, PathRejection>,
     body: Result<Json<ReplaceConventionVariants>, JsonRejection>,
 ) -> Result<Json<ConventionVariantsResponse>, AppError> {
-    validate::no_query(uri.query())?;
-    let id = validate::id(path)?;
-    let items = validate::variants(validate::body(body)?)?;
-    let prepared = service::prepare_save(&state.pool, id, items).await?;
-    let validated = if prepared.checks.is_empty() {
-        vec![]
-    } else {
-        service::validate_selection(
-            super::dependencies::shopify_client(&state)?,
-            &prepared.checks,
-        )
-        .await?
-    };
+    validations::conventions::no_query(uri.query())?;
+    let id = validations::common::uuid_path(path, "Invalid convention identifier")?;
+    let items = validations::conventions::variants(validations::common::body(
+        body,
+        "Invalid convention request body",
+    )?)?;
     Ok(Json(
-        service::finish_save(&state.pool, prepared, validated).await?,
+        services::conventions::replace_variants(
+            &state.pool,
+            super::dependencies::shopify_client(&state),
+            id,
+            items,
+        )
+        .await?,
     ))
 }
 
@@ -136,11 +150,12 @@ pub async fn options(
     query: Result<Query<EmptyQuery>, QueryRejection>,
     body: Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
 ) -> Result<Json<domain::dto::ConventionOptionsResponse>, AppError> {
-    validate::query(query)?;
-    let body =
-        body.map_err(|source| validate::invalid("Unexpected request body").with_source(source))?;
+    validations::common::query(query, "Invalid convention query")?;
+    let body = body.map_err(|source| {
+        validations::conventions::invalid("Unexpected request body").with_source(source)
+    })?;
     if !body.is_empty() {
-        return Err(validate::invalid("Unexpected request body"));
+        return Err(validations::conventions::invalid("Unexpected request body"));
     }
-    Ok(Json(service::options()))
+    Ok(Json(services::conventions::options()))
 }

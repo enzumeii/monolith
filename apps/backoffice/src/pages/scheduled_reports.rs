@@ -3,13 +3,11 @@ mod detail;
 mod editor;
 mod files;
 mod history;
-mod navigation;
 mod schedules;
 mod state;
 mod time;
 
 use dioxus::prelude::*;
-pub use navigation::use_schedule_history as use_scheduled_reports_history;
 use state::use_schedule_owner;
 
 #[component]

@@ -4,6 +4,7 @@ use crate::{
     models::{AuthSource, AuthenticatedAdmin, Claims},
     services,
     state::AppState,
+    validations,
 };
 use axum::{
     Extension, Json,
@@ -23,6 +24,7 @@ pub async fn login(
     if let Some(token) = token::bearer(&headers)? {
         token::validate_token(token, &state.jwt_key)?;
     }
+    validations::auth::login(&payload)?;
     let tokens = services::auth::login(&state.pool, state.jwt_key.as_slice(), payload).await?;
     if cookies::cookie_mode(&headers)? {
         cookie_response(&state, jar, tokens).await

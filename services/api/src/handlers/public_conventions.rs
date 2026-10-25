@@ -1,11 +1,4 @@
-use crate::{
-    error::AppError,
-    services::public_conventions as service,
-    state::AppState,
-    validations::{
-        conventions as validate, cron::configs::validate_page, public_conventions as public,
-    },
-};
+use crate::{error::AppError, services, state::AppState, validations};
 use axum::{
     Json,
     body::Bytes,
@@ -26,24 +19,25 @@ pub async fn list(
     query: Result<Query<ListPublicConventionsQuery>, QueryRejection>,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<PublicConventionListResponse>, AppError> {
-    no_body(body)?;
-    let query = validate::query(query)?;
-    let today = validate::date(&query.today)?;
-    let (page, per_page) = validate_page(query.page, query.per_page)?;
+    validations::public_conventions::no_body(body)?;
+    let query = validations::common::query(query, "Invalid convention query")?;
+    let today = validations::conventions::date(&query.today)?;
+    let (page, per_page) = validations::common::validate_page(query.page, query.per_page)?;
     let locale = query
         .locale_country
         .as_deref()
         .map(|value| {
-            public::country(value).ok_or_else(|| validate::invalid("Invalid locale_country"))
+            validations::public_conventions::country(value)
+                .ok_or_else(|| validations::conventions::invalid("Invalid locale_country"))
         })
         .transpose()?;
     let country = headers
         .get("x-vercel-ip-country")
         .and_then(|value| value.to_str().ok())
-        .and_then(public::country)
+        .and_then(validations::public_conventions::country)
         .or(locale);
     Ok(Json(
-        service::directory(
+        services::public_conventions::directory(
             &state.pool,
             super::dependencies::s3_client(&state)?,
             today,
@@ -61,11 +55,16 @@ pub async fn get(
     path: Result<Path<String>, PathRejection>,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<PublicConvention>, AppError> {
-    validate::no_query(uri.query())?;
-    no_body(body)?;
-    let slug = public::slug(path)?;
+    validations::conventions::no_query(uri.query())?;
+    validations::public_conventions::no_body(body)?;
+    let slug = validations::public_conventions::slug(path)?;
     Ok(Json(
-        service::detail(&state.pool, super::dependencies::s3_client(&state), &slug).await?,
+        services::public_conventions::detail(
+            &state.pool,
+            super::dependencies::s3_client(&state),
+            &slug,
+        )
+        .await?,
     ))
 }
 
@@ -75,11 +74,11 @@ pub async fn products(
     path: Result<Path<String>, PathRejection>,
     body: Result<Bytes, BytesRejection>,
 ) -> Result<Json<PublicCatalogueResponse>, AppError> {
-    validate::no_query(uri.query())?;
-    no_body(body)?;
-    let slug = public::slug(path)?;
+    validations::conventions::no_query(uri.query())?;
+    validations::public_conventions::no_body(body)?;
+    let slug = validations::public_conventions::slug(path)?;
     Ok(Json(
-        service::products(
+        services::public_conventions::products(
             &state.pool,
             super::dependencies::s3_client(&state),
             super::dependencies::shopify_client(&state),
@@ -95,11 +94,14 @@ pub async fn quote(
     path: Result<Path<String>, PathRejection>,
     body: Result<Json<QuoteConventionRequest>, JsonRejection>,
 ) -> Result<Json<ConventionQuote>, AppError> {
-    validate::no_query(uri.query())?;
-    let slug = public::slug(path)?;
-    let request = public::quote(validate::body(body)?)?;
+    validations::conventions::no_query(uri.query())?;
+    let slug = validations::public_conventions::slug(path)?;
+    let request = validations::public_conventions::quote(validations::common::body(
+        body,
+        "Invalid convention request body",
+    )?)?;
     Ok(Json(
-        service::quote(
+        services::public_conventions::quote(
             &state.pool,
             super::dependencies::shopify_client(&state),
             &slug,
@@ -107,14 +109,4 @@ pub async fn quote(
         )
         .await?,
     ))
-}
-
-fn no_body(value: Result<Bytes, BytesRejection>) -> Result<(), AppError> {
-    if !value
-        .map_err(|source| validate::invalid("Unexpected request body").with_source(source))?
-        .is_empty()
-    {
-        return Err(validate::invalid("Unexpected request body"));
-    }
-    Ok(())
 }

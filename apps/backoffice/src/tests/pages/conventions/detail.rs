@@ -352,3 +352,36 @@ async fn metadata_save_validates_retries_and_preserves_selected_logo() {
         );
     }
 }
+
+#[tokio::test]
+async fn metadata_save_retains_edits_made_after_the_submitted_snapshot() {
+    let saved = RECORD.replace("Loaded event", "Submitted event");
+    let ((), requests) =
+        crate::api::tests::metadata_responses(&[(200, MEMBERSHIPS), (200, &saved)], async {
+            dioxus::html::set_event_converter(Box::new(FormEventConverter));
+            let settings = consume_context::<crate::config::Settings>();
+            let mut dom = VirtualDom::new(editor).with_root_context(settings);
+            dom.in_scope(ScopeId::ROOT, || {
+                *session::SESSION.write() = Some(session::Session {
+                    admin_id: 1,
+                    username: "fixture".into(),
+                    role: domain::AdminRole::Admin,
+                    expires_at: u64::MAX,
+                });
+            });
+            dom.rebuild_in_place();
+            settled(&mut dom).await;
+            let name = crate::test_events::element_id(&dom, "convention-name");
+            form_event(&dom, name, "input", "Submitted event");
+            render_changes(&mut dom);
+            form_event(&dom, name, "submit", "");
+            form_event(&dom, name, "input", "Later event");
+            settled(&mut dom).await;
+            let html = dioxus_ssr::render(&dom);
+            assert!(html.contains("Submitted event</h2>"), "{html}");
+            assert!(html.contains("value=\"Later event\""), "{html}");
+        })
+        .await;
+    assert_eq!(requests.len(), 2);
+    assert!(requests[1].ends_with(r#"{"name":"Submitted event"}"#));
+}

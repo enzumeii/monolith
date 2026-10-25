@@ -212,8 +212,6 @@ fn same_owner_refresh_preserves_pending_and_completed_work_without_replay() {
 use crate::test_events::FormEventConverter;
 
 fn triggers_page() -> Element {
-    let pending = use_signal(|| false);
-    use_context_provider(|| LoadingState(pending));
     rsx! { Triggers {} }
 }
 

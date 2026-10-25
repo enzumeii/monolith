@@ -267,7 +267,10 @@ async fn listing_returns_customer_full_names_and_order_contact_email() {
     ],Some("next"))}}))]).await;
     let response = list(
         &client(&fixture),
-        "tag:shipping".into(),
+        OrderListFilter {
+            tags: Some(vec!["shipping".into()]),
+            fulfillment: None,
+        },
         PageRequest {
             first: 5,
             after: None,
@@ -297,7 +300,10 @@ async fn listing_returns_shipping_country_code_when_address_exists() {
     ],None)}}))]).await;
     let response = list(
         &client(&fixture),
-        String::new(),
+        OrderListFilter {
+            tags: None,
+            fulfillment: None,
+        },
         PageRequest {
             first: 3,
             after: None,
@@ -313,4 +319,32 @@ async fn listing_returns_shipping_country_code_when_address_exists() {
         {"id":3,"number":1087,"full_name":null,"email":null,"shipping_country_code":null}
     ],"page_info":{"has_next_page":false,"end_cursor":null}})
     );
+}
+
+#[test]
+fn listing_combines_literal_tags_and_business_fulfillment_filter() {
+    use domain::dto::orders::FulfillmentStatus;
+    for (tags, status, expected) in [
+        (
+            Some(vec!["shipping".into()]),
+            Some(FulfillmentStatus::Unfulfilled),
+            "tag:\"shipping\" AND fulfillment_status:unfulfilled",
+        ),
+        (None, Some(FulfillmentStatus::Any), "fulfillment_status:any"),
+        (None, None, ""),
+        (
+            Some(vec!["a:b".into(), "c d".into()]),
+            None,
+            "tag:\"a\\:b\" AND tag:\"c d\"",
+        ),
+    ] {
+        assert_eq!(
+            list_search(OrderListFilter {
+                tags,
+                fulfillment: status
+            })
+            .unwrap(),
+            expected
+        );
+    }
 }
