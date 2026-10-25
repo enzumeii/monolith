@@ -179,3 +179,75 @@ fn legacy_identity_labels_cannot_contradict_metadata_but_operator_labels_are_all
         assert!(validate_legacy_identity(&identity, &tags).is_err());
     }
 }
+
+#[test]
+fn independent_money_metadata_roundtrips_and_rejects_partial_or_duplicate_snapshots() {
+    let mut row = row();
+    row.correlation_version = INDEPENDENT_VERSION;
+    row.payment_amount_minor = Some(12000);
+    row.payment_currency = Some("THB".into());
+    row.shopify_amount_minor = Some(400);
+    row.shopify_currency = Some("AUD".into());
+    let attrs = identity_attributes(&row).unwrap();
+    let snapshot = parse_money_snapshots(&attrs).unwrap().unwrap();
+    assert_eq!(snapshot.payment.minor, 12000);
+    assert_eq!(snapshot.payment.currency, "THB");
+    assert_eq!(snapshot.shopify.minor, 400);
+    assert_eq!(snapshot.shopify.currency, "AUD");
+    let detached = snapshot.attributes();
+    assert_eq!(detached.len(), 4);
+    for attribute in detached {
+        assert!(
+            attrs
+                .iter()
+                .any(|actual| actual.key == attribute.key && actual.value == attribute.value)
+        );
+    }
+    assert!(identity_matches(&row, &attrs));
+    for key in MONEY_KEYS {
+        let mut missing = attrs.clone();
+        missing.retain(|attr| attr.key != key);
+        assert!(parse_money_snapshots(&missing).is_err());
+        let mut duplicate = attrs.clone();
+        duplicate.push(attrs.iter().find(|attr| attr.key == key).unwrap().clone());
+        assert!(parse_money_snapshots(&duplicate).is_err());
+    }
+    for (key, value) in [
+        (PAYMENT_AMOUNT_KEY, "012000"),
+        (PAYMENT_AMOUNT_KEY, "-1"),
+        (PAYMENT_AMOUNT_KEY, "1.00"),
+        (PAYMENT_AMOUNT_KEY, "9223372036854775808"),
+        (PAYMENT_CURRENCY_KEY, "thb"),
+        (SHOPIFY_CURRENCY_KEY, "ZZZ"),
+    ] {
+        let mut changed = attrs.clone();
+        changed
+            .iter_mut()
+            .find(|attr| attr.key == key)
+            .unwrap()
+            .value = value.into();
+        assert!(parse_money_snapshots(&changed).is_err());
+    }
+    let mut wrong_version = attrs;
+    wrong_version
+        .iter_mut()
+        .find(|attr| attr.key == VERSION_KEY)
+        .unwrap()
+        .value = "2".into();
+    assert!(parse_identity(&wrong_version).is_err());
+}
+
+#[test]
+fn draft_identity_supports_payment_snapshot_before_shopify_snapshot_exists() {
+    let mut row = row();
+    row.correlation_version = INDEPENDENT_VERSION;
+    row.payment_amount_minor = Some(12000);
+    row.payment_currency = Some("THB".into());
+    let attrs = identity_attributes(&row).unwrap();
+    assert!(identity_matches(&row, &attrs));
+    assert_eq!(parse_payment_money(&attrs).unwrap().unwrap().minor, 12000);
+    assert!(parse_money_snapshots(&attrs).is_err());
+    let mut legacy = row.clone();
+    legacy.correlation_version = METADATA_VERSION;
+    assert!(!identity_matches(&legacy, &attrs));
+}

@@ -46,6 +46,8 @@ struct Scenario {
     missing_order_name: bool,
     search_mode: String,
     draft_input: Value,
+    shopify_amount: String,
+    shopify_currency: String,
     draft_created_at: String,
     order_attributes: Option<Vec<Value>>,
     stripe_input: Value,
@@ -80,6 +82,8 @@ impl Providers {
         let state = Arc::new(Mutex::new(Scenario {
             id: uuid::Uuid::new_v4().simple().to_string(),
             stock: 10,
+            shopify_amount: "40.00".into(),
+            shopify_currency: "SGD".into(),
             stripe_account: json!({"id":"acct_e2e","object":"account"}),
             policy: "DENY".into(),
             tracked: true,
@@ -129,6 +133,12 @@ impl Providers {
 
     pub fn stripe_account(&self, account: Value) {
         self.state.lock().unwrap().stripe_account = account;
+    }
+
+    pub fn shopify_money(&self, amount: &str, currency: &str) {
+        let mut scenario = self.state.lock().unwrap();
+        scenario.shopify_amount = amount.into();
+        scenario.shopify_currency = currency.into();
     }
 
     pub fn pay(&self) {
@@ -406,6 +416,9 @@ async fn reply(
         barrier.wait().await;
     }
     if let Some(failure) = failure {
+        if operation == "CreateDraftOrder" && failure == "user_error" {
+            return axum::Json(json!({"data":{"draftOrderCreate":{"draftOrder":null,"userErrors":[{"field":["presentmentCurrencyCode"],"message":"Synthetic private Shopify currency rejection"}]}}})).into_response();
+        }
         if operation == "RecordCheckoutPayment" {
             if failure == "gateway_rejected" {
                 return axum::Json(json!({"data":{"orderCreateManualPayment":{
@@ -554,9 +567,9 @@ async fn reply(
             json!({"order":{"id":order_id(&scenario),"name":if scenario.missing_order_name {Value::Null} else {json!("#E2E-ORDER")},
             "displayFinancialStatus":if scenario.payment_recorded {"PAID"} else {"PENDING"},"cancelledAt":null,
             "customAttributes":order_attributes(&scenario),
-            "totalOutstandingSet":{"presentmentMoney":{"amount":if scenario.payment_recorded {"0.00"} else {"40.00"},"currencyCode":"SGD"}},
-            "transactions":if scenario.payment_recorded {vec![json!({"id":"gid://shopify/OrderTransaction/1","gateway":gateway,"kind":"SALE","status":"SUCCESS","amountSet":{"presentmentMoney":{"amount":"40.00","currencyCode":"SGD"}}})]} else {vec![]},
-            "tags":scenario.tags,"totalPriceSet":{"presentmentMoney":{"amount":"40.00","currencyCode":"SGD"}}}})
+            "totalOutstandingSet":{"presentmentMoney":{"amount":if scenario.payment_recorded {"0.00"} else {scenario.shopify_amount.as_str()},"currencyCode":scenario.shopify_currency}},
+            "transactions":if scenario.payment_recorded {vec![json!({"id":"gid://shopify/OrderTransaction/1","gateway":gateway,"kind":"SALE","status":"SUCCESS","amountSet":{"presentmentMoney":{"amount":scenario.shopify_amount,"currencyCode":scenario.shopify_currency}}})]} else {vec![]},
+            "tags":scenario.tags,"totalPriceSet":{"presentmentMoney":{"amount":scenario.shopify_amount,"currencyCode":scenario.shopify_currency}}}})
         }
         "UpdateOrderCustomAttributes" => {
             assert_eq!(body["variables"]["input"]["id"], order_id(&scenario));
@@ -597,9 +610,9 @@ async fn reply(
             json!({"transaction_details":if scenario.paypal_input.is_object() && scenario.payment_recorded {
             vec![json!({"transaction_info":{
                 "transaction_id":format!("CAPTURE{}",scenario.id),"transaction_event_code":"T0006",
-                "transaction_amount":{"currency_code":"SGD","value":"40.00"},
+                "transaction_amount":scenario.paypal_input["purchase_units"][0]["amount"],
                 "transaction_initiation_date":"2026-10-02T00:00:00Z","transaction_updated_date":"2026-10-02T00:00:00Z",
-                "transaction_status":"S","fee_amount":{"currency_code":"SGD","value":"-1.20"}
+                "transaction_status":"S","fee_amount":{"currency_code":scenario.paypal_input["purchase_units"][0]["amount"]["currency_code"],"value":"-1.20"}
             }})]
         } else {vec![]},"page":1,"total_items":u64::from(scenario.paypal_input.is_object() && scenario.payment_recorded),"total_pages":1})
         }
@@ -622,11 +635,11 @@ async fn reply(
         _ if path.starts_with("/stripe/checkout/sessions/") => stripe_session(&scenario),
         _ if path.starts_with("/stripe/payment_intents/") => json!({
             "id":format!("pi_{}",scenario.id),"object":"payment_intent","status":"succeeded",
-            "amount":4000,"amount_received":4000,"currency":"sgd","livemode":false,
+            "amount":stripe_amount(&scenario),"amount_received":stripe_amount(&scenario),"currency":stripe_currency(&scenario),"livemode":false,
             "metadata":{"checkout_id":scenario.stripe_input["metadata[checkout_id]"]},"latest_charge":format!("ch_{}",scenario.id)}),
         _ if path.starts_with("/stripe/charges/") => json!({
-            "id":format!("ch_{}",scenario.id),"object":"charge","status":"succeeded","amount":4000,"amount_captured":4000,
-            "currency":"sgd","livemode":false,"paid":true,"captured":true,"refunded":false,"amount_refunded":0,"created":1,
+            "id":format!("ch_{}",scenario.id),"object":"charge","status":"succeeded","amount":stripe_amount(&scenario),"amount_captured":stripe_amount(&scenario),
+            "currency":stripe_currency(&scenario),"livemode":false,"paid":true,"captured":true,"refunded":false,"amount_refunded":0,"created":1,
             "disputed":false,"metadata":{},"payment_intent":format!("pi_{}",scenario.id),"balance_transaction":null}),
         _ if path.starts_with("/v2/checkout/orders/") && path.ends_with("/capture") => {
             scenario.captured = true;
@@ -705,7 +718,7 @@ fn draft(scenario: &Scenario) -> Value {
         "email":scenario.draft_input["email"],"reserveInventoryUntil":reservation,
         "lineItems":{"nodes":lines,"pageInfo":{"hasNextPage":false,"endCursor":null}},
         "order":if scenario.completed {json!({"id":order_id(scenario)})} else {Value::Null},"paymentTerms":null,
-        "totalPriceSet":{"presentmentMoney":{"amount":if scenario.total_valid {"40.00"} else {"41.00"},"currencyCode":"SGD"}}}})
+        "totalPriceSet":{"presentmentMoney":{"amount":if scenario.total_valid {scenario.shopify_amount.as_str()} else {"41.00"},"currencyCode":scenario.shopify_currency}}}})
 }
 
 fn draft_search(scenario: &Scenario, body: &Value) -> Value {
@@ -813,10 +826,23 @@ fn draft_search(scenario: &Scenario, body: &Value) -> Value {
     json!({"draftOrders":{"nodes":expected,"pageInfo":{"hasNextPage":next,"endCursor":cursor}}})
 }
 
+fn stripe_amount(scenario: &Scenario) -> i64 {
+    scenario.stripe_input["line_items[0][price_data][unit_amount]"]
+        .as_str()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(4000)
+}
+
+fn stripe_currency(scenario: &Scenario) -> &str {
+    scenario.stripe_input["line_items[0][price_data][currency]"]
+        .as_str()
+        .unwrap_or("sgd")
+}
+
 fn stripe_session(scenario: &Scenario) -> Value {
     json!({"id":format!("cs_{}",scenario.id),"object":"checkout.session","mode":"payment",
         "status":if scenario.paid || scenario.stripe_processing {"complete"} else {"open"},"payment_status":if scenario.paid {"paid"} else {"unpaid"},
-        "livemode":false,"amount_total":if scenario.evidence_conflict {4001} else {4000},"currency":"sgd","metadata":{"checkout_id":scenario.stripe_input["metadata[checkout_id]"]},
+        "livemode":false,"amount_total":stripe_amount(scenario) + i64::from(scenario.evidence_conflict),"currency":stripe_currency(scenario),"metadata":{"checkout_id":scenario.stripe_input["metadata[checkout_id]"]},
         "payment_intent":if scenario.paid {json!(format!("pi_{}",scenario.id))} else {Value::Null},
         "url":if scenario.paid || scenario.stripe_processing {Value::Null} else {json!("https://checkout.stripe.com/synthetic-session")},"expires_at":scenario.stripe_input["expires_at"].as_str().and_then(|v|v.parse::<i64>().ok())})
 }
@@ -831,23 +857,43 @@ fn paypal_order(scenario: &Scenario) -> Value {
 }
 
 fn paypal_capture(scenario: &Scenario) -> Value {
-    json!({"id":format!("CAPTURE{}",scenario.id),"status":"COMPLETED","amount":{"value":"40.00","currency_code":"SGD"},
+    json!({"id":format!("CAPTURE{}",scenario.id),"status":"COMPLETED","amount":scenario.paypal_input["purchase_units"][0]["amount"],
         "final_capture":true,"payee":{"merchant_id":"merchant_e2e"},"custom_id":scenario.paypal_input["purchase_units"][0]["custom_id"],
         "supplementary_data":{"related_ids":{"order_id":format!("ORDER{}",scenario.id),"capture_id":format!("CAPTURE{}",scenario.id)}}})
 }
 
 fn accounting_order(scenario: &Scenario) -> Value {
     let gateway = recorded_gateway(scenario);
+    let independent = scenario.draft_input["customAttributes"]
+        .as_array()
+        .is_some_and(|attributes| {
+            attributes.iter().any(|attribute| {
+                attribute["key"] == "checkout_correlation_version" && attribute["value"] == "3"
+            })
+        });
+    let shop = if independent {
+        json!({"amount":scenario.shopify_amount,"currencyCode":scenario.shopify_currency})
+    } else {
+        json!({"amount":"52.00","currencyCode":"AUD"})
+    };
+    let presentment =
+        json!({"amount":scenario.shopify_amount,"currencyCode":scenario.shopify_currency});
+    let shop_zero = json!({"amount":"0.00","currencyCode":if independent {scenario.shopify_currency.as_str()} else {"AUD"}});
+    let unit = if independent {
+        json!({"amount":(scenario.shopify_amount.parse::<f64>().unwrap()/2.0).to_string(),"currencyCode":scenario.shopify_currency})
+    } else {
+        json!({"amount":"26.00","currencyCode":"AUD"})
+    };
     json!({
         "id":order_id(scenario),"number":1234,"tags":scenario.tags,"customAttributes":order_attributes(scenario),"phone":null,"shippingAddress":null,
         "displayFinancialStatus":"PAID","cancelledAt":null,
-        "currentTotalPriceSet":{"shopMoney":{"amount":"52.00","currencyCode":"AUD"},"presentmentMoney":{"amount":"40.00","currencyCode":"SGD"}},
-        "totalOutstandingSet":{"shopMoney":{"amount":"0.00","currencyCode":"AUD"},"presentmentMoney":{"amount":"0.00","currencyCode":"SGD"}},
+        "currentTotalPriceSet":{"shopMoney":shop,"presentmentMoney":presentment},
+        "totalOutstandingSet":{"shopMoney":shop_zero,"presentmentMoney":{"amount":"0.00","currencyCode":scenario.shopify_currency}},
         "transactions":[{"id":"gid://shopify/OrderTransaction/1","paymentId":"shopify-external-record-id",
             "gateway":gateway,"kind":"SALE","status":"SUCCESS","receiptJson":null,
-            "amountSet":{"shopMoney":{"amount":"52.00","currencyCode":"AUD"},"presentmentMoney":{"amount":"40.00","currencyCode":"SGD"}}}],
+            "amountSet":{"shopMoney":shop,"presentmentMoney":presentment}}],
         "lineItems":{"nodes":[{"title":"Synthetic product","variantTitle":"Blue","sku":"ABCKEY001",
-            "quantity":2,"originalUnitPriceSet":{"shopMoney":{"amount":"26.00","currencyCode":"AUD"}}}],
+            "quantity":2,"originalUnitPriceSet":{"shopMoney":unit}}],
             "pageInfo":{"hasNextPage":false,"endCursor":null}},
         "shippingLines":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}},"refunds":[]
     })
@@ -870,7 +916,8 @@ fn metadata_mode(scenario: &Scenario) -> bool {
         .as_array()
         .is_some_and(|attributes| {
             attributes.iter().any(|attribute| {
-                attribute["key"] == "checkout_correlation_version" && attribute["value"] == "2"
+                attribute["key"] == "checkout_correlation_version"
+                    && matches!(attribute["value"].as_str(), Some("2" | "3"))
             })
         })
 }

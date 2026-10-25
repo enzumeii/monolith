@@ -28,6 +28,17 @@ pub async fn purchase(fixture: &TestFixture, provider: &str) -> Value {
 }
 
 pub async fn purchase_with_slug(fixture: &TestFixture, provider: &str, slug: &str) -> Value {
+    purchase_in_currency(fixture, provider, slug, "SGD", "20.00", 2000).await
+}
+
+pub async fn purchase_in_currency(
+    fixture: &TestFixture,
+    provider: &str,
+    slug: &str,
+    currency: &str,
+    unit_price: &str,
+    unit_minor: i64,
+) -> Value {
     let convention = Uuid::new_v4();
     let variant = Uuid::new_v4();
     sqlx::query(
@@ -36,10 +47,11 @@ pub async fn purchase_with_slug(fixture: &TestFixture, provider: &str, slug: &st
              description_markdown, preorder_enabled, currency_code, payment_methods
          )
          VALUES ($1, $2, 'E2E convention', 'SG', '2028-02-29', '2028-02-29',
-                 'Synthetic checkout fixture', TRUE, 'SGD', ARRAY['stripe', 'paypal'])",
+                 'Synthetic checkout fixture', TRUE, $3, ARRAY['stripe', 'paypal'])",
     )
     .bind(convention)
     .bind(slug)
+    .bind(currency)
     .execute(&fixture.pool())
     .await
     .unwrap();
@@ -49,17 +61,18 @@ pub async fn purchase_with_slug(fixture: &TestFixture, provider: &str, slug: &st
              final_price, product_title, variant_title, sku
          )
          VALUES ($1, $2, 'gid://shopify/Product/1', 'gid://shopify/ProductVariant/2',
-                 20.00, 'Synthetic product', 'Blue', 'SKU-E2E')",
+                 $3::TEXT::NUMERIC, 'Synthetic product', 'Blue', 'SKU-E2E')",
     )
     .bind(variant)
     .bind(convention)
+    .bind(unit_price)
     .execute(&fixture.pool())
     .await
     .unwrap();
     json!({
         "operation_id": Uuid::new_v4(), "convention_id": convention,
-        "email": "buyer@example.test", "provider": provider, "expected_currency": "SGD",
-        "items": [{"variant_id": variant, "quantity": 2, "expected_unit_price": 2000}]
+        "email": "buyer@example.test", "provider": provider, "expected_currency": currency,
+        "items": [{"variant_id": variant, "quantity": 2, "expected_unit_price": unit_minor}]
     })
 }
 

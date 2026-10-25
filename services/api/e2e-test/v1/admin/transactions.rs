@@ -898,6 +898,7 @@ async fn external_checkout_payments_link_the_created_order_and_items_in_accounti
     let fixture = fixture().await;
     for provider in ["stripe", "paypal"] {
         let upstream = Providers::start().await;
+        upstream.shopify_money("52.00", "AUD");
         let client = configured(&upstream).await;
         let input = purchase(&fixture, provider).await;
         accepted(&client, &input).await;
@@ -952,6 +953,172 @@ async fn external_checkout_payments_link_the_created_order_and_items_in_accounti
         assert_eq!(upstream.count("RecordCheckoutPayment"), 1);
         assert_eq!(upstream.payment_creates(), 1);
     }
+}
+
+#[tokio::test]
+async fn independent_checkout_money_links_settled_gateway_rows_to_shopify_items_over_tcp() {
+    let fixture = fixture().await;
+    for stripe in [true, false] {
+        for mode in [
+            "valid",
+            "payment_mismatch",
+            "shopify_mismatch",
+            "reference_mismatch",
+            "missing_money",
+            "duplicate_money",
+        ] {
+            let mut steps = independent_accounting_flow(stripe);
+            let Reply::Json(body) = &mut steps.last_mut().unwrap().reply else {
+                unreachable!()
+            };
+            let order = &mut body["data"]["orders"]["nodes"][0];
+            match mode {
+                "payment_mismatch" => order["customAttributes"][5]["value"] = json!("1251"),
+                "shopify_mismatch" => {
+                    order["transactions"][0]["amountSet"]["shopMoney"]["amount"] = json!("4.01");
+                }
+                "reference_mismatch" => {
+                    order["customAttributes"]
+                        .as_array_mut()
+                        .unwrap()
+                        .last_mut()
+                        .unwrap()["value"] = json!("different_reference");
+                }
+                "missing_money" => {
+                    order["customAttributes"].as_array_mut().unwrap().remove(5);
+                }
+                "duplicate_money" => {
+                    let attribute = order["customAttributes"][5].clone();
+                    order["customAttributes"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(attribute);
+                }
+                _ => {}
+            }
+            let count = steps.len();
+            let server = Server::start(steps).await;
+            let response = server
+                .client()
+                .await
+                .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
+                .await
+                .unwrap();
+            let status = response.status();
+            let report = body_json(response).await;
+            if matches!(mode, "missing_money" | "duplicate_money") {
+                assert_eq!(status, 502, "{mode}: {report}");
+            } else {
+                assert_eq!(status, 200, "{mode}: {report}");
+                let provider = if stripe { "stripe" } else { "paypal" };
+                let row = &report["transactions"][provider][0];
+                assert_eq!(row["gross_paid"], 12.5);
+                assert_eq!(row["currency"], if stripe { "THB" } else { "SGD" });
+                if mode == "valid" {
+                    assert_eq!(row["shopify_order_id"], if stripe { 123 } else { 124 });
+                    assert_eq!(row["shopify_order_tags"], json!(["independent-convention"]));
+                    assert_eq!(row["shipping_fee"], 0.0);
+                    assert_eq!(report["items"].as_array().unwrap().len(), 1);
+                    let item = &report["items"][0];
+                    assert_eq!(item["price"], 4.0);
+                    assert_eq!(item["currency"], if stripe { "AUD" } else { "USD" });
+                    assert_eq!(item["payment_reference"], row["payment_reference"]);
+                } else {
+                    assert_eq!(row["shopify_order_id"], 0, "{mode}: {report}");
+                    assert_eq!(report["items"], json!([]));
+                }
+            }
+            assert_eq!(server.finish().await.len(), count);
+        }
+    }
+}
+
+fn independent_accounting_flow(stripe: bool) -> Vec<Step> {
+    let mut steps = flow(stripe, !stripe, false, Rows::Populated);
+    steps.retain(|step| !matches!(step.path, "/refunds/re_123"));
+    let payment_currency = if stripe { "THB" } else { "SGD" };
+    let shop_currency = if stripe { "AUD" } else { "USD" };
+    for step in &mut steps {
+        let Reply::Json(body) = &mut step.reply else {
+            unreachable!()
+        };
+        match step.path {
+            "/balance_transactions" => {
+                let mut value = balance(false);
+                value["amount"] = json!(1250);
+                value["net"] = json!(1200);
+                value["fee"] = json!(50);
+                value["fee_details"] = json!([{"amount":50,"currency":"thb","type":"stripe_fee"}]);
+                value["exchange_rate"] = json!(1.0);
+                body["data"] = json!([value]);
+            }
+            "/charges/ch_123" => {
+                body["amount_captured"] = json!(1250);
+                body["amount"] = json!(1250);
+                body["status"] = json!("succeeded");
+                body["amount_refunded"] = json!(0);
+                body["currency"] = json!("thb");
+            }
+            "/v1/reporting/transactions" => {
+                body["transaction_details"] = if stripe {
+                    json!([])
+                } else {
+                    json!([detail(
+                        "pp_sale",
+                        "T0006",
+                        "2026-10-01T18:36:07Z",
+                        "SGD",
+                        "12.50",
+                        Some("-0.50")
+                    )])
+                };
+            }
+            "/graphql.json" => {
+                let mut value = order(stripe);
+                value["tags"] = json!(["independent-convention"]);
+                value["displayFinancialStatus"] = json!("PAID");
+                value["cancelledAt"] = Value::Null;
+                let total = json!({"shopMoney":{"amount":"4.00","currencyCode":shop_currency},"presentmentMoney":{"amount":"4.00","currencyCode":shop_currency}});
+                value["currentTotalPriceSet"] = total.clone();
+                value["totalOutstandingSet"] = json!({"shopMoney":{"amount":"0.00","currencyCode":shop_currency},"presentmentMoney":{"amount":"0.00","currencyCode":shop_currency}});
+                value["transactions"][0]["amountSet"] = total.clone();
+                value["transactions"][0]["gateway"] = json!("manual");
+                value["transactions"][0]["kind"] = json!("SALE");
+                value["transactions"][0]["receiptJson"] = Value::Null;
+                value["lineItems"]["nodes"][0]["quantity"] = json!(1);
+                value["lineItems"]["nodes"][0]["originalUnitPriceSet"] = total;
+                value["shippingLines"] = page(vec![], None);
+                value["refunds"] = json!([]);
+                let mut attributes = vec![
+                    json!({"key":"checkout_correlation_version","value":"3"}),
+                    json!({"key":"checkout_id","value":"11111111-1111-4111-8111-111111111111"}),
+                    json!({"key":"convention_id","value":"22222222-2222-4222-8222-222222222222"}),
+                    json!({"key":"convention_slug","value":"independent-convention"}),
+                    json!({"key":"payment_provider","value":if stripe {"stripe"} else {"paypal"}}),
+                    json!({"key":"payment_amount_minor","value":"1250"}),
+                    json!({"key":"payment_currency","value":payment_currency}),
+                    json!({"key":"shopify_amount_minor","value":"400"}),
+                    json!({"key":"shopify_currency","value":shop_currency}),
+                ];
+                if stripe {
+                    attributes.extend([
+                        json!({"key":"stripe_checkout_session_id","value":"cs_accounting"}),
+                        json!({"key":"stripe_payment_intent_id","value":"pi_accounting"}),
+                        json!({"key":"stripe_charge_id","value":"ch_123"}),
+                    ]);
+                } else {
+                    attributes.extend([
+                        json!({"key":"paypal_order_id","value":"order_accounting"}),
+                        json!({"key":"paypal_capture_id","value":"pp_sale"}),
+                    ]);
+                }
+                value["customAttributes"] = json!(attributes);
+                body["data"]["orders"] = page(vec![value], None);
+            }
+            _ => {}
+        }
+    }
+    steps
 }
 
 #[derive(Clone)]

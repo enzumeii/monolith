@@ -40,10 +40,11 @@ pub(crate) async fn insert(c: &mut PgConnection, checkout: &Checkout) -> Result<
              id, guest_secret_hash, owner_expires_at, request_fingerprint,
              convention_id, provider, provider_account_id, provider_environment,
              evidence_hash, required_tag_hashes, success_url, cancel_url, next_recovery_at,
-             completion_version, convention_slug, payment_recording_state, correlation_version, created_at
+             completion_version, convention_slug, payment_recording_state, correlation_version, created_at,
+             payment_amount_minor, payment_currency, shopify_amount_minor, shopify_currency
          )
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                 $17::TIMESTAMPTZ + INTERVAL '60 seconds', $13, $14, $15, $16, $17)
+                 $17::TIMESTAMPTZ + INTERVAL '60 seconds', $13, $14, $15, $16, $17, $18, $19, $20, $21)
          ON CONFLICT (id) DO NOTHING",
     )
     .bind(checkout.id)
@@ -63,6 +64,10 @@ pub(crate) async fn insert(c: &mut PgConnection, checkout: &Checkout) -> Result<
     .bind(checkout.payment_recording_state)
     .bind(checkout.correlation_version)
     .bind(checkout.created_at)
+    .bind(checkout.payment_amount_minor)
+    .bind(&checkout.payment_currency)
+    .bind(checkout.shopify_amount_minor)
+    .bind(&checkout.shopify_currency)
     .execute(c)
     .await?
     .rows_affected()
@@ -115,6 +120,8 @@ pub(crate) async fn save(pool: &PgPool, checkout: &Checkout, token: Uuid) -> Res
              cancel_url = $11,
              gateway_request_fingerprint = $12,
              payment_recording_state = $13,
+             shopify_amount_minor = $14,
+             shopify_currency = $15,
              next_recovery_at = CASE WHEN $5 = 'completed' OR $3 = 'unpaid'
                  THEN NULL
                  WHEN c.payment_state = 'unpaid' THEN clock_timestamp() + INTERVAL '60 seconds'
@@ -129,7 +136,13 @@ pub(crate) async fn save(pool: &PgPool, checkout: &Checkout, token: Uuid) -> Res
          FROM locked
          WHERE c.id = locked.id
            AND locked.claim_token = $2
-           AND locked.claim_expires_at > clock_timestamp()",
+           AND locked.claim_expires_at > clock_timestamp()
+           AND c.correlation_version = $18
+           AND c.payment_amount_minor IS NOT DISTINCT FROM $16
+           AND c.payment_currency IS NOT DISTINCT FROM $17
+           AND (c.shopify_amount_minor IS NULL
+                OR (c.shopify_amount_minor IS NOT DISTINCT FROM $14
+                    AND c.shopify_currency IS NOT DISTINCT FROM $15))",
     )
     .bind(checkout.id)
     .bind(token)
@@ -144,6 +157,11 @@ pub(crate) async fn save(pool: &PgPool, checkout: &Checkout, token: Uuid) -> Res
     .bind(&checkout.cancel_url)
     .bind(&checkout.gateway_request_fingerprint)
     .bind(checkout.payment_recording_state)
+    .bind(checkout.shopify_amount_minor)
+    .bind(&checkout.shopify_currency)
+    .bind(checkout.payment_amount_minor)
+    .bind(&checkout.payment_currency)
+    .bind(checkout.correlation_version)
     .execute(pool)
     .await?
     .rows_affected();

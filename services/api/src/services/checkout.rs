@@ -76,6 +76,8 @@ pub(crate) async fn create(
         || stored.request_fingerprint != checkout.request_fingerprint
         || stored.provider_account_id != checkout.provider_account_id
         || stored.provider_environment != checkout.provider_environment
+        || stored.payment_amount_minor != checkout.payment_amount_minor
+        || stored.payment_currency != checkout.payment_currency
         || stored.evidence_hash != checkout.evidence_hash
         || stored.required_tag_hashes != checkout.required_tag_hashes
     {
@@ -144,7 +146,8 @@ pub(crate) async fn webhook(
         };
         let result = async {
             let draft = purchase::read(clients, &claimed).await?;
-            let money = purchase::validate_purchase(&claimed, &draft)?;
+            let draft_money = purchase::validate_purchase(&claimed, &draft)?;
+            let money = purchase::payment_money(&claimed, &draft_money)?;
             provider::bind_authenticated_resource(
                 pool,
                 clients,
@@ -274,7 +277,8 @@ async fn advance_claimed(
         purchase::reserve(pool, settings, clients, checkout, prepared, token).await?;
     }
     let draft = purchase::read(clients, checkout).await?;
-    let money = purchase::validate_purchase(checkout, &draft)?;
+    let shopify_money = purchase::validate_purchase(checkout, &draft)?;
+    let money = purchase::payment_money(checkout, &shopify_money)?;
     if checkout.completion_state == CompletionState::Completed {
         return Ok(RecoveryOutcome::Observed(
             crate::models::checkout::RecoveryCode::Observed,
@@ -324,7 +328,8 @@ async fn hydrate_response(
     busy: bool,
 ) -> Result<CheckoutResponse, AppError> {
     let draft = purchase::read(clients, checkout).await?;
-    let money = purchase::validate_purchase(checkout, &draft)?;
+    let shopify_money = purchase::validate_purchase(checkout, &draft)?;
+    let money = purchase::payment_money(checkout, &shopify_money)?;
     let status = response_status(checkout, busy);
     let next_action = if status == CheckoutStatus::RequiresAction {
         let resource = checkout
@@ -375,7 +380,7 @@ async fn hydrate_response(
         if checkout.completion_version == 2 {
             super::checkout_completion::validate_external_paid_order(
                 &order,
-                &purchase::exact(money.minor, &money.currency)?,
+                &purchase::exact(shopify_money.minor, &shopify_money.currency)?,
                 &super::checkout_completion::ExternalPaymentRecording::from_checkout(checkout)?,
                 if checkout.provider == "stripe" {
                     "Stripe Card Payments"
@@ -386,9 +391,10 @@ async fn hydrate_response(
         }
         let actual = &order.total_price_set.presentment_money;
         if !purchase::tags_match(checkout, &order.tags)
-            || actual.currency_code != money.currency
-            || purchase::exact(money.minor, &money.currency)?.parse_amount(&actual.amount)?
-                != money.minor
+            || actual.currency_code != shopify_money.currency
+            || purchase::exact(shopify_money.minor, &shopify_money.currency)?
+                .parse_amount(&actual.amount)?
+                != shopify_money.minor
         {
             return Err(conflict("Completed Shopify order does not match purchase"));
         }

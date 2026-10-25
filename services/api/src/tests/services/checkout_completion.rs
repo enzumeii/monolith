@@ -801,6 +801,7 @@ async fn run_external(
         },
         mode,
         ExternalPaymentRecording {
+            money_snapshots: None,
             state,
             required_tag_hashes: &hashes,
             convention_slug: "qa-convention",
@@ -946,6 +947,7 @@ fn external_paid_confirmation_rejects_conflicting_truth_and_requires_full_named_
     let money = exact_money(1250, "THB").unwrap();
     let hashes = vec![Sha256::digest(b"qa-convention").to_vec()];
     let recording = ExternalPaymentRecording {
+        money_snapshots: None,
         state: crate::models::checkout::PaymentRecordingState::Recording,
         required_tag_hashes: &hashes,
         convention_slug: "qa-convention",
@@ -1128,6 +1130,7 @@ async fn run_metadata(
         },
         mode,
         ExternalPaymentRecording {
+            money_snapshots: None,
             state,
             required_tag_hashes: &[],
             convention_slug: "qa-convention",
@@ -1313,6 +1316,7 @@ async fn metadata_conflicting_payment_references_stop_before_any_financial_or_at
 fn metadata_manual_paid_proof_requires_exact_identity_full_references_and_original_resource() {
     let money = exact_money(1250, "THB").unwrap();
     let mut recording = ExternalPaymentRecording {
+        money_snapshots: None,
         state: crate::models::checkout::PaymentRecordingState::Uncertain,
         required_tag_hashes: &[],
         convention_slug: "qa-convention",
@@ -1419,6 +1423,7 @@ async fn metadata_paypal_records_manual_and_keeps_exact_order_capture_attributes
         },
         CompletionMode::CompleteIfOpen,
         ExternalPaymentRecording {
+            money_snapshots: None,
             state: crate::models::checkout::PaymentRecordingState::NotStarted,
             required_tag_hashes: &[],
             convention_slug: "qa-convention",
@@ -1459,6 +1464,7 @@ async fn metadata_provider_or_resource_mismatch_stops_before_reading_or_mutating
             },
             CompletionMode::CompleteIfOpen,
             ExternalPaymentRecording {
+                money_snapshots: None,
                 state: crate::models::checkout::PaymentRecordingState::NotStarted,
                 required_tag_hashes: &[],
                 convention_slug: "qa-convention",
@@ -1546,6 +1552,7 @@ async fn metadata_transaction_cap_cannot_authorize_recording_or_completion() {
         }
         let order = serde_json::from_value(value["data"]["order"].clone()).unwrap();
         let recording = ExternalPaymentRecording {
+            money_snapshots: None,
             state: crate::models::checkout::PaymentRecordingState::NotStarted,
             required_tag_hashes: &[],
             convention_slug: "qa-convention",
@@ -1589,6 +1596,7 @@ fn metadata_malformed_reference_is_a_terminal_evidence_conflict() {
         .find(|attribute| attribute["key"] == correlation::STRIPE_CHARGE_KEY)
         .unwrap()["value"] = json!("ch invalid");
     let recording = ExternalPaymentRecording {
+        money_snapshots: None,
         state: crate::models::checkout::PaymentRecordingState::Recorded,
         required_tag_hashes: &[],
         convention_slug: "qa-convention",
@@ -1607,4 +1615,197 @@ fn metadata_malformed_reference_is_a_terminal_evidence_conflict() {
             .find_source::<crate::models::checkout_completion::CompletionEvidenceConflict>()
             .is_some()
     );
+}
+
+#[test]
+fn independent_paid_confirmation_requires_both_money_snapshots_and_exact_shopify_sale() {
+    let snapshots = correlation::MoneySnapshots {
+        payment: domain::dto::checkout::CheckoutMoney {
+            minor: 1250,
+            currency: "THB".into(),
+        },
+        shopify: domain::dto::checkout::CheckoutMoney {
+            minor: 700,
+            currency: "AUD".into(),
+        },
+    };
+    let recording = ExternalPaymentRecording {
+        state: crate::models::checkout::PaymentRecordingState::Recorded,
+        required_tag_hashes: &[],
+        convention_slug: "qa-convention",
+        identity: Some(metadata_identity("stripe")),
+        provider_resource_id: Some("cs_real"),
+        money_snapshots: Some(snapshots),
+    };
+    let mut value = metadata_order(true, true, "stripe")["data"]["order"].clone();
+    value["totalPriceSet"]["presentmentMoney"] = json!({"amount":"7.00", "currencyCode":"AUD"});
+    value["totalOutstandingSet"]["presentmentMoney"] =
+        json!({"amount":"0.00", "currencyCode":"AUD"});
+    value["transactions"][0]["amountSet"]["presentmentMoney"] =
+        json!({"amount":"7.00", "currencyCode":"AUD"});
+    let attrs = value["customAttributes"].as_array_mut().unwrap();
+    attrs
+        .iter_mut()
+        .find(|attr| attr["key"] == correlation::VERSION_KEY)
+        .unwrap()["value"] = json!("3");
+    for (key, value) in [
+        (correlation::PAYMENT_AMOUNT_KEY, "1250"),
+        (correlation::PAYMENT_CURRENCY_KEY, "THB"),
+        (correlation::SHOPIFY_AMOUNT_KEY, "700"),
+        (correlation::SHOPIFY_CURRENCY_KEY, "AUD"),
+    ] {
+        attrs.push(json!({"key":key, "value":value}));
+    }
+    let money = exact_money(700, "AUD").unwrap();
+    assert!(
+        validate_external_paid_order(
+            &serde_json::from_value(value.clone()).unwrap(),
+            &money,
+            &recording,
+            "Stripe Card Payments"
+        )
+        .is_ok()
+    );
+    for key in [
+        correlation::PAYMENT_AMOUNT_KEY,
+        correlation::PAYMENT_CURRENCY_KEY,
+        correlation::SHOPIFY_AMOUNT_KEY,
+        correlation::SHOPIFY_CURRENCY_KEY,
+    ] {
+        let mut changed = value.clone();
+        changed["customAttributes"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|attr| attr["key"] != key);
+        assert!(
+            validate_external_paid_order(
+                &serde_json::from_value(changed).unwrap(),
+                &money,
+                &recording,
+                "Stripe Card Payments"
+            )
+            .is_err()
+        );
+    }
+}
+
+fn independent_shopify_payload(mut value: Value, final_metadata: bool) -> Value {
+    let data = value["data"].as_object_mut().unwrap();
+    let object = data.values_mut().next().unwrap();
+    object["totalPriceSet"]["presentmentMoney"] = json!({"amount":"7.00","currencyCode":"AUD"});
+    if object.get("totalOutstandingSet").is_some() {
+        let outstanding = if object["displayFinancialStatus"] == "PAID" {
+            "0.00"
+        } else {
+            "7.00"
+        };
+        object["totalOutstandingSet"]["presentmentMoney"] =
+            json!({"amount":outstanding,"currencyCode":"AUD"});
+        for transaction in object["transactions"].as_array_mut().unwrap() {
+            transaction["amountSet"]["presentmentMoney"] =
+                json!({"amount":"7.00","currencyCode":"AUD"});
+        }
+    }
+    let attributes = object["customAttributes"].as_array_mut().unwrap();
+    attributes
+        .iter_mut()
+        .find(|attribute| attribute["key"] == correlation::VERSION_KEY)
+        .unwrap()["value"] = json!("3");
+    attributes.extend([
+        json!({"key":correlation::PAYMENT_AMOUNT_KEY,"value":"1250"}),
+        json!({"key":correlation::PAYMENT_CURRENCY_KEY,"value":"THB"}),
+    ]);
+    if final_metadata {
+        attributes.extend([
+            json!({"key":correlation::SHOPIFY_AMOUNT_KEY,"value":"700"}),
+            json!({"key":correlation::SHOPIFY_CURRENCY_KEY,"value":"AUD"}),
+        ]);
+    }
+    value
+}
+
+#[tokio::test]
+async fn independent_verified_thb_charge_completes_aud_order_and_records_both_ledgers() {
+    let shop = Fixture::new(
+        [
+            independent_shopify_payload(metadata_draft(false, "stripe"), false),
+            completed(),
+            independent_shopify_payload(metadata_order(false, false, "stripe"), false),
+            payment_recorded(),
+            independent_shopify_payload(metadata_order(true, false, "stripe"), false),
+            attributes_updated(),
+            independent_shopify_payload(metadata_order(true, true, "stripe"), true),
+        ]
+        .into_iter()
+        .map(Reply::json)
+        .collect(),
+    )
+    .await;
+    let provider = Fixture::new(paid().into_iter().map(Reply::json).collect()).await;
+    let snapshots = correlation::MoneySnapshots {
+        payment: domain::dto::checkout::CheckoutMoney {
+            minor: 1250,
+            currency: "THB".into(),
+        },
+        shopify: domain::dto::checkout::CheckoutMoney {
+            minor: 700,
+            currency: "AUD".into(),
+        },
+    };
+    let mut progress = Progress::default();
+    let result = complete_external_paid_draft(
+        &client(&shop),
+        &id("DraftOrder", 1),
+        PaymentContext::Stripe {
+            client: &stripe_client(&provider),
+            expected: &expected(),
+        },
+        CompletionMode::CompleteIfOpen,
+        ExternalPaymentRecording {
+            state: crate::models::checkout::PaymentRecordingState::NotStarted,
+            required_tag_hashes: &[],
+            convention_slug: "qa-convention",
+            identity: Some(metadata_identity("stripe")),
+            provider_resource_id: Some("cs_real"),
+            money_snapshots: Some(snapshots),
+        },
+        &mut progress,
+    )
+    .await;
+    assert!(matches!(
+        result.unwrap(),
+        CompletionOutcome::Completed { .. }
+    ));
+    assert_eq!(
+        progress.0,
+        [
+            CompletionStage::ConvertDraft,
+            CompletionStage::RecordExternalPayment
+        ]
+    );
+    assert_eq!(
+        operations(&shop)
+            .iter()
+            .filter(|operation| **operation == "RecordCheckoutPayment")
+            .count(),
+        1
+    );
+    let requests = shop.requests();
+    let attributes = &requests[5].2["variables"]["input"]["customAttributes"];
+    for (key, value) in [
+        (correlation::PAYMENT_AMOUNT_KEY, "1250"),
+        (correlation::PAYMENT_CURRENCY_KEY, "THB"),
+        (correlation::SHOPIFY_AMOUNT_KEY, "700"),
+        (correlation::SHOPIFY_CURRENCY_KEY, "AUD"),
+    ] {
+        assert_eq!(
+            attributes
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|attribute| attribute["key"] == key && attribute["value"] == value)
+                .count(),
+            1
+        );
+    }
 }
