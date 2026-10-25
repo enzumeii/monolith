@@ -642,6 +642,10 @@ fn stripe_minimum_uses_only_known_matching_settlement_currency() {
         assert_eq!(result.is_ok(), accepted);
         if let Err(error) = result {
             assert_eq!(
+                error.to_string(),
+                "Payment cannot be started for this order. Please contact the shop."
+            );
+            assert_eq!(
                 axum::response::IntoResponse::into_response(error).status(),
                 axum::http::StatusCode::UNPROCESSABLE_ENTITY
             );

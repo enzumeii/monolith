@@ -404,7 +404,7 @@ pub(super) fn validate_stripe_minimum(
     {
         return Err(AppError::new(
             axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-            "Stripe requires a minimum payment of THB 10.00",
+            "Payment cannot be started for this order. Please contact the shop.",
         ));
     }
     Ok(())
