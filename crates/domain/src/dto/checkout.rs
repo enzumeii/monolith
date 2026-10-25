@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub const MAX_CHECKOUT_NOTE_CHARS: usize = 2000;
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckoutProvider {
@@ -16,6 +18,8 @@ pub struct CreateCheckoutRequest {
     pub provider: CheckoutProvider,
     pub items: Vec<CheckoutItemInput>,
     pub expected_currency: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

@@ -27,6 +27,7 @@ const MAX_RECOVERY_DRAFTS: usize = 5_000;
 
 pub(super) struct PreparedPurchase {
     email: String,
+    note: Option<String>,
     pub money: CheckoutMoney,
     items: Vec<PreparedItem>,
     tags: Vec<String>,
@@ -80,6 +81,7 @@ pub(super) async fn prepare(
         .then(|| convention.slug.clone());
     let purchase = PreparedPurchase {
         email: request.email.clone(),
+        note: request.note.clone(),
         money: CheckoutMoney {
             minor: total,
             currency: convention.currency_code,
@@ -160,6 +162,7 @@ pub(super) async fn reserve(
                 .map_err(|_| conflict("Invalid reservation duration"))?,
         );
     let input = CreateDraftOrderInput {
+        note: purchase.note.clone(),
         line_items: purchase
             .items
             .iter()

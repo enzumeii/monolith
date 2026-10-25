@@ -8,7 +8,7 @@ use axum::{
     extract::rejection::BytesRejection,
     http::{HeaderMap, StatusCode, header::AUTHORIZATION},
 };
-use domain::dto::checkout::CreateCheckoutRequest;
+use domain::dto::checkout::{CreateCheckoutRequest, MAX_CHECKOUT_NOTE_CHARS};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -66,6 +66,17 @@ pub(crate) fn create(request: &CreateCheckoutRequest) -> Result<(), AppError> {
         return Err(invalid(
             "expected_currency must be an uppercase currency code",
         ));
+    }
+    if let Some(note) = &request.note {
+        if note.chars().count() > MAX_CHECKOUT_NOTE_CHARS {
+            return Err(invalid("note must contain at most 2000 characters"));
+        }
+        if note
+            .chars()
+            .any(|character| character.is_control() && !matches!(character, '\t' | '\r' | '\n'))
+        {
+            return Err(invalid("note contains unsupported control characters"));
+        }
     }
     let mut variants = HashSet::new();
     for item in &request.items {

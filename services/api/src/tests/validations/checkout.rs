@@ -15,6 +15,7 @@ fn request() -> CreateCheckoutRequest {
             expected_unit_price: 2000,
         }],
         expected_currency: "SGD".into(),
+        note: None,
     }
 }
 
@@ -183,5 +184,29 @@ fn checkout_accepts_public_variant_gid_and_rejects_malformed_or_other_resource_i
     ] {
         input.items[0].variant_id = invalid.into();
         assert!(create(&input).is_err(), "{invalid}");
+    }
+}
+
+#[test]
+fn checkout_note_accepts_unicode_and_layout_controls_but_rejects_oversize_and_other_controls() {
+    let mut input = request();
+    for note in [
+        String::new(),
+        " \t\r\n".to_owned(),
+        "  Please sign\nありがとう 🐶\t<gift>  ".to_owned(),
+        "🐶".repeat(2000),
+    ] {
+        input.note = Some(note);
+        assert!(create(&input).is_ok());
+    }
+    for note in [
+        "🐶".repeat(2001),
+        "private\0note".into(),
+        "private\u{7f}note".into(),
+        "private\u{85}note".into(),
+    ] {
+        input.note = Some(note);
+        let error = create(&input).expect_err("invalid note");
+        assert!(!error.to_string().contains("private"));
     }
 }

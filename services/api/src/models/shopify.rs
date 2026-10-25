@@ -171,6 +171,8 @@ impl ActivateInventoryRequest {
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateDraftOrderInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
     pub line_items: Vec<DraftOrderLineItemInput>,
     pub tags: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]

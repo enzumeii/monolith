@@ -519,6 +519,7 @@ async fn draft_creation_preserves_customer_prices_tags_and_optional_fields() {
         currency_code: "THB".into(),
     });
     input.email = Some("buyer@example.test".into());
+    input.note = Some("  Sign please\nありがとう 🐶\t<gift>  ".into());
     input.phone = Some("+66000000000".into());
     input.shipping_address = Some(MailingAddressInput {
         first_name: Some("วิชัย".into()),
@@ -571,6 +572,7 @@ async fn draft_creation_preserves_customer_prices_tags_and_optional_fields() {
                 {"variantId":id("ProductVariant",124),"quantity":1,"priceOverride":{"amount":"0.1000","currencyCode":"THB"}}
             ],
             "tags":[" EXPLICIT ","ทดสอบ"], "email":"buyer@example.test", "phone":"+66000000000",
+            "note":"  Sign please\nありがとう 🐶\t<gift>  ",
             "shippingAddress":{"firstName":"วิชัย","lastName":"ทดสอบ","company":"Example","address1":"1 Example Road","address2":"Unit 2","city":"Bangkok","provinceCode":"TH-10","countryCode":"TH","zip":"10000","phone":"+66000000000"},
             "billingAddress":serde_json::to_value(&input.billing_address).unwrap(),
             "presentmentCurrencyCode":"THB", "reserveInventoryUntil":"2026-10-23T12:34:56Z", "sessionToken":"caller-owned-token"

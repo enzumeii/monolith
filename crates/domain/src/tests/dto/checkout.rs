@@ -43,3 +43,19 @@ fn checkout_envelope_has_exact_money_and_omits_unconfirmed_order() {
         response
     );
 }
+
+#[test]
+fn checkout_optional_note_preserves_legacy_wire_and_exact_customer_text() {
+    let legacy = r#"{"operation_id":"op","convention_id":"convention","email":"buyer@example.test","provider":"stripe","items":[],"expected_currency":"SGD"}"#;
+    let parsed: CreateCheckoutRequest = serde_json::from_str(legacy).unwrap();
+    assert_eq!(serde_json::to_string(&parsed).unwrap(), legacy);
+    let mut noted: serde_json::Value = serde_json::from_str(legacy).unwrap();
+    noted["note"] = serde_json::Value::Null;
+    let parsed: CreateCheckoutRequest = serde_json::from_value(noted.clone()).unwrap();
+    assert_eq!(serde_json::to_string(&parsed).unwrap(), legacy);
+    noted["note"] = json!("  Please sign\nありがとう 🐶\t<gift>  ");
+    let parsed: CreateCheckoutRequest = serde_json::from_value(noted.clone()).unwrap();
+    assert_eq!(serde_json::to_value(parsed).unwrap(), noted);
+    noted["note"] = json!(123);
+    assert!(serde_json::from_value::<CreateCheckoutRequest>(noted).is_err());
+}

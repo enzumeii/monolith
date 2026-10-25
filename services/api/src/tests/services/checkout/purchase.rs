@@ -550,3 +550,30 @@ async fn metadata_recovery_rejects_second_match_or_failed_later_page_after_first
         );
     }
 }
+
+#[test]
+fn customer_fulfillment_notes_do_not_change_financial_purchase_evidence() {
+    let mut purchase = PreparedPurchase {
+        email: "buyer@example.test".into(),
+        note: None,
+        money: CheckoutMoney {
+            minor: 2000,
+            currency: "SGD".into(),
+        },
+        items: vec![PreparedItem {
+            variant_id: Uuid::new_v4(),
+            shopify_product_id: "gid://shopify/Product/1".into(),
+            shopify_variant_id: "gid://shopify/ProductVariant/2".into(),
+            quantity: 1,
+            unit_price_minor: 2000,
+        }],
+        tags: vec!["example-convention".into()],
+        slug: Some("example-convention".into()),
+    };
+    for version in [1, 2] {
+        let original = purchase.evidence_hash(version).unwrap();
+        purchase.note = Some("Mutable packing instructions".into());
+        assert_eq!(purchase.evidence_hash(version).unwrap(), original);
+        purchase.note = None;
+    }
+}

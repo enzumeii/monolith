@@ -29,6 +29,7 @@ async fn assert_private_data_absent(fixture: &TestFixture, id: &str) {
         "money",
         "redirect_url",
         "order_name",
+        "note",
     ] {
         assert!(
             stored.get(field).is_none(),
@@ -207,6 +208,11 @@ async fn checkout_rejects_each_invalid_input_without_business_dependency_calls()
         ("expected_currency", json!("SG"), 400),
         ("items", json!([]), 400),
         ("extra", json!(true), 400),
+        ("note", json!(123), 400),
+        ("note", json!("🐶".repeat(2001)), 400),
+        ("note", json!("private\u{0}note"), 400),
+        ("note", json!("private\u{7f}note"), 400),
+        ("note", json!("private\u{85}note"), 400),
     ] {
         let mut body = input.clone();
         body[field] = value;
@@ -2448,6 +2454,94 @@ async fn checkout_provider_reference_write_failures_recover_same_manual_order_wi
             assert_eq!(upstream.count("RecordCheckoutPayment"), 1);
             assert_eq!(upstream.count("EditOrderTags"), 0);
             assert_eq!(upstream.payment_creates(), 1);
+        }
+    }
+}
+
+#[tokio::test]
+async fn checkout_customer_note_replays_exactly_and_completes_same_draft_for_both_providers() {
+    let fixture = fixture().await;
+    let note = "  Please sign\nありがとう 🐶\t<gift>\r\n  ";
+    for provider in ["stripe", "paypal"] {
+        let upstream = Providers::start().await;
+        let client = configured(&upstream).await;
+        let mut input = purchase(&fixture, provider).await;
+        input["note"] = json!(note);
+        let first = accepted(&client, &input).await;
+        assert_eq!(accepted(&client, &input).await, first);
+        let creates: Vec<_> = upstream
+            .calls()
+            .into_iter()
+            .filter(|call| call["operation"] == "CreateDraftOrder")
+            .collect();
+        assert_eq!(creates.len(), 1);
+        assert_eq!(creates[0]["body"]["variables"]["input"]["note"], note);
+        let before = upstream.calls().len();
+        let mut changed = input.clone();
+        changed["note"] = json!("Different instructions");
+        let response = client
+            .send(request(CHECKOUT, Some(SECRET), &changed))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 409);
+        assert_eq!(upstream.calls().len(), before);
+        upstream.pay();
+        let id = input["operation_id"].as_str().unwrap();
+        let response = client.send(verify(id, Some(SECRET))).await.unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(body_json(response).await["status"], "completed");
+        assert_eq!(upstream.count("CreateDraftOrder"), 1);
+        assert_eq!(upstream.count("CompleteCheckoutDraft"), 1);
+        assert_eq!(upstream.payment_creates(), 1);
+        let stored: Value = sqlx::query_scalar(
+            "SELECT to_jsonb(checkout)
+             FROM checkouts checkout
+             WHERE id = $1",
+        )
+        .bind(Uuid::parse_str(id).unwrap())
+        .fetch_one(&fixture.pool())
+        .await
+        .unwrap();
+        assert!(stored.get("note").is_none());
+        assert!(!stored.to_string().contains("ありがとう"));
+        assert!(!client.logs().contains("ありがとう"));
+        for call in upstream
+            .calls()
+            .iter()
+            .filter(|call| call["payment_create"] == true)
+        {
+            assert!(!call["body"].to_string().contains("ありがとう"));
+        }
+    }
+}
+
+#[tokio::test]
+async fn checkout_accepts_absent_blank_and_unicode_note_limit_without_normalizing_customer_text() {
+    let fixture = fixture().await;
+    for provider in ["stripe", "paypal"] {
+        for note in [
+            None,
+            Some(String::new()),
+            Some(" \t\r\n".into()),
+            Some("🐶".repeat(2000)),
+        ] {
+            let upstream = Providers::start().await;
+            let client = configured(&upstream).await;
+            let mut input = purchase(&fixture, provider).await;
+            if let Some(note) = &note {
+                input["note"] = json!(note);
+            }
+            accepted(&client, &input).await;
+            let call = upstream
+                .calls()
+                .into_iter()
+                .find(|call| call["operation"] == "CreateDraftOrder")
+                .unwrap();
+            let sent = &call["body"]["variables"]["input"];
+            match note {
+                Some(note) => assert_eq!(sent["note"], note),
+                None => assert!(sent.get("note").is_none()),
+            }
         }
     }
 }
