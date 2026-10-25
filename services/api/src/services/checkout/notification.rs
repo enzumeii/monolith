@@ -19,12 +19,13 @@ pub(crate) struct Notification {
 pub(crate) fn stripe(
     config: &CheckoutSettings,
     event: stripe::VerifiedEvent,
+    expected_account: Option<&str>,
 ) -> Result<Option<Notification>, AppError> {
     if event.livemode != config.stripe_livemode
         || event
             .account
             .as_deref()
-            .is_some_and(|account| account != config.stripe_expected_account)
+            .is_some_and(|account| Some(account) != expected_account)
     {
         return Err(invalid("Stripe webhook account or environment mismatch"));
     }

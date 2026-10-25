@@ -74,6 +74,8 @@ pub(crate) async fn create(
     if stored.completion_version != checkout.completion_version
         || stored.correlation_version != checkout.correlation_version
         || stored.request_fingerprint != checkout.request_fingerprint
+        || stored.provider_account_id != checkout.provider_account_id
+        || stored.provider_environment != checkout.provider_environment
         || stored.evidence_hash != checkout.evidence_hash
         || stored.required_tag_hashes != checkout.required_tag_hashes
     {

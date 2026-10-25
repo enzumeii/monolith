@@ -1,5 +1,9 @@
+[scheduler]
+implementation = "vps"
+
 [browser]
 allowed_origins = ["http://localhost:8084", "http://localhost:8085"]
+insecure_local = true
 
 [client.s3]
 endpoint = "http://localhost:3001"
@@ -9,11 +13,4 @@ base_url = "https://api-m.sandbox.paypal.com"
 
 [checkout]
 frontend_origin = "http://localhost:8085"
-return_path_template = "/{convention_slug}/checkout/return?checkout_id={checkout_id}"
-cancel_path_template = "/{convention_slug}/checkout/cancel?checkout_id={checkout_id}"
-shopify_location_id = "gid://shopify/Location/65761018027"
-reservation_secs = 3600
-guest_recovery_secs = 604800
-stripe_expected_account = "acct_1KGmtgFaTfIlKPqw"
 stripe_livemode = false
-paypal_api_origin = "https://api-m.sandbox.paypal.com"

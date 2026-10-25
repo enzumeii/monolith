@@ -131,21 +131,26 @@ async fn rejects_context_and_paid_object_mismatches_before_following_the_next_re
         let error = verify_payment(&client(&fixture), &expected())
             .await
             .unwrap_err();
-        assert!(
-            matches!(
-                error.kind(),
-                ClientErrorKind::Upstream { source, timed_out: false } if source.is::<super::super::EvidenceMismatch>()
-            ),
-            "object {index} field {field}: {value}"
-        );
-        assert!(
-            error
-                .location()
-                .file()
-                .ends_with("services/payments/stripe.rs"),
-            "object {index} field {field}: origin {}",
-            error.location()
-        );
+        if index == 0 && field == "object" {
+            assert!(matches!(error.kind(), ClientErrorKind::Protocol(_)));
+            assert!(error.location().file().ends_with("client/stripe.rs"));
+        } else {
+            assert!(
+                matches!(
+                    error.kind(),
+                    ClientErrorKind::Upstream { source, timed_out: false } if source.is::<super::super::EvidenceMismatch>()
+                ),
+                "object {index} field {field}: {value}"
+            );
+            assert!(
+                error
+                    .location()
+                    .file()
+                    .ends_with("services/payments/stripe.rs"),
+                "object {index} field {field}: origin {}",
+                error.location()
+            );
+        }
         assert_eq!(
             fixture.requests().len(),
             index + 1,

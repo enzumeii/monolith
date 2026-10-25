@@ -49,6 +49,7 @@ struct Scenario {
     draft_created_at: String,
     order_attributes: Option<Vec<Value>>,
     stripe_input: Value,
+    stripe_account: Value,
     paypal_input: Value,
     id: String,
     paid: bool,
@@ -79,6 +80,7 @@ impl Providers {
         let state = Arc::new(Mutex::new(Scenario {
             id: uuid::Uuid::new_v4().simple().to_string(),
             stock: 10,
+            stripe_account: json!({"id":"acct_e2e","object":"account"}),
             policy: "DENY".into(),
             tracked: true,
             reservation_valid: true,
@@ -123,6 +125,10 @@ impl Providers {
             .iter()
             .filter(|v| v["payment_create"] == true)
             .count()
+    }
+
+    pub fn stripe_account(&self, account: Value) {
+        self.state.lock().unwrap().stripe_account = account;
     }
 
     pub fn pay(&self) {
@@ -220,7 +226,7 @@ impl Providers {
     pub fn stripe_event(&self, checkout: &str, event: &str) -> Value {
         let state = self.state.lock().unwrap();
         json!({"id":event,"type":"checkout.session.completed","livemode":false,
-            "account":"acct_e2e","data":{"object":{"id":format!("cs_{}",state.id),
+            "account":state.stripe_account["id"],"data":{"object":{"id":format!("cs_{}",state.id),
                 "object":"checkout.session","metadata":{"checkout_id":checkout}}}})
     }
 
@@ -574,7 +580,7 @@ async fn reply(
             scenario.stripe_input = body;
             stripe_session(&scenario)
         }
-        "/stripe/account" => json!({"id":"acct_e2e","object":"account"}),
+        "/stripe/account" => scenario.stripe_account.clone(),
         "/stripe/payouts" => {
             json!({"data":if scenario.stripe_input.is_object() && scenario.payment_recorded {
             vec![json!({"id":format!("po_{}",scenario.id),"arrival_date":1_790_985_600})]

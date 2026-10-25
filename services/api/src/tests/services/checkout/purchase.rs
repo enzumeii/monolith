@@ -173,7 +173,13 @@ async fn stored_legacy_pre_reservation_replay_preserves_hashes_and_reaches_stock
         .unwrap();
     row = checkout_repo::find(&pool, row.id).await.unwrap().unwrap();
     let shop = Fixture::new(vec![Reply::status(500); 20]).await;
-    let gateway = Fixture::new(vec![]).await;
+    let gateway = Fixture::new(vec![
+        Reply::json(
+            json!({"id":"acct_test","object":"account"})
+        );
+        2
+    ])
+    .await;
     let stripe = crate::client::stripe::StripeClient::new(&StripeConfig {
         checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: gateway.url.join("/v1/").unwrap().to_string(),
@@ -188,6 +194,10 @@ async fn stored_legacy_pre_reservation_replay_preserves_hashes_and_reaches_stock
         paypal: None,
     };
     let settings = config::Config::builder()
+        .add_source(config::File::from_str(
+            include_str!("../../../../application.toml"),
+            config::FileFormat::Toml,
+        ))
         .add_source(config::File::from_str(
             include_str!("../../../../application.qa.toml"),
             config::FileFormat::Toml,
@@ -231,7 +241,9 @@ async fn stored_legacy_pre_reservation_replay_preserves_hashes_and_reaches_stock
             .iter()
             .all(|request| request.2["operationName"] == "Location")
     );
-    assert_eq!(gateway.requests(), Vec::new());
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 2);
+    assert!(requests.iter().all(|request| request.0 == "/v1/account"));
     assert_eq!(stored.completion_version, 1);
     assert!(stored.convention_slug.is_none());
     assert_eq!(stored.request_fingerprint, row.request_fingerprint);

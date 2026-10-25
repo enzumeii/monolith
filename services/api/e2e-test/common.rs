@@ -780,23 +780,17 @@ insecure_local = true
 
 fn checkout_configuration(config: &ProviderConfig<'_>) -> String {
     if config.checkout_enabled {
-        let paypal_origin = config
-            .paypal_url
-            .unwrap_or("http://127.0.0.1:8089")
-            .trim_end_matches('/');
-        format!(
+        String::from(
             r#"
 [checkout]
 frontend_origin = "http://127.0.0.1:8084"
-return_path_template = "/{{convention_slug}}/return?checkout_id={{checkout_id}}"
-cancel_path_template = "/{{convention_slug}}/cancel?checkout_id={{checkout_id}}"
-shopify_location_id = "gid://shopify/Location/1"
+return_path_template = "/{convention_slug}/return?checkout_id={checkout_id}"
+cancel_path_template = "/{convention_slug}/cancel?checkout_id={checkout_id}"
+shopify_location_id = "1"
 reservation_secs = 3600
 guest_recovery_secs = 604800
-stripe_expected_account = "acct_e2e"
 stripe_livemode = false
-paypal_api_origin = "{paypal_origin}"
-"#
+"#,
         )
     } else {
         String::new()

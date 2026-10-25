@@ -6,7 +6,7 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 
 | Owner | Source / setting | Behavior |
 | --- | --- | --- |
-| API | Common `application.toml` → `application.{RUN_ENV}.toml`; RUN_ENV defaults to local | One existing typed reader; scheduler.implementation selects vps/vercel from the selected TOML overlay |
+| API | Production defaults in `application.toml` → optional `application.{RUN_ENV}.toml` (required for QA); RUN_ENV defaults to local | One existing typed reader; base scheduler.implementation is vercel, local/QA overlays select vps |
 | API listener | TOML; platform `PORT` in container server mode | Container listener uses the platform port |
 | API browser | Required nonempty `browser.allowed_origins` and `browser.insecure_local` in TOML | CORS and cookie mutations share exact origin membership; HTTPS is allowed; explicit loopback HTTP requires insecure_local |
 | Database | `DATABASE_URL` from ignored `.env` or environment | Secret PostgreSQL connection URL |
@@ -17,7 +17,7 @@ Use each package's README and justfile for prerequisites and commands. [Architec
 | Shopify token | `SHOPIFY_ACCESS_TOKEN` from ignored API `.env` or environment | ConfigBuilder overrides client.shopify.access_token before one deserialization; standard file values apply when there is no environment override; Debug redacts credentials |
 | Public UI settings | Each app’s `application.toml`, `[api] base_url` | Default `http://localhost:3000/v1`; each typed reader loads one published asset once at startup |
 | Local browser | Backoffice `http://localhost:8084`, customer UI `http://localhost:8085`, API `http://localhost:3000` | Same hostname is required for exact origins and SameSite cookies |
-| Production browser | `browser.allowed_origins` in production TOML | Explicit `https://convention.enzumeii.com` and `https://enzumeii.vercel.app`; secure cookies are enforced; production hostname metadata is not used; browser calls use same-origin `/api/v1` |
+| Production browser | `browser.allowed_origins` in shared API `application.toml` | Explicit `https://convention.enzumeii.com` and `https://enzumeii.vercel.app`; secure cookies are enforced; production hostname metadata is not used; browser calls use same-origin `/api/v1` |
 | Preview browser | `VERCEL_ENV=preview` and validated generated `VERCEL_URL` | Replaces the configured list with only the preview HTTPS origin and enforces secure cookies |
 | Vercel local browser | `VERCEL_ENV=development` and explicit loopback `VERCEL_URL` host:port | Replaces the configured list with this gateway origin; permits HTTP/insecure cookies only for `localhost`, `127.0.0.1` or `[::1]` with a nonzero port |
 | Frontend environments | Each app’s base `application.toml` → selected override (default `application.prod.toml`) at build time | Both UIs recursively merge tables; override arrays/scalars replace base values. Publish one `application.toml`; production uses `/api/v1` and backoffice inherits its base catalogue location. Restore source bytes after success or failure |
@@ -168,7 +168,7 @@ Run only selected external requests with intended Sandbox credentials; creating/
 
 | Setup / request | Contract |
 | --- | --- |
-| Enablement | Complete `[checkout]` settings are enabled in `application.qa.toml` and `application.prod.toml` through the existing loader. Common/local configuration leaves checkout disabled (503) while unrelated endpoints remain available. The overlays bind the trusted frontend, Shopify location, provider identity/environment and reservation/recovery bounds |
+| Enablement | Complete `[checkout]` settings are enabled in shared `application.toml` with production HTTPS frontend and live provider defaults. Production inherits those settings without a required production overlay. Local and QA overlays select the localhost frontend and Stripe test mode; QA also selects the Sandbox PayPal client URL. Provider credentials remain optional; unavailable dependencies reject checkout while unrelated endpoints remain available. Omitting the whole checkout section disables checkout (503). |
 | Private environment | Supply `CHECKOUT_STRIPE_WEBHOOK_SECRET`, `CHECKOUT_PAYPAL_WEBHOOK_ID` and `CHECKOUT_PAYPAL_MERCHANT_ID` privately alongside existing provider credentials. `just setup --local` / `--qa` imports these same-named custom fields from the selected Bitwarden item with the existing preservation/switch rules. Missing gateway/webhook configuration affects that operation; production values remain backend environment settings |
 | Return URLs | Server expands configured templates against its trusted frontend origin. Client routes are `/{convention_slug}/checkout/return?checkout_id={checkout_id}` and the corresponding `/checkout/cancel` path. Both verify the original attempt independently of catalogue availability; neither arrival proves paid or unpaid. Configure the deployed origin before a live flow |
 | Create | `POST {{server}}/v1/order/checkout`, guest `Authorization: Bearer <64 hex characters>`. Before sending, save random v4 operation UUID and random 32-byte secret durably. `operation_id` becomes `checkout_id`; email is sent with intent to Shopify; it is never persisted in the checkout database. Retry exact payload/credential/ID; changed intent requires a new attempt |
@@ -209,29 +209,29 @@ The first five identity attributes exist at draft creation. Provider references 
 
 | Selected overlay | Frontend origin | Stripe expectation | PayPal REST origin |
 | --- | --- | --- | --- |
-| QA | `http://localhost:8085` | `acct_1KGmtgFaTfIlKPqw`, `stripe_livemode = false`; test key required | `https://api-m.sandbox.paypal.com` |
-| Production | `https://convention.enzumeii.com` | `acct_1KGmtgFaTfIlKPqw`, `stripe_livemode = true`; live key required | `https://api-m.paypal.com` |
+| QA | `http://localhost:8085` | Account resolved from the configured key; `stripe_livemode = false`; test key required | `https://api-m.sandbox.paypal.com` |
+| Production (shared defaults) | `https://convention.enzumeii.com` | Account resolved from the configured key; `stripe_livemode = true`; live key required | `https://api-m.paypal.com` |
 
-Both overlays use verified Shopify location `gid://shopify/Location/65761018027`, a 3600-second reservation and a 604800-second guest recovery credential lifetime. Their return/cancel templates use the implemented convention checkout routes. These public settings do not establish provider webhook registration, delivery or deployment; actual QA results belong in [verification](verification.md).
+All environments inherit verified numeric Shopify location `65761018027`, a 3600-second reservation and a 604800-second guest recovery credential lifetime. Their return/cancel templates use the implemented convention checkout routes. These public settings do not establish provider webhook registration, delivery or deployment; actual QA results belong in [verification](verification.md).
 
 | Configuration | What it controls | Where to get or choose the value |
 | --- | --- | --- |
 | frontend_origin | Trusted frontend origin used to build gateway return URLs | Choose the actual public frontend origin, e.g. https://convention.enzumeii.com; it must also be in the existing browser origin allowlist. This is application/DNS configuration, not a provider-issued value. |
 | return_path_template | Frontend path after hosted payment/approval | Use the implemented /{convention_slug}/checkout/return?checkout_id={checkout_id} route. Local implementation does not establish deployment. |
 | cancel_path_template | Frontend path when leaving/canceling hosted checkout | Choose the implemented cancellation route with the same placeholders. Arrival never proves paid/unpaid; the page calls verification. |
-| shopify_location_id | Shopify inventory location checked for available stock | Obtain the intended location's id through Shopify Admin GraphQL locations, then use the gid://shopify/Location/... form; the existing external Shopify Location Postman request validates a known ID. |
+| shopify_location_id | Shopify inventory location checked for available stock | Obtain the intended location's id through Shopify Admin GraphQL locations, then configure its positive numeric ID, e.g. 65761018027; the API converts it to gid://shopify/Location/... for GraphQL; the existing external Shopify Location Postman request validates a known ID. |
 | reservation_secs | Requested inventory hold | Both overlays configure 3600 seconds (one hour). Actual Shopify hold is read back; Stripe initiation needs at least 30 minutes remaining. |
 | guest_recovery_secs | Guest access-credential lifetime | Both overlays configure 604800 seconds (seven days). It does not erase orders or stop authentic callbacks. |
-| stripe_expected_account | Separately trusted receiving Stripe account | Stripe Dashboard, Business settings → Account details → Account ID (acct_...). Confirm the intended merchant; do not automatically trust the account copied from an incoming event. |
 | stripe_livemode | Expected Stripe resource environment | Choose false for the intended test/sandbox credentials/resources and true for live. This must match the configured Stripe key and returned resources. |
-| paypal_api_origin | Expected PayPal REST environment | Select the documented endpoint matching the shared client: https://api-m.sandbox.paypal.com for Sandbox or https://api-m.paypal.com for live. |
 | CHECKOUT_STRIPE_WEBHOOK_SECRET | Stripe webhook signature verification | Obtain the whsec_... signing secret from that endpoint's Stripe Workbench/Webhooks page using Reveal secret. It is not STRIPE_SECRET_KEY; CLI-forwarded and Dashboard endpoint secrets differ. Provide it privately to the backend environment. |
 | CHECKOUT_PAYPAL_WEBHOOK_ID | PayPal verification for the registered callback | PayPal Developer Dashboard, Apps & Credentials → the correct Sandbox/Live REST app → its Webhooks subscription. Copy the Webhook ID for this listener; it is not the app's client ID. A subscription must exist before there is an ID. Provide it privately to the backend environment. |
 | CHECKOUT_PAYPAL_MERCHANT_ID | Trusted receiving PayPal business | Intended PayPal business account: Account Settings → Business information → PayPal Merchant ID. Use the corresponding Sandbox business account in Sandbox. Provide it privately to the backend environment. |
 
+Stripe account identity is resolved through the existing authenticated GET /account operation using the configured Stripe key. New checkouts persist that account identity; verification retains the persisted account binding when credentials change. PayPal uses the canonical origin of client.paypal.base_url and persists the same environment binding, so changing Sandbox/Live configuration cannot resume a checkout in a different environment.
+
 The three `CHECKOUT_*` values originate in the provider account and remain private backend environment values. Local/QA setup can import them from the existing selected Bitwarden item into ignored `.env`; it preserves nonempty same-mode values, fills missing/empty fields and replaces imported fields when switching modes. Setup never creates provider webhook registrations or invents missing values. Do not paste credentials or private values in frontend settings, a PR or chat. The former rate_limit_attempts/rate_limit_window_secs are removed with the checkout SQL admission counter.
 
-Sources: [Shopify locations](https://shopify.dev/docs/api/admin-graphql/2026-10/queries/locations), [Stripe account ID](https://docs.stripe.com/use-stripe-apps/netsuite/customer-payment-page-setup), [Stripe signing secret](https://docs.stripe.com/events/manage-webhook-endpoints#check-the-endpoint-secret), [PayPal webhook registration](https://developer.paypal.com/api/rest/webhooks/rest/), [PayPal merchant ID](https://www.paypal.com/au/cshelp/article/how-do-i-find-my-secure-merchant-id-in-my-paypal-account-help538), [PayPal environments](https://developer.paypal.com/api/rest/requests/).
+Sources: [Shopify locations](https://shopify.dev/docs/api/admin-graphql/2026-10/queries/locations), [Stripe account retrieval](https://docs.stripe.com/api/accounts/retrieve), [Stripe signing secret](https://docs.stripe.com/events/manage-webhook-endpoints#check-the-endpoint-secret), [PayPal webhook registration](https://developer.paypal.com/api/rest/webhooks/rest/), [PayPal merchant ID](https://www.paypal.com/au/cshelp/article/how-do-i-find-my-secure-merchant-id-in-my-paypal-account-help538), [PayPal environments](https://developer.paypal.com/api/rest/requests/).
 
 ### Webhooks on Vercel
 
@@ -437,8 +437,8 @@ Titles follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/e
 | API invocation | Behavior |
 | --- | --- |
 | `api` | Existing local configuration and migration behavior; local configuration selects VPS or Vercel cron |
-| `api server` | Existing container command; connect only, no automatic migrations; RUN_ENV=prod uses the scheduler selected by application.prod.toml (checked in as vercel) |
-| Configuration files | Common application.toml plus application.local.toml, required application.qa.toml or application.prod.toml selected by RUN_ENV; API image copies common/prod files and sets RUN_ENV=prod |
+| `api server` | Existing container command; connect only, no automatic migrations; RUN_ENV=prod inherits scheduler.implementation=vercel from shared application.toml; an optional application.prod.toml may override it |
+| Configuration files | Production defaults in application.toml plus the selected optional overlay (application.qa.toml is required for QA). API image copies application.toml and sets RUN_ENV=prod; no checked-in application.prod.toml is required |
 | Cron lifecycle | VPS owns independent report, checkout recovery and hourly retention tasks; Vercel awaits checkout recovery, remaining report work and reserved retention through authenticated HTTP ticks without background tasks |
 
 The daily `0 0 * * *` schedule is UTC: Hobby execution falls approximately between 07:00 and 07:59 Bangkok. It wakes stored Bangkok cron expressions. Production deployments alone receive scheduled calls; local dev does not schedule them. The backend authenticates `Authorization: Bearer CRON_SECRET`, awaits a bounded 240-second pass and reserves five seconds for retention. Checkout recovery runs first for at most its configured 60-second budget, reports use remaining work time, and retention is still attempted after either lane fails. Disabling reports leaves checkout recovery and retention active. Missed/failed invocations await later triggers; frequent checkout recovery on Vercel requires an owner-configured authenticated external trigger in addition to the unchanged daily Hobby schedule. Oversized jobs can repeat and exhaust attempts; backlog duration depends on workload.

@@ -165,6 +165,25 @@ impl Settings {
         self.checkout_recovery.validate()?;
         if let Some(checkout) = &self.checkout {
             checkout.validate(self.browser.insecure_local)?;
+            if let Some(paypal) = self
+                .client
+                .as_ref()
+                .and_then(|clients| clients.paypal.as_ref())
+            {
+                let url = reqwest::Url::parse(&paypal.base_url)
+                    .map_err(|_| ConfigError::Message("Invalid PayPal API URL".into()))?;
+                if !url.username().is_empty()
+                    || url.password().is_some()
+                    || url.query().is_some()
+                    || url.fragment().is_some()
+                {
+                    return Err(ConfigError::Message("Invalid PayPal API URL".into()));
+                }
+                validate_browser_origin(
+                    &url.origin().ascii_serialization(),
+                    self.browser.insecure_local,
+                )?;
+            }
         }
         if !(1..=32).contains(&self.scheduler.concurrency)
             || !(1..=100).contains(&self.scheduler.max_attempts)

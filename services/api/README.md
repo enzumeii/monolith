@@ -14,7 +14,7 @@ Setup installs pinned dprint under `.tools/`, caches its plugins and writes igno
 - `just setup --qa` selects QA credentials in the same `.env`.
 - `just run` reads `RUN_ENV` from the environment or `.env` and selects `application.local.toml` or the required `application.qa.toml`; absent `RUN_ENV` defaults to local. Exported variables take precedence over `.env`.
 - Local and QA start API at `localhost:3000`, local S3 at `localhost:3001` and allow backoffice `http://localhost:8084` and customer UI `http://localhost:8085`. QA enables checkout with Stripe test mode and PayPal Sandbox; matching credentials are required. See [checkout configuration](../../docs/development.md#checkout-configuration-values) and the [sandbox exercise](../../docs/development.md#stripe-hosted-checkout).
-- Edit the selected overlay's scheduler `implementation` (`vps` or `vercel`) to choose cron execution. `RUN_ENV=prod` reads `application.prod.toml`, which selects Vercel cron.
+- Edit the selected overlay's scheduler `implementation` (`vps` or `vercel`) to choose cron execution. `RUN_ENV=prod` uses production defaults in `application.toml`, including Vercel cron; `application.prod.toml` is optional. Local and QA overlays select VPS cron.
 
 ## Vercel cron timing
 

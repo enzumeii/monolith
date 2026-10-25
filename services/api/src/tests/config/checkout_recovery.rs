@@ -86,6 +86,7 @@ fn invalid_intervals_limits_and_backoff_order_are_rejected() {
 fn recovery_budget_is_independent_of_shorter_vercel_invocation_budget() {
     let settings: crate::config::Settings = Config::builder()
         .add_source(File::with_name("application"))
+        .add_source(File::with_name("application.local"))
         .set_override("browser.allowed_origins", vec!["http://localhost:8084"])
         .unwrap()
         .set_override("database.url", "postgres://unused")

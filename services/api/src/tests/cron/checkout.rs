@@ -85,6 +85,7 @@ fn exhaustion_and_manual_outcomes_stop_automatic_work() {
 fn state() -> AppState {
     let settings = config::Config::builder()
         .add_source(config::File::with_name("application"))
+        .add_source(config::File::with_name("application.local"))
         .set_override("browser.allowed_origins", vec!["http://localhost:8084"])
         .unwrap()
         .set_override(
@@ -109,6 +110,7 @@ fn state() -> AppState {
 #[tokio::test]
 async fn unconfigured_and_disabled_recovery_never_claims() {
     let mut state = state();
+    std::sync::Arc::make_mut(&mut state.settings).checkout = None;
     let deadline = Instant::now() + Duration::from_secs(1);
     tokio::time::timeout_at(deadline, run(&state, deadline))
         .await
@@ -149,12 +151,10 @@ fn checkout_settings() -> crate::config::CheckoutSettings {
         "frontend_origin":"http://localhost:8084",
         "return_path_template":"/{convention_slug}/checkout/return?checkout_id={checkout_id}",
         "cancel_path_template":"/{convention_slug}/checkout/cancel?checkout_id={checkout_id}",
-        "shopify_location_id":"gid://shopify/Location/fixture",
+        "shopify_location_id":"1",
         "reservation_secs":3600,
         "guest_recovery_secs":604_800,
-        "stripe_expected_account":"acct_fixture",
-        "stripe_livemode":false,
-        "paypal_api_origin":"https://api-m.sandbox.paypal.com"
+        "stripe_livemode":false
     }))
     .unwrap()
 }

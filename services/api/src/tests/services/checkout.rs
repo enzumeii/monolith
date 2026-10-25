@@ -270,6 +270,10 @@ async fn internal_recovery_uses_owned_row_without_guest_auth_or_another_claim() 
     };
     let settings = config::Config::builder()
         .add_source(config::File::from_str(
+            include_str!("../../../application.toml"),
+            config::FileFormat::Toml,
+        ))
+        .add_source(config::File::from_str(
             include_str!("../../../application.qa.toml"),
             config::FileFormat::Toml,
         ))

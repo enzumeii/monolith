@@ -84,10 +84,8 @@ fn webhook_shape_checks_preserve_mixed_authentication_and_configuration_order() 
         "frontend_origin":"https://example.test",
         "return_path_template":"/{convention_slug}/{checkout_id}",
         "cancel_path_template":"/{convention_slug}/{checkout_id}",
-        "shopify_location_id":"gid://shopify/Location/1",
-        "reservation_secs":3600,"guest_recovery_secs":604_800,
-        "stripe_expected_account":"acct_test","stripe_livemode":false,
-        "paypal_api_origin":"https://api-m.sandbox.paypal.com"
+        "shopify_location_id":"1",
+        "reservation_secs":3600,"guest_recovery_secs":604_800,"stripe_livemode":false
     }))
     .unwrap();
     let mut headers = HeaderMap::new();

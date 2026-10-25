@@ -9,7 +9,7 @@ FROM debian:trixie-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3t64 && rm -rf /var/lib/apt/lists/* && useradd --system --uid 10001 app
 WORKDIR /app
 COPY --from=build /source/target/release/api /app/api
-COPY services/api/application.toml services/api/application.prod.toml /app/
+COPY services/api/application.toml /app/
 ENV PORT=80 RUN_ENV=prod
 USER app
 EXPOSE 80

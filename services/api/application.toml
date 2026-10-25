@@ -6,8 +6,36 @@ port = 3000
 max_connections = 2
 min_connections = 1
 
+[browser]
+allowed_origins = ["https://convention.enzumeii.com", "https://enzumeii.vercel.app"]
+insecure_local = false
+
+[client.shopify]
+admin_api_url = "https://enzumeii.myshopify.com/admin/api/2026-10/graphql.json"
+timeout_secs = 10
+
+[client.resend]
+timeout_secs = 10
+
+[client.paypal]
+base_url = "https://api-m.paypal.com"
+timeout_secs = 10
+
+[client.stripe]
+base_url = "https://api.stripe.com/v1/"
+checkout_api_version = "2026-08-26.dahlia"
+timeout_secs = 10
+
+[client.s3]
+endpoint = "https://jbcvsgdvhvzitweteqfo.storage.supabase.co/storage/v1/s3"
+region = "ap-southeast-1"
+bucket = "reports"
+force_path_style = true
+timeout_secs = 10
+signed_url_ttl_secs = 300
+
 [scheduler]
-implementation = "vps"
+implementation = "vercel"
 poll_interval_secs = 10
 retention_interval_secs = 3600
 invocation_budget_secs = 240
@@ -31,30 +59,11 @@ retry_backoff_secs = 60
 max_retry_backoff_secs = 900
 max_failures = 12
 
-[browser]
-allowed_origins = []
-insecure_local = true
-
-[client.shopify]
-admin_api_url = "https://enzumeii.myshopify.com/admin/api/2026-10/graphql.json"
-timeout_secs = 10
-
-[client.resend]
-timeout_secs = 10
-
-[client.paypal]
-base_url = "https://api-m.paypal.com"
-timeout_secs = 10
-
-[client.stripe]
-checkout_api_version = "2026-08-26.dahlia"
-base_url = "https://api.stripe.com/v1/"
-timeout_secs = 10
-
-[client.s3]
-endpoint = "https://jbcvsgdvhvzitweteqfo.storage.supabase.co/storage/v1/s3"
-region = "ap-southeast-1"
-bucket = "reports"
-force_path_style = true
-timeout_secs = 10
-signed_url_ttl_secs = 300
+[checkout]
+frontend_origin = "https://convention.enzumeii.com"
+return_path_template = "/{convention_slug}/checkout/return?checkout_id={checkout_id}"
+cancel_path_template = "/{convention_slug}/checkout/cancel?checkout_id={checkout_id}"
+shopify_location_id = "65761018027"
+reservation_secs = 3600
+guest_recovery_secs = 604800
+stripe_livemode = true

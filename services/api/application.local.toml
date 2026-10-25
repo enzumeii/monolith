@@ -1,5 +1,13 @@
+[scheduler]
+implementation = "vps"
+
 [browser]
 allowed_origins = ["http://localhost:8084", "http://localhost:8085"]
+insecure_local = true
 
 [client.s3]
 endpoint = "http://localhost:3001"
+
+[checkout]
+frontend_origin = "http://localhost:8085"
+stripe_livemode = false

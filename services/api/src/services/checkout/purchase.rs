@@ -74,7 +74,8 @@ pub(super) async fn prepare(
     if request.expected_currency != convention.currency_code {
         return Err(conflict("Convention currency changed; refresh the cart"));
     }
-    let account_id = provider_account(settings, clients, request.provider)?;
+    let (account_id, environment) =
+        provider_identity(settings, clients, request.provider, existing).await?;
     let selected = conventions::variants(pool, convention_id).await?;
     let (items, total) = prepare_items(request, &selected, &convention.currency_code, provider)?;
     let slug = (completion_version == 2 || correlation_version == correlation::METADATA_VERSION)
@@ -111,11 +112,7 @@ pub(super) async fn prepare(
         convention_id,
         provider: provider.into(),
         provider_account_id: account_id,
-        provider_environment: if provider == "stripe" {
-            settings.stripe_livemode.to_string()
-        } else {
-            settings.paypal_api_origin.clone()
-        },
+        provider_environment: environment,
         evidence_hash: purchase.evidence_hash(completion_version)?,
         required_tag_hashes: purchase
             .tags
@@ -640,25 +637,38 @@ fn recovery_tag(checkout: &Checkout) -> Option<String> {
         })
 }
 
-fn provider_account(
+async fn provider_identity(
     settings: &CheckoutSettings,
     clients: &CheckoutClients<'_>,
     provider: CheckoutProvider,
-) -> Result<String, AppError> {
-    Ok(match provider {
-        CheckoutProvider::Stripe => {
-            clients.stripe.ok_or_else(unavailable)?;
-            settings.stripe_expected_account.clone()
-        }
-        CheckoutProvider::Paypal => {
-            clients.paypal.ok_or_else(unavailable)?;
+    existing: Option<&Checkout>,
+) -> Result<(String, String), AppError> {
+    let identity = match provider {
+        CheckoutProvider::Stripe => (
+            clients
+                .stripe
+                .ok_or_else(unavailable)?
+                .get_account()
+                .await
+                .map_err(upstream)?
+                .id,
+            settings.stripe_livemode.to_string(),
+        ),
+        CheckoutProvider::Paypal => (
             settings
                 .paypal_merchant_id
                 .clone()
-                .filter(|v| !v.is_empty())
-                .ok_or_else(unavailable)?
-        }
-    })
+                .filter(|value| !value.is_empty())
+                .ok_or_else(unavailable)?,
+            clients.paypal.ok_or_else(unavailable)?.api_origin(),
+        ),
+    };
+    if existing.is_some_and(|checkout| {
+        checkout.provider_account_id != identity.0 || checkout.provider_environment != identity.1
+    }) {
+        return Err(conflict("Checkout provider account or environment changed"));
+    }
+    Ok(identity)
 }
 
 fn draft_money(draft: &CompletionDraft) -> Result<CheckoutMoney, AppError> {
@@ -748,7 +758,8 @@ async fn validate_stock(
     purchase: &PreparedPurchase,
 ) -> Result<(), AppError> {
     let location =
-        ShopifyId::new(&settings.shopify_location_id).map_err(|error| upstream(error))?;
+        crate::validations::inventories::parse_location_id(&settings.shopify_location_id)
+            .ok_or_else(|| conflict("Invalid Shopify checkout location"))?;
     let mut ids = BTreeSet::new();
     for item in &purchase.items {
         ids.insert(

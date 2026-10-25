@@ -132,7 +132,17 @@ impl StripeClient {
     }
 
     pub async fn get_account(&self) -> Result<Account, ClientError> {
-        self.get(self.operation_url(&["account"])?).await
+        let account: Account = self.get(self.operation_url(&["account"])?).await?;
+        if account.object != "account"
+            || !account.id.starts_with("acct_")
+            || account.id.len() <= 5
+            || !crate::models::stripe::valid_id(&account.id)
+        {
+            return Err(ClientError::new(ClientErrorKind::Protocol(
+                "invalid Stripe account identity",
+            )));
+        }
+        Ok(account)
     }
 
     async fn checkout_session(

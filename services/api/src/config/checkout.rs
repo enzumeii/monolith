@@ -9,9 +9,7 @@ pub struct CheckoutSettings {
     pub shopify_location_id: String,
     pub reservation_secs: u64,
     pub guest_recovery_secs: u64,
-    pub stripe_expected_account: String,
     pub stripe_livemode: bool,
-    pub paypal_api_origin: String,
     pub paypal_merchant_id: Option<String>,
     pub stripe_webhook_secret: Option<String>,
     pub paypal_webhook_id: Option<String>,
@@ -24,14 +22,12 @@ impl CheckoutSettings {
             || self.reservation_secs > 86400
             || self.guest_recovery_secs < self.reservation_secs
             || self.guest_recovery_secs > 31 * 86400
-            || self.stripe_expected_account.trim().is_empty()
-            || !self
-                .shopify_location_id
-                .starts_with("gid://shopify/Location/")
+            || crate::validations::inventories::parse_location_id(&self.shopify_location_id)
+                .and_then(|location| location.number("Location").ok())
+                .is_none()
         {
             return Err(ConfigError::Message("Invalid checkout settings".into()));
         }
-        super::validate_browser_origin(&self.paypal_api_origin, insecure_local)?;
         for template in [&self.return_path_template, &self.cancel_path_template] {
             if !template.starts_with("/{convention_slug}/")
                 || !template.contains("{checkout_id}")

@@ -703,3 +703,23 @@ async fn completed_sessions_bind_without_a_hosted_url_on_create_and_recovery() {
         }
     }
 }
+
+#[tokio::test]
+async fn account_identity_rejects_invalid_objects_and_ids_without_replay() {
+    use crate::client::ClientErrorKind;
+    for body in [
+        json!({"id":"acct_fixture","object":"customer"}),
+        json!({"id":"","object":"account"}),
+        json!({"id":"acct_","object":"account"}),
+        json!({"id":"cus_fixture","object":"account"}),
+        json!({"id":"acct_invalid/path","object":"account"}),
+        json!({"id":format!("acct_{}", "x".repeat(251)),"object":"account"}),
+    ] {
+        let fixture = Fixture::new(vec![Reply::json(body)]).await;
+        let error = client(&fixture).get_account().await.unwrap_err();
+        assert!(matches!(error.kind(), ClientErrorKind::Protocol(_)));
+        assert_eq!(fixture.requests().len(), 1);
+        assert_eq!(fixture.requests()[0].0, "/v1/account");
+        assert!(!fixture.requests()[0].1.contains_key("stripe-version"));
+    }
+}
