@@ -1,5 +1,5 @@
 [api]
-base_url = "http://localhost:3000/v1"
+base_url = "/api/v1"
 
 [conventions]
 catalogue_location_id = "65761018027"

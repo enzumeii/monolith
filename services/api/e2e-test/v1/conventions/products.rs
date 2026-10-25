@@ -57,12 +57,7 @@ async fn products_are_selected_current_grouped_and_use_only_saved_prices() {
     assert_eq!(variants[2]["max_quantity"], 999);
     assert_eq!(variants[3]["max_quantity"], 999);
     let text = body.to_string();
-    for key in [
-        "contextualPricing",
-        "unit_cost",
-        "created_at",
-        "logo_url",
-    ] {
+    for key in ["contextualPricing", "unit_cost", "created_at", "logo_url"] {
         assert!(!text.contains(key), "{key}");
     }
     let requests = upstream.requests();
