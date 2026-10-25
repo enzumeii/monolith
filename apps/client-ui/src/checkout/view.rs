@@ -25,6 +25,12 @@ struct SubmissionState {
     submitting: Signal<bool>,
 }
 
+#[derive(Clone)]
+struct CustomerDetails {
+    email: String,
+    note: String,
+}
+
 struct AttemptError {
     message: String,
     disposition: Option<&'static str>,
@@ -39,6 +45,7 @@ pub fn CheckoutControls(
     busy: Signal<bool>,
 ) -> Element {
     let mut email = use_signal(String::new);
+    let mut note = use_signal(String::new);
     let error = use_signal(|| None::<String>);
     let attempt = use_signal(|| None::<Attempt>);
     let delayed_recovery = use_signal(|| false);
@@ -97,16 +104,21 @@ pub fn CheckoutControls(
         || "Pay by credit card".into(),
         |total| format!("Pay {total} by credit card"),
     );
+    let note_error = model::validate_note(&note.read()).err();
     let unavailable = snapshot.items.is_empty()
         || quote.is_none()
         || !model::valid_email(&email.read())
+        || note_error.is_some()
         || *busy.read()
         || !matches!(saved_state, Some(Ok(_)));
     let paypal_slug = slug.clone();
     let paypal_snapshot = snapshot.clone();
     let paypal_quote = quote.clone();
-    let paypal_email = email.read().clone();
-    let card_email = paypal_email.clone();
+    let paypal_customer = CustomerDetails {
+        email: email.read().clone(),
+        note: note.read().clone(),
+    };
+    let card_customer = paypal_customer.clone();
     rsx! {
         section { class: "panel checkout-controls", aria_label: "Payment",
             h3 { "Payment" }
@@ -117,14 +129,20 @@ pub fn CheckoutControls(
                 placeholder: "you@example.com" }
             p { class: "hint", "Your order confirmation will be sent to this email. Show it at the convention to confirm your preorder." }
             if !email.read().is_empty() && !model::valid_email(&email.read()) { p { class: "hint", "Enter a valid email address to continue." } }
+            label { r#for: "checkout-note", "Order note (optional)" }
+            textarea { id: "checkout-note", rows: "3", value: "{note}", disabled: *busy.read(),
+                aria_describedby: if note_error.is_some() { "checkout-note-hint checkout-note-error" } else { "checkout-note-hint" }, aria_invalid: note_error.is_some(),
+                oninput: move |event| note.set(event.value()) }
+            p { id: "checkout-note-hint", class: "hint", "Anything we should know about your order? Up to 2,000 characters." }
+            if let Some(message) = note_error { p { id: "checkout-note-error", class: "hint", role: "alert", "{message}" } }
             div { class: "checkout-payment-methods",
                 button { id: "checkout-paypal", class: "checkout-payment-button checkout-paypal", disabled: unavailable,
                     onclick: move |_| {
                         if *busy.peek() { return; }
                         busy.set(true);
                         submitting.set(true);
-                        let slug = paypal_slug.clone(); let snapshot = paypal_snapshot.clone(); let quote = paypal_quote.clone(); let email = paypal_email.clone();
-                        spawn(async move { begin(slug, snapshot, quote, email, CheckoutProvider::Paypal, SubmissionState { busy, error, attempt, delayed_recovery, submitting }).await; });
+                        let slug = paypal_slug.clone(); let snapshot = paypal_snapshot.clone(); let quote = paypal_quote.clone(); let customer = paypal_customer.clone();
+                        spawn(async move { begin(slug, snapshot, quote, customer, CheckoutProvider::Paypal, SubmissionState { busy, error, attempt, delayed_recovery, submitting }).await; });
                     },
                     span { class: "checkout-payment-marks", PaymentMarks { provider: CheckoutProvider::Paypal } }
                     span { "{paypal_label}" }
@@ -134,8 +152,8 @@ pub fn CheckoutControls(
                         if *busy.peek() { return; }
                         busy.set(true);
                         submitting.set(true);
-                        let slug = slug.clone(); let snapshot = snapshot.clone(); let quote = quote.clone(); let email = card_email.clone();
-                        spawn(async move { begin(slug, snapshot, quote, email, CheckoutProvider::Stripe, SubmissionState { busy, error, attempt, delayed_recovery, submitting }).await; });
+                        let slug = slug.clone(); let snapshot = snapshot.clone(); let quote = quote.clone(); let customer = card_customer.clone();
+                        spawn(async move { begin(slug, snapshot, quote, customer, CheckoutProvider::Stripe, SubmissionState { busy, error, attempt, delayed_recovery, submitting }).await; });
                     },
                     span { class: "checkout-payment-marks", PaymentMarks { provider: CheckoutProvider::Stripe } }
                     span { "{card_label}" }
@@ -357,7 +375,7 @@ async fn begin(
     slug: String,
     snapshot: Cart,
     quote: Option<ConventionQuote>,
-    email: String,
+    customer: CustomerDetails,
     provider: CheckoutProvider,
     state: SubmissionState,
 ) {
@@ -371,7 +389,13 @@ async fn begin(
     error.set(None);
     let result = async {
         let quote = quote.ok_or("Review your current cart total before paying.")?;
-        let request = model::request(&snapshot, &quote, email.trim(), provider)?;
+        let request = model::request(
+            &snapshot,
+            &quote,
+            customer.email.trim(),
+            &customer.note,
+            provider,
+        )?;
         let (ownership, started) = browser::start(&slug, &snapshot, &request, &quote.total).await?;
         let mut saved = started.attempt.clone();
         let fresh = started.fresh;

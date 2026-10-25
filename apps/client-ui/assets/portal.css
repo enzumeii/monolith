@@ -1,5 +1,13 @@
 .portal-page .panel { max-width: none; }
 .portal-page { max-width: 1200px; }
+.portal-shell { display: flex; flex-direction: column; min-height: 100svh; }
+.portal-content { flex: 1; min-width: 0; }
+.portal-footer { border-top: 1px solid var(--panel-border); margin-top: 2rem; padding: 1rem; color: var(--muted); }
+.portal-contact-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; max-width: 1200px; margin: 0 auto; }
+.portal-contact-link { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%; }
+.portal-contact-link svg { width: 23px; height: 23px; }
+.portal-contact-link:hover { color: var(--heading); background: var(--hover-bg); }
+.portal-contact-link:focus-visible { outline: 2px solid var(--heading); outline-offset: 3px; }
 .portal-brand { border-bottom: 1px solid var(--panel-border); }
 .portal-navbar { max-width: 1200px; margin: 0 auto; padding: .75rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .portal-back-link { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: .3rem .6rem; margin-bottom: .75rem; font-size: 1.3rem; }
@@ -82,7 +90,8 @@
 .portal-cart-editor { border: 0; margin: 0; padding: 0; min-width: 0; }
 .checkout-controls { display: grid; gap: .8rem; margin-top: 1.5rem; max-width: 44rem; }
 .checkout-controls h3, .checkout-controls p { margin: 0; }
-.checkout-controls input { width: 100%; box-sizing: border-box; }
+.checkout-controls input, .checkout-controls textarea { width: 100%; box-sizing: border-box; }
+.checkout-controls textarea { font: inherit; resize: vertical; }
 .checkout-payment-methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
 .checkout-payment-button { display: grid; grid-template-rows: 2rem 1fr; align-items: center; justify-items: center; gap: .6rem; padding: .9rem .75rem; min-width: 0; min-height: 6rem; white-space: normal; text-align: center; line-height: 1.4; overflow-wrap: anywhere; }
 .checkout-payment-marks { display: flex; align-items: center; justify-content: center; height: 2rem; }

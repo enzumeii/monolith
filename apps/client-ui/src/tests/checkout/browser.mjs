@@ -164,3 +164,20 @@ test('neutral cancellation release preserves submitted uncertainty and lets a se
     assert.ok(session.getItem(`enzumeii.checkout.payload.v1.${boot.value.attempt.operation_id}`));
     second.finish(null); await second.done;
 });
+
+test('notes stay only in the immutable session request and recover without replacement', async () => {
+    const note = '  Pack flat.\nขอบคุณ 🐕 ';
+    const withNote = {...input, payload:JSON.stringify({operation_id:'',email:'buyer@example.test',note})};
+    const run = begin(withNote);
+    const started = await run.boot;
+    assert.equal(JSON.parse(started.value.payload).note, note);
+    assert.ok(!JSON.stringify([...run.localStorage.map]).includes('Pack flat'));
+    assert.ok(JSON.stringify([...run.sessionStorage.map]).includes('Pack flat'));
+    run.finish(null); await run.done;
+    const recovered = begin({...input,action:'recover',id:started.value.attempt.operation_id},run.localStorage,{locks:locks()},run.sessionStorage);
+    const boot = await recovered.boot;
+    assert.equal(boot.value.fresh,false);
+    assert.equal(boot.value.payload,started.value.payload);
+    assert.equal(JSON.parse(boot.value.payload).note,note);
+    recovered.finish(null); await recovered.done;
+});

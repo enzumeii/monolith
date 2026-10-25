@@ -75,6 +75,7 @@ fn authoritative_quote_preserves_exact_zero_two_and_three_decimal_minor_units() 
             &cart(unit),
             &quoted(currency, unit, total, zero),
             "buyer@example.test",
+            "",
             CheckoutProvider::Paypal,
         )
         .expect("accepted current quote");
@@ -88,12 +89,13 @@ fn authoritative_quote_preserves_exact_zero_two_and_three_decimal_minor_units() 
 #[test]
 fn stale_prices_mismatched_lines_shipping_invalid_email_and_overflow_block_creation() {
     let valid = quoted("USD", "12.30", "24.60", "0.00");
-    assert!(request(&cart("12.30"), &valid, "bad", CheckoutProvider::Stripe).is_err());
+    assert!(request(&cart("12.30"), &valid, "bad", "", CheckoutProvider::Stripe).is_err());
     assert!(
         request(
             &cart("12.00"),
             &valid,
             "buyer@example.test",
+            "",
             CheckoutProvider::Stripe
         )
         .is_err()
@@ -105,6 +107,7 @@ fn stale_prices_mismatched_lines_shipping_invalid_email_and_overflow_block_creat
             &cart("12.30"),
             &altered,
             "buyer@example.test",
+            "",
             CheckoutProvider::Stripe
         )
         .is_err()
@@ -116,6 +119,7 @@ fn stale_prices_mismatched_lines_shipping_invalid_email_and_overflow_block_creat
             &cart("12.30"),
             &altered,
             "buyer@example.test",
+            "",
             CheckoutProvider::Stripe
         )
         .is_err()
@@ -127,6 +131,7 @@ fn stale_prices_mismatched_lines_shipping_invalid_email_and_overflow_block_creat
             &cart("12.30"),
             &altered,
             "buyer@example.test",
+            "",
             CheckoutProvider::Stripe
         )
         .is_err()
@@ -146,6 +151,7 @@ fn empty_cart_cannot_create_payment_even_with_an_empty_quote() {
             &empty,
             &quoted("USD", "12.30", "24.60", "0.00"),
             "buyer@example.test",
+            "",
             CheckoutProvider::Stripe
         )
         .is_err()
@@ -271,6 +277,7 @@ fn recovered_create_rejects_any_changed_intent_or_cart_snapshot() {
         &attempt.snapshot,
         &quoted("USD", "12.30", "24.60", "0.00"),
         "buyer@example.test",
+        "",
         attempt.provider,
     )
     .expect("valid checkout fixture");
@@ -284,4 +291,78 @@ fn recovered_create_rejects_any_changed_intent_or_cart_snapshot() {
     saved.provider = attempt.provider;
     saved.operation_id = "another".into();
     assert!(!saved_request_matches(&attempt, &saved));
+}
+
+#[test]
+fn order_notes_preserve_meaningful_text_and_omit_blank_input_for_both_providers() {
+    for provider in [CheckoutProvider::Stripe, CheckoutProvider::Paypal] {
+        for (note, expected) in [
+            ("", None),
+            (" \t\r\n", None),
+            (
+                "  Please pack separately.\nขอบคุณ 🐕\t ",
+                Some("  Please pack separately.\nขอบคุณ 🐕\t "),
+            ),
+        ] {
+            let request = request(
+                &cart("12.30"),
+                &quoted("USD", "12.30", "24.60", "0.00"),
+                "buyer@example.test",
+                note,
+                provider,
+            )
+            .expect("valid note");
+            assert_eq!(request.note.as_deref(), expected);
+            let wire = serde_json::to_value(&request).expect("request JSON");
+            assert_eq!(wire.get("note").is_some(), expected.is_some());
+        }
+    }
+}
+
+#[test]
+fn note_validation_counts_unicode_characters_and_rejects_unsafe_controls() {
+    let maximum = "🐕".repeat(MAX_CHECKOUT_NOTE_CHARS);
+    assert!(validate_note(&maximum).is_ok());
+    let oversized = format!("{maximum}🐕");
+    assert!(validate_note(&oversized).is_err());
+    for note in ["NUL\0", "escape\u{1b}", "DEL\u{7f}", "NEL\u{85}"] {
+        assert!(validate_note(note).is_err());
+        assert!(
+            request(
+                &cart("12.30"),
+                &quoted("USD", "12.30", "24.60", "0.00"),
+                "buyer@example.test",
+                note,
+                CheckoutProvider::Stripe
+            )
+            .is_err()
+        );
+    }
+    assert!(validate_note("line one\r\nline two\t🐕").is_ok());
+}
+
+#[test]
+fn saved_payload_preserves_original_note_and_accepts_legacy_payload_without_note() {
+    let attempt = attempt();
+    let mut saved = request(
+        &attempt.snapshot,
+        &quoted("USD", "12.30", "24.60", "0.00"),
+        "buyer@example.test",
+        "  Please pack separately.\n🐕 ",
+        attempt.provider,
+    )
+    .expect("valid request");
+    saved.operation_id = attempt.operation_id.clone();
+    let wire = serde_json::to_string(&saved).expect("saved payload");
+    let recovered: CreateCheckoutRequest = serde_json::from_str(&wire).expect("recover note");
+    assert_eq!(recovered.note, saved.note);
+    assert!(saved_request_matches(&attempt, &recovered));
+    let mut legacy = serde_json::to_value(saved).expect("legacy fixture");
+    legacy.as_object_mut().expect("object").remove("note");
+    let legacy: CreateCheckoutRequest = serde_json::from_value(legacy).expect("old saved payload");
+    assert_eq!(legacy.note, None);
+    assert!(saved_request_matches(&attempt, &legacy));
+    let mut invalid = recovered;
+    invalid.note = Some("\0".into());
+    assert!(!saved_request_matches(&attempt, &invalid));
 }

@@ -146,9 +146,15 @@ mod mounted {
             total: "24.60".into(),
         }
     }
-    fn boot(attempt: &Attempt, fresh: bool) -> Value {
-        let mut request = model::request(&cart(), &quote(), "buyer@example.test", attempt.provider)
-            .expect("valid checkout fixture");
+    fn boot(attempt: &Attempt, fresh: bool, note: &str) -> Value {
+        let mut request = model::request(
+            &cart(),
+            &quote(),
+            "buyer@example.test",
+            note,
+            attempt.provider,
+        )
+        .expect("valid checkout fixture");
         request.operation_id = attempt.operation_id.clone();
         json!({"__eval_messages":[{"ok":true,"value":{"attempt":attempt,"payload":serde_json::to_string(&request).expect("valid checkout fixture"),"fresh":fresh}},{"ok":true,"value":false}]})
     }
@@ -166,6 +172,11 @@ mod mounted {
             order: None,
         })
         .expect("valid checkout fixture")
+    }
+
+    fn request_body(request: &str) -> Value {
+        serde_json::from_str(request.split("\r\n\r\n").nth(1).expect("request body"))
+            .expect("request JSON")
     }
 
     async fn until_released(dom: &mut VirtualDom, document: &TestDocument) {
@@ -274,7 +285,7 @@ mod mounted {
         let attempt = attempt(CheckoutProvider::Stripe);
         let document = TestDocument::new(vec![
             json!({"ok":true,"value":null}),
-            boot(&attempt, true),
+            boot(&attempt, true, "  Keep flat.\n🐕 "),
             json!(true),
             json!(true),
         ]);
@@ -285,12 +296,15 @@ mod mounted {
                     mounted(Screen::Checkout(cart(), Some(quote())), cart(), document);
                 until(&mut dom, "Pay USD 24.60 via PayPal").await;
                 input(&mut dom, "checkout-email", "input", "buyer@example.test");
+                input(&mut dom, "checkout-note", "input", "  Keep flat.\n🐕 ");
                 click(&mut dom, "id", "checkout-card");
                 until_navigation(&mut dom, &inspected).await;
                 assert!(!dioxus_ssr::render(&dom).contains("Check existing payment"));
             })
             .await;
         assert_eq!(original_requests.len(), 1);
+        let sent = request_body(&original_requests[0]);
+        assert_eq!(sent["note"], "  Keep flat.\n🐕 ");
         {
             let scripts = inspected.scripts.borrow();
             let delay = scripts
@@ -311,7 +325,7 @@ mod mounted {
         let body = response(&attempt, CheckoutStatus::Processing, None);
         let document = TestDocument::new(vec![
             json!({"ok":true,"value":attempt}),
-            boot(&attempt, false),
+            boot(&attempt, false, "  Keep flat.\n🐕 "),
             json!({"__eval_pending":true}),
         ]);
         let inspected = document.clone();
@@ -401,6 +415,45 @@ mod mounted {
     }
 
     #[tokio::test]
+    async fn optional_note_is_below_email_and_invalid_note_disables_both_providers() {
+        responses(&[], async {
+            let (mut dom, _) = mounted(
+                Screen::Checkout(cart(), Some(quote())),
+                cart(),
+                TestDocument::new(vec![json!({"ok":true,"value":null})]),
+            );
+            let html = until(&mut dom, "Order note (optional)").await;
+            assert!(
+                html.find("checkout-email").expect("email")
+                    < html.find("checkout-note").expect("note")
+            );
+            assert!(html.contains("<textarea"));
+            assert!(html.contains("2,000 characters"));
+            input(&mut dom, "checkout-email", "input", "buyer@example.test");
+            for note in ["🐕".repeat(2001), "unsafe\0".into()] {
+                input(&mut dom, "checkout-note", "input", &note);
+                let html = dioxus_ssr::render(&dom);
+                assert!(html.contains("role=\"alert\""));
+                for id in ["checkout-paypal", "checkout-card"] {
+                    let button = html
+                        .split(&format!("id=\"{id}\""))
+                        .nth(1)
+                        .expect("payment button")
+                        .split('>')
+                        .next()
+                        .expect("button attributes");
+                    assert!(button.contains("disabled"), "{button}");
+                }
+            }
+            input(&mut dom, "checkout-note", "input", &"🐕".repeat(2000));
+            let html = dioxus_ssr::render(&dom);
+            assert!(!html.contains("Keep your order note"));
+            assert!(!html.contains("unsupported control"));
+        })
+        .await;
+    }
+
+    #[tokio::test]
     async fn both_providers_create_once_with_guest_bearer_exact_quote_and_safe_hosted_redirect() {
         for (provider, url) in [
             (
@@ -416,7 +469,7 @@ mod mounted {
             let body = response(&attempt, CheckoutStatus::RequiresAction, Some(url));
             let doc = TestDocument::new(vec![
                 json!({"ok":true,"value":null}),
-                boot(&attempt, true),
+                boot(&attempt, true, "  Pack <b>flat</b>.\n🐕 "),
                 json!("http://localhost:8085/fair-a/cart/cart"),
                 json!(true),
             ]);
@@ -425,6 +478,15 @@ mod mounted {
                 let (mut dom, _) = mounted(Screen::Checkout(cart(), Some(quote())), cart(), doc);
                 until(&mut dom, "Pay USD 24.60 via PayPal").await;
                 input(&mut dom, "checkout-email", "input", "buyer@example.test");
+                input(
+                    &mut dom,
+                    "checkout-note",
+                    "input",
+                    "  Pack <b>flat</b>.\n🐕 ",
+                );
+                let html = dioxus_ssr::render(&dom);
+                assert!(html.contains("&#60;b&#62;flat&#60;/b&#62;"), "{html}");
+                assert!(!html.contains("<b>flat</b>"));
                 let label = match provider {
                     CheckoutProvider::Paypal => "checkout-paypal",
                     CheckoutProvider::Stripe => "checkout-card",
@@ -452,20 +514,20 @@ mod mounted {
                     .to_ascii_lowercase()
                     .contains(&format!("authorization: bearer {}", attempt.secret))
             );
-            let sent: Value = serde_json::from_str(
-                requests[0]
-                    .split("\r\n\r\n")
-                    .nth(1)
-                    .expect("valid checkout fixture"),
-            )
-            .expect("valid checkout fixture");
+            let sent = request_body(&requests[0]);
             assert_eq!(sent["email"], "buyer@example.test");
+            assert_eq!(sent["note"], "  Pack <b>flat</b>.\n🐕 ");
+            let scripts = inspect.scripts.borrow();
+            let start = scripts
+                .iter()
+                .find(|script| script.contains("\"action\":\"start\""))
+                .expect("saved checkout start");
+            assert!(start.contains("Pack <b>flat</b>"));
             assert_eq!(sent["items"][0]["expected_unit_price"], 1230);
             assert_eq!(
                 sent["provider"],
                 serde_json::to_value(provider).expect("valid checkout fixture")
             );
-            let scripts = inspect.scripts.borrow();
             assert!(
                 scripts
                     .iter()
@@ -498,7 +560,7 @@ mod mounted {
         let body = response(&attempt, CheckoutStatus::Processing, None);
         let doc = TestDocument::new(vec![
             json!({"ok":true,"value":attempt}),
-            boot(&attempt, false),
+            boot(&attempt, false, ""),
             json!({"__eval_pending":true}),
         ]);
         let inspected = doc.clone();
@@ -538,7 +600,7 @@ mod mounted {
         responses(
             &[(401, r#"{"error":"Invalid checkout credential"}"#)],
             async {
-                let mut expired_boot = boot(&attempt, false);
+                let mut expired_boot = boot(&attempt, false, "");
                 expired_boot["__eval_messages"][0]["value"]["payload"] = Value::Null;
                 let doc = TestDocument::new(vec![json!({"ok":true,"value":attempt}), expired_boot]);
                 let (mut dom, _) = mounted(
@@ -560,7 +622,7 @@ mod mounted {
     async fn unknown_checkout_after_lost_initial_request_replays_the_identical_saved_create() {
         let attempt = attempt(CheckoutProvider::Stripe);
         let body = response(&attempt, CheckoutStatus::Processing, None);
-        let original = boot(&attempt, false);
+        let original = boot(&attempt, false, "");
         let expected_payload = original["__eval_messages"][0]["value"]["payload"]
             .as_str()
             .expect("valid checkout fixture")
@@ -618,7 +680,7 @@ mod mounted {
         );
         let doc = TestDocument::new(vec![
             json!({"ok":true,"value":null}),
-            boot(&attempt, false),
+            boot(&attempt, false, ""),
             json!(true),
         ]);
         let inspected = doc.clone();
@@ -673,9 +735,9 @@ mod mounted {
         let body = response(&attempt, CheckoutStatus::Unpaid, None);
         let doc = TestDocument::new(vec![
             json!({"ok":true,"value":attempt}),
-            boot(&attempt, false),
+            boot(&attempt, false, ""),
             json!(true),
-            boot(&attempt, false),
+            boot(&attempt, false, ""),
         ]);
         let inspected = doc.clone();
         let ((), requests) = responses(
@@ -718,9 +780,9 @@ mod mounted {
         let paid = paid.to_string();
         let mut replies = vec![json!({"ok":true,"value":attempt})];
         for _ in 0..14 {
-            replies.extend([boot(&attempt, false), json!(true)]);
+            replies.extend([boot(&attempt, false, ""), json!(true)]);
         }
-        replies.push(boot(&attempt, false));
+        replies.push(boot(&attempt, false, ""));
         let doc = TestDocument::new(replies);
         let inspected = doc.clone();
         let mut outcomes = vec![(200, pending.as_str()); 14];
@@ -763,9 +825,9 @@ mod mounted {
         let statuses = [503, 408, 429, 502, 503];
         let mut replies = vec![json!({"ok":true,"value":attempt})];
         for _ in 0..8 {
-            replies.extend([boot(&attempt, false), json!(true)]);
+            replies.extend([boot(&attempt, false, ""), json!(true)]);
         }
-        replies.push(boot(&attempt, false));
+        replies.push(boot(&attempt, false, ""));
         let doc = TestDocument::new(replies);
         let inspected = doc.clone();
         let mut outcomes: Vec<_> = statuses
@@ -816,7 +878,7 @@ mod mounted {
     async fn polling_stops_on_terminal_http_storage_or_response_identity_errors() {
         let attempt = attempt(CheckoutProvider::Stripe);
         for status in [400, 401, 403, 404, 409, 422] {
-            let mut started = boot(&attempt, false);
+            let mut started = boot(&attempt, false, "");
             started["__eval_messages"][0]["value"]["payload"] = Value::Null;
             let doc = TestDocument::new(vec![json!({"ok":true,"value":attempt}), started]);
             let inspected = doc.clone();
@@ -849,7 +911,7 @@ mod mounted {
         let wrong = wrong.to_string();
         let doc = TestDocument::new(vec![
             json!({"ok":true,"value":attempt}),
-            boot(&attempt, false),
+            boot(&attempt, false, ""),
         ]);
         let inspected = doc.clone();
         let ((), requests) = responses(&[(200, &wrong)], async {
@@ -912,7 +974,7 @@ mod mounted {
         let pending = response(&attempt, CheckoutStatus::Processing, None);
         let document = TestDocument::new(vec![
             json!({"ok":true,"value":attempt}),
-            boot(&attempt, false),
+            boot(&attempt, false, ""),
             json!(false),
         ]);
         let inspected = document.clone();
@@ -953,7 +1015,7 @@ mod mounted {
         let pending = response(&attempt, CheckoutStatus::Processing, None);
         let doc = TestDocument::new(vec![
             json!({"ok":true,"value":attempt}),
-            boot(&attempt, false),
+            boot(&attempt, false, ""),
             json!({"__eval_pending":true}),
         ]);
         let inspected = doc.clone();
@@ -1009,7 +1071,7 @@ mod mounted {
             let body = body.to_string();
             let doc = TestDocument::new(vec![
                 json!({"ok":true,"value":attempt}),
-                boot(&attempt, false),
+                boot(&attempt, false, ""),
             ]);
             let inspected = doc.clone();
             let ((), requests) = responses(&[(200, &body)], async {
@@ -1070,8 +1132,10 @@ mod mounted {
     async fn fresh_validation_rejection_allows_cart_review_but_ambiguous_conflict_keeps_recovery() {
         for status in [400, 422, 409] {
             let attempt = attempt(CheckoutProvider::Stripe);
-            let doc =
-                TestDocument::new(vec![json!({"ok":true,"value":null}), boot(&attempt, true)]);
+            let doc = TestDocument::new(vec![
+                json!({"ok":true,"value":null}),
+                boot(&attempt, true, ""),
+            ]);
             let inspected = doc.clone();
             let ((), requests) = responses(
                 &[(status, r#"{"error":"Checkout cannot proceed"}"#)],
@@ -1109,7 +1173,7 @@ mod mounted {
     #[tokio::test]
     async fn unusable_restored_create_payload_never_sends_a_replacement_purchase() {
         let attempt = attempt(CheckoutProvider::Stripe);
-        let valid = boot(&attempt, true);
+        let valid = boot(&attempt, true, "");
         let mut changed: Value = serde_json::from_str(
             valid["__eval_messages"][0]["value"]["payload"]
                 .as_str()
@@ -1151,7 +1215,7 @@ mod mounted {
         );
         let document = TestDocument::new(vec![
             json!({"ok":true,"value":attempt}),
-            boot(&attempt, false),
+            boot(&attempt, false, ""),
             json!("https://convention.example/fair-a/checkout/cancel"),
             json!(true),
         ]);
@@ -1213,7 +1277,7 @@ mod mounted {
             let body = response(&attempt, CheckoutStatus::RequiresAction, Some(url));
             let mut replies = vec![
                 json!({"ok":true,"value":attempt}),
-                boot(&attempt, false),
+                boot(&attempt, false, ""),
                 json!("https://convention.example/fair-a/checkout/return"),
             ];
             replies.extend(navigation_reply);

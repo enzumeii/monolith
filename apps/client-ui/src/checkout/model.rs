@@ -3,7 +3,7 @@ use domain::dto::{
     ConventionQuote,
     checkout::{
         CheckoutItemInput, CheckoutNextAction, CheckoutProvider, CheckoutResponse, CheckoutStatus,
-        CreateCheckoutRequest,
+        CreateCheckoutRequest, MAX_CHECKOUT_NOTE_CHARS,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -38,12 +38,27 @@ pub fn valid_email(email: &str) -> bool {
         && !email.chars().any(|c| c.is_whitespace() || c.is_control())
 }
 
+pub fn validate_note(note: &str) -> Result<(), &'static str> {
+    if note.chars().count() > MAX_CHECKOUT_NOTE_CHARS {
+        return Err("Keep your order note within 2,000 characters.");
+    }
+    if note
+        .chars()
+        .any(|character| character.is_control() && !matches!(character, '\t' | '\r' | '\n'))
+    {
+        return Err("Remove unsupported control characters from your order note.");
+    }
+    Ok(())
+}
+
 pub fn request(
     snapshot: &Cart,
     quote: &ConventionQuote,
     email: &str,
+    note: &str,
     provider: CheckoutProvider,
 ) -> Result<CreateCheckoutRequest, String> {
+    validate_note(note)?;
     if !valid_email(email)
         || snapshot.items.is_empty()
         || snapshot.items.len() > 100
@@ -99,6 +114,7 @@ pub fn request(
         provider,
         items,
         expected_currency: quote.currency_code.clone(),
+        note: (!note.trim().is_empty()).then(|| note.into()),
     })
 }
 
@@ -108,6 +124,10 @@ pub fn saved_request_matches(attempt: &Attempt, request: &CreateCheckoutRequest)
         || request.convention_id != attempt.snapshot.convention_id
         || request.expected_currency != attempt.currency
         || !valid_email(&request.email)
+        || request
+            .note
+            .as_deref()
+            .is_some_and(|note| validate_note(note).is_err())
         || request.items.len() != attempt.snapshot.items.len()
         || request.items.is_empty()
     {
