@@ -33,12 +33,15 @@ fn config_asset_rejects_invalid_page_url() {
 
 #[test]
 fn deployment_configs_select_public_api_without_changing_local_urls() {
-    let local: super::Settings =
-        toml::from_str(include_str!("../../application.toml")).expect("local settings");
-    let production: toml::Table =
-        toml::from_str(include_str!("../../application.prod.toml")).expect("production overrides");
+    let mut base: toml::Table =
+        toml::from_str(include_str!("../../application.toml")).expect("base settings");
+    assert_eq!(base["api"]["base_url"].as_str(), Some("/api/v1"));
+    let overlay: toml::Table =
+        toml::from_str(include_str!("../../application.local.toml")).expect("local override");
+    base.insert("api".into(), overlay["api"].clone());
+    let local: super::Settings = base.try_into().expect("merged local settings");
     assert_eq!(local.api.base_url, "http://localhost:3000/v1");
-    assert_eq!(production["api"]["base_url"].as_str(), Some("/api/v1"));
+    assert_eq!(local.conventions.catalogue_location_id, "65761018027");
 }
 
 #[test]

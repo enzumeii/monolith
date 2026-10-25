@@ -24,3 +24,12 @@ Run `../../init.sh` to install the CLI packages after installing Rust.
 ## Coverage
 
 `just test` runs the normal suite. `just test --coverage` writes `target/coverage/backoffice/lcov.info` relative to the repository root. Install pinned cargo-llvm-cov via the root `init.sh`; the pinned Rust toolchain includes LLVM tools.
+
+### Local configuration
+
+Run root `just setup` with Node 24+ installed to prepare TOML composition dependencies.
+`just serve` and `just build` read `RUN_ENV` from `.env`, defaulting to `local`.
+An explicit argument such as `just serve qa` selects `application.qa.toml` when that file exists.
+The production baseline `application.toml` is merged with the selected environment override;
+source files are never rewritten. Release builds default to production and require no
+production override unless production has additional differences.

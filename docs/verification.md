@@ -1116,3 +1116,17 @@ Sanitized provider readbacks, report output, source bindings and complete logs r
 | Actual builds | Fresh production customer and backoffice Vercel bundles passed. Each publishes one complete production config with /api/v1 and inherited public settings. Both baseline source hashes stayed unchanged while local servers and independent production builds ran |
 | Manual acceptance | Actual just serve commands loaded task-owned .env selections on alternate ports. Initial generated local assets contained localhost3000 and inherited settings. Browser probes used a temporary relative local API override and owned proxy to the existing real API: the customer directory and backoffice sign-in screen loaded. Changing each local TOML marker republished its asset without restart. Baseline hashes stayed unchanged, test overlay edits were restored and owned processes/tab closed |
 | Limits and incidental cleanup | No provider action, API behavior, real login, deployment or release. The proxy uses an already allowed Origin, so new-origin CORS is not established. Browser screenshot filesystem export is unavailable. One inherited catalogue-test array was formatted to satisfy workspace rustfmt; assertions and endpoint behavior are unchanged. Existing API suite activity and hosted current-head CI are separate from these frontend checks |
+
+### Complete frontend configuration wiring — 2026-10-26
+
+Merged main omitted the Cargo/asset/recipe connections to the shared config scripts.
+Regression assertions fail for both frontends on main and pass with this change.
+Both frontend native suites passed (189 backoffice unit, 1 integration, 117 client),
+strict native/WASM Clippy passed, and `just check` passed all 179 tooling tests.
+`cargo fmt --all -- --check` and `git diff --check` passed.
+
+Manual: started actual backoffice `just serve` on localhost:8084, verified real app HTML
+and the served public TOML uses localhost:3000/v1 while inheriting catalogue location.
+A temporary local TOML marker appeared in the served config after automatic rebuild;
+restored the overlay and verified both source hashes exactly match their originals.
+API port 3000 was not listening, so no sign-in or API-backed workflow was tested.
