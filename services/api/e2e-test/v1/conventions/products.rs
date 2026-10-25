@@ -37,6 +37,7 @@ async fn products_are_selected_current_grouped_and_use_only_saved_prices() {
     let body = get(&c, &format!("{URI}/{slug}/products")).await;
     assert_eq!(body["convention"]["currency_code"], "THB");
     assert_eq!(body["payment_methods"], json!(["stripe"]));
+    assert!(body["convention"].get("payment_methods").is_none());
     assert_eq!(body["products"].as_array().unwrap().len(), 1);
     let product = &body["products"][0];
     assert_eq!(product["title"], "Fresh title");
@@ -59,7 +60,6 @@ async fn products_are_selected_current_grouped_and_use_only_saved_prices() {
     for key in [
         "contextualPricing",
         "unit_cost",
-        "payment_methods",
         "created_at",
         "logo_url",
     ] {
