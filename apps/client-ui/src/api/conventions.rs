@@ -40,7 +40,7 @@ pub async fn directory(
         {
             return Err(ApiError::new(
                 StatusCode::BAD_GATEWAY,
-                "The convention list changed while loading. Please retry.",
+                "The shop returned an inconsistent convention list. Contact the shop for help.",
             ));
         }
         conventions.extend(response.items);

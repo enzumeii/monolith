@@ -14,12 +14,21 @@ use ui::{ErrorMessage, Heading, LoadingMessage};
 struct Observation {
     response: Option<CheckoutResponse>,
     error: Option<String>,
-    checking: bool,
+}
+
+#[derive(Clone, Copy)]
+struct SubmissionState {
+    busy: Signal<bool>,
+    error: Signal<Option<String>>,
+    attempt: Signal<Option<Attempt>>,
+    delayed_recovery: Signal<bool>,
+    submitting: Signal<bool>,
 }
 
 struct AttemptError {
     message: String,
     disposition: Option<&'static str>,
+    retryable: bool,
 }
 
 #[component]
@@ -32,12 +41,28 @@ pub fn CheckoutControls(
     let mut email = use_signal(String::new);
     let error = use_signal(|| None::<String>);
     let attempt = use_signal(|| None::<Attempt>);
+    let delayed_recovery = use_signal(|| false);
+    let mut submitting = use_signal(|| false);
     let saved_slug = slug.clone();
     let convention = snapshot.convention_id.clone();
     let saved = use_resource(move || {
         let slug = saved_slug.clone();
         let convention = convention.clone();
         async move { browser::read(&slug, Some(&convention), None).await }
+    });
+    use_effect(move || {
+        let active = attempt.read().clone().or_else(|| {
+            saved
+                .read()
+                .as_ref()
+                .and_then(|value| value.as_ref().ok())
+                .and_then(Clone::clone)
+        });
+        if active.is_some_and(|attempt| {
+            !matches!(attempt.state.as_str(), "completed" | "unpaid" | "rejected")
+        }) {
+            busy.set(true);
+        }
     });
     let saved_state = saved.read().clone();
     let existing = attempt.read().clone().or_else(|| {
@@ -51,13 +76,27 @@ pub fn CheckoutControls(
     {
         return rsx! {
             section { class: "panel checkout-status",
-                h3 { "A payment has already been started" }
-                p { "Check your original payment before paying again. Your cart is saved." }
-                ErrorMessage { message: error.read().clone() }
-                Link { to: Route::CheckoutReturnPage { slug: existing.slug.clone(), query: format!("checkout_id={}", existing.operation_id) }, class: "button-link primary", "Check existing payment" }
+                if *submitting.read() {
+                    LoadingMessage { message: "Preparing your secure payment…" }
+                } else if let Some(message) = error.read().clone() {
+                    ErrorMessage { message: Some(message) }
+                } else {
+                    RecoverSavedPayment { key: "{existing.operation_id}", attempt: existing, delayed: *delayed_recovery.read() }
+                }
             }
         };
     }
+    let payment_total = quote
+        .as_ref()
+        .map(|quote| format!("{} {}", quote.currency_code, quote.total));
+    let paypal_label = payment_total.as_ref().map_or_else(
+        || "Pay via PayPal".into(),
+        |total| format!("Pay {total} via PayPal"),
+    );
+    let card_label = payment_total.as_ref().map_or_else(
+        || "Pay by credit card".into(),
+        |total| format!("Pay {total} by credit card"),
+    );
     let unavailable = snapshot.items.is_empty()
         || quote.is_none()
         || !model::valid_email(&email.read())
@@ -78,25 +117,29 @@ pub fn CheckoutControls(
                 placeholder: "you@example.com" }
             p { class: "hint", "Your order confirmation will be sent to this email. Show it at the convention to confirm your preorder." }
             if !email.read().is_empty() && !model::valid_email(&email.read()) { p { class: "hint", "Enter a valid email address to continue." } }
-            button { id: "checkout-paypal", class: "checkout-payment-button checkout-paypal", disabled: unavailable,
-                onclick: move |_| {
-                    if *busy.peek() { return; }
-                    busy.set(true);
-                    let slug = paypal_slug.clone(); let snapshot = paypal_snapshot.clone(); let quote = paypal_quote.clone(); let email = paypal_email.clone();
-                    spawn(async move { begin(slug, snapshot, quote, email, CheckoutProvider::Paypal, (busy, error, attempt)).await; });
-                },
-                PaymentMarks { provider: CheckoutProvider::Paypal }
-                span { "Pay with PayPal" }
-            }
-            button { id: "checkout-card", class: "checkout-payment-button checkout-card", disabled: unavailable,
-                onclick: move |_| {
-                    if *busy.peek() { return; }
-                    busy.set(true);
-                    let slug = slug.clone(); let snapshot = snapshot.clone(); let quote = quote.clone(); let email = card_email.clone();
-                    spawn(async move { begin(slug, snapshot, quote, email, CheckoutProvider::Stripe, (busy, error, attempt)).await; });
-                },
-                PaymentMarks { provider: CheckoutProvider::Stripe }
-                span { "Pay with credit card, Google Pay or Apple Pay" }
+            div { class: "checkout-payment-methods",
+                button { id: "checkout-paypal", class: "checkout-payment-button checkout-paypal", disabled: unavailable,
+                    onclick: move |_| {
+                        if *busy.peek() { return; }
+                        busy.set(true);
+                        submitting.set(true);
+                        let slug = paypal_slug.clone(); let snapshot = paypal_snapshot.clone(); let quote = paypal_quote.clone(); let email = paypal_email.clone();
+                        spawn(async move { begin(slug, snapshot, quote, email, CheckoutProvider::Paypal, SubmissionState { busy, error, attempt, delayed_recovery, submitting }).await; });
+                    },
+                    span { class: "checkout-payment-marks", PaymentMarks { provider: CheckoutProvider::Paypal } }
+                    span { "{paypal_label}" }
+                }
+                button { id: "checkout-card", class: "checkout-payment-button checkout-card", disabled: unavailable,
+                    onclick: move |_| {
+                        if *busy.peek() { return; }
+                        busy.set(true);
+                        submitting.set(true);
+                        let slug = slug.clone(); let snapshot = snapshot.clone(); let quote = quote.clone(); let email = card_email.clone();
+                        spawn(async move { begin(slug, snapshot, quote, email, CheckoutProvider::Stripe, SubmissionState { busy, error, attempt, delayed_recovery, submitting }).await; });
+                    },
+                    span { class: "checkout-payment-marks", PaymentMarks { provider: CheckoutProvider::Stripe } }
+                    span { "{card_label}" }
+                }
             }
             p { class: "hint", "Wallet availability depends on your device and the payment gateway." }
             if *busy.read() { LoadingMessage { message: "Preparing your secure payment…" } }
@@ -147,42 +190,72 @@ fn CheckoutStatusPage(slug: String, query: String, cancelled: bool) -> Element {
 }
 
 #[component]
+fn RecoverSavedPayment(attempt: Attempt, delayed: bool) -> Element {
+    let navigation = use_resource(move || {
+        let attempt = attempt.clone();
+        async move {
+            if delayed && !browser::delay(api::backoff_seconds(1)).await {
+                return Err("Automatic payment recovery is unavailable in this browser. Keep your payment receipt and contact the shop before paying again.".to_string());
+            }
+            browser::navigate(&format!(
+                "/{}/checkout/return?checkout_id={}",
+                attempt.slug, attempt.operation_id
+            ))
+            .await
+        }
+    });
+    let error = navigation.read().clone().and_then(Result::err);
+    rsx! {
+        if error.is_none() { LoadingMessage { message: "Opening your original payment…" } }
+        ErrorMessage { message: error }
+    }
+}
+
+#[component]
 fn PaymentSession(attempt: Attempt, cancelled: bool) -> Element {
     let mut observation = use_signal(Observation::default);
     let polling_attempt = attempt.clone();
-    let mut polling = use_resource(move || {
+    let _polling = use_resource(move || {
         let attempt = polling_attempt.clone();
         async move {
-            observation.write().checking = true;
-            observation.write().error = None;
-            for check in 0..12 {
-                match inspect(&attempt).await {
+            let mut failures = 0_u32;
+            loop {
+                let retrying = match inspect(&attempt).await {
                     Ok(response) => {
                         let pending = response.status == CheckoutStatus::Processing;
                         observation.set(Observation {
                             response: Some(response),
                             error: None,
-                            checking: pending,
                         });
-                        if !pending || check == 11 || !browser::delay().await {
+                        if !pending {
                             break;
                         }
+                        failures = 0;
+                        false
                     }
-                    Err(message) => {
-                        observation.write().error = Some(message);
+                    Err(error) if error.retryable => true,
+                    Err(error) => {
+                        observation.set(Observation {
+                            response: None,
+                            error: Some(error.message),
+                        });
                         break;
                     }
+                };
+                if retrying {
+                    failures = failures.saturating_add(1);
+                }
+                if !browser::delay(api::backoff_seconds(failures)).await {
+                    observation.set(Observation {
+                        response: None,
+                        error: Some("Automatic payment recovery is unavailable in this browser. Keep your payment receipt and contact the shop before paying again.".into()),
+                    });
+                    break;
                 }
             }
-            observation.write().checking = false;
         }
     });
     let state = observation.read().clone();
-    let retry = move |_| {
-        if !observation.peek().checking {
-            polling.restart();
-        }
-    };
     rsx! {
         section { class: "panel checkout-status", aria_live: "polite",
             if cancelled { p { class: "portal-notice", "You left the payment page. That does not confirm cancellation. We are checking the original payment; an already approved PayPal payment may still complete." } }
@@ -191,10 +264,8 @@ fn PaymentSession(attempt: Attempt, cancelled: bool) -> Element {
                 if response.status == CheckoutStatus::Unpaid {
                     Link { to: Route::CartPage { slug: attempt.slug.clone(), checkout_id: attempt.snapshot.checkout_id.clone() }, class: "button-link ghost", "Return to cart" }
                 }
-            } else if state.error.is_none() { LoadingMessage { message: "Checking your payment and order…" } }
+            } else if state.error.is_none() { ProcessingPayment {} }
             ErrorMessage { message: state.error }
-            if state.checking { p { class: "hint", "Checking automatically. You can safely keep this page open." } }
-            button { class: "ghost", disabled: state.checking, onclick: retry, "Check status" }
         }
     }
 }
@@ -208,6 +279,7 @@ fn StatusContent(response: CheckoutResponse, provider: CheckoutProvider) -> Elem
                 .order
                 .expect("completed response checked before rendering");
             rsx! {
+                img { class: "checkout-site-logo", src: ui::SITE_LOGO, alt: "Enzumeii" }
                 Heading { title: "Congratulations! Your order is confirmed." }
                 p { class: "checkout-order-reference", "Shopify order ", strong { "{order.name}" } }
                 p { "Check your email for your order confirmation. Show that email at the convention to confirm your preorder." }
@@ -225,10 +297,7 @@ fn StatusContent(response: CheckoutResponse, provider: CheckoutProvider) -> Elem
             }, "Continue payment" }
             ErrorMessage { message: navigation_error.read().clone() }
         },
-        CheckoutStatus::Processing => rsx! {
-            Heading { title: "Your payment is being checked" }
-            p { "We are confirming your payment and preparing your order. Please do not pay again. Your cart is saved." }
-        },
+        CheckoutStatus::Processing => rsx! { ProcessingPayment {} },
         CheckoutStatus::Unpaid => rsx! {
             Heading { title: "Payment was not completed" }
             p { "The payment gateway confirmed this payment is unpaid. Your cart is saved. Return to your cart when you are ready to try again." }
@@ -237,6 +306,18 @@ fn StatusContent(response: CheckoutResponse, provider: CheckoutProvider) -> Elem
             Heading { title: "Your order needs a payment check" }
             p { "Please do not pay again. Keep your payment receipt and contact the shop so we can confirm your preorder. Your cart is saved." }
         },
+    }
+}
+
+#[component]
+fn ProcessingPayment() -> Element {
+    rsx! {
+        div { class: "checkout-processing", role: "status",
+            img { class: "checkout-site-logo", src: ui::SITE_LOGO, alt: "Enzumeii" }
+            Heading { title: "Your payment is being checked" }
+            div { class: "checkout-progress", aria_hidden: "true" }
+            p { "We are confirming your payment and preparing your order. Please do not pay again. Your cart is saved." }
+        }
     }
 }
 
@@ -278,13 +359,15 @@ async fn begin(
     quote: Option<ConventionQuote>,
     email: String,
     provider: CheckoutProvider,
-    state: (
-        Signal<bool>,
-        Signal<Option<String>>,
-        Signal<Option<Attempt>>,
-    ),
+    state: SubmissionState,
 ) {
-    let (mut busy, mut error, mut attempt) = state;
+    let SubmissionState {
+        mut busy,
+        mut error,
+        mut attempt,
+        mut delayed_recovery,
+        mut submitting,
+    } = state;
     error.set(None);
     let result = async {
         let quote = quote.ok_or("Review your current cart total before paying.")?;
@@ -301,7 +384,13 @@ async fn begin(
             saved.state = "rejected".into();
         }
         attempt.set(Some(saved.clone()));
-        let response = result.map_err(|e| e.message)?;
+        let response = match result {
+            Err(error) if error.retryable => {
+                delayed_recovery.set(true);
+                return Ok(false);
+            }
+            result => result.map_err(|error| error.message)?,
+        };
         if fresh && response.status == CheckoutStatus::RequiresAction {
             hosted_redirect(&response, saved.provider).await?;
         } else {
@@ -311,78 +400,94 @@ async fn begin(
             ))
             .await?;
         }
-        Ok::<_, String>(())
+        Ok::<_, String>(true)
     }
     .await;
-    busy.set(false);
-    if let Err(message) = result {
-        error.set(Some(message));
+    match result {
+        Ok(true) => {}
+        Ok(false) => submitting.set(false),
+        Err(message) => {
+            error.set(Some(message));
+            busy.set(false);
+            submitting.set(false);
+        }
     }
 }
 
-async fn inspect(attempt: &Attempt) -> Result<CheckoutResponse, String> {
-    let (ownership, started) = browser::recover(attempt).await?;
+async fn inspect(attempt: &Attempt) -> Result<CheckoutResponse, AttemptError> {
+    let (ownership, started) = browser::recover(attempt).await.map_err(recovery_error)?;
     let result = advance(started).await;
     let status = result
         .as_ref()
         .map_or_else(|e| e.disposition, |r| Some(status_name(r.status)));
-    ownership.finish(status).await?;
+    ownership.finish(status).await.map_err(recovery_error)?;
     if status == Some("completed") {
         invalidate_completed_cart(attempt);
     }
-    result.map_err(|e| e.message)
+    result
 }
 
 async fn advance(started: browser::Started) -> Result<CheckoutResponse, AttemptError> {
     let attempt = &started.attempt;
-    let result = if started.fresh {
+    let response = if started.fresh {
         create_saved(&started).await
     } else {
         match api::orders::verify(&attempt.operation_id, &attempt.secret).await {
             Err(error) if matches!(error.status, 401 | 404) && started.payload.is_some() => {
                 create_saved(&started).await
             }
-            result => result,
+            result => result.map_err(|error| request_error(&error, false)),
         }
-    };
-    let response = result.map_err(|error| {
-        let expired = matches!(error.status, 401 | 403);
-        let rejected = matches!(error.status, 400 | 422);
-        AttemptError {
-            message: if expired {
-                "This browser can no longer verify this checkout. Keep your payment receipt and contact the shop before paying again."
-            } else if rejected {
-                "Payment could not be started. Review your confirmation email and refresh your cart before trying again."
-            } else {
-                "We could not confirm this payment yet. Please do not pay again. Check the same checkout again, or contact the shop with your receipt."
-            }.into(),
-            disposition: if expired { Some("expired") } else if rejected && started.fresh { Some("rejected") } else { None },
-        }
-    })?;
+    }?;
     model::checked_response(attempt, &response).map_err(|message| AttemptError {
         message,
         disposition: None,
+        retryable: false,
     })?;
     Ok(response)
 }
 
-async fn create_saved(started: &browser::Started) -> api::ApiResult<CheckoutResponse> {
-    let payload = started.payload.as_deref().ok_or_else(|| api::ApiError {
-        status: 409,
-        message: "The original checkout details are no longer available in this tab.".into(),
+async fn create_saved(started: &browser::Started) -> Result<CheckoutResponse, AttemptError> {
+    let payload = started.payload.as_deref().ok_or_else(|| {
+        recovery_error("The original checkout details are no longer available in this tab.".into())
     })?;
     let request: domain::dto::checkout::CreateCheckoutRequest = serde_json::from_str(payload)
-        .map_err(|_| api::ApiError {
-            status: 409,
-            message: "The original checkout details cannot be restored.".into(),
-        })?;
+        .map_err(|_| recovery_error("The original checkout details cannot be restored.".into()))?;
     if !model::saved_request_matches(&started.attempt, &request) {
-        return Err(api::ApiError {
-            status: 409,
-            message: "The original checkout details do not match.".into(),
-        });
+        return Err(recovery_error(
+            "The original checkout details do not match.".into(),
+        ));
     }
-    api::orders::create(&request, &started.attempt.secret).await
+    api::orders::create(&request, &started.attempt.secret)
+        .await
+        .map_err(|error| request_error(&error, started.fresh))
+}
+
+fn recovery_error(message: String) -> AttemptError {
+    AttemptError {
+        message,
+        disposition: None,
+        retryable: false,
+    }
+}
+
+fn request_error(error: &api::ApiError, fresh: bool) -> AttemptError {
+    let expired = matches!(error.status, 401 | 403);
+    let rejected = matches!(error.status, 400 | 422);
+    let retryable = error.is_transient();
+    AttemptError {
+        message: if expired {
+            "This browser can no longer verify this checkout. Keep your payment receipt and contact the shop before paying again."
+        } else if rejected && fresh {
+            "Payment could not be started. Review your confirmation email and current cart details before paying."
+        } else if retryable {
+            "Payment is taking longer than expected. We are checking your original payment automatically."
+        } else {
+            "Payment recovery could not continue. Keep your payment receipt and contact the shop before paying again."
+        }.into(),
+        disposition: if expired { Some("expired") } else if rejected && fresh { Some("rejected") } else { None },
+        retryable,
+    }
 }
 
 fn invalidate_completed_cart(attempt: &Attempt) {

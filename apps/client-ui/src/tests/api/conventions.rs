@@ -143,9 +143,10 @@ async fn inconsistent_directory_pages_fail_instead_of_hiding_or_duplicating_conv
         .await;
         let error = result.expect_err("inconsistent pagination");
         assert_eq!(error.status, 502);
+        assert!(!error.is_transient());
         assert_eq!(
             error.message,
-            "The convention list changed while loading. Please retry."
+            "The shop returned an inconsistent convention list. Contact the shop for help."
         );
         assert_eq!(requests.len(), 2);
     }

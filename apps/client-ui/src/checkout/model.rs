@@ -73,7 +73,9 @@ pub fn request(
             .checked_mul(i64::from(item.quantity))
             .ok_or("The cart total is too large.")?;
         if minor(&line.line_total, &quote.currency_code) != Some(line_total) {
-            return Err("The shop returned an invalid total. Please refresh your cart.".into());
+            return Err(
+                "The shop returned an invalid total. Contact the shop before paying.".into(),
+            );
         }
         total = total
             .checked_add(line_total)
@@ -88,7 +90,7 @@ pub fn request(
         || minor(&quote.subtotal, &quote.currency_code) != Some(total)
         || minor(&quote.shipping, &quote.currency_code) != Some(0)
     {
-        return Err("The shop returned an invalid total. Please refresh your cart.".into());
+        return Err("The shop returned an invalid total. Contact the shop before paying.".into());
     }
     Ok(CreateCheckoutRequest {
         operation_id: String::new(),
@@ -163,7 +165,10 @@ pub fn redirect(
         return Ok(None);
     }
     let Some(CheckoutNextAction::Redirect { url }) = &response.next_action else {
-        return Err("The payment link is unavailable. Check this checkout again.".into());
+        return Err(
+            "The payment link is unavailable. Keep any payment receipt and contact the shop."
+                .into(),
+        );
     };
     let parsed =
         reqwest::Url::parse(url).map_err(|_| "The shop returned an invalid payment link.")?;
@@ -189,7 +194,7 @@ pub fn redirect(
         || (parsed.fragment().is_some() && !(safe && provider == CheckoutProvider::Stripe))
     {
         return Err(
-            "The shop returned an unsupported payment link. Check this checkout again.".into(),
+            "The shop returned an unsupported payment link. Keep any payment receipt and contact the shop.".into(),
         );
     }
     Ok(Some(url.clone()))

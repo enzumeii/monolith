@@ -220,12 +220,12 @@ async fn customer_routes_render_directory_resources_and_safe_convention_metadata
                 empty_cart(),
                 TestDocument::new(vec![
                     serde_json::json!(["2099-01-01", null]),
-                    serde_json::json!(["2099-01-01", null]),
+                    serde_json::json!(true),
                 ]),
             );
-            until(&mut dom, "Directory unavailable").await;
-            click(&mut dom, "__text", "Retry conventions");
-            until(&mut dom, "There are no upcoming conventions").await;
+            let html = until(&mut dom, "There are no upcoming conventions").await;
+            assert!(!html.contains("Retry conventions"));
+            assert!(!html.contains("Directory unavailable"));
         },
     )
     .await;
@@ -288,6 +288,7 @@ async fn direct_convention_routes_hide_unavailable_metadata_and_retry_network_er
         assert!(dioxus_ssr::render(&dom).contains("Loading convention"));
         let html = until(&mut dom, "not available for preorders").await;
         assert!(!html.contains("Private metadata"));
+        assert!(!html.contains("Retry convention"));
     })
     .await;
     let data = serde_json::to_string(&catalogue()).expect("serialize catalogue fixture");
@@ -298,13 +299,14 @@ async fn direct_convention_routes_hide_unavailable_metadata_and_retry_network_er
                 Screen::Route("/fair-a/cart/unknown".into()),
                 empty_cart(),
                 TestDocument::new(vec![
+                    serde_json::json!(true),
                     serde_json::json!({"raw":null,"checkout_id":CHECKOUT,"blocked":false}),
                     serde_json::json!(true),
                 ]),
             );
-            until(&mut dom, "Provider offline").await;
-            click(&mut dom, "__text", "Retry convention");
-            until(&mut dom, "Cart unavailable").await;
+            let html = until(&mut dom, "Cart unavailable").await;
+            assert!(!html.contains("Retry convention"));
+            assert!(!html.contains("Provider offline"));
         },
     )
     .await;
@@ -315,4 +317,39 @@ async fn direct_convention_routes_hide_unavailable_metadata_and_retry_network_er
     );
     assert!(dioxus_ssr::render(&dom).contains("Page unavailable"));
     events::render_changes(&mut dom);
+}
+
+#[tokio::test]
+async fn terminal_browser_and_protocol_failures_do_not_schedule_customer_retries() {
+    let ((), requests) = responses(&[], async {
+        let document = TestDocument::new(vec![]);
+        let (mut dom, _) = mounted(Screen::Route("/".into()), empty_cart(), document.clone());
+        let html = until(&mut dom, "Unable to determine your local date").await;
+        assert!(!html.contains("Retry"));
+        assert!(!html.contains("reload"));
+        assert_eq!(document.scripts.borrow().len(), 1);
+    })
+    .await;
+    assert_eq!(requests, Vec::<String>::new());
+    for path in ["/", "/fair-a"] {
+        let document = TestDocument::new(if path == "/" {
+            vec![serde_json::json!(["2099-01-01", null])]
+        } else {
+            vec![]
+        });
+        let ((), requests) = responses(&[(200, "invalid response")], async {
+            let (mut dom, _) = mounted(Screen::Route(path.into()), empty_cart(), document.clone());
+            let html = until(&mut dom, "The shop returned an invalid response").await;
+            assert!(!html.contains("Retry"));
+            assert!(
+                !document
+                    .scripts
+                    .borrow()
+                    .iter()
+                    .any(|script| script.contains("setTimeout"))
+            );
+        })
+        .await;
+        assert_eq!(requests.len(), 1);
+    }
 }

@@ -100,3 +100,27 @@ async fn bridge_saves_json_as_string_and_surfaces_failed_or_missing_storage_ackn
             .contains("local date")
     );
 }
+
+#[tokio::test]
+async fn browser_failures_offer_specific_guidance_without_reload_requests() {
+    let error = scoped(TestDocument::new(vec![]), visitor())
+        .await
+        .expect_err("date failure");
+    assert!(error.contains("JavaScript"));
+    assert!(!error.contains("reload"));
+    let error = scoped(TestDocument::new(vec![]), restore("event"))
+        .await
+        .err()
+        .expect("cart failure");
+    assert!(error.contains("browser storage"));
+    assert!(!error.contains("reload"));
+    let document = TestDocument::new(vec![
+        serde_json::json!({"raw":null,"checkout_id":"invalid","blocked":false}),
+    ]);
+    let error = scoped(document, restore("event"))
+        .await
+        .err()
+        .expect("identifier failure");
+    assert!(error.contains("secure browser"));
+    assert!(!error.contains("reload"));
+}

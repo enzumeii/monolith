@@ -74,7 +74,6 @@ fn VariantPicker(variant: PublicVariant, product_title: String, currency: String
     let mut added = use_signal(|| false);
     let mut context = use_context::<CartContext>();
     let maximum = variant.max_quantity.min(999);
-    let label = format!("Quantity for {product_title} / {}", variant.title);
     let input_id = format!(
         "quantity-{}",
         variant.id.rsplit('/').next().unwrap_or("variant")
@@ -91,7 +90,7 @@ fn VariantPicker(variant: PublicVariant, product_title: String, currency: String
             if maximum == 0 { p { class: "meta", "Currently unavailable" } }
         }
         div { class: "portal-variant-actions",
-            label { r#for: "{input_id}", "{label}" }
+            label { r#for: "{input_id}", "Quantity" }
             div { class: "portal-quantity",
                 input { id: "{input_id}", r#type: "number", min: "1", max: "{maximum}", step: "1", value: "{quantity}", disabled: maximum == 0,
                     oninput: move |event| { quantity.set(event.value()); added.set(false); } }

@@ -19,7 +19,10 @@ pub async fn visitor() -> Result<(String, Option<String>), String> {
     document::eval(include_str!("visitor.js"))
         .recv()
         .await
-        .map_err(|_| "Unable to determine your local date. Please reload.".into())
+        .map_err(|_| {
+            "Unable to determine your local date. Check that JavaScript is enabled in your browser."
+                .into()
+        })
 }
 
 pub async fn restore(convention_id: &str) -> Result<Restored, String> {
@@ -29,7 +32,7 @@ pub async fn restore(convention_id: &str) -> Result<Restored, String> {
     let read: StorageRead = document::eval(&script)
         .recv()
         .await
-        .map_err(|_| "Unable to initialize your cart. Please reload.")?;
+        .map_err(|_| "Unable to initialize your cart. Check that JavaScript and browser storage are available.")?;
     let restored = read
         .raw
         .as_deref()
@@ -46,7 +49,7 @@ pub async fn restore(convention_id: &str) -> Result<Restored, String> {
     };
     if !super::model::valid_checkout_id(&read.checkout_id) {
         return Err(
-            "Unable to generate a cart identifier. Please reload in a secure browser.".into(),
+            "Unable to generate a cart identifier. Open the shop in a secure browser.".into(),
         );
     }
     Ok(Restored {

@@ -1,4 +1,6 @@
+use crate::api::{self, ApiError, ApiResult};
 use dioxus::prelude::*;
+use reqwest::StatusCode;
 use serde::Deserialize;
 
 const CONFIG_ASSET: Asset = asset!(
@@ -17,27 +19,40 @@ pub struct Settings {
 }
 
 impl Settings {
-    pub async fn new() -> Result<Self, String> {
+    pub async fn new() -> ApiResult<Self> {
         let mut page = document::eval("dioxus.send(window.location.href);");
         let page_url = page
             .recv::<String>()
             .await
-            .map_err(|_| "Unable to determine the application URL".to_string())?;
-        let url = resolve_config_url(&CONFIG_ASSET.to_string(), &page_url)?;
+            .map_err(|_| invalid("Unable to determine the application URL"))?;
+        let url = resolve_config_url(&CONFIG_ASSET.to_string(), &page_url).map_err(invalid)?;
+        api::retry(|| Self::load(url.clone(), &page_url)).await
+    }
+
+    async fn load(url: reqwest::Url, page_url: &str) -> ApiResult<Self> {
         let response = reqwest::get(url)
             .await
-            .map_err(|_| "Unable to load application.toml".to_string())?
-            .error_for_status()
-            .map_err(|_| "Unable to load application.toml".to_string())?;
-        let contents = response
-            .text()
+            .map_err(|error| ApiError::transport(&error, "Unable to load application.toml"))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(ApiError::http(status, "Unable to load application.toml"));
+        }
+        let bytes = response
+            .bytes()
             .await
-            .map_err(|_| "Unable to read application.toml".to_string())?;
-        let mut settings: Self = toml::from_str(&contents)
-            .map_err(|error| format!("Invalid application.toml: {error}"))?;
-        settings.api.base_url = resolve_api_url(&settings.api.base_url, &page_url)?;
+            .map_err(|error| ApiError::transport(&error, "Unable to read application.toml"))?;
+        let contents = std::str::from_utf8(&bytes)
+            .map_err(|_| invalid("Invalid application.toml: contents are not UTF-8"))?;
+        let mut settings: Self = toml::from_str(contents)
+            .map_err(|error| invalid(format!("Invalid application.toml: {error}")))?;
+        settings.api.base_url =
+            resolve_api_url(&settings.api.base_url, page_url).map_err(invalid)?;
         Ok(settings)
     }
+}
+
+fn invalid(message: impl Into<String>) -> ApiError {
+    ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, message)
 }
 
 fn resolve_api_url(base: &str, page_url: &str) -> Result<String, String> {

@@ -1,3 +1,5 @@
+pub use crate::api::delay;
+
 use super::model::Attempt;
 use crate::cart::Cart;
 use dioxus::{document::Eval, prelude::*};
@@ -57,16 +59,9 @@ pub async fn navigate(url: &str) -> Result<(), String> {
     .recv::<bool>()
     .await
     .map_err(|_| {
-        "Unable to open the payment page. Use Continue payment to try again.".to_string()
+        "Unable to open the payment page in this browser. Keep any payment receipt and contact the shop if the payment page remains unavailable.".to_string()
     })?;
     Ok(())
-}
-
-pub async fn delay() -> bool {
-    document::eval("await new Promise(resolve => setTimeout(resolve, 5000)); dioxus.send(true);")
-        .recv::<bool>()
-        .await
-        .unwrap_or(false)
 }
 
 impl Ownership {

@@ -103,6 +103,8 @@ async fn selected_variants_keep_prices_images_limits_and_independent_cart_quanti
     assert!(html.contains(r#"<ul class="portal-product-variants""#));
     assert!(html.contains(r#"role="list" aria-label="Product variants""#));
     assert_eq!(html.matches("<li class=\"portal-variant\"").count(), 3);
+    assert_eq!(html.matches(">Quantity</label>").count(), 3);
+    assert!(!html.contains("Quantity for"));
     assert!(!html.contains("SKU"));
     assert!(!html.contains("SHIRT-BL-L"));
     assert!(!html.contains("SHIRT-RD-S"));
