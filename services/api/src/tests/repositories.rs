@@ -40,6 +40,10 @@ async fn exercise_migrations(upgrade: bool) {
             .await
             .unwrap();
         insert_legacy_checkouts(&mut transaction).await;
+        migrator
+            .run_to(20_261_024_010_000, &mut *transaction)
+            .await
+            .unwrap();
     }
     migrator.run(&mut *transaction).await.unwrap();
     migrator.run(&mut *transaction).await.unwrap();
@@ -62,6 +66,7 @@ async fn exercise_migrations(upgrade: bool) {
             20_261_023_090_000,
             20_261_024_000_000,
             20_261_024_010_000,
+            20_261_025_010_000,
         ]
     );
     if upgrade {
@@ -139,6 +144,10 @@ async fn assert_legacy_checkouts(connection: &mut PgConnection) {
            AND provider_account_id = 'acct_migration_fixture'
            AND completion_version = 1
            AND correlation_version = 1
+           AND payment_amount_minor IS NULL
+           AND payment_currency IS NULL
+           AND shopify_amount_minor IS NULL
+           AND shopify_currency IS NULL
            AND convention_slug IS NULL
            AND payment_recording_state = 'not_started'
            AND recovery_failures = 0

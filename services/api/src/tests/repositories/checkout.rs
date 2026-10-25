@@ -47,6 +47,10 @@ impl Fixture {
             id: Uuid::new_v4(),
             completion_version: 1,
             correlation_version: 1,
+            payment_amount_minor: None,
+            payment_currency: None,
+            shopify_amount_minor: None,
+            shopify_currency: None,
             convention_slug: None,
             payment_recording_state: crate::models::checkout::PaymentRecordingState::NotStarted,
             guest_secret_hash: vec![1; 32],
@@ -694,6 +698,88 @@ async fn correlation_version_is_independent_and_omitted_values_keep_legacy_contr
         assert_eq!(stored.correlation_version, correlation);
         assert_eq!(stored.evidence_hash, legacy.evidence_hash);
         assert_eq!(stored.required_tag_hashes, legacy.required_tag_hashes);
+    }
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn independent_snapshots_are_persisted_once_and_cannot_be_changed_or_removed() {
+    let mut fixture = Fixture::new().await;
+    let mut row = fixture.checkout().await;
+    row.id = Uuid::new_v4();
+    row.correlation_version = 3;
+    row.convention_slug = Some("independent-money".into());
+    row.payment_amount_minor = Some(12000);
+    row.payment_currency = Some("THB".into());
+    insert(&mut fixture.pool.acquire().await.unwrap(), &row)
+        .await
+        .unwrap();
+    fixture.ids.push(row.id);
+    let token = Uuid::new_v4();
+    row = claim(&fixture.pool, row.id, token).await.unwrap().unwrap();
+    assert_eq!(row.payment_amount_minor, Some(12000));
+    assert_eq!(row.payment_currency.as_deref(), Some("THB"));
+    assert_eq!(row.shopify_amount_minor, None);
+    row.shopify_amount_minor = Some(400);
+    row.shopify_currency = Some("AUD".into());
+    save(&fixture.pool, &row, token).await.unwrap();
+    save(&fixture.pool, &row, token).await.unwrap();
+    for mutation in 0..7 {
+        let mut changed = row.clone();
+        match mutation {
+            0 => changed.payment_amount_minor = Some(12001),
+            1 => changed.payment_currency = Some("SGD".into()),
+            2 => changed.shopify_amount_minor = Some(401),
+            3 => changed.shopify_currency = Some("USD".into()),
+            4 => {
+                changed.shopify_amount_minor = None;
+                changed.shopify_currency = None;
+            }
+            5 => {
+                changed.payment_amount_minor = None;
+                changed.payment_currency = None;
+            }
+            _ => changed.correlation_version = 2,
+        }
+        assert!(save(&fixture.pool, &changed, token).await.is_err());
+    }
+    let stored = find(&fixture.pool, row.id).await.unwrap().unwrap();
+    assert_eq!(stored.payment_amount_minor, Some(12000));
+    assert_eq!(stored.payment_currency.as_deref(), Some("THB"));
+    assert_eq!(stored.shopify_amount_minor, Some(400));
+    assert_eq!(stored.shopify_currency.as_deref(), Some("AUD"));
+    release(&fixture.pool, row.id, token).await.unwrap();
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn independent_snapshot_constraints_reject_partial_legacy_and_pre_gateway_states() {
+    let mut fixture = Fixture::new().await;
+    let legacy = fixture.checkout().await;
+    for assignment in [
+        "payment_amount_minor = 100",
+        "payment_currency = 'THB'",
+        "shopify_amount_minor = 100, shopify_currency = 'AUD'",
+        "correlation_version = 3, convention_slug = 'snapshot-test'",
+        "correlation_version = 4, convention_slug = 'snapshot-test'",
+        "correlation_version = 3, convention_slug = 'snapshot-test', payment_amount_minor = -1, payment_currency = 'THB'",
+        "correlation_version = 3, convention_slug = 'snapshot-test', payment_amount_minor = 100, payment_currency = 'thb'",
+        "correlation_version = 3, convention_slug = 'snapshot-test', payment_amount_minor = 100, payment_currency = 'ZZZ'",
+        "correlation_version = 3, convention_slug = 'snapshot-test', payment_amount_minor = 100, payment_currency = 'THB', shopify_amount_minor = 100, shopify_currency = 'ZZZ'",
+        "correlation_version = 3, convention_slug = 'snapshot-test', payment_amount_minor = 100, payment_currency = 'THB', gateway_request_fingerprint = decode('aabb', 'hex')",
+        "correlation_version = 3, convention_slug = 'snapshot-test', payment_amount_minor = 100, payment_currency = 'THB', provider_resource_id = 'resource-without-order-snapshot'",
+    ] {
+        let error = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "UPDATE checkouts\nSET {assignment}\nWHERE id = $1"
+        )))
+        .bind(legacy.id)
+        .execute(&fixture.pool)
+        .await
+        .unwrap_err();
+        assert_eq!(
+            error.as_database_error().unwrap().code().as_deref(),
+            Some("23514")
+        );
     }
     fixture.cleanup().await;
 }

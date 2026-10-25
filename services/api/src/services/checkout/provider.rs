@@ -220,7 +220,8 @@ pub(super) fn initiation_fingerprint(
 
 fn validate_version_combination(checkout: &Checkout) -> Result<(), AppError> {
     match (checkout.completion_version, checkout.correlation_version) {
-        (1 | 2, super::correlation::LEGACY_VERSION) | (2, super::correlation::METADATA_VERSION) => {
+        (1 | 2, super::correlation::LEGACY_VERSION)
+        | (2, super::correlation::METADATA_VERSION | super::correlation::INDEPENDENT_VERSION) => {
             Ok(())
         }
         _ => Err(crate::models::checkout_completion::evidence_conflict(
@@ -746,7 +747,7 @@ async fn complete_external_with_checkpoint(
     let resource = checkout.provider_resource_id.clone();
     let identity = match checkout.correlation_version {
         super::correlation::LEGACY_VERSION => None,
-        super::correlation::METADATA_VERSION => {
+        super::correlation::METADATA_VERSION | super::correlation::INDEPENDENT_VERSION => {
             Some(super::correlation::Identity::from_checkout(checkout)?)
         }
         _ => {
@@ -756,12 +757,15 @@ async fn complete_external_with_checkpoint(
             .into());
         }
     };
+    let money_snapshots =
+        checkout_completion::ExternalPaymentRecording::from_checkout(checkout)?.money_snapshots;
     let recording = checkout_completion::ExternalPaymentRecording {
         state: checkout.payment_recording_state,
         required_tag_hashes: &required_tag_hashes,
         convention_slug: &slug,
         identity,
         provider_resource_id: resource.as_deref(),
+        money_snapshots,
     };
     let mut progress = CheckoutCompletionProgress {
         pool,
@@ -953,7 +957,7 @@ fn order_confirmation(
     {
         Some(RecoveryOutcome::Retry(RecoveryCode::CompletionUncertain))
     } else if !purchase::tags_match(checkout, &order.tags)
-        || (checkout.correlation_version == 2
+        || (matches!(checkout.correlation_version, 2 | 3)
             && !super::correlation::identity_matches(checkout, &order.custom_attributes))
         || (checkout.correlation_version == 1
             && checkout.completion_version == 2

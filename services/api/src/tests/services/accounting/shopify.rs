@@ -1017,3 +1017,276 @@ async fn manual_metadata_compares_source_currency_and_allocates_shop_currency_it
         assert_eq!(response.items[0].price, 26.0);
     }
 }
+
+fn independent_order(
+    gateway: AccountingGateway,
+    reference: &str,
+    payment_currency: &str,
+    shopify_currency: &str,
+) -> crate::models::shopify::Order {
+    let mut value = serde_json::to_value(metadata_order(gateway, reference)).unwrap();
+    value["customAttributes"][0]["value"] = json!("3");
+    value["customAttributes"].as_array_mut().unwrap().extend([
+        json!({"key":"payment_amount_minor","value":"1250"}),
+        json!({"key":"payment_currency","value":payment_currency}),
+        json!({"key":"shopify_amount_minor","value":"400"}),
+        json!({"key":"shopify_currency","value":shopify_currency}),
+    ]);
+    for path in [
+        "/currentTotalPriceSet",
+        "/totalOutstandingSet",
+        "/transactions/0/amountSet",
+        "/lineItems/nodes/0/originalUnitPriceSet",
+    ] {
+        for kind in ["shopMoney", "presentmentMoney"] {
+            value.pointer_mut(path).unwrap()[kind]["currencyCode"] = json!(shopify_currency);
+        }
+    }
+    serde_json::from_value(value).unwrap()
+}
+
+fn independent_payment(
+    gateway: AccountingGateway,
+    reference: &str,
+    currency: &str,
+) -> super::Payment {
+    let mut row = external_payment(gateway, reference);
+    row.currency = currency.into();
+    row.source_money =
+        Some(crate::models::checkout_completion::ExactMoney::new(1250, currency, 2).unwrap());
+    if gateway == AccountingGateway::Paypal {
+        row.transaction.currency = currency.into();
+        row.transaction.gross_paid = 12.5;
+    }
+    row
+}
+
+#[tokio::test]
+async fn independent_money_metadata_links_distinct_ledgers_and_preserves_exported_money() {
+    for (gateway, currency, shop_currency) in [
+        (AccountingGateway::Stripe, "THB", "AUD"),
+        (AccountingGateway::Paypal, "SGD", "USD"),
+        (AccountingGateway::Stripe, "AUD", "AUD"),
+    ] {
+        let row = independent_payment(gateway, "source_reference", currency);
+        let gross = row.transaction.gross_paid;
+        let payment_currency = row.transaction.currency.clone();
+        let response = enrich_orders(
+            vec![independent_order(
+                gateway,
+                "source_reference",
+                currency,
+                shop_currency,
+            )],
+            vec![row],
+        )
+        .await
+        .unwrap();
+        let rows = match gateway {
+            AccountingGateway::Stripe => response.transactions.stripe,
+            AccountingGateway::Paypal => response.transactions.paypal,
+        };
+        assert_eq!(rows[0].shopify_order_id, 1);
+        assert_eq!(rows[0].shopify_order_tags, ["qa-convention"]);
+        assert_eq!(rows[0].gross_paid, gross);
+        assert_eq!(rows[0].currency, payment_currency);
+        assert_eq!(response.items.len(), 1);
+        assert_eq!(response.items[0].price, 4.0);
+        assert_eq!(response.items[0].currency, shop_currency);
+        assert_eq!(response.items[0].payment_reference, "source_reference");
+    }
+}
+
+#[test]
+fn independent_money_rejects_either_ledger_mismatch_and_native_reference_bypass() {
+    for gateway in [AccountingGateway::Stripe, AccountingGateway::Paypal] {
+        let original =
+            serde_json::to_value(independent_order(gateway, "source_reference", "THB", "AUD"))
+                .unwrap();
+        for (path, replacement) in [
+            (
+                "/currentTotalPriceSet/presentmentMoney/amount",
+                json!("12.50"),
+            ),
+            ("/currentTotalPriceSet/shopMoney/amount", json!("4.01")),
+            ("/currentTotalPriceSet/shopMoney/currencyCode", json!("THB")),
+            (
+                "/transactions/0/amountSet/presentmentMoney/amount",
+                json!("12.50"),
+            ),
+            ("/transactions/0/amountSet/shopMoney/amount", json!("4.01")),
+            (
+                "/totalOutstandingSet/presentmentMoney/amount",
+                json!("0.01"),
+            ),
+            ("/totalOutstandingSet/shopMoney/amount", json!("0.01")),
+            (
+                "/transactions/0/gateway",
+                json!(match gateway {
+                    AccountingGateway::Stripe => "stripe",
+                    AccountingGateway::Paypal => "paypal",
+                }),
+            ),
+        ] {
+            let mut value = original.clone();
+            *value.pointer_mut(path).unwrap() = replacement;
+            value["transactions"][0]["receiptJson"] = json!(
+                match gateway {
+                    AccountingGateway::Stripe =>
+                        json!({"charges":{"data":[{"id":"source_reference"}]}}),
+                    AccountingGateway::Paypal => json!({"transaction_id":"source_reference"}),
+                }
+                .to_string()
+            );
+            let orders = vec![serde_json::from_value(value).unwrap()];
+            let row = independent_payment(gateway, "source_reference", "THB");
+            assert_eq!(
+                matching_position(&orders, &native_index(&orders).unwrap(), &row).unwrap(),
+                None,
+                "{path}"
+            );
+        }
+        let orders = vec![serde_json::from_value(original).unwrap()];
+        for (minor, currency) in [(1251, "THB"), (1250, "SGD")] {
+            let mut row = independent_payment(gateway, "source_reference", "THB");
+            row.source_money = Some(
+                crate::models::checkout_completion::ExactMoney::new(minor, currency, 2).unwrap(),
+            );
+            assert_eq!(
+                matching_position(&orders, &native_index(&orders).unwrap(), &row).unwrap(),
+                None
+            );
+        }
+    }
+}
+
+#[test]
+fn independent_money_requires_complete_unique_canonical_snapshots() {
+    let original = serde_json::to_value(independent_order(
+        AccountingGateway::Stripe,
+        "source_reference",
+        "THB",
+        "AUD",
+    ))
+    .unwrap();
+    for key in [
+        "payment_amount_minor",
+        "payment_currency",
+        "shopify_amount_minor",
+        "shopify_currency",
+    ] {
+        for mode in ["missing", "duplicate", "noncanonical"] {
+            let mut value = original.clone();
+            let attributes = value["customAttributes"].as_array_mut().unwrap();
+            let index = attributes
+                .iter()
+                .position(|attribute| attribute["key"] == key)
+                .unwrap();
+            match mode {
+                "missing" => {
+                    attributes.remove(index);
+                }
+                "duplicate" => attributes.push(attributes[index].clone()),
+                _ => {
+                    attributes[index]["value"] = json!(if key.ends_with("minor") {
+                        "0400"
+                    } else {
+                        "aud"
+                    });
+                }
+            }
+            assert!(
+                native_index(&[serde_json::from_value(value).unwrap()]).is_err(),
+                "{key}: {mode}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn independent_money_never_converts_unrelated_nonzero_shipping() {
+    for gateway in [AccountingGateway::Stripe, AccountingGateway::Paypal] {
+        let mut value =
+            serde_json::to_value(independent_order(gateway, "source_reference", "THB", "AUD"))
+                .unwrap();
+        value["lineItems"]["nodes"][0]["originalUnitPriceSet"]["shopMoney"]["amount"] =
+            json!("3.00");
+        value["shippingLines"] = page(vec![
+            json!({"priceSet":{"shopMoney":{"amount":"1.00","currencyCode":"AUD"}}}),
+        ]);
+        let mut row = independent_payment(gateway, "source_reference", "THB");
+        row.transaction.shipping_fee = None;
+        let response = enrich_orders(
+            vec![serde_json::from_value(value.clone()).unwrap()],
+            vec![row],
+        )
+        .await
+        .unwrap();
+        let rows = match gateway {
+            AccountingGateway::Stripe => response.transactions.stripe,
+            AccountingGateway::Paypal => response.transactions.paypal,
+        };
+        assert_eq!(rows[0].shopify_order_id, 1);
+        assert_eq!(rows[0].shipping_fee, None);
+        assert_eq!(response.items[0].price, 3.0);
+        assert_eq!(response.items[0].currency, "AUD");
+        if gateway == AccountingGateway::Paypal {
+            let mut row = independent_payment(gateway, "source_reference", "THB");
+            row.transaction.shipping_fee = Some(2.5);
+            let response = enrich_orders(vec![serde_json::from_value(value).unwrap()], vec![row])
+                .await
+                .unwrap();
+            assert_eq!(response.transactions.paypal[0].shipping_fee, Some(2.5));
+        }
+    }
+}
+
+#[test]
+fn independent_money_rejects_duplicate_claims_and_ambiguous_or_unpaid_orders() {
+    let gateway = AccountingGateway::Stripe;
+    let original = independent_order(gateway, "source_reference", "THB", "AUD");
+    let row = independent_payment(gateway, "source_reference", "THB");
+    for mode in [
+        "cancelled",
+        "refunded",
+        "multiple_sales",
+        "unpaid",
+        "wrong_currency",
+    ] {
+        let mut value = serde_json::to_value(&original).unwrap();
+        match mode {
+            "cancelled" => value["cancelledAt"] = json!("2026-10-25T00:00:00Z"),
+            "refunded" => {
+                value["refunds"] = json!([{"transactions":page(vec![]),"refundShippingLines":page(vec![]),"refundLineItems":page(vec![])}]);
+            }
+            "multiple_sales" => {
+                let tx = value["transactions"][0].clone();
+                value["transactions"].as_array_mut().unwrap().push(tx);
+            }
+            "unpaid" => value["displayFinancialStatus"] = json!("PENDING"),
+            _ => {
+                value["transactions"][0]["amountSet"]["presentmentMoney"]["currencyCode"] =
+                    json!("THB");
+            }
+        }
+        let orders = vec![serde_json::from_value(value).unwrap()];
+        assert_eq!(
+            matching_position(&orders, &native_index(&orders).unwrap(), &row).unwrap(),
+            None,
+            "{mode}"
+        );
+    }
+    assert!(
+        super::matching_positions(
+            std::slice::from_ref(&original),
+            &[
+                independent_payment(gateway, "source_reference", "THB"),
+                independent_payment(gateway, "source_reference", "THB")
+            ]
+        )
+        .is_err()
+    );
+    let mut duplicate = original.clone();
+    duplicate.id = serde_json::from_value(json!("gid://shopify/Order/2")).unwrap();
+    assert!(native_index(&[original, duplicate]).is_err());
+}
