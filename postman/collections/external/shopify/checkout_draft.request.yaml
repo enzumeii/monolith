@@ -1,13 +1,32 @@
 $kind: graphql-request
-description: Authoritative Shopify draft/order read for stateless paid completion; nullable resource is unavailable. Exact presentment total and actual order tags are authoritative; no local checkout ledger or metafield protocol.
+description: |
+  Authoritative Shopify draft read for checkout completion and recovery. Replace
+  the synthetic id with the original owned draft ID. Requires read_draft_orders
+  and read_payment_terms. HTTP200 returns a nullable draft; null is unavailable,
+  not proof that creation failed. Exact presentment total, email, variants,
+  quantities, reservation and stored purchase evidence bind the accepted purchase.
+  Metadata2 additionally requires singleton checkout_correlation_version=2,
+  checkout_id, convention_id, convention_slug and payment_provider attributes.
+  Its sole visible slug tag is a label (first 40 characters for a longer slug),
+  not ownership or payment proof. Legacy correlation version 1 retains its original tags.
+  createdAt supports the fixed original checkout created_at +/-5-minute recovery
+  window; the paginated DraftOrders request uses CREATED_AT ordering and a
+  20-page / 5000-draft cap. Zero/duplicate/incomplete matches never authorize a
+  replacement draft. Inspect the linked order before another mutation; after
+  uncertain conversion or recording, reconcile the same order without blind replay.
 url: "{{shopify}}/graphql.json"
 query: |
   query CheckoutDraft($id: ID!) {
     draftOrder(id: $id) {
       id
+      createdAt
       ready
       status
       tags
+      customAttributes {
+        key
+        value
+      }
       email
       reserveInventoryUntil
       lineItems(first: 100) {
@@ -38,7 +57,7 @@ query: |
   }
 variables: |-
   {
-  	"id": "gid://shopify/DraftOrder/123"
+    "id": "gid://shopify/DraftOrder/123"
   }
 settings: {}
 schema:

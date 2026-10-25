@@ -10,7 +10,7 @@ pub(crate) fn state(f: &Fixture) -> AppState {
         "browser":{"allowed_origins":["http://localhost:8084"],"insecure_local":true},
         "server":{"host":"localhost","port":3000},
         "database":{"url":"unused","max_connections":1,"min_connections":1},
-        "scheduler":{"implementation":"vps","poll_interval_secs":1,"retention_interval_secs":3600,"invocation_budget_secs":240,"retention_reserve_secs":5,"enabled":false,"concurrency":1,"max_attempts":2,"retry_backoff_secs":1,"lease_secs":5,"max_payload_bytes":20_971_520,"max_email_bytes":20_971_520},
+        "checkout_recovery":{"enabled":true,"wake_secs":60,"batch_size":10,"concurrency":2,"budget_secs":60,"lease_secs":90,"retry_backoff_secs":60,"max_retry_backoff_secs":900,"max_failures":12},"scheduler":{"implementation":"vps","poll_interval_secs":1,"retention_interval_secs":3600,"invocation_budget_secs":240,"retention_reserve_secs":5,"enabled":false,"concurrency":1,"max_attempts":2,"retry_backoff_secs":1,"lease_secs":5,"max_payload_bytes":20_971_520,"max_email_bytes":20_971_520},
         "jwt":{"secret":"1111111111111111111111111111111111111111111111111111111111111111"}
     }))
     .unwrap();
@@ -73,7 +73,7 @@ async fn required_payment_accessors_reuse_clients_and_retain_availability_errors
         assert_payment_error(error, message).await;
     }
     let stripe_config = serde_json::from_value(
-        json!({"base_url": f.url.as_str(), "secret_key":"fixture", "timeout_secs":3}),
+        json!({"base_url": f.url.as_str(), "secret_key":"fixture", "timeout_secs":3, "checkout_api_version":"2026-08-26.dahlia"}),
     )
     .unwrap();
     let paypal_config = serde_json::from_value(json!({"base_url": f.url.as_str(), "client_id":"fixture", "client_secret":"fixture", "timeout_secs":3})).unwrap();

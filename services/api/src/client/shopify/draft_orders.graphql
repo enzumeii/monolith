@@ -1,10 +1,20 @@
-query DraftOrders($first: Int!, $after: String, $query: String) {
-  draftOrders(first: $first, after: $after, query: $query) {
+query DraftOrders(
+  $first: Int!
+  $after: String
+  $query: String
+  $sortKey: DraftOrderSortKeys
+) {
+  draftOrders(first: $first, after: $after, query: $query, sortKey: $sortKey) {
     nodes {
       id
+      createdAt
       ready
       status
       tags
+      customAttributes {
+        key
+        value
+      }
       email
       reserveInventoryUntil
       lineItems(first: 100) {

@@ -17,7 +17,7 @@ fn request(event_type: &str, resource: Value) -> VerifyWebhookSignatureRequest {
         transmission_sig: "synthetic-signature".into(),
         transmission_time: "2026-10-23T00:00:00Z".into(),
         webhook_id: "WH123".into(),
-        webhook_event,
+        webhook_event: serde_json::value::to_raw_value(&webhook_event).unwrap(),
     }
 }
 
@@ -155,7 +155,7 @@ async fn malformed_envelopes_and_optional_references_fail_before_postback() {
         json!({"id":"EVENT123", "event_type":"PAYMENT.CAPTURE.COMPLETED", "resource":{"id":"x".repeat(256)}}),
     ] {
         let mut payload = completed();
-        payload.webhook_event = event;
+        payload.webhook_event = serde_json::value::to_raw_value(&event).unwrap();
         assert!(matches!(
             verify_event(&client, &payload).await,
             Err(WebhookError::InvalidEvent)
@@ -171,7 +171,9 @@ async fn malformed_envelopes_and_optional_references_fail_before_postback() {
         json!({"capture_id":"CAPTURE-OTHER"}),
     ] {
         let mut payload = completed();
-        payload.webhook_event["resource"]["supplementary_data"]["related_ids"] = related;
+        let mut event: Value = serde_json::from_str(payload.webhook_event.get()).unwrap();
+        event["resource"]["supplementary_data"]["related_ids"] = related;
+        payload.webhook_event = serde_json::value::to_raw_value(&event).unwrap();
         assert!(matches!(
             verify_event(&client, &payload).await,
             Err(WebhookError::InvalidEvent)
@@ -258,7 +260,9 @@ async fn malformed_headers_configuration_and_bounds_fail_before_postback() {
         ));
     }
     let mut payload = completed();
-    payload.webhook_event["resource"]["large"] = json!("x".repeat(262_145));
+    let mut event: Value = serde_json::from_str(payload.webhook_event.get()).unwrap();
+    event["resource"]["large"] = json!("x".repeat(262_145));
+    payload.webhook_event = serde_json::value::to_raw_value(&event).unwrap();
     assert!(matches!(
         verify_event(&client, &payload).await,
         Err(WebhookError::InputTooLarge)
@@ -325,4 +329,32 @@ async fn provider_connection_and_timeout_failures_remain_typed() {
     assert!(
         matches!(error, WebhookError::Upstream(ref source) if matches!(source.kind(), ClientErrorKind::Transport { source } if source.is_timeout()))
     );
+}
+
+#[tokio::test]
+async fn verification_postback_preserves_signed_event_lexical_bytes() {
+    let raw = r#"{"resource" : {"id":"ORDER123", "custom_id":"checkout\u002d123"}, "event_type":"CHECKOUT.ORDER.APPROVED", "id" : "EVENT123"}"#;
+    for status in ["SUCCESS", "FAILURE"] {
+        let f = Fixture::new(vec![
+            super::super::tests::token("fixture-token"),
+            verification_reply(status),
+        ])
+        .await;
+        let client = PaypalClient::new(&super::super::tests::config(&f)).unwrap();
+        let mut payload = completed();
+        payload.webhook_event = serde_json::from_str(raw).unwrap();
+        let result = verify_event(&client, &payload).await;
+        if status == "SUCCESS" {
+            assert_eq!(result.unwrap().order_id.as_deref(), Some("ORDER123"));
+        } else {
+            assert!(matches!(result, Err(WebhookError::InvalidSignature)));
+        }
+        let outbound = String::from_utf8(f.raw_bodies()[1].clone()).unwrap();
+        assert!(
+            outbound.contains(&format!("\"webhook_event\":{raw}")),
+            "{outbound}"
+        );
+        assert_eq!(f.requests()[1].2["transmission_sig"], "synthetic-signature");
+        assert_eq!(f.requests()[1].2["webhook_id"], "WH123");
+    }
 }

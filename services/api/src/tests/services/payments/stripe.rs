@@ -32,6 +32,7 @@ fn objects() -> Vec<Value> {
 }
 fn client(fixture: &Fixture) -> StripeClient {
     StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: fixture.url.join("/v1/").unwrap().to_string(),
         timeout_secs: 1,
         secret_key: Some("sk_test_fixture".into()),
@@ -130,21 +131,26 @@ async fn rejects_context_and_paid_object_mismatches_before_following_the_next_re
         let error = verify_payment(&client(&fixture), &expected())
             .await
             .unwrap_err();
-        assert!(
-            matches!(
-                error.kind(),
-                ClientErrorKind::Protocol("Payment verification failed")
-            ),
-            "object {index} field {field}: {value}"
-        );
-        assert!(
-            error
-                .location()
-                .file()
-                .ends_with("services/payments/stripe.rs"),
-            "object {index} field {field}: origin {}",
-            error.location()
-        );
+        if index == 0 && field == "object" {
+            assert!(matches!(error.kind(), ClientErrorKind::Protocol(_)));
+            assert!(error.location().file().ends_with("client/stripe.rs"));
+        } else {
+            assert!(
+                matches!(
+                    error.kind(),
+                    ClientErrorKind::Upstream { source, timed_out: false } if source.is::<super::super::EvidenceMismatch>()
+                ),
+                "object {index} field {field}: {value}"
+            );
+            assert!(
+                error
+                    .location()
+                    .file()
+                    .ends_with("services/payments/stripe.rs"),
+                "object {index} field {field}: origin {}",
+                error.location()
+            );
+        }
         assert_eq!(
             fixture.requests().len(),
             index + 1,
@@ -166,6 +172,8 @@ async fn pending_and_expired_unpaid_do_not_require_intent_or_charge() {
             .unwrap();
         let want = if expired {
             PaymentOutcome::ExpiredUnpaid
+        } else if status == "open" {
+            PaymentOutcome::RequiresAction
         } else {
             PaymentOutcome::Pending
         };
@@ -321,6 +329,7 @@ async fn invalid_trusted_expectations_fail_before_provider_calls() {
 async fn provider_timeout_keeps_transport_source_and_origin_for_safe_http_mapping() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let client = StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: format!("http://{}/v1/", listener.local_addr().unwrap()),
         timeout_secs: 1,
         secret_key: Some("sk_test_fixture".into()),
@@ -359,4 +368,23 @@ async fn provider_timeout_keeps_transport_source_and_origin_for_safe_http_mappin
         serde_json::from_slice::<Value>(&body).unwrap(),
         json!({"error":"Upstream request failed"})
     );
+}
+
+#[tokio::test]
+async fn open_and_completed_unpaid_sessions_have_distinct_advancement_outcomes() {
+    let mut outcomes = Vec::new();
+    for status in ["open", "complete"] {
+        let mut replies = objects();
+        replies[1]["status"] = json!(status);
+        replies[1]["payment_status"] = json!("unpaid");
+        replies[1]["payment_intent"] = Value::Null;
+        replies[1]["url"] = Value::Null;
+        let fixture = Fixture::new(replies.into_iter().map(Reply::json).collect()).await;
+        outcomes.push(
+            verify_payment(&client(&fixture), &expected())
+                .await
+                .unwrap(),
+        );
+    }
+    assert_ne!(outcomes[0], outcomes[1]);
 }

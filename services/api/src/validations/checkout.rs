@@ -1,12 +1,14 @@
 use crate::{
-    config::CheckoutSettings, error::AppError, models::paypal::VerifyWebhookSignatureRequest,
+    config::CheckoutSettings,
+    error::AppError,
+    models::{paypal::VerifyWebhookSignatureRequest, shopify::ShopifyId},
 };
 use axum::{
     body::Bytes,
     extract::rejection::BytesRejection,
     http::{HeaderMap, StatusCode, header::AUTHORIZATION},
 };
-use domain::dto::checkout::CreateCheckoutRequest;
+use domain::dto::checkout::{CreateCheckoutRequest, MAX_CHECKOUT_NOTE_CHARS};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -65,9 +67,30 @@ pub(crate) fn create(request: &CreateCheckoutRequest) -> Result<(), AppError> {
             "expected_currency must be an uppercase currency code",
         ));
     }
+    if let Some(note) = &request.note {
+        if note.chars().count() > MAX_CHECKOUT_NOTE_CHARS {
+            return Err(invalid("note must contain at most 2000 characters"));
+        }
+        if note
+            .chars()
+            .any(|character| character.is_control() && !matches!(character, '\t' | '\r' | '\n'))
+        {
+            return Err(invalid("note contains unsupported control characters"));
+        }
+    }
     let mut variants = HashSet::new();
     for item in &request.items {
-        let variant = id(&item.variant_id)?;
+        let variant = if item.variant_id.starts_with("gid:") {
+            let variant = ShopifyId::new(&item.variant_id)
+                .and_then(|variant| variant.number("ProductVariant"))
+                .map_err(|_| invalid("Invalid checkout variant identifier"))?;
+            if item.variant_id != format!("gid://shopify/ProductVariant/{variant}") {
+                return Err(invalid("Invalid checkout variant identifier"));
+            }
+            item.variant_id.clone()
+        } else {
+            id(&item.variant_id)?.to_string()
+        };
         if !variants.insert(variant) {
             return Err(invalid("items must not contain duplicate variants"));
         }
@@ -147,7 +170,8 @@ pub(crate) fn paypal_authentication(
                 "PayPal webhook configuration unavailable",
             )
         })?;
-    let value = serde_json::from_slice(raw).map_err(|_| invalid("Invalid PayPal webhook event"))?;
+    let webhook_event =
+        serde_json::from_slice(raw).map_err(|_| invalid("Invalid PayPal webhook event"))?;
     Ok(VerifyWebhookSignatureRequest {
         auth_algo: webhook_header(headers, "paypal-auth-algo")?.into(),
         cert_url: webhook_header(headers, "paypal-cert-url")?.into(),
@@ -155,7 +179,7 @@ pub(crate) fn paypal_authentication(
         transmission_sig: webhook_header(headers, "paypal-transmission-sig")?.into(),
         transmission_time: webhook_header(headers, "paypal-transmission-time")?.into(),
         webhook_id: webhook_id.into(),
-        webhook_event: value,
+        webhook_event,
     })
 }
 

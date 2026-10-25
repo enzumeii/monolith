@@ -29,6 +29,7 @@ pub(super) fn payment(
     Payment {
         transaction,
         currency: "USD".into(),
+        source_money: None,
     }
 }
 pub(super) fn order_value() -> Value {

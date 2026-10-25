@@ -68,3 +68,59 @@ fn paypal_known_event_codes_round_trip() {
         assert_eq!(serde_json::to_value(event).unwrap(), json!(code));
     }
 }
+
+#[test]
+fn paypal_experience_requires_shipping_and_encodes_pickup_policy() {
+    use crate::models::paypal::ExperienceContext;
+    assert!(
+        serde_json::from_value::<ExperienceContext>(json!({
+            "return_url":"https://example.test/return", "cancel_url":"https://example.test/cancel"
+        }))
+        .is_err()
+    );
+    let context = ExperienceContext {
+        return_url: "https://example.test/return".into(),
+        cancel_url: "https://example.test/cancel".into(),
+        shipping_preference: "NO_SHIPPING".into(),
+    };
+    assert_eq!(
+        serde_json::to_value(&context).unwrap()["shipping_preference"],
+        "NO_SHIPPING"
+    );
+}
+
+#[test]
+fn paypal_empty_report_may_omit_transaction_details() {
+    let response: crate::models::paypal::TransactionPage = serde_json::from_value(json!({
+        "page":1, "total_items":0, "total_pages":0,
+        "last_refreshed_datetime":"2026-10-25T06:00:00Z"
+    }))
+    .unwrap();
+    assert!(response.transaction_details.is_empty());
+    assert_eq!(response.page, 1);
+    assert_eq!(response.total_items, 0);
+    assert_eq!(response.total_pages, 0);
+}
+
+#[test]
+fn paypal_missing_report_details_require_explicit_empty_first_page() {
+    for value in [
+        json!({"page":1,"total_items":1,"total_pages":1}),
+        json!({"page":2,"total_items":0,"total_pages":0}),
+        json!({"page":1,"total_items":0,"total_pages":1}),
+        json!({"page":1,"total_items":1,"total_pages":0}),
+        json!({"total_items":0,"total_pages":0}),
+        json!({"page":1,"total_pages":0}),
+        json!({"page":1,"total_items":0}),
+        json!({"page":1,"total_items":0,"total_pages":null}),
+        json!({"transaction_details":null,"page":1,"total_items":0,"total_pages":0}),
+        json!({"transaction_details":{},"page":1,"total_items":0,"total_pages":0}),
+        json!({"transaction_details":"private payer","page":1,"total_items":0,"total_pages":0}),
+    ] {
+        assert!(
+            serde_json::from_value::<crate::models::paypal::TransactionPage>(value.clone())
+                .is_err(),
+            "accepted malformed report {value}"
+        );
+    }
+}

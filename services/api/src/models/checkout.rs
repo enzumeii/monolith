@@ -5,6 +5,10 @@ use uuid::Uuid;
 #[derive(Clone, sqlx::FromRow)]
 pub(crate) struct Checkout {
     pub id: Uuid,
+    pub completion_version: i16,
+    pub correlation_version: i16,
+    pub convention_slug: Option<String>,
+    pub payment_recording_state: PaymentRecordingState,
     pub guest_secret_hash: Vec<u8>,
     pub owner_expires_at: DateTime<Utc>,
     pub request_fingerprint: Vec<u8>,
@@ -58,4 +62,31 @@ pub(crate) enum CompletionState {
     Completing,
     Completed,
     Uncertain,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "text", rename_all = "snake_case")]
+pub(crate) enum RecoveryCode {
+    Observed,
+    WaitingForPayment,
+    TransientFailure,
+    ClaimAbandoned,
+    AttemptsExhausted,
+    EvidenceConflict,
+    MissingPurchase,
+    ReservationUnsafe,
+    MutationWindowExpired,
+    DraftAmbiguous,
+    CompletionUncertain,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "text", rename_all = "snake_case")]
+pub(crate) enum PaymentRecordingState {
+    NotStarted,
+    Recording,
+    Uncertain,
+    Recorded,
 }

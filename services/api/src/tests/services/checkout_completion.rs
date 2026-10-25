@@ -31,6 +31,7 @@ fn paid() -> Vec<Value> {
 }
 fn stripe_client(f: &Fixture) -> StripeClient {
     StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: f.url.join("/v1/").unwrap().to_string(),
         timeout_secs: 1,
         secret_key: Some("fixture".into()),
@@ -436,6 +437,12 @@ async fn unusable_completion_payload_reconciles_without_replaying_the_mutation()
             assert_eq!(result.is_ok(), visible);
             if let Err(error) = result {
                 assert!(error.to_string().contains("ReconcileOnly"));
+                assert!(
+                    error
+                        .find_source::<crate::client::shopify::CheckoutIdentityMismatch>()
+                        .is_none()
+                );
+                assert!(error.find_source::<crate::models::checkout_completion::CompletionEvidenceConflict>().is_none());
             }
             assert_eq!(
                 operations(&shop)
@@ -447,6 +454,37 @@ async fn unusable_completion_payload_reconciles_without_replaying_the_mutation()
         }
     }
 }
+#[tokio::test]
+async fn completed_draft_with_wrong_linked_resource_keeps_upstream_identity_failure() {
+    use axum::response::IntoResponse;
+
+    for mode in [
+        CompletionMode::CompleteIfOpen,
+        CompletionMode::ReconcileOnly,
+    ] {
+        let provider = Fixture::new(paid().into_iter().map(Reply::json).collect()).await;
+        let mut response = draft(true);
+        response["data"]["draftOrder"]["order"]["id"] = json!("gid://shopify/Product/2");
+        let shop = Fixture::new(vec![Reply::json(response)]).await;
+        let error = run(&shop, &provider, mode).await.unwrap_err();
+        assert!(
+            error
+                .find_source::<crate::client::shopify::CheckoutIdentityMismatch>()
+                .is_some()
+        );
+        let response = error.into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_GATEWAY);
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            json!({"error":"Upstream request failed"})
+        );
+        assert_eq!(operations(&shop), ["CheckoutDraft"]);
+    }
+}
+
 #[tokio::test]
 async fn wrong_returned_draft_identity_never_authorizes_an_order() {
     let provider = Fixture::new(paid().into_iter().map(Reply::json).collect()).await;
@@ -460,10 +498,13 @@ async fn wrong_returned_draft_identity_never_authorizes_an_order() {
             .collect(),
     )
     .await;
+    let error = run(&shop, &provider, CompletionMode::CompleteIfOpen)
+        .await
+        .unwrap_err();
     assert!(
-        run(&shop, &provider, CompletionMode::CompleteIfOpen)
-            .await
-            .is_err()
+        error
+            .find_source::<crate::client::shopify::CheckoutIdentityMismatch>()
+            .is_some()
     );
     assert_eq!(
         operations(&shop),
@@ -601,4 +642,969 @@ async fn linked_completed_order_never_calls_before_completion_hook() {
     .await
     .unwrap();
     assert_eq!(operations(&shop), ["CheckoutDraft", "CheckoutOrder"]);
+}
+
+#[test]
+fn payment_references_fit_shopify_tags_without_losing_kind_or_id_binding() {
+    let boundary = "s".repeat(17);
+    assert_eq!(
+        reference("stripe:session", &boundary).unwrap(),
+        format!("payment:stripe:session:{boundary}")
+    );
+    let session_id = format!("cs_test_{}", "s".repeat(90));
+    let tag = reference("stripe:session", &session_id).unwrap();
+    assert_eq!(tag, "payment:XvGzmVJpPMv7bbJ-aojDbsffsYUoKToE");
+    assert_eq!(tag.len(), 40);
+    assert_eq!(reference("stripe:session", &session_id).unwrap(), tag);
+    assert_ne!(reference("stripe:intent", &session_id).unwrap(), tag);
+    assert_ne!(
+        reference("stripe:session", &format!("{session_id}x")).unwrap(),
+        tag
+    );
+    assert!(validate_references(std::slice::from_ref(&tag), std::slice::from_ref(&tag)).is_ok());
+    assert!(
+        validate_references(
+            &[reference("stripe:intent", &session_id).unwrap()],
+            &[reference("stripe:session", &session_id).unwrap()],
+        )
+        .is_err()
+    );
+    for id in [
+        String::new(),
+        "bad id".into(),
+        "bad:id".into(),
+        "bad,id".into(),
+        "bad\nid".into(),
+        "s".repeat(234),
+    ] {
+        assert!(reference("stripe:session", &id).is_err());
+    }
+}
+
+#[tokio::test]
+async fn real_length_stripe_references_reconcile_completed_order_without_completing_again() {
+    let session_id = format!("cs_test_{}", "s".repeat(90));
+    let intent_id = format!("pi_{}", "i".repeat(24));
+    let charge_id = format!("ch_{}", "c".repeat(24));
+    let mut payment = paid();
+    payment[1]["id"] = json!(session_id);
+    payment[1]["payment_intent"] = json!(intent_id);
+    payment[2]["id"] = json!(intent_id);
+    payment[2]["latest_charge"] = json!(charge_id);
+    payment[3]["id"] = json!(charge_id);
+    payment[3]["payment_intent"] = json!(intent_id);
+    let expected_tags: Vec<String> = [
+        "payment:XvGzmVJpPMv7bbJ-aojDbsffsYUoKToE",
+        "payment:2-Ef_Z49_CRUW64jCSl5pQ6TW-Qr5vXs",
+        "payment:ooiDKpiL97rsciUSdw0YAQXYcjotae4X",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    let mut expected = expected();
+    expected.session_id = session_id;
+    for mode in [
+        CompletionMode::CompleteIfOpen,
+        CompletionMode::ReconcileOnly,
+    ] {
+        let provider = Fixture::new(payment.iter().cloned().map(Reply::json).collect()).await;
+        let shop = Fixture::new(
+            [
+                draft(true),
+                order(vec![]),
+                tagged(),
+                order(expected_tags.clone()),
+            ]
+            .into_iter()
+            .map(Reply::json)
+            .collect(),
+        )
+        .await;
+        let outcome = complete_paid_draft(
+            &client(&shop),
+            &id("DraftOrder", 1),
+            PaymentContext::Stripe {
+                client: &stripe_client(&provider),
+                expected: &expected,
+            },
+            mode,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(outcome, CompletionOutcome::Completed { .. }));
+        assert_eq!(
+            operations(&shop),
+            [
+                "CheckoutDraft",
+                "CheckoutOrder",
+                "EditOrderTags",
+                "CheckoutOrder"
+            ]
+        );
+        assert_eq!(
+            shop.requests()[2].2["variables"]["tags"],
+            json!(expected_tags)
+        );
+    }
+}
+
+#[derive(Default)]
+struct Progress(Vec<CompletionStage>);
+impl CompletionProgress for Progress {
+    fn before_mutation(
+        &mut self,
+        stage: CompletionStage,
+    ) -> impl std::future::Future<Output = Result<(), AppError>> + Send {
+        self.0.push(stage);
+        std::future::ready(Ok(()))
+    }
+}
+fn external_order(paid: bool) -> Value {
+    let mut value = order(tags());
+    let order = &mut value["data"]["order"];
+    order["tags"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("qa-convention"));
+    order["customAttributes"] = json!([{"key":"convention_slug","value":"qa-convention"}]);
+    order["displayFinancialStatus"] = json!(if paid { "PAID" } else { "PENDING" });
+    order["totalOutstandingSet"] =
+        json!({"presentmentMoney":{"amount":if paid {"0.00"} else {"12.50"},"currencyCode":"THB"}});
+    order["transactions"] = if paid {
+        json!([{"id":"gid://shopify/OrderTransaction/3","gateway":"Stripe Card Payments","kind":"SALE","status":"SUCCESS","amountSet":{"presentmentMoney":{"amount":"12.50","currencyCode":"THB"}}}])
+    } else {
+        json!([])
+    };
+    value
+}
+fn external_draft(completed: bool) -> Value {
+    let mut value = draft(completed);
+    value["data"]["draftOrder"]["tags"] = json!(["qa-convention"]);
+    value["data"]["draftOrder"]["customAttributes"] =
+        json!([{"key":"convention_slug","value":"qa-convention"}]);
+    value
+}
+async fn run_external(
+    shop: &Fixture,
+    state: crate::models::checkout::PaymentRecordingState,
+    mode: CompletionMode,
+) -> (Result<CompletionOutcome, AppError>, Progress) {
+    let provider = Fixture::new(paid().into_iter().map(Reply::json).collect()).await;
+    let hashes = vec![Sha256::digest(b"qa-convention").to_vec()];
+    let mut progress = Progress::default();
+    let result = complete_external_paid_draft(
+        &client(shop),
+        &id("DraftOrder", 1),
+        PaymentContext::Stripe {
+            client: &stripe_client(&provider),
+            expected: &expected(),
+        },
+        mode,
+        ExternalPaymentRecording {
+            state,
+            required_tag_hashes: &hashes,
+            convention_slug: "qa-convention",
+            identity: None,
+            provider_resource_id: Some("cs_real"),
+        },
+        &mut progress,
+    )
+    .await;
+    (result, progress)
+}
+#[tokio::test]
+async fn external_payment_converts_pending_then_records_named_payment_with_two_checkpoints() {
+    let shop=Fixture::new(vec![external_draft(false),completed(),external_order(false),json!({"data":{"orderCreateManualPayment":{"order":{"id":"gid://shopify/Order/2"},"userErrors":[]}}}),external_order(true)].into_iter().map(Reply::json).collect()).await;
+    let (result, progress) = run_external(
+        &shop,
+        crate::models::checkout::PaymentRecordingState::NotStarted,
+        CompletionMode::CompleteIfOpen,
+    )
+    .await;
+    assert!(matches!(
+        result.unwrap(),
+        CompletionOutcome::Completed { .. }
+    ));
+    assert_eq!(
+        progress.0,
+        vec![
+            CompletionStage::ConvertDraft,
+            CompletionStage::RecordExternalPayment
+        ]
+    );
+    let requests = shop.requests();
+    assert_eq!(requests[1].2["variables"]["paymentPending"], true);
+    assert_eq!(requests[3].2["operationName"], "RecordCheckoutPayment");
+    assert_eq!(
+        requests[3].2["variables"],
+        json!({"id":"gid://shopify/Order/2","paymentMethodName":"Stripe Card Payments"})
+    );
+}
+#[tokio::test]
+async fn external_lost_recording_response_reconciles_paid_order_without_another_mutation() {
+    let shop = Fixture::new(vec![
+        Reply::json(external_draft(true)),
+        Reply::json(external_order(true)),
+    ])
+    .await;
+    let (result, progress) = run_external(
+        &shop,
+        crate::models::checkout::PaymentRecordingState::Recording,
+        CompletionMode::ReconcileOnly,
+    )
+    .await;
+    assert!(matches!(
+        result.unwrap(),
+        CompletionOutcome::Completed { .. }
+    ));
+    assert_eq!(progress.0, Vec::new());
+    assert_eq!(operations(&shop), vec!["CheckoutDraft", "CheckoutOrder"]);
+}
+#[tokio::test]
+async fn external_uncertain_recording_with_unpaid_order_never_records_twice() {
+    let shop = Fixture::new(vec![
+        Reply::json(external_draft(true)),
+        Reply::json(external_order(false)),
+    ])
+    .await;
+    let (result, progress) = run_external(
+        &shop,
+        crate::models::checkout::PaymentRecordingState::Uncertain,
+        CompletionMode::ReconcileOnly,
+    )
+    .await;
+    assert!(result.is_err());
+    assert_eq!(progress.0, Vec::new());
+    assert_eq!(operations(&shop), vec!["CheckoutDraft", "CheckoutOrder"]);
+}
+#[tokio::test]
+async fn external_wrong_gateway_or_money_never_reports_completion() {
+    for (field, replacement) in [
+        ("gateway", json!("manual")),
+        (
+            "amountSet",
+            json!({"presentmentMoney":{"amount":"12.51","currencyCode":"THB"}}),
+        ),
+    ] {
+        let mut value = external_order(true);
+        value["data"]["order"]["transactions"][0][field] = replacement;
+        let shop = Fixture::new(vec![Reply::json(external_draft(true)), Reply::json(value)]).await;
+        let (result, progress) = run_external(
+            &shop,
+            crate::models::checkout::PaymentRecordingState::Recording,
+            CompletionMode::ReconcileOnly,
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(progress.0, Vec::new());
+    }
+}
+
+#[tokio::test]
+async fn external_lost_conversion_response_recovers_only_the_linked_order() {
+    let shop=Fixture::new(vec![Reply::json(external_draft(false)),Reply::status(500),Reply::json(external_draft(true)),Reply::json(external_order(false)),Reply::json(json!({"data":{"orderCreateManualPayment":{"order":{"id":"gid://shopify/Order/2"},"userErrors":[]}}})),Reply::json(external_order(true))]).await;
+    let (result, progress) = run_external(
+        &shop,
+        crate::models::checkout::PaymentRecordingState::NotStarted,
+        CompletionMode::CompleteIfOpen,
+    )
+    .await;
+    assert!(matches!(
+        result.unwrap(),
+        CompletionOutcome::Completed { .. }
+    ));
+    assert_eq!(
+        progress.0,
+        vec![
+            CompletionStage::ConvertDraft,
+            CompletionStage::RecordExternalPayment
+        ]
+    );
+    assert_eq!(
+        operations(&shop)
+            .iter()
+            .filter(|operation| operation.as_str() == "CompleteCheckoutDraft")
+            .count(),
+        1
+    );
+}
+#[tokio::test]
+async fn external_unlinked_uncertain_conversion_never_repeats_conversion() {
+    let shop = Fixture::new(vec![Reply::json(external_draft(false))]).await;
+    let (result, progress) = run_external(
+        &shop,
+        crate::models::checkout::PaymentRecordingState::NotStarted,
+        CompletionMode::ReconcileOnly,
+    )
+    .await;
+    assert!(result.is_err());
+    assert_eq!(progress.0, Vec::new());
+    assert_eq!(operations(&shop), vec!["CheckoutDraft"]);
+}
+#[test]
+fn external_paid_confirmation_rejects_conflicting_truth_and_requires_full_named_sale() {
+    let money = exact_money(1250, "THB").unwrap();
+    let hashes = vec![Sha256::digest(b"qa-convention").to_vec()];
+    let recording = ExternalPaymentRecording {
+        state: crate::models::checkout::PaymentRecordingState::Recording,
+        required_tag_hashes: &hashes,
+        convention_slug: "qa-convention",
+        identity: None,
+        provider_resource_id: Some("cs_real"),
+    };
+    let value = external_order(true)["data"]["order"].clone();
+    let order = serde_json::from_value(value.clone()).unwrap();
+    assert!(
+        validate_external_paid_order(&order, &money, &recording, "Stripe Card Payments").is_ok()
+    );
+    for (pointer, replacement) in [
+        ("/transactions/0/gateway", json!("manual")),
+        ("/transactions/0/kind", json!("REFUND")),
+        ("/transactions/0/status", json!("PENDING")),
+        ("/transactions/0/id", json!("gid://shopify/Order/3")),
+        (
+            "/transactions/0/amountSet/presentmentMoney/amount",
+            json!("12.51"),
+        ),
+        (
+            "/transactions/0/amountSet/presentmentMoney/currencyCode",
+            json!("AUD"),
+        ),
+        (
+            "/totalOutstandingSet/presentmentMoney/amount",
+            json!("0.01"),
+        ),
+        ("/totalPriceSet/presentmentMoney/amount", json!("12.49")),
+        ("/cancelledAt", json!("2026-10-24T00:00:00Z")),
+        ("/customAttributes/0/value", json!("changed-slug")),
+        ("/tags", json!([])),
+        ("/transactions", json!([])),
+        ("/totalOutstandingSet", json!(null)),
+    ] {
+        let mut changed = value.clone();
+        *changed.pointer_mut(pointer).unwrap() = replacement;
+        assert!(
+            validate_external_paid_order(
+                &serde_json::from_value(changed).unwrap(),
+                &money,
+                &recording,
+                "Stripe Card Payments"
+            )
+            .is_err(),
+            "accepted {pointer}"
+        );
+    }
+    let mut duplicate = value.clone();
+    duplicate["transactions"]
+        .as_array_mut()
+        .unwrap()
+        .push(value["transactions"][0].clone());
+    assert!(
+        validate_external_paid_order(
+            &serde_json::from_value(duplicate).unwrap(),
+            &money,
+            &recording,
+            "Stripe Card Payments"
+        )
+        .is_err()
+    );
+    let mut paypal = value;
+    paypal["transactions"][0]["gateway"] = json!("paypal");
+    assert!(
+        validate_external_paid_order(
+            &serde_json::from_value(paypal).unwrap(),
+            &money,
+            &recording,
+            "paypal"
+        )
+        .is_ok()
+    );
+}
+
+#[tokio::test]
+async fn external_recording_rejects_wrong_mutation_order_identity_even_if_readback_is_paid() {
+    let shop=Fixture::new(vec![external_draft(true),external_order(false),json!({"data":{"orderCreateManualPayment":{"order":{"id":"gid://shopify/Order/999"},"userErrors":[]}}}),external_order(true)].into_iter().map(Reply::json).collect()).await;
+    let (result, progress) = run_external(
+        &shop,
+        crate::models::checkout::PaymentRecordingState::NotStarted,
+        CompletionMode::CompleteIfOpen,
+    )
+    .await;
+    assert!(result.is_err());
+    assert_eq!(progress.0, vec![CompletionStage::RecordExternalPayment]);
+}
+
+#[tokio::test]
+async fn external_lost_recording_response_reads_success_without_retrying_the_mutation() {
+    let shop = Fixture::new(vec![
+        Reply::json(external_draft(true)),
+        Reply::json(external_order(false)),
+        Reply::status(500),
+        Reply::json(external_order(true)),
+    ])
+    .await;
+    let (result, progress) = run_external(
+        &shop,
+        crate::models::checkout::PaymentRecordingState::NotStarted,
+        CompletionMode::CompleteIfOpen,
+    )
+    .await;
+    assert!(matches!(
+        result.unwrap(),
+        CompletionOutcome::Completed { .. }
+    ));
+    assert_eq!(progress.0, vec![CompletionStage::RecordExternalPayment]);
+    assert_eq!(
+        operations(&shop)
+            .iter()
+            .filter(|operation| operation.as_str() == "RecordCheckoutPayment")
+            .count(),
+        1
+    );
+}
+
+fn metadata_identity(provider: &str) -> correlation::Identity {
+    correlation::Identity {
+        checkout_id: uuid::Uuid::parse_str("2081e145-a446-411b-b86c-48aad58c5255").unwrap(),
+        convention_id: uuid::Uuid::parse_str("edb37c06-23c6-498e-906a-28efb0ef40f5").unwrap(),
+        convention_slug: "qa-convention".into(),
+        provider: provider.into(),
+    }
+}
+fn metadata_references(provider: &str) -> Vec<CustomAttribute> {
+    if provider == "stripe" {
+        vec![
+            payment_attribute(correlation::STRIPE_SESSION_KEY, "cs_real"),
+            payment_attribute(correlation::STRIPE_INTENT_KEY, "pi_real"),
+            payment_attribute(correlation::STRIPE_CHARGE_KEY, "ch_real"),
+        ]
+    } else {
+        vec![
+            payment_attribute(correlation::PAYPAL_ORDER_KEY, "ORDER"),
+            payment_attribute(correlation::PAYPAL_CAPTURE_KEY, "CAPTURE"),
+        ]
+    }
+}
+fn metadata_draft(completed: bool, provider: &str) -> Value {
+    let mut value = external_draft(completed);
+    value["data"]["draftOrder"]["customAttributes"] =
+        serde_json::to_value(metadata_identity(provider).attributes()).unwrap();
+    value
+}
+fn metadata_order(paid: bool, references: bool, provider: &str) -> Value {
+    let mut value = external_order(paid);
+    let order = &mut value["data"]["order"];
+    order["tags"] = json!(["qa-convention"]);
+    let mut attributes = metadata_identity(provider).attributes();
+    attributes.push(payment_attribute("merchant_note", "Preserve this note"));
+    if references {
+        attributes.extend(metadata_references(provider));
+    }
+    order["customAttributes"] = serde_json::to_value(attributes).unwrap();
+    if paid {
+        order["transactions"][0]["gateway"] = json!("manual");
+    }
+    value
+}
+fn attributes_updated() -> Value {
+    json!({"data":{"orderUpdate":{"order":{"id":"gid://shopify/Order/2"},"userErrors":[]}}})
+}
+fn payment_recorded() -> Value {
+    json!({"data":{"orderCreateManualPayment":{"order":{"id":"gid://shopify/Order/2"},"userErrors":[]}}})
+}
+async fn run_metadata(
+    shop: &Fixture,
+    state: crate::models::checkout::PaymentRecordingState,
+    mode: CompletionMode,
+) -> (Result<CompletionOutcome, AppError>, Progress) {
+    let provider = Fixture::new(paid().into_iter().map(Reply::json).collect()).await;
+    let mut progress = Progress::default();
+    let result = complete_external_paid_draft(
+        &client(shop),
+        &id("DraftOrder", 1),
+        PaymentContext::Stripe {
+            client: &stripe_client(&provider),
+            expected: &expected(),
+        },
+        mode,
+        ExternalPaymentRecording {
+            state,
+            required_tag_hashes: &[],
+            convention_slug: "qa-convention",
+            identity: Some(metadata_identity("stripe")),
+            provider_resource_id: Some("cs_real"),
+        },
+        &mut progress,
+    )
+    .await;
+    (result, progress)
+}
+#[tokio::test]
+async fn metadata_completion_records_default_manual_once_and_preserves_attributes_without_tag_writes()
+ {
+    let shop = Fixture::new(
+        [
+            metadata_draft(false, "stripe"),
+            completed(),
+            metadata_order(false, false, "stripe"),
+            payment_recorded(),
+            metadata_order(true, false, "stripe"),
+            attributes_updated(),
+            metadata_order(true, true, "stripe"),
+        ]
+        .into_iter()
+        .map(Reply::json)
+        .collect(),
+    )
+    .await;
+    let (result, progress) = run_metadata(
+        &shop,
+        crate::models::checkout::PaymentRecordingState::NotStarted,
+        CompletionMode::CompleteIfOpen,
+    )
+    .await;
+    assert!(matches!(
+        result.unwrap(),
+        CompletionOutcome::Completed { .. }
+    ));
+    assert_eq!(
+        progress.0,
+        [
+            CompletionStage::ConvertDraft,
+            CompletionStage::RecordExternalPayment
+        ]
+    );
+    assert_eq!(
+        operations(&shop),
+        [
+            "CheckoutDraft",
+            "CompleteCheckoutDraft",
+            "CheckoutOrder",
+            "RecordCheckoutPayment",
+            "CheckoutOrder",
+            "UpdateOrderCustomAttributes",
+            "CheckoutOrder"
+        ]
+    );
+    let requests = shop.requests();
+    assert_eq!(
+        requests[3].2["variables"],
+        json!({"id":"gid://shopify/Order/2"})
+    );
+    let attributes = requests[5].2["variables"]["input"]["customAttributes"]
+        .as_array()
+        .unwrap();
+    assert_eq!(
+        attributes.len(),
+        metadata_identity("stripe").attributes().len() + 4
+    );
+    assert!(attributes.contains(&json!({"key":"merchant_note","value":"Preserve this note"})));
+    for attribute in metadata_references("stripe") {
+        assert!(attributes.contains(&serde_json::to_value(attribute).unwrap()));
+    }
+}
+#[tokio::test]
+async fn metadata_lost_attribute_response_reconciles_exact_readback_without_another_financial_write()
+ {
+    let shop = Fixture::new(vec![
+        Reply::json(metadata_draft(true, "stripe")),
+        Reply::json(metadata_order(true, false, "stripe")),
+        Reply::status(500),
+        Reply::json(metadata_order(true, true, "stripe")),
+    ])
+    .await;
+    let (result, progress) = run_metadata(
+        &shop,
+        crate::models::checkout::PaymentRecordingState::Uncertain,
+        CompletionMode::ReconcileOnly,
+    )
+    .await;
+    assert!(matches!(
+        result.unwrap(),
+        CompletionOutcome::Completed { .. }
+    ));
+    assert_eq!(progress.0, Vec::new());
+    assert_eq!(
+        operations(&shop),
+        [
+            "CheckoutDraft",
+            "CheckoutOrder",
+            "UpdateOrderCustomAttributes",
+            "CheckoutOrder"
+        ]
+    );
+}
+#[tokio::test]
+async fn metadata_missing_attribute_readback_retries_only_the_idempotent_reference_write() {
+    let shop = Fixture::new(
+        [
+            metadata_draft(true, "stripe"),
+            metadata_order(true, false, "stripe"),
+            attributes_updated(),
+            metadata_order(true, false, "stripe"),
+            metadata_draft(true, "stripe"),
+            metadata_order(true, false, "stripe"),
+            attributes_updated(),
+            metadata_order(true, true, "stripe"),
+        ]
+        .into_iter()
+        .map(Reply::json)
+        .collect(),
+    )
+    .await;
+    let (first, _) = run_metadata(
+        &shop,
+        crate::models::checkout::PaymentRecordingState::Uncertain,
+        CompletionMode::ReconcileOnly,
+    )
+    .await;
+    assert!(first.is_err());
+    let (second, progress) = run_metadata(
+        &shop,
+        crate::models::checkout::PaymentRecordingState::Uncertain,
+        CompletionMode::ReconcileOnly,
+    )
+    .await;
+    assert!(matches!(
+        second.unwrap(),
+        CompletionOutcome::Completed { .. }
+    ));
+    assert_eq!(progress.0, Vec::new());
+    assert!(operations(&shop).iter().all(|operation| {
+        ![
+            "RecordCheckoutPayment",
+            "CompleteCheckoutDraft",
+            "EditOrderTags",
+        ]
+        .contains(&operation.as_str())
+    }));
+}
+#[tokio::test]
+async fn metadata_conflicting_payment_references_stop_before_any_financial_or_attribute_write() {
+    for extra in [
+        payment_attribute(correlation::STRIPE_CHARGE_KEY, "ch_other"),
+        payment_attribute(correlation::PAYPAL_CAPTURE_KEY, "CAPTURE"),
+        payment_attribute(correlation::STRIPE_CHARGE_KEY, "ch_real"),
+    ] {
+        let mut value = metadata_order(true, true, "stripe");
+        value["data"]["order"]["customAttributes"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::to_value(extra).unwrap());
+        let shop = Fixture::new(
+            [metadata_draft(true, "stripe"), value]
+                .into_iter()
+                .map(Reply::json)
+                .collect(),
+        )
+        .await;
+        let (result, progress) = run_metadata(
+            &shop,
+            crate::models::checkout::PaymentRecordingState::Uncertain,
+            CompletionMode::ReconcileOnly,
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(progress.0, Vec::new());
+        assert_eq!(operations(&shop), ["CheckoutDraft", "CheckoutOrder"]);
+    }
+}
+#[test]
+fn metadata_manual_paid_proof_requires_exact_identity_full_references_and_original_resource() {
+    let money = exact_money(1250, "THB").unwrap();
+    let mut recording = ExternalPaymentRecording {
+        state: crate::models::checkout::PaymentRecordingState::Uncertain,
+        required_tag_hashes: &[],
+        convention_slug: "qa-convention",
+        identity: Some(metadata_identity("stripe")),
+        provider_resource_id: Some("cs_real"),
+    };
+    let value = metadata_order(true, true, "stripe")["data"]["order"].clone();
+    let order = serde_json::from_value(value.clone()).unwrap();
+    assert!(
+        validate_external_paid_order(&order, &money, &recording, "Stripe Card Payments").is_ok()
+    );
+    recording.provider_resource_id = Some("cs_other");
+    assert!(
+        validate_external_paid_order(&order, &money, &recording, "Stripe Card Payments").is_err()
+    );
+    recording.provider_resource_id = Some("cs_real");
+    for (pointer, replacement) in [
+        ("/transactions/0/gateway", json!("Stripe Card Payments")),
+        ("/transactions/0/kind", json!("REFUND")),
+        ("/tags", json!(["qa-convention", "co:old-clutter"])),
+        ("/customAttributes", json!([])),
+    ] {
+        let mut changed = value.clone();
+        *changed.pointer_mut(pointer).unwrap() = replacement;
+        assert!(
+            validate_external_paid_order(
+                &serde_json::from_value(changed).unwrap(),
+                &money,
+                &recording,
+                "Stripe Card Payments"
+            )
+            .is_err(),
+            "accepted {pointer}"
+        );
+    }
+    let absent = metadata_order(true, false, "stripe")["data"]["order"].clone();
+    assert!(
+        validate_external_paid_order(
+            &serde_json::from_value(absent).unwrap(),
+            &money,
+            &recording,
+            "Stripe Card Payments"
+        )
+        .is_err()
+    );
+    let mut refund = value.clone();
+    let mut transaction = value["transactions"][0].clone();
+    transaction["kind"] = json!("REFUND");
+    transaction["status"] = json!("PENDING");
+    refund["transactions"]
+        .as_array_mut()
+        .unwrap()
+        .push(transaction);
+    assert!(
+        validate_external_paid_order(
+            &serde_json::from_value(refund).unwrap(),
+            &money,
+            &recording,
+            "Stripe Card Payments"
+        )
+        .is_err()
+    );
+}
+#[tokio::test]
+async fn metadata_paypal_records_manual_and_keeps_exact_order_capture_attributes() {
+    let provider = Fixture::new(paypal_objects().into_iter().map(Reply::json).collect()).await;
+    let paypal = PaypalClient::new(&crate::config::PaypalConfig {
+        base_url: provider.url.join("/").unwrap().to_string(),
+        timeout_secs: 1,
+        client_id: Some("fixture".into()),
+        client_secret: Some("fixture".into()),
+    })
+    .unwrap();
+    let expected = paypal::payment::ExpectedPayment {
+        order_id: "ORDER".into(),
+        merchant_id: "MERCHANT".into(),
+        api_origin: provider.url.origin().ascii_serialization(),
+        reference_id: "unit".into(),
+        custom_id: "draft-ref".into(),
+        amount: 1250,
+        currency: "THB".into(),
+    };
+    let shop = Fixture::new(
+        [
+            metadata_draft(true, "paypal"),
+            metadata_order(false, false, "paypal"),
+            payment_recorded(),
+            metadata_order(true, false, "paypal"),
+            attributes_updated(),
+            metadata_order(true, true, "paypal"),
+        ]
+        .into_iter()
+        .map(Reply::json)
+        .collect(),
+    )
+    .await;
+    let mut progress = Progress::default();
+    let result = complete_external_paid_draft(
+        &client(&shop),
+        &id("DraftOrder", 1),
+        PaymentContext::Paypal {
+            client: &paypal,
+            expected: &expected,
+        },
+        CompletionMode::CompleteIfOpen,
+        ExternalPaymentRecording {
+            state: crate::models::checkout::PaymentRecordingState::NotStarted,
+            required_tag_hashes: &[],
+            convention_slug: "qa-convention",
+            identity: Some(metadata_identity("paypal")),
+            provider_resource_id: Some("ORDER"),
+        },
+        &mut progress,
+    )
+    .await;
+    assert!(matches!(
+        result.unwrap(),
+        CompletionOutcome::Completed { .. }
+    ));
+    assert_eq!(progress.0, [CompletionStage::RecordExternalPayment]);
+    assert_eq!(
+        shop.requests()[2].2["variables"],
+        json!({"id":"gid://shopify/Order/2"})
+    );
+    assert!(
+        operations(&shop)
+            .iter()
+            .all(|operation| operation != "EditOrderTags")
+    );
+}
+
+#[tokio::test]
+async fn metadata_provider_or_resource_mismatch_stops_before_reading_or_mutating_shopify() {
+    for (identity_provider, resource) in [("paypal", "cs_real"), ("stripe", "cs_other")] {
+        let provider = Fixture::new(paid().into_iter().map(Reply::json).collect()).await;
+        let shop = Fixture::new(vec![]).await;
+        let mut progress = Progress::default();
+        let result = complete_external_paid_draft(
+            &client(&shop),
+            &id("DraftOrder", 1),
+            PaymentContext::Stripe {
+                client: &stripe_client(&provider),
+                expected: &expected(),
+            },
+            CompletionMode::CompleteIfOpen,
+            ExternalPaymentRecording {
+                state: crate::models::checkout::PaymentRecordingState::NotStarted,
+                required_tag_hashes: &[],
+                convention_slug: "qa-convention",
+                identity: Some(metadata_identity(identity_provider)),
+                provider_resource_id: Some(resource),
+            },
+            &mut progress,
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(progress.0, Vec::new());
+        assert_eq!(shop.requests(), Vec::new());
+    }
+}
+
+#[tokio::test]
+async fn metadata_attribute_mutation_wrong_identity_is_rejected_even_with_matching_readback() {
+    let mut response = attributes_updated();
+    response["data"]["orderUpdate"]["order"]["id"] = json!("gid://shopify/Order/999");
+    let shop = Fixture::new(
+        [
+            metadata_draft(true, "stripe"),
+            metadata_order(true, false, "stripe"),
+            response,
+            metadata_order(true, true, "stripe"),
+        ]
+        .into_iter()
+        .map(Reply::json)
+        .collect(),
+    )
+    .await;
+    let (result, progress) = run_metadata(
+        &shop,
+        crate::models::checkout::PaymentRecordingState::Uncertain,
+        CompletionMode::ReconcileOnly,
+    )
+    .await;
+    assert!(result.is_err());
+    assert_eq!(progress.0, Vec::new());
+    assert_eq!(
+        operations(&shop),
+        [
+            "CheckoutDraft",
+            "CheckoutOrder",
+            "UpdateOrderCustomAttributes",
+            "CheckoutOrder"
+        ]
+    );
+}
+#[tokio::test]
+async fn metadata_unpaid_uncertain_recording_never_repeats_a_financial_mutation() {
+    let shop = Fixture::new(
+        [
+            metadata_draft(true, "stripe"),
+            metadata_order(false, false, "stripe"),
+        ]
+        .into_iter()
+        .map(Reply::json)
+        .collect(),
+    )
+    .await;
+    let (result, progress) = run_metadata(
+        &shop,
+        crate::models::checkout::PaymentRecordingState::Uncertain,
+        CompletionMode::ReconcileOnly,
+    )
+    .await;
+    assert!(result.is_err());
+    assert_eq!(progress.0, Vec::new());
+    assert_eq!(operations(&shop), ["CheckoutDraft", "CheckoutOrder"]);
+}
+
+#[tokio::test]
+async fn metadata_transaction_cap_cannot_authorize_recording_or_completion() {
+    for paid in [false, true] {
+        let mut value = metadata_order(paid, true, "stripe");
+        let mut transaction = external_order(true)["data"]["order"]["transactions"][0].clone();
+        transaction["gateway"] = json!("manual");
+        transaction["status"] = json!("PENDING");
+        let transactions = value["data"]["order"]["transactions"]
+            .as_array_mut()
+            .unwrap();
+        while transactions.len() < 100 {
+            transactions.push(transaction.clone());
+        }
+        let order = serde_json::from_value(value["data"]["order"].clone()).unwrap();
+        let recording = ExternalPaymentRecording {
+            state: crate::models::checkout::PaymentRecordingState::NotStarted,
+            required_tag_hashes: &[],
+            convention_slug: "qa-convention",
+            identity: Some(metadata_identity("stripe")),
+            provider_resource_id: Some("cs_real"),
+        };
+        assert!(
+            validate_external_paid_order(
+                &order,
+                &exact_money(1250, "THB").unwrap(),
+                &recording,
+                "Stripe Card Payments"
+            )
+            .is_err()
+        );
+        let shop = Fixture::new(
+            [metadata_draft(true, "stripe"), value]
+                .into_iter()
+                .map(Reply::json)
+                .collect(),
+        )
+        .await;
+        let (result, progress) = run_metadata(
+            &shop,
+            crate::models::checkout::PaymentRecordingState::NotStarted,
+            CompletionMode::CompleteIfOpen,
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(progress.0, Vec::new());
+        assert_eq!(operations(&shop), ["CheckoutDraft", "CheckoutOrder"]);
+    }
+}
+
+#[test]
+fn metadata_malformed_reference_is_a_terminal_evidence_conflict() {
+    let mut value = metadata_order(true, true, "stripe")["data"]["order"].clone();
+    let attributes = value["customAttributes"].as_array_mut().unwrap();
+    attributes
+        .iter_mut()
+        .find(|attribute| attribute["key"] == correlation::STRIPE_CHARGE_KEY)
+        .unwrap()["value"] = json!("ch invalid");
+    let recording = ExternalPaymentRecording {
+        state: crate::models::checkout::PaymentRecordingState::Recorded,
+        required_tag_hashes: &[],
+        convention_slug: "qa-convention",
+        identity: Some(metadata_identity("stripe")),
+        provider_resource_id: Some("cs_real"),
+    };
+    let error = validate_external_paid_order(
+        &serde_json::from_value(value).unwrap(),
+        &exact_money(1250, "THB").unwrap(),
+        &recording,
+        "Stripe Card Payments",
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .find_source::<crate::models::checkout_completion::CompletionEvidenceConflict>()
+            .is_some()
+    );
 }

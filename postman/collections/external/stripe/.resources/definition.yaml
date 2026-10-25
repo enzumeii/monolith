@@ -6,6 +6,7 @@ auth:
     credentials:
       token: "{{vault:stripe_secret_key}}"
 variables:
+  stripe_checkout_api_version: 2026-08-26.dahlia
   stripe_checkout_idempotency_key: synthetic-create-001
   stripe_checkout_expires_at: ""
   stripe_checkout_amount: "1000"

@@ -1,0 +1,12 @@
+mutation RecordCheckoutPayment($id: ID!, $paymentMethodName: String) {
+  orderCreateManualPayment(id: $id, paymentMethodName: $paymentMethodName) {
+    order {
+      id
+    }
+    userErrors {
+      code
+      field
+      message
+    }
+  }
+}

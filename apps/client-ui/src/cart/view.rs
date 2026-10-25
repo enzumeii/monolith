@@ -14,9 +14,10 @@ struct CurrentCart {
 #[component]
 pub fn CartView(catalogue: PublicCatalogueResponse, checkout_id: String) -> Element {
     let mut context = use_context::<CartContext>();
+    let busy = use_signal(|| false);
     let slug = catalogue.convention.slug.clone();
     let currency = catalogue.convention.currency_code.clone();
-    let mut current = use_resource(use_reactive(
+    let current = use_resource(use_reactive(
         (&checkout_id, &slug, &currency),
         move |(requested_id, slug, expected_currency)| {
             let snapshot = context.cart.read().clone();
@@ -25,57 +26,9 @@ pub fn CartView(catalogue: PublicCatalogueResponse, checkout_id: String) -> Elem
                 if !matches {
                     return Ok(None);
                 }
-                let catalogue = api::conventions::catalogue(&slug).await?;
-                if catalogue.convention.id != snapshot.convention_id
-                    || catalogue.convention.currency_code != expected_currency
-                {
-                    return Err(api::ApiError {
-                        status: 409,
-                        message: "This convention has changed. Return to its collection to start a separate cart.".into(),
-                    });
-                }
-                let lines = reconciliation(&snapshot, &catalogue.products);
-                let quote = if lines
-                    .iter()
-                    .any(|line| line.issue.is_some() || line.price_changed)
-                {
-                    None
-                } else {
-                    Some(api::conventions::quote(&slug, snapshot.quote_request()).await)
-                };
-                let mut catalogue = if quote.as_ref().is_some_and(|quote| {
-                    quote.is_ok() || quote.as_ref().is_err_and(|error| error.status == 409)
-                }) {
-                    api::conventions::catalogue(&slug).await?
-                } else {
-                    catalogue
-                };
-                if catalogue.convention.id != snapshot.convention_id
-                    || catalogue.convention.currency_code != expected_currency
-                {
-                    return Err(api::ApiError {
-                        status: 409,
-                        message: "This convention has changed. Return to its collection to start a separate cart.".into(),
-                    });
-                }
-                if let Some(Ok(quote)) = &quote
-                    && !super::model::apply_quote_prices(
-                        &snapshot,
-                        &expected_currency,
-                        &mut catalogue,
-                        quote,
-                    )
-                {
-                    return Err(api::ApiError {
-                        status: 502,
-                        message: "The shop returned an invalid cart quote. Please retry.".into(),
-                    });
-                }
-                Ok::<_, api::ApiError>(Some(CurrentCart {
-                    snapshot,
-                    catalogue,
-                    quote,
-                }))
+                api::retry(|| refresh_cart(&slug, &expected_currency, &snapshot))
+                    .await
+                    .map(Some)
             }
         },
     ));
@@ -108,37 +61,101 @@ pub fn CartView(catalogue: PublicCatalogueResponse, checkout_id: String) -> Elem
     let changed = lines.iter().any(|line| line.price_changed);
     let unresolved = changed || lines.iter().any(|line| line.issue.is_some());
     let current_products = products.clone();
+    let checkout_quote = fresh
+        .and_then(|value| value.quote.as_ref())
+        .and_then(|quote| quote.as_ref().ok())
+        .filter(|_| !unresolved)
+        .cloned();
     rsx! {
         Heading { title: "Your cart", level: HeadingLevel::Section }
-        p { class: "meta", "Review your selections. Payment will be available later." }
+        p { class: "meta", "Review your selections and current total before paying." }
         if lines.is_empty() { p { "Your cart is empty." } }
+        fieldset { class: "portal-cart-editor", disabled: *busy.read(),
         div { class: "portal-cart-lines",
             for line in lines {
                 CartLine { key: "{line.variant_id}", line, currency: currency.clone() }
             }
         }
+        }
         if !ready { LoadingMessage { message: "Checking current prices and availability…" } }
         if ready {
             if let Some(Err(error)) = state.as_ref() {
                 ErrorMessage { message: Some(error.message.clone()) }
-                button { class: "ghost", onclick: move |_| current.restart(), "Retry cart" }
             }
             if let Some(value) = fresh {
                 if changed {
                     p { class: "portal-notice", role: "status", "Prices have changed since you added these items. Review and accept the current prices to update your total." }
-                    button { class: "primary", onclick: move |_| context.update(|cart| cart.accept_prices(&current_products)), "Accept updated prices" }
+                    button { class: "primary", disabled: *busy.read(), onclick: move |_| context.update(|cart| cart.accept_prices(&current_products)), "Accept updated prices" }
                 }
                 match value.quote.as_ref() {
                     Some(Ok(quote)) if !unresolved => rsx! { QuoteSummary { quote: quote.clone() } },
                     Some(Err(error)) => rsx! {
                         ErrorMessage { message: Some(error.message.clone()) }
-                        button { class: "ghost", onclick: move |_| current.restart(), "Retry cart" }
                     },
                     Some(Ok(_)) | None => rsx! { p { class: "hint", "Resolve the highlighted changes to see your current total." } },
                 }
             }
         }
+        crate::checkout::CheckoutControls { slug: catalogue.convention.slug.clone(), snapshot: cart, quote: checkout_quote, busy }
     }
+}
+
+async fn refresh_cart(
+    slug: &str,
+    expected_currency: &str,
+    snapshot: &Cart,
+) -> api::ApiResult<CurrentCart> {
+    let catalogue = api::conventions::catalogue(slug).await?;
+    if catalogue.convention.id != snapshot.convention_id
+        || catalogue.convention.currency_code != expected_currency
+    {
+        return Err(api::ApiError::new(
+            reqwest::StatusCode::CONFLICT,
+            "This convention has changed. Return to its collection to start a separate cart.",
+        ));
+    }
+    let lines = reconciliation(snapshot, &catalogue.products);
+    let quote = if lines
+        .iter()
+        .any(|line| line.issue.is_some() || line.price_changed)
+    {
+        None
+    } else {
+        Some(api::conventions::quote(slug, snapshot.quote_request()).await)
+    };
+    if let Some(Err(error)) = &quote
+        && error.is_transient()
+    {
+        return Err(error.clone());
+    }
+    let mut catalogue = if quote.as_ref().is_some_and(|quote| {
+        quote.is_ok() || quote.as_ref().is_err_and(|error| error.status == 409)
+    }) {
+        api::conventions::catalogue(slug).await?
+    } else {
+        catalogue
+    };
+    if catalogue.convention.id != snapshot.convention_id
+        || catalogue.convention.currency_code != expected_currency
+    {
+        return Err(api::ApiError::new(
+            reqwest::StatusCode::CONFLICT,
+            "This convention has changed. Return to its collection to start a separate cart.",
+        ));
+    }
+    if let Some(Ok(quote)) = &quote
+        && !super::model::apply_quote_prices(snapshot, expected_currency, &mut catalogue, quote)
+    {
+        return Err(api::ApiError::new(
+            reqwest::StatusCode::BAD_GATEWAY,
+            "The shop returned an invalid cart quote. Contact the shop for help.",
+        ));
+    }
+    Ok(CurrentCart {
+        snapshot: snapshot.clone(),
+        catalogue,
+        quote,
+    })
 }
 
 #[component]
@@ -148,7 +165,6 @@ fn CartLine(line: super::model::ReconciledLine, currency: String) -> Element {
     let remove_id = id.clone();
     let reduce_id = id.clone();
     let maximum = line.max_quantity;
-    let label = format!("Quantity for {} / {}", line.title, line.variant_title);
     let input_id = format!("cart-quantity-{}", id.rsplit('/').next().unwrap_or("item"));
     let remove_label = format!("Remove {} / {}", line.title, line.variant_title);
     rsx! { article { class: "panel portal-cart-line",
@@ -163,7 +179,7 @@ fn CartLine(line: super::model::ReconciledLine, currency: String) -> Element {
             ErrorMessage { message: line.issue }
         }
         div {
-            label { r#for: "{input_id}", "{label}" }
+            label { r#for: "{input_id}", "Quantity" }
             input { id: "{input_id}", r#type: "number", min: "1", max: "999", step: "1", value: "{line.quantity}",
                 oninput: move |event| { if let Ok(quantity) = event.value().parse() { context.update(|cart| cart.set_quantity(&id, quantity)); } } }
             if maximum > 0 && line.quantity > maximum {

@@ -3,6 +3,7 @@ use ui::{COMMON_STYLESHEET, ErrorMessage, LoadingMessage, SITE_LOGO};
 
 mod api;
 mod cart;
+mod checkout;
 mod config;
 mod pages;
 mod route;
@@ -13,25 +14,23 @@ fn main() {
 
 #[component]
 fn App() -> Element {
-    let mut settings = use_resource(config::Settings::new);
+    let settings = use_resource(config::Settings::new);
     rsx! {
         document::Link { rel: "icon", r#type: "image/png", href: SITE_LOGO }
         document::Stylesheet { href: COMMON_STYLESHEET }
         document::Stylesheet { href: asset!("/assets/portal.css") }
         Configuration {
             state: settings.read().clone(),
-            retry: move |()| { settings.restart(); },
         }
     }
 }
 
 #[component]
-fn Configuration(state: Option<Result<config::Settings, String>>, retry: EventHandler) -> Element {
+fn Configuration(state: Option<api::ApiResult<config::Settings>>) -> Element {
     match state {
         Some(Ok(settings)) => rsx! { Application { settings } },
-        Some(Err(message)) => rsx! {
-            ErrorMessage { message: Some(message) }
-            button { onclick: move |_| retry.call(()), "Retry" }
+        Some(Err(error)) => rsx! {
+            ErrorMessage { message: Some(error.message) }
         },
         None => rsx! { LoadingMessage { message: "Loading configuration…" } },
     }

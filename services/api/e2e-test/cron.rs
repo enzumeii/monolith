@@ -1,4 +1,6 @@
 //! GET /_cron through the owned API process and real Compose PostgreSQL.
+mod checkout;
+
 use crate::common::{self, ProviderConfig};
 use axum::{
     body::Body,

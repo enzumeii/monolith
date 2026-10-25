@@ -74,7 +74,8 @@ class SetupEnvTests(unittest.TestCase):
 
     def test_mode_switch_replaces_only_imports_and_preserves_records(self):
         imported = ('JWT_SECRET', 'CRON_SECRET', 'SHOPIFY_ACCESS_TOKEN', 'RESEND_API_KEY',
-                    'PAYPAL_CLIENT_ID', 'PAYPAL_CLIENT_SECRET', 'STRIPE_SECRET_KEY')
+                    'PAYPAL_CLIENT_ID', 'PAYPAL_CLIENT_SECRET', 'STRIPE_SECRET_KEY',
+                    'CHECKOUT_STRIPE_WEBHOOK_SECRET', 'CHECKOUT_PAYPAL_WEBHOOK_ID', 'CHECKOUT_PAYPAL_MERCHANT_ID')
         preserved = '# keep\nDATABASE_URL=kept-db\nS3_ACCESS_KEY_ID=kept-s3\nSHIPPING_SENDER_NAME=kept-name\nOTHER="multi\nSTRIPE_SECRET_KEY=inside\nline"\n'
         for old, flag, item in (('local', '--qa', '0a291e2c-4ae4-436d-8730-ddf301a544d7'),
                                 ('qa', '--local', '87323839-368f-4288-a4a5-9b0320699892')):
@@ -88,7 +89,9 @@ class SetupEnvTests(unittest.TestCase):
                 self.assertIn('STRIPE_SECRET_KEY="selected-key" # field', text)
                 self.assertRegex(text, r'JWT_SECRET="[0-9a-f]{64}" # field')
                 self.assertRegex(text, r'CRON_SECRET="[0-9a-f]{64}" # field')
-                for key in imported[2:-1]:
+                for key in imported[2:]:
+                    if key == 'STRIPE_SECRET_KEY':
+                        continue
                     self.assertIn(f'{key}="" # field', text)
                 self.assertNotIn('previous-', text)
                 self.assertFalse((self.cwd / '.env.qa').exists())
@@ -97,7 +100,8 @@ class SetupEnvTests(unittest.TestCase):
 
     def test_switch_replaces_all_imported_values_and_duplicate_records(self):
         names = ('JWT_SECRET', 'CRON_SECRET', 'SHOPIFY_ACCESS_TOKEN', 'RESEND_API_KEY',
-                 'PAYPAL_CLIENT_ID', 'PAYPAL_CLIENT_SECRET', 'STRIPE_SECRET_KEY')
+                 'PAYPAL_CLIENT_ID', 'PAYPAL_CLIENT_SECRET', 'STRIPE_SECRET_KEY',
+                    'CHECKOUT_STRIPE_WEBHOOK_SECRET', 'CHECKOUT_PAYPAL_WEBHOOK_ID', 'CHECKOUT_PAYPAL_MERCHANT_ID')
         self.fields([{'name': name, 'value': f'selected-{name}'} for name in names])
         (self.cwd / '.env').write_text('RUN_ENV=local\nRUN_ENV=local\n' +
                                       ''.join(f'{name}="old # private" # kept\n{name}=duplicate\n' for name in names))
@@ -213,6 +217,36 @@ class SetupEnvTests(unittest.TestCase):
                 text = self.assert_success(self.run_setup())
                 self.assertIn(f'CRON_SECRET="{expected}"', text)
                 self.assertNotIn('synthetic-vault-cron', self.run_setup().stdout)
+
+    def test_checkout_credentials_fill_and_preserve_same_mode(self):
+        names = ('CHECKOUT_STRIPE_WEBHOOK_SECRET', 'CHECKOUT_PAYPAL_WEBHOOK_ID', 'CHECKOUT_PAYPAL_MERCHANT_ID')
+        self.fields([{'name': name, 'value': f'vault-{name}', 'type': 1} for name in names])
+        for flag, item in (('--local', '87323839-368f-4288-a4a5-9b0320699892'),
+                           ('--qa', '0a291e2c-4ae4-436d-8730-ddf301a544d7')):
+            for initial in ('', 'empty', 'kept'):
+                with self.subTest(flag=flag, initial=initial):
+                    records = '' if not initial else ''.join(f'{name}={"" if initial == "empty" else "kept"}\n' for name in names)
+                    (self.cwd / '.env').write_text(f'RUN_ENV={flag[2:]}\n' + records)
+                    result = self.run_setup(flag, EXPECTED_ITEM=item)
+                    text = self.assert_success(result)
+                    for name in names:
+                        self.assertIn(f'{name}=' + ('kept' if initial == 'kept' else f'"vault-{name}"'), text)
+                        self.assertNotIn(f'vault-{name}', result.stdout + result.stderr)
+
+    def test_checkout_credentials_reject_ambiguous_or_invalid_fields_privately(self):
+        for name in ('CHECKOUT_STRIPE_WEBHOOK_SECRET', 'CHECKOUT_PAYPAL_WEBHOOK_ID', 'CHECKOUT_PAYPAL_MERCHANT_ID'):
+            for fields in ([{'name': name, 'value': 'private-a'}, {'name': name, 'value': 'private-b'}],
+                           [{'name': name, 'value': 'private-value', 'type': 3}],
+                           [{'name': name, 'value': 42}],
+                           [{'name': name, 'value': 'private\rvalue'}]):
+                with self.subTest(name=name, fields=fields):
+                    original = 'RUN_ENV=qa\nOTHER=kept\n'
+                    (self.cwd / '.env').write_text(original)
+                    self.fields([{'name': 'JWT_SECRET', 'value': 'private-signing'}, *fields])
+                    result = self.run_setup('--qa', EXPECTED_ITEM='0a291e2c-4ae4-436d-8730-ddf301a544d7')
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual((self.cwd / '.env').read_text(), original)
+                    self.assertNotIn('private-', result.stdout + result.stderr)
 
     def test_invalid_mode_arguments_fail_without_writes(self):
         for args in (('local',), ('bitwarden',), ('bad',), ('--qa', '--local'), ('--qa', 'excess')):

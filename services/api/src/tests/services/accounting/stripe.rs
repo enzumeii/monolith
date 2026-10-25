@@ -52,6 +52,7 @@ async fn card_payment_refunds_preserve_the_balance_payment_session_reference() {
     )])
     .await;
     let client = StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: fixture.url.to_string(),
         timeout_secs: 3,
         secret_key: Some("fixture-key".into()),
@@ -60,7 +61,8 @@ async fn card_payment_refunds_preserve_the_balance_payment_session_reference() {
     let mut value = balance_value();
     value["description"] = json!("REFUND FOR CHARGE (gid://shopify/PaymentSession/session_12345)");
     let balance = serde_json::from_value(value).unwrap();
-    let (payment_reference, _, _, _) = reference(&client, &balance, "re_123", true).await.unwrap();
+    let (payment_reference, _, _, _, _) =
+        reference(&client, &balance, "re_123", true).await.unwrap();
     assert_eq!(payment_reference, "session_12345");
 }
 
@@ -86,6 +88,7 @@ async fn unknown_stripe_balance_kind_is_skipped_without_fetching_its_source() {
     value["source"] = json!(null);
     let fixture = Fixture::new(vec![Reply::json(json!({"data":[value], "has_more":false}))]).await;
     let client = StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: fixture.url.to_string(),
         timeout_secs: 3,
         secret_key: Some("fixture-key".into()),
@@ -97,4 +100,34 @@ async fn unknown_stripe_balance_kind_is_skipped_without_fetching_its_source() {
     };
     let payments = super::collect_payout(&client, &payout).await.unwrap();
     assert!(payments.is_empty());
+}
+
+#[test]
+fn external_stripe_source_money_requires_successful_full_capture() {
+    let original = json!({"id":"ch_external", "amount":400,"status":"succeeded", "amount_captured":400,"amount_refunded":0,
+        "captured":true,"paid":true,"refunded":false,"created":1,"currency":"aud","disputed":false,"metadata":{}});
+    let charge = serde_json::from_value(original.clone()).unwrap();
+    let source = super::source_money(&charge).unwrap().unwrap();
+    assert_eq!(source.minor, 400);
+    assert_eq!(source.currency, "AUD");
+    for (key, replacement) in [
+        ("paid", json!(false)),
+        ("captured", json!(false)),
+        ("status", json!("pending")),
+        ("status", json!(null)),
+        ("amount", json!(null)),
+        ("amount_captured", json!(399)),
+        ("amount_refunded", json!(1)),
+        ("disputed", json!(true)),
+        ("amount", json!(0)),
+    ] {
+        let mut value = original.clone();
+        value[key] = replacement;
+        assert!(
+            super::source_money(&serde_json::from_value(value).unwrap())
+                .unwrap()
+                .is_none(),
+            "{key}"
+        );
+    }
 }

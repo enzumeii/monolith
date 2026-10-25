@@ -127,7 +127,21 @@ pub(crate) async fn webhook(
                 Duration::from_secs(300),
             )
             .map_err(|_| validate::invalid("Invalid Stripe webhook authentication or event"))?;
-            notification::stripe(config, event)?
+            let account = if event.account.is_some() && event.livemode == config.stripe_livemode {
+                Some(
+                    super::dependencies::stripe_client(&state)?
+                        .get_account()
+                        .await
+                        .map_err(crate::error::upstream)?,
+                )
+            } else {
+                None
+            };
+            notification::stripe(
+                config,
+                event,
+                account.as_ref().map(|account| account.id.as_str()),
+            )?
         }
         "paypal" => {
             let request = validate::paypal_authentication(config, &headers, &raw)?;

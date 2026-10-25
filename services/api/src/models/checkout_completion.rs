@@ -105,6 +105,13 @@ pub(crate) fn currency_precision(currency: &str) -> Option<u8> {
 pub(crate) fn conflict(message: &'static str) -> AppError {
     AppError::new(StatusCode::CONFLICT, message)
 }
+#[derive(Debug, thiserror::Error)]
+#[error("Shopify completion evidence conflicts")]
+pub(crate) struct CompletionEvidenceConflict;
+
+pub(crate) fn evidence_conflict(message: &'static str) -> AppError {
+    conflict(message).with_source(CompletionEvidenceConflict)
+}
 #[cfg(test)]
 #[path = "../tests/models/checkout_completion.rs"]
 mod tests;

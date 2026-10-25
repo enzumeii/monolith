@@ -255,6 +255,95 @@ async fn transactions_empty_results_and_both_admin_roles_over_tcp() {
 }
 
 #[tokio::test]
+async fn transactions_paypal_explicit_empty_page_without_details_preserves_stripe_over_tcp() {
+    let fixture = fixture().await;
+    for stripe in [false, true] {
+        let mut steps = flow(
+            stripe,
+            false,
+            false,
+            if stripe { Rows::Populated } else { Rows::Empty },
+        );
+        let report = steps
+            .iter_mut()
+            .find(|step| step.path == "/v1/reporting/transactions")
+            .unwrap();
+        report.reply = Reply::Json(json!({"page":1,"total_items":0,"total_pages":0}));
+        let count = steps.len();
+        let server = Server::start(steps).await;
+        let client = server.client().await;
+        let response = client
+            .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let report = body_json(response).await;
+        assert_eq!(report["transactions"]["paypal"], json!([]));
+        let stripe_rows = report["transactions"]["stripe"].as_array().unwrap();
+        assert_eq!(stripe_rows.len(), usize::from(stripe) * 2);
+        assert_eq!(
+            report["items"].as_array().unwrap().len(),
+            usize::from(stripe) * 2
+        );
+        if stripe {
+            assert!(stripe_rows.iter().all(|row| row["shopify_order_id"] == 123));
+            assert!(
+                stripe_rows
+                    .iter()
+                    .any(|row| row["payment_reference"] == "ch_123")
+            );
+            assert!(
+                stripe_rows
+                    .iter()
+                    .any(|row| row["payment_reference"] == "re_123")
+            );
+        } else {
+            assert_eq!(
+                report,
+                json!({"transactions":{"stripe":[],"paypal":[]},"items":[]})
+            );
+        }
+        assert_eq!(server.finish().await.len(), count);
+    }
+}
+
+#[tokio::test]
+async fn transactions_paypal_rejects_unproven_empty_or_malformed_details_over_tcp() {
+    let fixture = fixture().await;
+    for body in [
+        json!({"page":1,"total_items":1,"total_pages":1}),
+        json!({"page":1,"total_items":0,"total_pages":1}),
+        json!({"page":1,"total_items":1,"total_pages":0}),
+        json!({"page":2,"total_items":0,"total_pages":0}),
+        json!({"page":1,"total_pages":0}),
+        json!({"page":1,"total_items":0}),
+        json!({"total_items":0,"total_pages":0}),
+        json!({"page":1,"total_items":0,"total_pages":0,"transaction_details":null}),
+        json!({"page":1,"total_items":0,"total_pages":0,"transaction_details":{}}),
+    ] {
+        let mut steps = flow(false, true, false, Rows::Populated);
+        let stage = steps
+            .iter()
+            .position(|step| step.path == "/v1/reporting/transactions")
+            .unwrap();
+        steps.truncate(stage + 1);
+        steps[stage].reply = Reply::Json(body);
+        let server = Server::start(steps).await;
+        let client = server.client().await;
+        assert_report_error(
+            client
+                .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
+                .await
+                .unwrap(),
+            502,
+            "Upstream request failed",
+        )
+        .await;
+        assert_eq!(server.finish().await.len(), stage + 1);
+    }
+}
+
+#[tokio::test]
 async fn transactions_rejects_each_query_rule_and_auth_before_provider_calls() {
     let fixture = fixture().await;
     let server = Server::start(vec![]).await;
@@ -799,6 +888,70 @@ async fn transactions_paypal_preserves_zero_and_signed_shipping_over_shopify() {
         assert_eq!(row["shipping_fee"], shipping);
     }
     assert_eq!(server.finish().await.len(), count);
+}
+
+#[tokio::test]
+async fn external_checkout_payments_link_the_created_order_and_items_in_accounting_over_tcp() {
+    use crate::common::checkout::{
+        SECRET, accepted, configured, providers::Providers, purchase, verify,
+    };
+    let fixture = fixture().await;
+    for provider in ["stripe", "paypal"] {
+        let upstream = Providers::start().await;
+        let client = configured(&upstream).await;
+        let input = purchase(&fixture, provider).await;
+        accepted(&client, &input).await;
+        upstream.pay();
+        let response = client
+            .send(verify(
+                input["operation_id"].as_str().unwrap(),
+                Some(SECRET),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let completed = body_json(response).await;
+        assert_eq!(completed["status"], "completed");
+        let order_id: u64 = completed["order"]["id"]
+            .as_str()
+            .unwrap()
+            .rsplit('/')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let response = client
+            .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
+            .await
+            .unwrap();
+        let status = response.status();
+        let report = body_json(response).await;
+        assert_eq!(status, 200, "{provider}: {report}");
+        let rows = report["transactions"][provider].as_array().unwrap();
+        assert_eq!(rows.len(), 1, "{provider}: {report}");
+        let row = &rows[0];
+        assert_eq!(row["shopify_order_id"], order_id);
+        assert_eq!(row["shopify_order_number"], 1234);
+        let tags = row["shopify_order_tags"].as_array().unwrap();
+        assert_eq!(tags.len(), 1);
+        assert!(!tags[0].as_str().unwrap().contains(':'));
+        assert_eq!(upstream.count("EditOrderTags"), 0);
+        assert_eq!(upstream.count("UpdateOrderCustomAttributes"), 1);
+        assert_eq!(report["items"].as_array().unwrap().len(), 1);
+        let item = &report["items"][0];
+        assert_eq!(item["shopify_order_id"], order_id);
+        assert_eq!(item["payment_reference"], row["payment_reference"]);
+        assert_eq!(item["quantity"], 2);
+        assert_eq!(item["currency"], "AUD");
+        assert_eq!(item["price"], 26.0);
+        assert_eq!(
+            row["currency"],
+            if provider == "stripe" { "THB" } else { "SGD" }
+        );
+        assert_eq!(upstream.count("CompleteCheckoutDraft"), 1);
+        assert_eq!(upstream.count("RecordCheckoutPayment"), 1);
+        assert_eq!(upstream.payment_creates(), 1);
+    }
 }
 
 #[derive(Clone)]

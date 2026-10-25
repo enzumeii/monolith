@@ -47,7 +47,7 @@ pub fn extract_enable_request(
     parse_location_id(&id).ok_or_else(invalid)
 }
 
-pub(super) fn parse_location_id(id: &str) -> Option<ShopifyId> {
+pub(crate) fn parse_location_id(id: &str) -> Option<ShopifyId> {
     if id.is_empty()
         || !id.bytes().all(|byte| byte.is_ascii_digit())
         || id.bytes().all(|byte| byte == b'0')

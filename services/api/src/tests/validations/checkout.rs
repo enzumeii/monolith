@@ -15,6 +15,7 @@ fn request() -> CreateCheckoutRequest {
             expected_unit_price: 2000,
         }],
         expected_currency: "SGD".into(),
+        note: None,
     }
 }
 
@@ -83,10 +84,8 @@ fn webhook_shape_checks_preserve_mixed_authentication_and_configuration_order() 
         "frontend_origin":"https://example.test",
         "return_path_template":"/{convention_slug}/{checkout_id}",
         "cancel_path_template":"/{convention_slug}/{checkout_id}",
-        "shopify_location_id":"gid://shopify/Location/1",
-        "reservation_secs":3600,"guest_recovery_secs":604_800,
-        "stripe_expected_account":"acct_test","stripe_livemode":false,
-        "paypal_api_origin":"https://api-m.sandbox.paypal.com"
+        "shopify_location_id":"1",
+        "reservation_secs":3600,"guest_recovery_secs":604_800,"stripe_livemode":false
     }))
     .unwrap();
     let mut headers = HeaderMap::new();
@@ -143,6 +142,21 @@ fn webhook_shape_checks_preserve_mixed_authentication_and_configuration_order() 
             .to_string(),
         "Missing or invalid webhook authentication header"
     );
+    for (header, value) in [
+        ("paypal-auth-algo", "SHA256withRSA"),
+        ("paypal-cert-url", "https://api.paypal.com/cert/fixture"),
+        ("paypal-transmission-id", "transmission_fixture"),
+        ("paypal-transmission-sig", "signature_fixture"),
+        ("paypal-transmission-time", "2026-10-24T00:00:00Z"),
+    ] {
+        headers.insert(header, value.parse().unwrap());
+    }
+    let raw = br#"{"resource" : {"id":"ORDER123"}, "event_type":"CHECKOUT.ORDER.APPROVED", "id":"EVENT\u0031"}"#;
+    let payload = paypal_authentication(&config, &headers, raw).unwrap();
+    assert_eq!(payload.webhook_event.get().as_bytes(), raw);
+    assert_eq!(payload.transmission_sig, "signature_fixture");
+    assert_eq!(payload.webhook_id, "registered_fixture");
+    headers.clear();
     config.stripe_webhook_secret = Some("whsec_fixture".into());
     assert_eq!(
         stripe_authentication(&config, &headers)
@@ -151,4 +165,46 @@ fn webhook_shape_checks_preserve_mixed_authentication_and_configuration_order() 
             .to_string(),
         "Missing or invalid webhook authentication header"
     );
+}
+
+#[test]
+fn checkout_accepts_public_variant_gid_and_rejects_malformed_or_other_resource_ids() {
+    let mut input = request();
+    input.items[0].variant_id = "gid://shopify/ProductVariant/2".into();
+    assert!(create(&input).is_ok());
+    for invalid in [
+        "gid://shopify/Product/2",
+        "gid://shopify/ProductVariant/0",
+        "gid://shopify/ProductVariant/02",
+        "gid://shopify/ProductVariant/-2",
+        "gid://shopify/ProductVariant/2?foo=bar",
+        "not-a-variant",
+    ] {
+        input.items[0].variant_id = invalid.into();
+        assert!(create(&input).is_err(), "{invalid}");
+    }
+}
+
+#[test]
+fn checkout_note_accepts_unicode_and_layout_controls_but_rejects_oversize_and_other_controls() {
+    let mut input = request();
+    for note in [
+        String::new(),
+        " \t\r\n".to_owned(),
+        "  Please sign\nありがとう 🐶\t<gift>  ".to_owned(),
+        "🐶".repeat(2000),
+    ] {
+        input.note = Some(note);
+        assert!(create(&input).is_ok());
+    }
+    for note in [
+        "🐶".repeat(2001),
+        "private\0note".into(),
+        "private\u{7f}note".into(),
+        "private\u{85}note".into(),
+    ] {
+        input.note = Some(note);
+        let error = create(&input).expect_err("invalid note");
+        assert!(!error.to_string().contains("private"));
+    }
 }

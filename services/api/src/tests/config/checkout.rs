@@ -6,12 +6,10 @@ fn settings() -> CheckoutSettings {
         frontend_origin: "http://localhost:8080".into(),
         return_path_template: "/{convention_slug}/checkout/return?checkout_id={checkout_id}".into(),
         cancel_path_template: "/{convention_slug}/checkout/cancel?checkout_id={checkout_id}".into(),
-        shopify_location_id: "gid://shopify/Location/1".into(),
+        shopify_location_id: "1".into(),
         reservation_secs: 3600,
         guest_recovery_secs: 7 * 86400,
-        stripe_expected_account: "acct_test".into(),
         stripe_livemode: false,
-        paypal_api_origin: "https://api-m.sandbox.paypal.com".into(),
         paypal_merchant_id: Some("private_merchant".into()),
         stripe_webhook_secret: Some("private_signature_secret".into()),
         paypal_webhook_id: Some("private_webhook_registration".into()),
@@ -58,5 +56,29 @@ fn checkout_configuration_debug_redacts_private_identifiers_and_secrets() {
         "private_webhook_registration",
     ] {
         assert!(!debug.contains(secret));
+    }
+}
+
+#[test]
+fn checkout_location_requires_a_positive_numeric_shopify_id() {
+    for location in [
+        "",
+        "0",
+        "-1",
+        "+1",
+        "1 ",
+        " 1",
+        "１",
+        "gid://shopify/Location/1",
+        "18446744073709551616",
+    ] {
+        let mut invalid = settings();
+        invalid.shopify_location_id = location.into();
+        assert!(invalid.validate(true).is_err(), "{location}");
+    }
+    for location in ["1", "65761018027", "18446744073709551615"] {
+        let mut valid = settings();
+        valid.shopify_location_id = location.into();
+        assert!(valid.validate(true).is_ok(), "{location}");
     }
 }

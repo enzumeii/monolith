@@ -245,6 +245,47 @@ async fn decoded_page_metadata_is_returned_without_local_consistency_checks() {
 }
 
 #[tokio::test]
+async fn paypal_empty_report_without_details_decodes_over_http() {
+    let f = Fixture::new(vec![
+        token("fixture-token"),
+        Reply::json(json!({"page":1,"total_items":0,"total_pages":0})),
+    ])
+    .await;
+    let response = report(&PaypalClient::new(&config(&f)).unwrap())
+        .await
+        .unwrap();
+    assert!(response.transaction_details.is_empty());
+    assert_eq!(response.page, 1);
+    assert_eq!(response.total_items, 0);
+    assert_eq!(response.total_pages, 0);
+    assert_eq!(f.requests().len(), 2);
+}
+
+#[tokio::test]
+async fn paypal_missing_or_invalid_report_details_preserve_decode_failures() {
+    for body in [
+        json!({"page":1,"total_items":1,"total_pages":1}),
+        json!({"page":2,"total_items":0,"total_pages":0}),
+        json!({"page":1,"total_items":0,"total_pages":1}),
+        json!({"total_items":0,"total_pages":0}),
+        json!({"page":1,"total_pages":0}),
+        json!({"page":1,"total_items":0}),
+        json!({"transaction_details":null,"page":1,"total_items":0,"total_pages":0}),
+        json!({"transaction_details":{},"page":1,"total_items":0,"total_pages":0}),
+        json!({"transaction_details":"private payer","page":1,"total_items":0,"total_pages":0}),
+    ] {
+        let f = Fixture::new(vec![token("fixture-token"), Reply::json(body)]).await;
+        let error = report(&PaypalClient::new(&config(&f)).unwrap())
+            .await
+            .unwrap_err();
+        assert!(matches!(error.kind(), ClientErrorKind::Decode { .. }));
+        assert!(std::error::Error::source(&error).is_some());
+        safe(&error);
+        assert_eq!(f.requests().len(), 2);
+    }
+}
+
+#[tokio::test]
 async fn unusable_token_responses_are_errors_and_never_leak_payloads() {
     for body in [
         json!({}),
@@ -429,7 +470,7 @@ fn create_payload() -> crate::models::paypal::CreateOrderRequest {
         "reference_id":"payment-uuid", "custom_id":"draft-correlation",
         "amount":{"currency_code":"USD","value":"12.50"}, "payee":{"merchant_id":"MERCHANT123"}
     }], "payment_source":{"paypal":{"experience_context":{
-        "return_url":"https://merchant.example/return", "cancel_url":"https://merchant.example/cancel"
+        "return_url":"https://merchant.example/return", "cancel_url":"https://merchant.example/cancel", "shipping_preference":"NO_SHIPPING"
     }}}})).unwrap()
 }
 

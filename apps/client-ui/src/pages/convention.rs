@@ -34,9 +34,9 @@ pub fn CartPage(slug: String, checkout_id: String) -> Element {
 #[component]
 pub(crate) fn ConventionPage(slug: String, view: ConventionView) -> Element {
     let back_to = view.back_route(&slug);
-    let mut catalogue = use_resource(move || {
+    let catalogue = use_resource(move || {
         let slug = slug.clone();
-        async move { api::conventions::catalogue(&slug).await }
+        async move { api::retry(|| api::conventions::catalogue(&slug)).await }
     });
     let state = catalogue.read().clone();
     match state {
@@ -46,7 +46,6 @@ pub(crate) fn ConventionPage(slug: String, view: ConventionView) -> Element {
         Some(Err(error)) => rsx! {
             ConventionFrame { back_to,
                 ErrorMessage { message: Some(if error.status == 404 { "This convention is not available for preorders.".into() } else { error.message }) }
-                button { onclick: move |_| catalogue.restart(), "Retry convention" }
             }
         },
         Some(Ok(catalogue)) => rsx! {

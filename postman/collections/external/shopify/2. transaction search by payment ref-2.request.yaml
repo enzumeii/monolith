@@ -1,143 +1,175 @@
 $kind: graphql-request
 name: 2. transaction search by payment ref
+description: "One accounting order page. Requires read_orders; inherited Shopify access token remains in the local vault. first and after control root pagination; continue pageInfo.endCursor until hasNextPage is false. The accounting service searches both creation and update timestamps across the requested/provider transaction range, then validates native paymentId/receipt references or verified direct-provider reference tags against correlation, named successful sale and exact source presentment money. Settlement money may differ. Reject incomplete nested pages or ambiguous references. HTTP200 GraphQL errors remain failures; synthetic search dates may be replaced for intended read-only verification."
 url: "{{shopify}}/graphql.json"
 query: |
   query OrdersByPayment($first: Int!, $search: String!, $after: String) {
-  	orders(first: $first, after: $after, query: $search) {
-  		nodes {
-  			id
-  			number
-  			tags
-  			phone
-  			shippingAddress {
-  				name
-  				address1
-  				address2
-  				city
-  				provinceCode
-  				zip
-  				country
-  				countryCodeV2
-  				phone
-  			transactions {
-  				paymentId
-  				gateway
-  				kind
-  				status
-  				amountSet {
-  					shopMoney {
-  						amount
-  						currencyCode
-  					}
-  				}
-  				receiptJson
-  			}
-  			lineItems(first: 250) {
-  				nodes {
-  					title
-  					variantTitle
-  					sku
-  					quantity
-  					originalUnitPriceSet {
-  						shopMoney {
-  							amount
-  							currencyCode
-  						}
-  					}
-  				}
-  				pageInfo {
-  					hasNextPage
-  					endCursor
-  				}
-  			}
-  			shippingLines(first: 250) {
-  				nodes {
-  					priceSet: originalPriceSet {
-  						shopMoney {
-  							amount
-  							currencyCode
-  						}
-  					}
-  				}
-  				pageInfo {
-  					hasNextPage
-  					endCursor
-  				}
-  			}
-  			refunds(first: 250) {
-  				transactions(first: 250) {
-  					nodes {
-  						paymentId
-  						gateway
-  						kind
-  						status
-  						amountSet {
-  							shopMoney {
-  								amount
-  								currencyCode
-  							}
-  						}
-  						receiptJson
-  					}
-  					pageInfo {
-  						hasNextPage
-  						endCursor
-  					}
-  				}
-  				refundShippingLines(first: 250) {
-  					nodes {
-  						subtotalAmountSet {
-  							shopMoney {
-  								amount
-  								currencyCode
-  							}
-  						}
-  					}
-  					pageInfo {
-  						hasNextPage
-  						endCursor
-  					}
-  				}
-  				refundLineItems(first: 250) {
-  					nodes {
-  						quantity
-  						subtotalSet {
-  							shopMoney {
-  								amount
-  								currencyCode
-  							}
-  						}
-  						lineItem {
-  							title
-  							variantTitle
-  							sku
-  							quantity
-  							originalUnitPriceSet {
-  								shopMoney {
-  									amount
-  									currencyCode
-  								}
-  							}
-  						}
-  					}
-  					pageInfo {
-  						hasNextPage
-  						endCursor
-  					}
-  				}
-  			}
-  		}
-  		pageInfo {
-  			hasNextPage
-  			endCursor
-  		}
-  	}
+    orders(first: $first, after: $after, query: $search) {
+      nodes {
+        id
+        number
+        displayFinancialStatus
+        cancelledAt
+        currentTotalPriceSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
+          presentmentMoney {
+            amount
+            currencyCode
+          }
+        }
+        totalOutstandingSet {
+          shopMoney {
+            amount
+            currencyCode
+          }
+          presentmentMoney {
+            amount
+            currencyCode
+          }
+        }
+        tags
+        customAttributes {
+          key
+          value
+        }
+        phone
+        shippingAddress {
+          name
+          address1
+          address2
+          city
+          provinceCode
+          zip
+          country
+          countryCodeV2
+          phone
+        }
+        transactions {
+          paymentId
+          gateway
+          kind
+          status
+          amountSet {
+            presentmentMoney {
+              amount
+              currencyCode
+            }
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+          receiptJson
+        }
+        lineItems(first: 250) {
+          nodes {
+            title
+            variantTitle
+            sku
+            quantity
+            originalUnitPriceSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+        shippingLines(first: 250) {
+          nodes {
+            priceSet: originalPriceSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+        refunds(first: 250) {
+          transactions(first: 250) {
+            nodes {
+              paymentId
+              gateway
+              kind
+              status
+              amountSet {
+                shopMoney {
+                  amount
+                  currencyCode
+                }
+              }
+              receiptJson
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+          }
+          refundShippingLines(first: 250) {
+            nodes {
+              subtotalAmountSet {
+                shopMoney {
+                  amount
+                  currencyCode
+                }
+              }
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+          }
+          refundLineItems(first: 250) {
+            nodes {
+              quantity
+              subtotalSet {
+                shopMoney {
+                  amount
+                  currencyCode
+                }
+              }
+              lineItem {
+                title
+                variantTitle
+                sku
+                quantity
+                originalUnitPriceSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
+                }
+              }
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
   }
 variables: |-
   {
-  	"search": "payment_id:\"fixture-reference\"",
-  	"first": 10,
-  	"after": null
+    "search": "(created_at:>='2026-01-01T00:00:00Z' AND created_at:<='2026-01-01T23:59:59Z') OR (updated_at:>='2026-01-01T00:00:00Z' AND updated_at:<='2026-01-01T23:59:59Z')",
+    "first": 10,
+    "after": null
   }
 settings: {}
 schema:

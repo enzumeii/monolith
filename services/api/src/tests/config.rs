@@ -227,7 +227,7 @@ fn production_forces_secure_cookies_even_if_file_requests_insecure_local() {
         ],
         || {
             Settings::load(
-                settings_builder()
+                settings_builder_for_mode("prod")
                     .set_override(
                         "browser.allowed_origins",
                         vec!["https://configured.example.test"],
@@ -479,6 +479,7 @@ fn builder_token_precedence_and_missing_url_follow_normal_configuration() {
         let source = r#"
             server = { host = "localhost", port = 3000 }
             database = { max_connections = 1, min_connections = 1 }
+            checkout_recovery = { enabled=true, wake_secs=60, batch_size=10, concurrency=2, budget_secs=60, lease_secs=90, retry_backoff_secs=60, max_retry_backoff_secs=900, max_failures=12 }
             scheduler = { implementation="vps", poll_interval_secs=1, retention_interval_secs=3600, invocation_budget_secs=240, retention_reserve_secs=5, enabled=false, concurrency=1, max_attempts=2, retry_backoff_secs=1, lease_secs=5, max_payload_bytes=20971520, max_email_bytes=20971520 }
             browser = { allowed_origins = ["http://localhost:8084"], insecure_local = true }
         "#;
@@ -688,6 +689,7 @@ fn explicitly_configured_empty_sender_fields_are_invalid() {
 fn paypal_credentials_are_centralized_and_non_secrets_remain_file_based() {
     let file_config: PaypalConfig = Config::builder()
         .add_source(File::with_name("application"))
+        .add_source(File::with_name("application.local"))
         .build()
         .unwrap()
         .get("client.paypal")
@@ -737,6 +739,7 @@ fn stripe_key_comes_from_central_configuration() {
     assert_eq!(stripe.secret_key.as_deref(), Some("sk_test_private"));
     assert_eq!(stripe.base_url, "https://api.stripe.com/v1/");
     assert_eq!(stripe.timeout_secs, 10);
+    assert_eq!(stripe.checkout_api_version, "2026-08-26.dahlia");
     assert!(!format!("{stripe:?}").contains("sk_test_private"));
 }
 
@@ -779,15 +782,16 @@ fn scheduler_limits_are_validated_at_startup() {
 }
 
 fn settings_builder() -> ConfigBuilder<DefaultState> {
+    settings_builder_for_mode("local")
+}
+
+fn settings_builder_for_mode(mode: &str) -> ConfigBuilder<DefaultState> {
     Config::builder()
         .add_source(File::from_str(
             include_str!("../../application.toml"),
             FileFormat::Toml,
         ))
-        .add_source(File::from_str(
-            include_str!("../../application.local.toml"),
-            FileFormat::Toml,
-        ))
+        .add_source(File::with_name(&format!("application.{mode}")).required(mode == "qa"))
         .set_override("database.url", "postgres://unused")
         .unwrap()
         .set_override("jwt.secret", "ab".repeat(32))
@@ -866,11 +870,7 @@ fn production_preserves_toml_scheduler_selection() {
             ] {
                 let overlay = format!("[scheduler]\nimplementation={value:?}");
                 let settings = Settings::load(
-                    settings_builder()
-                        .add_source(File::from_str(
-                            include_str!("../../application.prod.toml"),
-                            FileFormat::Toml,
-                        ))
+                    settings_builder_for_mode("prod")
                         .add_source(File::from_str(&overlay, FileFormat::Toml)),
                     "prod",
                 )
@@ -897,7 +897,7 @@ fn production_requires_a_supported_deployment_environment() {
                 ("VERCEL_ENV", environment),
                 ("VERCEL_URL", Some("project.vercel.app")),
             ],
-            || assert!(Settings::load(settings_builder(), "prod").is_err()),
+            || assert!(Settings::load(settings_builder_for_mode("prod"), "prod").is_err()),
         );
     }
 }
@@ -1032,6 +1032,11 @@ fn browser_allowed_origins_reject_malformed_values_in_any_position() {
                 let settings: Settings = settings_builder()
                     .set_override("browser.allowed_origins", origins)
                     .unwrap()
+                    .set_override(
+                        "checkout.frontend_origin",
+                        "https://convention.enzumeii.com",
+                    )
+                    .unwrap()
                     .set_override("browser.insecure_local", insecure_local)
                     .unwrap()
                     .build()
@@ -1073,6 +1078,11 @@ fn browser_allowed_origins_accept_https_and_only_explicit_loopback_http() {
         let settings: Settings = settings_builder()
             .set_override("browser.allowed_origins", origins)
             .unwrap()
+            .set_override(
+                "checkout.frontend_origin",
+                "https://convention.enzumeii.com",
+            )
+            .unwrap()
             .set_override("browser.insecure_local", insecure_local)
             .unwrap()
             .build()
@@ -1083,6 +1093,11 @@ fn browser_allowed_origins_accept_https_and_only_explicit_loopback_http() {
     }
     let settings: Settings = settings_builder()
         .set_override("browser.allowed_origins", vec!["http://localhost:8084"])
+        .unwrap()
+        .set_override(
+            "checkout.frontend_origin",
+            "https://convention.enzumeii.com",
+        )
         .unwrap()
         .set_override("browser.insecure_local", false)
         .unwrap()
@@ -1111,7 +1126,7 @@ fn vercel_nonproduction_metadata_replaces_the_configured_allowed_origins() {
             ],
             || {
                 Settings::load(
-                    settings_builder()
+                    settings_builder_for_mode(mode)
                         .set_override(
                             "browser.allowed_origins",
                             vec![
@@ -1157,7 +1172,7 @@ fn all_environments_keep_optional_stripe_key_semantics() {
             ],
             || {
                 for mode in ["local", "qa", "prod"] {
-                    let settings = Settings::load(settings_builder(), mode).unwrap();
+                    let settings = Settings::load(settings_builder_for_mode(mode), mode).unwrap();
                     assert_eq!(
                         settings
                             .client
@@ -1200,6 +1215,7 @@ fn qa_startup_probe() {
     let stripe = client.stripe.unwrap();
     assert_eq!(stripe.base_url, "https://api.stripe.com/v1/");
     assert_eq!(stripe.timeout_secs, 10);
+    assert_eq!(stripe.checkout_api_version, "2026-08-26.dahlia");
     assert_eq!(stripe.secret_key, env::var("QA_EXPECTED_KEY").ok());
 }
 
@@ -1283,4 +1299,216 @@ fn ordinary_dotenv_selects_qa_with_inherited_precedence_and_required_overlay() {
     std::fs::remove_file(fixture.join("application.qa.toml")).unwrap();
     run("missing-overlay", Some("qa"), None, None);
     std::fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn checkout_overlays_are_complete_and_secrets_use_environment_overrides() {
+    for (mode, origin, livemode, paypal) in [
+        (
+            "qa",
+            "http://localhost:8085",
+            false,
+            "https://api-m.sandbox.paypal.com",
+        ),
+        (
+            "prod",
+            "https://convention.enzumeii.com",
+            true,
+            "https://api-m.paypal.com",
+        ),
+    ] {
+        let settings = temp_env::with_vars(
+            [
+                ("VERCEL_ENV", Some("production")),
+                (
+                    "CHECKOUT_STRIPE_WEBHOOK_SECRET",
+                    Some("synthetic-webhook-secret"),
+                ),
+                ("CHECKOUT_PAYPAL_WEBHOOK_ID", Some("synthetic-webhook-id")),
+                ("CHECKOUT_PAYPAL_MERCHANT_ID", Some("synthetic-merchant-id")),
+            ],
+            || Settings::load(settings_builder_for_mode(mode), mode),
+        )
+        .unwrap();
+        let checkout = settings.checkout.unwrap();
+        assert_eq!(checkout.frontend_origin, origin);
+        assert_eq!(checkout.shopify_location_id, "65761018027");
+        assert_eq!(checkout.stripe_livemode, livemode);
+        assert_eq!(
+            settings
+                .client
+                .as_ref()
+                .unwrap()
+                .paypal
+                .as_ref()
+                .unwrap()
+                .base_url,
+            paypal
+        );
+        assert_eq!(checkout.reservation_secs, 3600);
+        assert_eq!(checkout.guest_recovery_secs, 604_800);
+        assert_eq!(
+            checkout.return_path_template,
+            "/{convention_slug}/checkout/return?checkout_id={checkout_id}"
+        );
+        assert_eq!(
+            checkout.cancel_path_template,
+            "/{convention_slug}/checkout/cancel?checkout_id={checkout_id}"
+        );
+        assert_eq!(
+            checkout.stripe_webhook_secret.as_deref(),
+            Some("synthetic-webhook-secret")
+        );
+        assert_eq!(
+            checkout.paypal_webhook_id.as_deref(),
+            Some("synthetic-webhook-id")
+        );
+        assert_eq!(
+            checkout.paypal_merchant_id.as_deref(),
+            Some("synthetic-merchant-id")
+        );
+        assert!(!format!("{checkout:?}").contains("synthetic-"));
+        assert_eq!(
+            settings
+                .client
+                .unwrap()
+                .stripe
+                .unwrap()
+                .checkout_api_version,
+            "2026-08-26.dahlia"
+        );
+    }
+    let local = Settings::load(settings_builder(), "local").unwrap();
+    let checkout = local.checkout.unwrap();
+    assert_eq!(checkout.frontend_origin, "http://localhost:8085");
+    assert!(!checkout.stripe_livemode);
+}
+
+#[test]
+fn stripe_checkout_version_is_required_file_configuration() {
+    let result = Config::builder()
+        .add_source(File::from_str(
+            "base_url = 'https://api.stripe.com/v1/'\ntimeout_secs = 10",
+            FileFormat::Toml,
+        ))
+        .build()
+        .unwrap()
+        .try_deserialize::<StripeConfig>();
+    assert!(result.is_err());
+}
+
+#[test]
+fn checkout_secrets_do_not_enable_absent_checkout_configuration() {
+    temp_env::with_vars(
+        [
+            ("VERCEL_ENV", None),
+            (
+                "CHECKOUT_STRIPE_WEBHOOK_SECRET",
+                Some("synthetic-webhook-secret"),
+            ),
+            ("CHECKOUT_PAYPAL_WEBHOOK_ID", Some("synthetic-webhook-id")),
+            ("CHECKOUT_PAYPAL_MERCHANT_ID", Some("synthetic-merchant-id")),
+        ],
+        || {
+            assert!(
+                Settings::load(
+                    settings_builder()
+                        .set_override("checkout", None::<String>)
+                        .unwrap(),
+                    "local",
+                )
+                .unwrap()
+                .checkout
+                .is_none()
+            );
+            let settings = Settings::load(
+                settings_builder().add_source(File::from_str(
+                    include_str!("../../application.qa.toml"),
+                    FileFormat::Toml,
+                )),
+                "local",
+            )
+            .unwrap();
+            let checkout = settings.checkout.unwrap();
+            assert_eq!(
+                checkout.stripe_webhook_secret.as_deref(),
+                Some("synthetic-webhook-secret")
+            );
+            assert_eq!(
+                checkout.paypal_webhook_id.as_deref(),
+                Some("synthetic-webhook-id")
+            );
+            assert_eq!(
+                checkout.paypal_merchant_id.as_deref(),
+                Some("synthetic-merchant-id")
+            );
+            assert!(
+                Settings::load(
+                    settings_builder().add_source(File::from_str(
+                        "[checkout]\nreservation_secs = 0",
+                        FileFormat::Toml,
+                    )),
+                    "local"
+                )
+                .is_err()
+            );
+        },
+    );
+}
+
+#[test]
+fn checkout_uses_the_shared_paypal_url_with_trusted_origin_validation() {
+    let valid = Settings::load(settings_builder(), "local").unwrap();
+    for base_url in [
+        "https://api-m.paypal.com/",
+        "https://api-m.sandbox.paypal.com/v1/",
+        "http://localhost:8089/",
+        "http://127.0.0.1:8089/",
+    ] {
+        let mut settings = valid.clone();
+        settings
+            .client
+            .as_mut()
+            .unwrap()
+            .paypal
+            .as_mut()
+            .unwrap()
+            .base_url = base_url.into();
+        assert!(settings.validate().is_ok(), "{base_url}");
+    }
+    for base_url in [
+        "http://api-m.paypal.com/",
+        "https://user:secret@api-m.paypal.com/",
+        "https://api-m.paypal.com/?secret=value",
+        "https://api-m.paypal.com/#fragment",
+        "ftp://api-m.paypal.com/",
+        "not-a-url",
+    ] {
+        let mut settings = valid.clone();
+        settings
+            .client
+            .as_mut()
+            .unwrap()
+            .paypal
+            .as_mut()
+            .unwrap()
+            .base_url = base_url.into();
+        assert!(settings.validate().is_err(), "{base_url}");
+    }
+    let mut production = valid.clone();
+    production.browser.insecure_local = false;
+    production.browser.allowed_origins = vec!["https://convention.enzumeii.com".into()];
+    production.checkout.as_mut().unwrap().frontend_origin =
+        "https://convention.enzumeii.com".into();
+    production
+        .client
+        .as_mut()
+        .unwrap()
+        .paypal
+        .as_mut()
+        .unwrap()
+        .base_url = "http://localhost:8089/".into();
+    assert!(production.validate().is_err());
+    production.client.as_mut().unwrap().paypal = None;
+    assert!(production.validate().is_ok());
 }

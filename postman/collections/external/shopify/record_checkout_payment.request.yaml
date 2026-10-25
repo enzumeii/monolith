@@ -1,0 +1,38 @@
+$kind: graphql-request
+description: >-
+  Records money already received by Stripe/PayPal against the same verified
+  pending Shopify order. New metadata checkouts omit paymentMethodName to use
+  the default manual method; legacy attempts retain their original configured
+  method. Requires write_orders and mark-as-paid permission. Omit amount on
+  non-Plus stores after proving the full exact outstanding balance. Persist
+  recording intent before the one financial mutation; reconcile an uncertain
+  response by reading that same order, never blindly replay. Success requires
+  matching order ID, no userErrors, PAID, zero outstanding and exactly one full
+  successful manual SALE. Then merge verified provider references into custom
+  attributes and read back; an arbitrary manual order is not payment proof.
+  This records an external payment, it does not charge a provider again.
+  Synthetic IDs require an explicitly authorized owned order.
+  Success example: {"data":{"orderCreateManualPayment":{"order":{"id":"gid://shopify/Order/123"},"userErrors":[]}}}.
+  Error example: {"data":{"orderCreateManualPayment":{"order":null,"userErrors":[{"field":["id"],"message":"Order cannot be marked paid"}]}}}.
+url: "{{shopify}}/graphql.json"
+query: |
+  mutation RecordCheckoutPayment($id: ID!, $paymentMethodName: String) {
+    orderCreateManualPayment(id: $id, paymentMethodName: $paymentMethodName) {
+      order {
+        id
+      }
+      userErrors {
+        code
+        field
+        message
+      }
+    }
+  }
+variables: |-
+  {
+    "id": "gid://shopify/Order/123"
+  }
+settings: {}
+schema:
+  source: auto
+order: 3603

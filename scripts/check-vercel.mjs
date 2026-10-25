@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { parse as parseToml } from 'smol-toml';
 import { readFile } from 'node:fs/promises';
 import { validateConfig } from '../node_modules/vercel/dist/chunks/chunk-VPH6RJ5P.js';
 import { require_dist2 } from '../node_modules/vercel/dist/chunks/chunk-CVDK3IYT.js';
@@ -47,7 +48,12 @@ assert.equal(resolved.services.find(service => service.name === 'api').builder.u
 for (const service of Object.values(config.services)) assert.ok(!('bindings' in service));
 const dockerfile = await readFile('Dockerfile.api.vercel', 'utf8');
 assert.match(dockerfile, /USER app/);
-assert.ok(dockerfile.includes("COPY services/api/application.toml services/api/application.prod.toml /app/"));
+assert.ok(dockerfile.includes("COPY services/api/application.toml /app/"));
+const apiDefaults = parseToml(await readFile('services/api/application.toml', 'utf8'));
+assert.equal(apiDefaults.scheduler.implementation, 'vercel');
+assert.equal(apiDefaults.browser.insecure_local, false);
+assert.equal(apiDefaults.checkout.frontend_origin, 'https://convention.enzumeii.com');
+assert.equal(apiDefaults.checkout.stripe_livemode, true);
 assert.ok(dockerfile.includes("RUN_ENV=prod"));
 assert.ok(dockerfile.includes('CMD ["/app/api", "server"]'));
 assert.deepEqual(config.rewrites, [

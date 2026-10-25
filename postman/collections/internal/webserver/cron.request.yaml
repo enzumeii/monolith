@@ -6,7 +6,24 @@ auth:
   credentials:
     token: "{{vault:cron_secret}}"
 order: 2100
-description: Invoke bounded scheduled reports and refresh-token retention. cron_server is the deployment root (no /api prefix); cron_secret must match CRON_SECRET, supplied privately. Run api server with scheduler implementation=vercel in application.local.toml; production forces Vercel cron. VPS cron returns 404. The shared enabled setting skips reports but keeps retention. Success is 204; 401 rejects authentication; 503 means missing secret or invocation capacity exceeded; provider and database failures are safe errors.
+description: >-
+  Invoke awaited checkout recovery, scheduled reports and refresh-token retention.
+  server must be the deployment root for this request (no /api or /v1 prefix);
+  vault:cron_secret must match the private CRON_SECRET. Select
+  scheduler.implementation=vercel in the API TOML overlay; VPS returns 404.
+  Checkout recovery runs first when checkout is configured and
+  checkout_recovery.enabled=true, independently of scheduler.enabled. It uses
+  bounded batches, renewable fenced leases and the original payment identity;
+  it never creates a fresh payment key or blindly repeats uncertain Shopify
+  completion. A persisted business retry/manual outcome is not an HTTP failure.
+  Reports run while work time remains, then reserved auth retention is attempted
+  even after a lane fails. Success is 204 with no body and Cache-Control: no-store.
+  401 rejects authentication; 503 includes missing cron secret or checkout
+  claim/lease/persistence/deadline failure. Existing report and retention errors
+  keep their mappings. No provider or database error body contains private
+  credentials. The checked-in Vercel Hobby trigger remains daily; frequent
+  recovery requires an owner-configured authenticated external trigger.
+  Requests may advance real orders: run only against the intended environment.
 scripts:
   - type: afterResponse
     code: ""

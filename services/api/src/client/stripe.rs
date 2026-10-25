@@ -4,8 +4,8 @@ use crate::{
     client::{ClientError, ClientErrorKind, HttpClient},
     config::StripeConfig,
     models::stripe::{
-        Account, BalanceTransaction, Charge, CheckoutMode, CheckoutSession, CreateCheckoutSession,
-        PaymentIntent, Payout, Refund, StripePage,
+        Account, BalanceTransaction, Charge, CheckoutMode, CheckoutSession, CheckoutStatus,
+        CreateCheckoutSession, PaymentIntent, Payout, Refund, StripePage,
     },
 };
 use reqwest::{
@@ -19,6 +19,7 @@ pub struct StripeClient {
     http: HttpClient,
     base_url: Url,
     headers: HeaderMap,
+    checkout_api_version: HeaderValue,
 }
 
 impl StripeClient {
@@ -38,12 +39,24 @@ impl StripeClient {
         auth.set_sensitive(true);
         let base_url = Url::parse(&config.base_url)
             .map_err(|_| ClientError::new(ClientErrorKind::InvalidInput("invalid Stripe URL")))?;
+        if config.checkout_api_version.trim().is_empty() {
+            return Err(ClientError::new(ClientErrorKind::InvalidInput(
+                "Stripe checkout API version is missing",
+            )));
+        }
+        let checkout_api_version =
+            HeaderValue::from_str(&config.checkout_api_version).map_err(|_| {
+                ClientError::new(ClientErrorKind::InvalidInput(
+                    "invalid Stripe checkout API version",
+                ))
+            })?;
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, auth);
         Ok(Self {
             http: HttpClient::new(Duration::from_secs(config.timeout_secs))?,
             base_url,
             headers,
+            checkout_api_version,
         })
     }
 
@@ -119,7 +132,17 @@ impl StripeClient {
     }
 
     pub async fn get_account(&self) -> Result<Account, ClientError> {
-        self.get(self.operation_url(&["account"])?).await
+        let account: Account = self.get(self.operation_url(&["account"])?).await?;
+        if account.object != "account"
+            || !account.id.starts_with("acct_")
+            || account.id.len() <= 5
+            || !crate::models::stripe::valid_id(&account.id)
+        {
+            return Err(ClientError::new(ClientErrorKind::Protocol(
+                "invalid Stripe account identity",
+            )));
+        }
+        Ok(account)
     }
 
     async fn checkout_session(
@@ -189,7 +212,7 @@ impl StripeClient {
                     && url.username().is_empty()
                     && url.password().is_none()
             });
-        if !valid_url {
+        if !(valid_url || session.status == CheckoutStatus::Complete && session.url.is_none()) {
             return Err(ClientError::new(ClientErrorKind::Protocol(
                 "Checkout hosted URL is missing or invalid",
             )));
@@ -205,6 +228,7 @@ impl StripeClient {
     ) -> Result<T, ClientError> {
         let mut headers = self.headers.clone();
         headers.insert("idempotency-key", idempotency_header(key)?);
+        headers.insert("stripe-version", self.checkout_api_version.clone());
         self.http
             .request_form(Method::POST, url, headers, form)
             .await

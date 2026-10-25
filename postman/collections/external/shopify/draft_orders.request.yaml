@@ -1,14 +1,31 @@
 $kind: graphql-request
-description: "One Shopify draftOrders page filtered by caller-supplied query. Checkout recovery paginates all pages, then requires one exact checkout tag and accepted-evidence match; zero/multiple/incomplete results never authorize a new draft. Set after from pageInfo.endCursor until hasNextPage is false."
+description: >-
+  Reads one draft page. Metadata checkout recovery fixes the original attempt's
+  created_at window plus/minus five minutes and sorts CREATED_AT, then validates
+  exact singleton checkout/convention/full-slug/provider attributes and the full
+  accepted purchase/reservation. Maximum 20 pages / 5000 drafts; incomplete,
+  missing, conflicting or duplicate results require reconciliation and never a
+  replacement creation. Legacy persisted rows retain their bound co: tag lookup.
+  Follow pageInfo until complete; after is the returned cursor.
 url: "{{shopify}}/graphql.json"
 query: |
-  query DraftOrders($first: Int!, $after: String, $query: String) {
-    draftOrders(first: $first, after: $after, query: $query) {
+  query DraftOrders(
+    $first: Int!
+    $after: String
+    $query: String
+    $sortKey: DraftOrderSortKeys
+  ) {
+    draftOrders(first: $first, after: $after, query: $query, sortKey: $sortKey) {
       nodes {
         id
+        createdAt
         ready
         status
         tags
+        customAttributes {
+          key
+          value
+        }
         email
         reserveInventoryUntil
         lineItems(first: 100) {
@@ -42,11 +59,12 @@ query: |
       }
     }
   }
-variables: |
+variables: |-
   {
     "first": 250,
     "after": null,
-    "query": "tag:'checkout:00000000-0000-4000-8000-000000000001'"
+    "query": "created_at:>='2026-10-25T00:00:00+00:00' AND created_at:<='2026-10-25T00:10:00+00:00'",
+    "sortKey": "CREATED_AT"
   }
 settings: {}
 schema:

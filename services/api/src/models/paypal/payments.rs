@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::value::RawValue;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CreateOrderRequest {
@@ -51,6 +51,7 @@ pub struct PaypalPaymentSource {
 pub struct ExperienceContext {
     pub return_url: String,
     pub cancel_url: String,
+    pub shipping_preference: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -116,7 +117,7 @@ pub struct VerifyWebhookSignatureRequest {
     pub transmission_sig: String,
     pub transmission_time: String,
     pub webhook_id: String,
-    pub webhook_event: Value,
+    pub webhook_event: Box<RawValue>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

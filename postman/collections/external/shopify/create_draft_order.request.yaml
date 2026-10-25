@@ -6,13 +6,22 @@ description: |
   future reserveInventoryUntil for the test; omit it to request no reservation.
   Omitting priceOverride uses Shopify catalogue prices. Callers may explicitly
   supply an optional line-item priceOverride with amount and currencyCode.
-  Contact/address and tags are caller supplied. Optional sessionToken identifies
-  the draft; it does not guarantee deduplication across invocations.
+  Optional note is native plain-text Shopify draft/order fulfillment text.
+  Contact/address, tags and customAttributes are caller supplied. New guest
+  checkout metadata2 emits only the convention slug tag (literal through 40
+  characters; first 40 for a longer valid slug). The five singleton identity
+  attributes below bind the canonical checkout/convention UUIDs, exact full slug,
+  correlation version 2 and selected provider. Legacy persisted attempts retain
+  their original tag contract. This runnable example uses synthetic identity and
+  a short slug; replace all values consistently for an owned test checkout.
+  Verified provider payment references are added later, never invented at create.
+  Optional sessionToken identifies the draft; it does not guarantee deduplication
+  across invocations.
   Execution creates a draft: do not run this mutation against production during
   verification or retry an ambiguous failure automatically.
 
   Expected HTTP 200 success body:
-  {"data":{"draftOrderCreate":{"draftOrder":{"id":"gid://shopify/DraftOrder/42","name":"#D42","email":"buyer@example.test","phone":"+66000000000","tags":["ENZ-42-TEST","RESERVED-CHECKOUT"],"reserveInventoryUntil":"2099-01-01T00:00:00Z"},"userErrors":[]}}}
+  {"data":{"draftOrderCreate":{"draftOrder":{"id":"gid://shopify/DraftOrder/42","name":"#D42","email":"buyer@example.test","phone":"+66000000000","tags":["example-convention"],"reserveInventoryUntil":"2099-01-01T00:00:00Z"},"userErrors":[]}}}
 
   Provider rejection may also return HTTP 200:
   {"data":{"draftOrderCreate":{"draftOrder":null,"userErrors":[{"field":["input","lineItems","0","variantId"],"message":"Variant not found"}]}}}
@@ -21,49 +30,71 @@ description: |
 url: "{{shopify}}/graphql.json"
 query: |
   mutation CreateDraftOrder($input: DraftOrderInput!) {
-  	draftOrderCreate(input: $input) {
-  		draftOrder {
-  			id
-  			name
-  			email
-  			phone
-  			tags
-  			reserveInventoryUntil
-  		}
-  		userErrors {
-  			field
-  			message
-  		}
-  	}
+    draftOrderCreate(input: $input) {
+      draftOrder {
+        id
+        name
+        email
+        phone
+        tags
+        reserveInventoryUntil
+      }
+      userErrors {
+        field
+        message
+      }
+    }
   }
 variables: |-
   {
-  	"input": {
-  		"email": "buyer@example.test",
-  		"phone": "+66000000000",
-  		"shippingAddress": {
-  			"firstName": "Example",
-  			"lastName": "Buyer",
-  			"address1": "1 Example Road",
-  			"city": "Bangkok",
-  			"provinceCode": "TH-10",
-  			"countryCode": "TH",
-  			"zip": "10000"
-  		},
-  		"lineItems": [
-  			{
-  				"variantId": "gid://shopify/ProductVariant/123",
-  				"quantity": 2
-  			}
-  		],
-  		"tags": [
-  			"ENZ-42-TEST",
-  			"RESERVED-CHECKOUT"
-  		],
-  		"presentmentCurrencyCode": "THB",
-  		"reserveInventoryUntil": "2099-01-01T00:00:00Z",
-  		"sessionToken": "synthetic-session-token-42"
-  	}
+    "input": {
+      "email": "buyer@example.test",
+      "note": "Please pack as a gift.\nThank you!",
+      "phone": "+66000000000",
+      "shippingAddress": {
+        "firstName": "Example",
+        "lastName": "Buyer",
+        "address1": "1 Example Road",
+        "city": "Bangkok",
+        "provinceCode": "TH-10",
+        "countryCode": "TH",
+        "zip": "10000"
+      },
+      "lineItems": [
+        {
+          "variantId": "gid://shopify/ProductVariant/123",
+          "quantity": 2
+        }
+      ],
+      "tags": [
+        "example-convention"
+      ],
+      "customAttributes": [
+        {
+          "key": "checkout_correlation_version",
+          "value": "2"
+        },
+        {
+          "key": "checkout_id",
+          "value": "11111111-1111-4111-8111-111111111111"
+        },
+        {
+          "key": "convention_id",
+          "value": "22222222-2222-4222-8222-222222222222"
+        },
+        {
+          "key": "convention_slug",
+          "value": "example-convention"
+        },
+        {
+          "key": "payment_provider",
+          "value": "stripe"
+        }
+      ],
+      "presentmentCurrencyCode": "THB",
+      "reserveInventoryUntil": "2099-01-01T00:00:00Z",
+      "sessionToken": "synthetic-session-token-42"
+    }
   }
 settings: {}
 schema:

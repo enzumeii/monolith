@@ -2,6 +2,7 @@ pub(crate) mod catalogue;
 mod convention;
 mod directory;
 mod filters;
+mod footer;
 mod navbar;
 mod product;
 
@@ -9,6 +10,7 @@ pub use catalogue::CataloguePage;
 pub use convention::CartPage;
 pub(crate) use convention::{ConventionContent, ConventionFrame, ConventionView};
 pub use directory::Directory;
+use footer::PortalFooter;
 use navbar::PortalNavbar;
 pub use product::ProductPage;
 
@@ -19,7 +21,12 @@ use ui::{Heading, MarkdownPreview};
 
 #[component]
 pub fn PortalLayout() -> Element {
-    rsx! { Outlet::<Route> {} }
+    rsx! {
+        div { class: "portal-shell",
+            div { class: "portal-content", Outlet::<Route> {} }
+            PortalFooter {}
+        }
+    }
 }
 
 #[component]

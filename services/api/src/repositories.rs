@@ -38,3 +38,7 @@ pub async fn connect_pool(settings: &Settings) -> Result<PgPool, crate::error::A
 }
 
 pub(crate) mod conventions;
+
+#[cfg(test)]
+#[path = "tests/repositories.rs"]
+mod tests;

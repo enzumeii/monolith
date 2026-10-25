@@ -3,7 +3,33 @@ query OrdersByPayment($first: Int!, $search: String!, $after: String) {
     nodes {
       id
       number
+      displayFinancialStatus
+      cancelledAt
+      currentTotalPriceSet {
+        shopMoney {
+          amount
+          currencyCode
+        }
+        presentmentMoney {
+          amount
+          currencyCode
+        }
+      }
+      totalOutstandingSet {
+        shopMoney {
+          amount
+          currencyCode
+        }
+        presentmentMoney {
+          amount
+          currencyCode
+        }
+      }
       tags
+      customAttributes {
+        key
+        value
+      }
       phone
       shippingAddress {
         name
@@ -22,6 +48,10 @@ query OrdersByPayment($first: Int!, $search: String!, $after: String) {
         kind
         status
         amountSet {
+          presentmentMoney {
+            amount
+            currencyCode
+          }
           shopMoney {
             amount
             currencyCode

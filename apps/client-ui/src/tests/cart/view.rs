@@ -21,6 +21,7 @@ mod mounted {
         api::tests::{catalogue, responses},
         pages::tests::{CHECKOUT, Screen, TestDocument, click, empty_cart, input, mounted, until},
     };
+    use futures::FutureExt;
 
     fn populated() -> Cart {
         let mut cart = empty_cart();
@@ -69,6 +70,8 @@ mod mounted {
                 let html = until(&mut dom, "Current total").await;
                 assert!(html.contains("USD 24.60"));
                 assert!(!html.contains("Refresh prices"));
+                assert!(html.contains("for=\"cart-quantity-1\">Quantity</label>"));
+                assert!(!html.contains("Quantity for"));
                 assert!(!html.contains("Shipping"));
                 assert!(!html.contains("Retry cart"));
                 input(&mut dom, "cart-quantity-1", "input", "bad");
@@ -94,7 +97,12 @@ mod mounted {
                 click(&mut dom, "aria-label", "Remove Shirt / Blue / Large");
                 assert!(dioxus_ssr::render(&dom).contains("Your cart is empty"));
                 until(&mut dom, "USD 0.00").await;
-                assert!(!dioxus_ssr::render(&dom).contains("payment-button"));
+                assert_eq!(
+                    dioxus_ssr::render(&dom)
+                        .matches("checkout-payment-button")
+                        .count(),
+                    2
+                );
             },
         )
         .await;
@@ -202,29 +210,150 @@ mod mounted {
                 let (mut dom, _) = mounted(
                     Screen::Cart(catalogue(), CHECKOUT.into()),
                     populated(),
-                    TestDocument::new(vec![]),
+                    TestDocument::new(vec![
+                        serde_json::json!({"ok":true,"value":null}),
+                        serde_json::json!(true),
+                    ]),
                 );
-                let html = until(&mut dom, "Current catalogue unavailable").await;
-                assert!(!html.contains("Current total"));
-                click(&mut dom, "__text", "Retry cart");
-                until(&mut dom, "Current total").await;
+                let html = until(&mut dom, "Current total").await;
+                assert!(!html.contains("Current catalogue unavailable"));
+                assert!(!html.contains("Retry cart"));
             },
         )
         .await;
         let data = encoded();
         responses(
-            &[(200, &data), (503, r#"{"error":"Quote unavailable"}"#)],
+            &[
+                (200, &data),
+                (503, r#"{"error":"Quote unavailable"}"#),
+                (200, &data),
+                (200, &quoted),
+                (200, &data),
+            ],
             async {
                 let (mut dom, _) = mounted(
                     Screen::Cart(catalogue(), CHECKOUT.into()),
                     populated(),
-                    TestDocument::new(vec![]),
+                    TestDocument::new(vec![
+                        serde_json::json!({"ok":true,"value":null}),
+                        serde_json::json!(true),
+                    ]),
                 );
-                let html = until(&mut dom, "Quote unavailable").await;
-                assert!(!html.contains("Current total"));
+                let html = until(&mut dom, "Current total").await;
+                assert!(!html.contains("Quote unavailable"));
+                assert!(!html.contains("Retry cart"));
             },
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn quote_recovery_rechecks_prices_without_accepting_changes_for_the_customer() {
+        let data = encoded();
+        let mut changed = catalogue();
+        changed.products[0].variants[0].final_price = "14.00".into();
+        let changed = serde_json::to_string(&changed).expect("changed catalogue");
+        let document = TestDocument::new(vec![
+            serde_json::json!({"ok":true,"value":null}),
+            serde_json::json!(true),
+        ]);
+        let ((), requests) = responses(
+            &[
+                (200, &data),
+                (503, r#"{"error":"Quote unavailable"}"#),
+                (200, &changed),
+            ],
+            async {
+                let (mut dom, captured) = mounted(
+                    Screen::Cart(catalogue(), CHECKOUT.into()),
+                    populated(),
+                    document.clone(),
+                );
+                let html = until(&mut dom, "Accept updated prices").await;
+                assert!(!html.contains("Current total"));
+                assert!(!html.contains("Retry cart"));
+                assert!(html.contains("Acknowledgement required"));
+                dom.in_scope(ScopeId::ROOT, || {
+                    let context = captured.get().expect("cart context");
+                    assert_eq!(*context.cart.peek(), populated());
+                });
+            },
+        )
+        .await;
+        assert_eq!(requests.len(), 3);
+        assert!(requests[1].starts_with("POST /v1/conventions/fair-a/quote"));
+        assert!(requests[2].starts_with("GET /v1/conventions/fair-a/products"));
+        assert_eq!(
+            document
+                .scripts
+                .borrow()
+                .iter()
+                .filter(|script| script.contains("setTimeout"))
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn changing_cart_cancels_the_waiting_quote_and_only_new_quantities_are_payable() {
+        let data = encoded();
+        let single = quote("12.30", 1);
+        let document = TestDocument::new(vec![
+            serde_json::json!({"ok":true,"value":null}),
+            serde_json::json!({"__eval_pending":true}),
+        ]);
+        let ((), requests) = responses(
+            &[
+                (200, &data),
+                (503, r#"{"error":"Quote unavailable"}"#),
+                (200, &data),
+                (200, &single),
+                (200, &data),
+            ],
+            async {
+                let (mut dom, _) = mounted(
+                    Screen::Cart(catalogue(), CHECKOUT.into()),
+                    populated(),
+                    document.clone(),
+                );
+                for _ in 0..200 {
+                    let _ = dom.wait_for_work().now_or_never();
+                    dom.render_immediate_to_vec();
+                    if document
+                        .scripts
+                        .borrow()
+                        .iter()
+                        .any(|script| script.contains("setTimeout"))
+                    {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+                let html = dioxus_ssr::render(&dom);
+                assert!(html.contains("Checking current prices"));
+                assert!(!html.contains("Current total"));
+                assert!(!html.contains("Retry cart"));
+                input(&mut dom, "cart-quantity-1", "input", "1");
+                let html = until(&mut dom, "Current total").await;
+                assert!(html.contains("1 × USD 12.30 = USD 12.30"));
+                assert!(!html.contains("USD 24.60"));
+                drop(dom);
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            },
+        )
+        .await;
+        assert_eq!(requests.len(), 5);
+        assert!(requests[1].contains("\"quantity\":2"));
+        assert!(requests[3].contains("\"quantity\":1"));
+        assert_eq!(
+            document
+                .scripts
+                .borrow()
+                .iter()
+                .filter(|script| script.contains("setTimeout"))
+                .count(),
+            1
+        );
     }
 
     #[tokio::test]

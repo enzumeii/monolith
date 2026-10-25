@@ -1,25 +1,25 @@
 $kind: graphql-request
-description: "Converts this same draft to a paid order using Shopify native draft completion. Requires read/write draft order scopes and permission to mark paid. Native notification follows Shopify configuration; this operation has no separate send or notify flag. Real mutation: use only an explicitly authorized owned development draft. Never blindly replay after transport, HTTP, GraphQL, decoding or userErrors failure; reconcile the known draft first. Success requires matching draft ID and a real Order ID. Synthetic IDs must be replaced only for authorized development-store verification."
+description: "Converts this same draft using Shopify native completion. Version2 guest checkout supplies paymentPending=true and separately records the verified external payment; legacy callers use false for paid completion. Requires read/write draft order scopes and permission to mark paid. Native notification follows Shopify configuration; this operation has no separate send or notify flag. Real mutation: use only an explicitly authorized owned development draft. Never blindly replay after transport, HTTP, GraphQL, decoding or userErrors failure; reconcile the known draft first. Success requires matching draft ID and a real Order ID. Synthetic IDs must be replaced only for authorized development-store verification."
 url: "{{shopify}}/graphql.json"
 query: |
   mutation CompleteCheckoutDraft($id: ID!, $paymentPending: Boolean!) {
-  	draftOrderComplete(id: $id, paymentPending: $paymentPending) {
-  		draftOrder {
-  			id
-  			order {
-  				id
-  			}
-  		}
-  		userErrors {
-  			field
-  			message
-  		}
-  	}
+    draftOrderComplete(id: $id, paymentPending: $paymentPending) {
+      draftOrder {
+        id
+        order {
+          id
+        }
+      }
+      userErrors {
+        field
+        message
+      }
+    }
   }
 variables: |-
   {
-  	"id": "gid://shopify/DraftOrder/123",
-  	"paymentPending": false
+    "id": "gid://shopify/DraftOrder/123",
+    "paymentPending": true
   }
 settings: {}
 schema:

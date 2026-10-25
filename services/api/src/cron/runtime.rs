@@ -4,7 +4,7 @@ use crate::{
     state::AppState,
 };
 use std::time::Duration;
-use tokio::task::JoinHandle;
+use tokio::{sync::watch, task::JoinHandle};
 
 #[allow(async_fn_in_trait)]
 pub trait CronRuntime {
@@ -17,6 +17,8 @@ pub struct VercelCron;
 pub struct CronTasks {
     scheduler: Option<JoinHandle<()>>,
     retention: Option<JoinHandle<()>>,
+    checkout: Option<JoinHandle<()>>,
+    checkout_shutdown: Option<watch::Sender<bool>>,
 }
 
 impl CronRuntime for VpsCron {
@@ -39,11 +41,16 @@ impl CronTasks {
             CronImplementation::Vercel => Self {
                 scheduler: None,
                 retention: None,
+                checkout: None,
+                checkout_shutdown: None,
             },
         }
     }
 
     pub async fn shutdown(mut self) {
+        if let Some(stop) = &self.checkout_shutdown {
+            let _ = stop.send(true);
+        }
         for task in [&self.scheduler, &self.retention].into_iter().flatten() {
             task.abort();
         }
@@ -51,6 +58,9 @@ impl CronTasks {
             .into_iter()
             .flatten()
         {
+            let _ = task.await;
+        }
+        if let Some(task) = self.checkout.take() {
             let _ = task.await;
         }
         tracing::info!("Cron runtime tasks stopped");
@@ -84,16 +94,22 @@ impl CronTasks {
                 }
             }
         }));
+        let (checkout, checkout_shutdown) = super::checkout::start(state);
         Self {
             scheduler,
             retention,
+            checkout,
+            checkout_shutdown,
         }
     }
 }
 
 impl Drop for CronTasks {
     fn drop(&mut self) {
-        for task in [&self.scheduler, &self.retention].into_iter().flatten() {
+        for task in [&self.scheduler, &self.retention, &self.checkout]
+            .into_iter()
+            .flatten()
+        {
             task.abort();
         }
     }

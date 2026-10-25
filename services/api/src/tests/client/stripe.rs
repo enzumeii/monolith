@@ -9,6 +9,7 @@ use crate::{
 use serde_json::json;
 fn client(f: &Fixture) -> StripeClient {
     StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: f.url.join("/v1/").unwrap().to_string(),
         timeout_secs: 1,
         secret_key: Some("sk_test_private".into()),
@@ -42,6 +43,7 @@ async fn lists_payout_pages_with_inclusive_filters_and_cursor() {
         assert_eq!(q["status"], "paid");
         assert_eq!(q["limit"], "100");
         assert_eq!(r.1["authorization"], "Bearer sk_test_private");
+        assert!(!r.1.contains_key("stripe-version"));
     }
     assert!(requests[1].0.contains("starting_after=po_one"));
     assert!(f.methods().iter().all(|m| m == reqwest::Method::GET));
@@ -129,6 +131,7 @@ async fn failures_preserve_types_without_exposing_payloads() {
 #[test]
 fn validates_configuration_and_redacts_secret() {
     let mut cfg = StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: "https://api.stripe.com/v1/".into(),
         timeout_secs: 3,
         secret_key: Some("sk_test_private".into()),
@@ -155,10 +158,70 @@ fn validates_configuration_and_redacts_secret() {
     }
 }
 
+#[test]
+fn rejects_blank_and_invalid_checkout_version_headers() {
+    for version in [
+        "",
+        " ",
+        "\t",
+        "2026-08-26.dahlia\r\nx-injected: value",
+        "invalid\nvalue",
+        "invalid\0value",
+    ] {
+        let cfg = StripeConfig {
+            checkout_api_version: version.into(),
+            base_url: "https://api.stripe.com/v1/".into(),
+            timeout_secs: 1,
+            secret_key: Some("sk_test_private".into()),
+        };
+        let error = StripeClient::new(&cfg).err().unwrap();
+        assert!(matches!(
+            error.kind(),
+            crate::client::ClientErrorKind::InvalidInput(_)
+        ));
+    }
+}
+
+#[tokio::test]
+async fn configured_checkout_version_applies_to_creation_and_recovery_only() {
+    let mut request = checkout_request();
+    request.expires_at = Some(chrono::Utc::now().timestamp() + 3600);
+    let mut response = session_response();
+    response["expires_at"] = json!(request.expires_at);
+    let fixture = Fixture::new(vec![
+        Reply::json(response.clone()),
+        Reply::json(response),
+        Reply::json(json!({"id":"acct_fixture", "object":"account"})),
+        Reply::json(session_response()),
+        Reply::json(json!({"data":[],"has_more":false})),
+    ])
+    .await;
+    let c = StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-09-30.clover".into(),
+        base_url: fixture.url.join("/v1/").unwrap().to_string(),
+        timeout_secs: 1,
+        secret_key: Some("sk_test_private".into()),
+    })
+    .unwrap();
+    c.create_checkout_session(&request).await.unwrap();
+    c.recover_checkout_session(&request).await.unwrap();
+    c.get_account().await.unwrap();
+    c.get_checkout_session("cs_test_one").await.unwrap();
+    c.list_payouts(1, 2, None, 1, None).await.unwrap();
+    let requests = fixture.requests();
+    for request in &requests[..2] {
+        assert_eq!(request.1["stripe-version"], "2026-09-30.clover");
+    }
+    for request in &requests[2..] {
+        assert!(!request.1.contains_key("stripe-version"));
+    }
+}
+
 #[tokio::test]
 async fn stalled_stripe_connection_times_out() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let c = StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: format!("http://{}/v1/", listener.local_addr().unwrap()),
         timeout_secs: 1,
         secret_key: Some("fixture".into()),
@@ -221,6 +284,7 @@ async fn request_paths_preserve_base_with_or_without_trailing_slash() {
     for path in ["/v1", "/v1/"] {
         let fixture = Fixture::new(vec![Reply::json(json!({"data":[],"has_more":false})), Reply::json(json!({"id":"re_one","amount":1,"created":1,"currency":"usd","payment_intent":null,"reason":null}))]).await;
         let c = StripeClient::new(&StripeConfig {
+            checkout_api_version: "2026-08-26.dahlia".into(),
             base_url: fixture.url.join(path).unwrap().to_string(),
             timeout_secs: 1,
             secret_key: Some("fixture".into()),
@@ -265,6 +329,7 @@ async fn creates_card_checkout_with_exact_form_money_and_stable_key() {
     assert_eq!(requests[0].0, "/v1/checkout/sessions");
     assert_eq!(fixture.methods()[0], reqwest::Method::POST);
     assert_eq!(requests[0].1["idempotency-key"], "checkout_fixture_1");
+    assert_eq!(requests[0].1["stripe-version"], "2026-08-26.dahlia");
     assert_eq!(
         requests[0].1["content-type"],
         "application/x-www-form-urlencoded"
@@ -414,6 +479,7 @@ async fn checkout_operations_reject_malformed_success_without_replay() {
 async fn checkout_mutation_timeouts_and_connection_failures_are_not_replayed() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let c = StripeClient::new(&StripeConfig {
+        checkout_api_version: "2026-08-26.dahlia".into(),
         base_url: format!("http://{}/v1/", listener.local_addr().unwrap()),
         timeout_secs: 1,
         secret_key: Some("fixture".into()),
@@ -556,6 +622,7 @@ async fn checkout_recovery_replays_original_expiry_and_key_inside_thirty_minutes
     for received in requests {
         assert_eq!(received.0, "/v1/checkout/sessions");
         assert_eq!(received.1["idempotency-key"], request.idempotency_key);
+        assert_eq!(received.1["stripe-version"], "2026-08-26.dahlia");
     }
     let bodies = fixture.raw_bodies();
     assert_eq!(bodies[0], bodies[1]);
@@ -610,5 +677,49 @@ async fn checkout_recovery_rejects_a_different_response_expiry_without_replay() 
             crate::client::ClientErrorKind::Protocol(_)
         ));
         assert_eq!(fixture.requests().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn completed_sessions_bind_without_a_hosted_url_on_create_and_recovery() {
+    for recovery in [false, true] {
+        for payment_status in ["unpaid", "paid"] {
+            let mut request = checkout_request();
+            request.expires_at = Some(chrono::Utc::now().timestamp() + 3600);
+            let mut response = session_response();
+            response["status"] = json!("complete");
+            response["payment_status"] = json!(payment_status);
+            response["url"] = json!(null);
+            response["expires_at"] = json!(request.expires_at);
+            let fixture = Fixture::new(vec![Reply::json(response)]).await;
+            let client = client(&fixture);
+            let result = if recovery {
+                client.recover_checkout_session(&request).await
+            } else {
+                client.create_checkout_session(&request).await
+            };
+            assert_eq!(result.unwrap().id, "cs_test_one");
+            assert_eq!(fixture.requests().len(), 1);
+        }
+    }
+}
+
+#[tokio::test]
+async fn account_identity_rejects_invalid_objects_and_ids_without_replay() {
+    use crate::client::ClientErrorKind;
+    for body in [
+        json!({"id":"acct_fixture","object":"customer"}),
+        json!({"id":"","object":"account"}),
+        json!({"id":"acct_","object":"account"}),
+        json!({"id":"cus_fixture","object":"account"}),
+        json!({"id":"acct_invalid/path","object":"account"}),
+        json!({"id":format!("acct_{}", "x".repeat(251)),"object":"account"}),
+    ] {
+        let fixture = Fixture::new(vec![Reply::json(body)]).await;
+        let error = client(&fixture).get_account().await.unwrap_err();
+        assert!(matches!(error.kind(), ClientErrorKind::Protocol(_)));
+        assert_eq!(fixture.requests().len(), 1);
+        assert_eq!(fixture.requests()[0].0, "/v1/account");
+        assert!(!fixture.requests()[0].1.contains_key("stripe-version"));
     }
 }

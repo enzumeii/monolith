@@ -1,6 +1,0 @@
-[scheduler]
-implementation = "vercel"
-
-[browser]
-allowed_origins = ["https://convention.enzumeii.com", "https://enzumeii.vercel.app"]
-insecure_local = false

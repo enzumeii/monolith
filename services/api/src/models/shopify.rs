@@ -171,8 +171,12 @@ impl ActivateInventoryRequest {
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateDraftOrderInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
     pub line_items: Vec<DraftOrderLineItemInput>,
     pub tags: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub custom_attributes: Vec<CustomAttribute>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -257,6 +261,8 @@ pub struct Money {
 #[serde(rename_all = "camelCase")]
 pub struct MoneyBag {
     pub shop_money: Money,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presentment_money: Option<Money>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct InventoryQuantity {
@@ -322,7 +328,17 @@ pub struct OrderTransaction {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Order {
+    #[serde(default)]
+    pub display_financial_status: Option<CompletionFinancialStatus>,
+    #[serde(default, deserialize_with = "present_nullable")]
+    pub cancelled_at: Option<Option<String>>,
+    #[serde(default)]
+    pub current_total_price_set: Option<MoneyBag>,
+    #[serde(default)]
+    pub total_outstanding_set: Option<MoneyBag>,
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub custom_attributes: Vec<CustomAttribute>,
     pub id: ShopifyId,
     pub number: i64,
     pub phone: Option<String>,
@@ -746,6 +762,11 @@ impl ShippingOrder {
 pub(crate) struct CompletionMoneyBag {
     pub presentment_money: Money,
 }
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum DraftOrderSortKey {
+    CreatedAt,
+}
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum CompletionDraftStatus {
@@ -757,7 +778,11 @@ pub(crate) enum CompletionDraftStatus {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CompletionDraft {
     pub id: ShopifyId,
+    #[serde(default)]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
     pub ready: bool,
+    #[serde(default)]
+    pub custom_attributes: Vec<CustomAttribute>,
     pub status: CompletionDraftStatus,
     #[serde(deserialize_with = "required_nullable")]
     pub order: Option<ResourceReference>,
@@ -792,9 +817,9 @@ pub(crate) struct CheckoutDraftPageInfo {
     #[serde(rename = "endCursor")]
     pub _end_cursor: Option<String>,
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(crate) enum CompletionFinancialStatus {
+pub enum CompletionFinancialStatus {
     Pending,
     Authorized,
     PartiallyPaid,
@@ -815,6 +840,12 @@ pub(crate) struct CompletionOrder {
     pub cancelled_at: Option<String>,
     pub tags: Vec<String>,
     pub total_price_set: CompletionMoneyBag,
+    #[serde(default)]
+    pub total_outstanding_set: Option<CompletionMoneyBag>,
+    #[serde(default)]
+    pub transactions: Option<Vec<CompletionTransaction>>,
+    #[serde(default)]
+    pub custom_attributes: Vec<CustomAttribute>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -849,6 +880,46 @@ pub(crate) struct CompletedDraft {
     pub id: ShopifyId,
     #[serde(deserialize_with = "required_nullable")]
     pub order: Option<ResourceReference>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CustomAttribute {
+    pub key: String,
+    pub value: String,
+}
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CompletionTransaction {
+    pub id: ShopifyId,
+    pub gateway: String,
+    pub kind: String,
+    pub status: String,
+    pub amount_set: CompletionMoneyBag,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordCheckoutPaymentData {
+    pub order_create_manual_payment: RecordCheckoutPaymentPayload,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordCheckoutPaymentPayload {
+    #[serde(deserialize_with = "required_nullable")]
+    pub order: Option<ResourceReference>,
+    pub user_errors: Vec<MutationUserError>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UpdateOrderCustomAttributesData {
+    pub order_update: RecordCheckoutPaymentPayload,
+}
+#[allow(
+    clippy::option_option,
+    reason = "Distinguish missing provider evidence from a present null"
+)]
+fn present_nullable<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 fn required_nullable<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     deserializer: D,

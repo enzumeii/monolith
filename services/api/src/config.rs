@@ -1,5 +1,7 @@
 pub mod checkout;
+mod checkout_recovery;
 pub use checkout::CheckoutSettings;
+pub use checkout_recovery::CheckoutRecoveryConfig;
 
 use std::env;
 
@@ -97,6 +99,7 @@ impl std::fmt::Debug for S3Config {
 #[derive(Deserialize, Clone)]
 pub struct StripeConfig {
     pub base_url: String,
+    pub checkout_api_version: String,
     pub timeout_secs: u64,
     pub secret_key: Option<String>,
 }
@@ -109,6 +112,7 @@ impl std::fmt::Debug for StripeConfig {
 #[derive(Deserialize, Clone)]
 pub struct Settings {
     pub checkout: Option<CheckoutSettings>,
+    pub checkout_recovery: CheckoutRecoveryConfig,
     pub shipping_sender: Option<ShippingSender>,
     pub client: Option<ClientConfig>,
     pub browser: BrowserConfig,
@@ -158,8 +162,28 @@ impl JwtSettings {
 impl Settings {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.jwt.key()?;
+        self.checkout_recovery.validate()?;
         if let Some(checkout) = &self.checkout {
             checkout.validate(self.browser.insecure_local)?;
+            if let Some(paypal) = self
+                .client
+                .as_ref()
+                .and_then(|clients| clients.paypal.as_ref())
+            {
+                let url = reqwest::Url::parse(&paypal.base_url)
+                    .map_err(|_| ConfigError::Message("Invalid PayPal API URL".into()))?;
+                if !url.username().is_empty()
+                    || url.password().is_some()
+                    || url.query().is_some()
+                    || url.fragment().is_some()
+                {
+                    return Err(ConfigError::Message("Invalid PayPal API URL".into()));
+                }
+                validate_browser_origin(
+                    &url.origin().ascii_serialization(),
+                    self.browser.insecure_local,
+                )?;
+            }
         }
         if !(1..=32).contains(&self.scheduler.concurrency)
             || !(1..=100).contains(&self.scheduler.max_attempts)
@@ -218,12 +242,15 @@ impl Settings {
         )
     }
 
-    fn load(mut builder: ConfigBuilder<DefaultState>, mode: &str) -> Result<Self, ConfigError> {
+    fn load(builder: ConfigBuilder<DefaultState>, mode: &str) -> Result<Self, ConfigError> {
         if !matches!(mode, "local" | "qa" | "prod") {
             return Err(ConfigError::Message(
                 "RUN_ENV must be local, qa or prod".into(),
             ));
         }
+        let file_settings = builder.build()?;
+        let checkout_configured = file_settings.get_table("checkout").is_ok();
+        let mut builder = Config::builder().add_source(file_settings);
         if mode == "prod" {
             builder = builder.set_override("browser.insecure_local", false)?;
         }
@@ -288,7 +315,8 @@ impl Settings {
             ("CHECKOUT_PAYPAL_WEBHOOK_ID", "paypal_webhook_id"),
             ("CHECKOUT_PAYPAL_MERCHANT_ID", "paypal_merchant_id"),
         ] {
-            if let Ok(value) = env::var(variable)
+            if checkout_configured
+                && let Ok(value) = env::var(variable)
                 && !value.is_empty()
             {
                 builder = builder.set_override(format!("checkout.{field}"), value)?;
