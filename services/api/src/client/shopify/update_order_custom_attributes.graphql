@@ -1,0 +1,11 @@
+mutation UpdateOrderCustomAttributes($input: OrderInput!) {
+  orderUpdate(input: $input) {
+    order {
+      id
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}

@@ -330,13 +330,22 @@ impl ShopifyClient {
         &self,
         page: PageRequest,
         query: Option<&str>,
+        sort_key: Option<crate::models::shopify::DraftOrderSortKey>,
     ) -> Result<Connection<crate::models::shopify::CompletionDraft>, ClientError> {
         page.validate()?;
+        let mut variables = json!({"first":page.first,"after":page.after,"query":query});
+        if let Some(sort_key) = sort_key {
+            variables["sortKey"] = serde_json::to_value(sort_key).map_err(|_| {
+                ClientError::new(ClientErrorKind::InvalidInput(
+                    "invalid Shopify draft sort key",
+                ))
+            })?;
+        }
         let data: crate::models::shopify::DraftOrdersData = self
             .execute(
                 "DraftOrders",
                 include_str!("shopify/draft_orders.graphql"),
-                json!({"first":page.first,"after":page.after,"query":query}),
+                variables,
             )
             .await?;
         for draft in &data.draft_orders.nodes {
@@ -377,13 +386,20 @@ impl ShopifyClient {
         &self,
         id: &ShopifyId,
     ) -> Result<ShopifyId, ClientError> {
+        self.convert_checkout_draft(id, false).await
+    }
+    pub(crate) async fn convert_checkout_draft(
+        &self,
+        id: &ShopifyId,
+        payment_pending: bool,
+    ) -> Result<ShopifyId, ClientError> {
         use crate::models::shopify::CompleteDraftData;
         id.require_kind("DraftOrder")?;
         let data: CompleteDraftData = self
             .execute_once(
                 "CompleteCheckoutDraft",
                 include_str!("shopify/complete_checkout_draft.graphql"),
-                json!({"id":id,"paymentPending":false}),
+                json!({"id":id,"paymentPending":payment_pending}),
             )
             .await?;
         let payload = data.draft_order_complete;
@@ -405,6 +421,64 @@ impl ShopifyClient {
             .id
             .require_kind("Order")
             .map_err(|_| checkout_identity_mismatch())?;
+        Ok(order.id)
+    }
+    pub(crate) async fn record_checkout_payment(
+        &self,
+        id: &ShopifyId,
+        payment_method_name: Option<&str>,
+    ) -> Result<ShopifyId, ClientError> {
+        id.require_kind("Order")?;
+        let mut variables = json!({"id":id});
+        if let Some(name) = payment_method_name {
+            variables["paymentMethodName"] = json!(name);
+        }
+        let data: crate::models::shopify::RecordCheckoutPaymentData = self
+            .execute_once(
+                "RecordCheckoutPayment",
+                include_str!("shopify/record_checkout_payment.graphql"),
+                variables,
+            )
+            .await?;
+        let payload = data.order_create_manual_payment;
+        if !payload.user_errors.is_empty() {
+            return Err(ClientError::new(ClientErrorKind::Mutation {
+                errors: payload.user_errors,
+            }));
+        }
+        let order = payload.order.ok_or_else(|| {
+            ClientError::new(ClientErrorKind::Protocol("recorded payment order missing"))
+        })?;
+        if &order.id != id {
+            return Err(checkout_identity_mismatch());
+        }
+        Ok(order.id)
+    }
+    pub(crate) async fn update_order_custom_attributes(
+        &self,
+        id: &ShopifyId,
+        attributes: &[crate::models::shopify::CustomAttribute],
+    ) -> Result<ShopifyId, ClientError> {
+        id.require_kind("Order")?;
+        let data: crate::models::shopify::UpdateOrderCustomAttributesData = self
+            .execute(
+                "UpdateOrderCustomAttributes",
+                include_str!("shopify/update_order_custom_attributes.graphql"),
+                json!({"input":{"id":id,"customAttributes":attributes}}),
+            )
+            .await?;
+        let payload = data.order_update;
+        if !payload.user_errors.is_empty() {
+            return Err(ClientError::new(ClientErrorKind::Mutation {
+                errors: payload.user_errors,
+            }));
+        }
+        let order = payload
+            .order
+            .ok_or_else(|| ClientError::new(ClientErrorKind::Protocol("updated order missing")))?;
+        if &order.id != id {
+            return Err(checkout_identity_mismatch());
+        }
         Ok(order.id)
     }
     pub(crate) async fn checkout_order(

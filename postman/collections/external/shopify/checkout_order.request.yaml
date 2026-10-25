@@ -1,5 +1,5 @@
 $kind: graphql-request
-description: Authoritative Shopify draft/order read for stateless paid completion; nullable resource is unavailable. Exact presentment total and actual order tags are authoritative; no local checkout ledger or metafield protocol.
+description: "Authoritative Shopify order read for completion and named external-payment reconciliation. Replace the synthetic id with the same linked Order ID; requires read_orders. HTTP200 may return null, which is unavailable. Validate order identity, financial status, cancellation, exact presentment total/outstanding, required correlation and convention_slug. Version2 completion also requires exactly one successful full sale under Stripe Card Payments or paypal. first101 detects more than the supported100 transactions; reject incomplete or conflicting evidence rather than recording again."
 url: "{{shopify}}/graphql.json"
 query: |
   query CheckoutOrder($id: ID!) {
@@ -9,6 +9,28 @@ query: |
       displayFinancialStatus
       cancelledAt
       tags
+      customAttributes {
+        key
+        value
+      }
+      totalOutstandingSet {
+        presentmentMoney {
+          amount
+          currencyCode
+        }
+      }
+      transactions(first: 101) {
+        id
+        gateway
+        kind
+        status
+        amountSet {
+          presentmentMoney {
+            amount
+            currencyCode
+          }
+        }
+      }
       totalPriceSet {
         presentmentMoney {
           amount
@@ -19,7 +41,7 @@ query: |
   }
 variables: |-
   {
-  	"id": "gid://shopify/Order/123"
+    "id": "gid://shopify/Order/123"
   }
 settings: {}
 schema:

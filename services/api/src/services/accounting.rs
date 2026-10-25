@@ -14,6 +14,7 @@ use domain::dto::{
 struct Payment {
     transaction: AccountingTransaction,
     currency: String,
+    source_money: Option<crate::models::checkout_completion::ExactMoney>,
 }
 
 pub async fn report(

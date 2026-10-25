@@ -1,13 +1,13 @@
-use super::{AdvanceError, CheckoutClients, conflict, provider_name, unavailable};
+use super::{AdvanceError, CheckoutClients, conflict, correlation, provider_name, unavailable};
 use crate::{
     config::CheckoutSettings,
     error::{AppError, upstream},
     models::{
-        checkout::{Checkout, CompletionState, DraftState, PaymentState},
+        checkout::{Checkout, CompletionState, DraftState, PaymentRecordingState, PaymentState},
         checkout_completion::ExactMoney,
         shopify::{
-            CompletionDraft, CompletionDraftStatus, CreateDraftOrderInput, DraftOrderLineItemInput,
-            Money, PageRequest, ShopifyId,
+            CompletionDraft, CompletionDraftStatus, CreateDraftOrderInput, CustomAttribute,
+            DraftOrderLineItemInput, Money, PageRequest, ShopifyId,
         },
     },
     repositories::conventions,
@@ -22,11 +22,15 @@ use sqlx::PgPool;
 use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
+const MAX_RECOVERY_PAGES: usize = 20;
+const MAX_RECOVERY_DRAFTS: usize = 5_000;
+
 pub(super) struct PreparedPurchase {
     email: String,
     pub money: CheckoutMoney,
     items: Vec<PreparedItem>,
     tags: Vec<String>,
+    slug: Option<String>,
 }
 
 struct PreparedItem {
@@ -44,7 +48,12 @@ pub(super) async fn prepare(
     request: &CreateCheckoutRequest,
     guest_hash: &[u8],
     fingerprint: Vec<u8>,
+    existing: Option<&Checkout>,
 ) -> Result<(Checkout, PreparedPurchase), AppError> {
+    let completion_version = existing.map_or(2, |checkout| checkout.completion_version);
+    let correlation_version = existing.map_or(correlation::METADATA_VERSION, |checkout| {
+        checkout.correlation_version
+    });
     let id = Uuid::parse_str(&request.operation_id)
         .map_err(|_| conflict("Invalid operation identity"))?;
     let convention_id = Uuid::parse_str(&request.convention_id)
@@ -67,6 +76,8 @@ pub(super) async fn prepare(
     let account_id = provider_account(settings, clients, request.provider)?;
     let selected = conventions::variants(pool, convention_id).await?;
     let (items, total) = prepare_items(request, &selected, &convention.currency_code, provider)?;
+    let slug = (completion_version == 2 || correlation_version == correlation::METADATA_VERSION)
+        .then(|| convention.slug.clone());
     let purchase = PreparedPurchase {
         email: request.email.clone(),
         money: CheckoutMoney {
@@ -74,16 +85,20 @@ pub(super) async fn prepare(
             currency: convention.currency_code,
         },
         items,
-        tags: purchase_tags(convention_id, &convention.name, id),
+        tags: if correlation_version == correlation::METADATA_VERSION {
+            purchase_tags(convention_id, &convention.name, id, slug.as_deref())
+        } else {
+            legacy_purchase_tags(convention_id, &convention.name, id, slug.as_deref())
+        },
+        slug,
     };
-    let lines = purchase
-        .items
-        .iter()
-        .map(|item| (item.shopify_variant_id.clone(), i64::from(item.quantity)))
-        .collect();
     let now = Utc::now();
     let row = Checkout {
         id,
+        completion_version,
+        correlation_version,
+        convention_slug: purchase.slug.clone(),
+        payment_recording_state: PaymentRecordingState::NotStarted,
         guest_secret_hash: guest_hash.to_vec(),
         owner_expires_at: now
             + Duration::seconds(
@@ -99,7 +114,7 @@ pub(super) async fn prepare(
         } else {
             settings.paypal_api_origin.clone()
         },
-        evidence_hash: evidence_hash(&purchase.email, &purchase.money, &lines)?,
+        evidence_hash: purchase.evidence_hash(completion_version)?,
         required_tag_hashes: purchase
             .tags
             .iter()
@@ -125,7 +140,7 @@ pub(super) async fn prepare(
         provider_resource_id: None,
         order_id: None,
         reservation_expires_at: None,
-        created_at: now,
+        created_at: existing.map_or(now, |checkout| checkout.created_at),
     };
     Ok((row, purchase))
 }
@@ -162,6 +177,18 @@ pub(super) async fn reserve(
             })
             .collect::<Result<_, AppError>>()?,
         tags: purchase.tags.clone(),
+        custom_attributes: if checkout.correlation_version == correlation::METADATA_VERSION {
+            correlation::identity_attributes(checkout)?
+        } else {
+            purchase
+                .slug
+                .iter()
+                .map(|slug| CustomAttribute {
+                    key: correlation::SLUG_KEY.into(),
+                    value: slug.clone(),
+                })
+                .collect()
+        },
         email: Some(purchase.email.clone()),
         presentment_currency_code: Some(purchase.money.currency.clone()),
         reserve_inventory_until: Some(deadline),
@@ -208,57 +235,7 @@ pub(super) async fn recover(
     token: Uuid,
 ) -> Result<(), AdvanceError> {
     if checkout.draft_id.is_none() {
-        let expected_tag = recovery_tag(checkout).ok_or_else(|| {
-            super::recovery::manual(
-                conflict("Shopify draft correlation requires reconciliation"),
-                crate::models::checkout::RecoveryCode::DraftAmbiguous,
-            )
-        })?;
-        let query = format!("tag:'{expected_tag}'");
-        let mut found = Vec::new();
-        super::super::pagination::for_each_page(
-            None,
-            |after| {
-                let query = &query;
-                async move {
-                    clients
-                        .shopify
-                        .draft_orders(PageRequest { first: 250, after }, Some(query))
-                        .await
-                        .map_err(|error| upstream(error))
-                }
-            },
-            |drafts| {
-                for draft in drafts {
-                    if draft.tags.contains(&expected_tag) {
-                        validate_purchase(checkout, &draft).map_err(|error| {
-                            super::recovery::manual(
-                                error,
-                                crate::models::checkout::RecoveryCode::DraftAmbiguous,
-                            )
-                        })?;
-                        validate_reservation(checkout, &draft).map_err(|error| {
-                            super::recovery::manual(
-                                error,
-                                crate::models::checkout::RecoveryCode::DraftAmbiguous,
-                            )
-                        })?;
-                        found.push(draft.id.as_ref().to_owned());
-                    }
-                }
-                Ok(())
-            },
-            |error| upstream(error),
-        )
-        .await?;
-        if found.len() != 1 {
-            return Err(super::recovery::manual(
-                conflict("Shopify draft creation requires reconciliation"),
-                crate::models::checkout::RecoveryCode::DraftAmbiguous,
-            )
-            .into());
-        }
-        checkout.draft_id = found.pop();
+        checkout.draft_id = Some(find_reserved_draft(clients, checkout).await?);
         super::save(pool, checkout, token).await?;
     }
     let draft = read(clients, checkout).await?;
@@ -319,8 +296,22 @@ pub(super) fn validate_purchase(
         .as_deref()
         .ok_or_else(|| conflict("Shopify reservation email is missing"))?;
     if actual.is_empty()
-        || evidence_hash(email, &money, &actual)? != checkout.evidence_hash
+        || bound_evidence_hash(
+            email,
+            &money,
+            &actual,
+            if checkout.completion_version == 2 {
+                checkout.convention_slug.as_deref()
+            } else {
+                None
+            },
+        )? != checkout.evidence_hash
         || !tags_match(checkout, &draft.tags)
+        || (checkout.correlation_version == correlation::METADATA_VERSION
+            && !correlation::identity_matches(checkout, &draft.custom_attributes))
+        || (checkout.correlation_version == correlation::LEGACY_VERSION
+            && checkout.completion_version == 2
+            && !slug_matches(checkout, &draft.custom_attributes))
     {
         return Err(crate::models::checkout_completion::evidence_conflict(
             "Shopify draft no longer matches the accepted purchase",
@@ -330,6 +321,18 @@ pub(super) fn validate_purchase(
 }
 
 pub(super) fn tags_match(checkout: &Checkout, tags: &[String]) -> bool {
+    if checkout.correlation_version == correlation::METADATA_VERSION {
+        if correlation::Identity::from_checkout(checkout)
+            .and_then(|identity| correlation::validate_legacy_identity(&identity, tags))
+            .is_err()
+        {
+            return false;
+        }
+        return checkout.convention_slug.as_ref().is_some_and(|slug| {
+            let expected: String = slug.chars().take(40).collect();
+            tags.iter().filter(|tag| **tag == expected).count() == 1
+        });
+    }
     checkout.required_tag_hashes.iter().all(|expected| {
         tags.iter()
             .any(|tag| Sha256::digest(tag.as_bytes()).as_slice() == expected.as_slice())
@@ -346,6 +349,50 @@ pub(super) fn evidence_hash(
             .map_err(|error| AppError::from(anyhow::Error::new(error)))?,
     )
     .to_vec())
+}
+
+pub(super) fn slug_matches(checkout: &Checkout, attributes: &[CustomAttribute]) -> bool {
+    let matches: Vec<_> = attributes
+        .iter()
+        .filter(|attribute| attribute.key == "convention_slug")
+        .collect();
+    matches.len() == 1 && checkout.convention_slug.as_deref() == Some(matches[0].value.as_str())
+}
+
+impl PreparedPurchase {
+    fn evidence_hash(&self, completion_version: i16) -> Result<Vec<u8>, AppError> {
+        let lines = self
+            .items
+            .iter()
+            .map(|item| (item.shopify_variant_id.clone(), i64::from(item.quantity)))
+            .collect();
+        bound_evidence_hash(
+            &self.email,
+            &self.money,
+            &lines,
+            if completion_version == 2 {
+                self.slug.as_deref()
+            } else {
+                None
+            },
+        )
+    }
+}
+
+fn bound_evidence_hash(
+    email: &str,
+    money: &CheckoutMoney,
+    lines: &BTreeMap<String, i64>,
+    slug: Option<&str>,
+) -> Result<Vec<u8>, AppError> {
+    match slug {
+        None => evidence_hash(email, money, lines),
+        Some(slug) => Ok(Sha256::digest(
+            serde_json::to_vec(&(email, money, lines, slug))
+                .map_err(|error| AppError::from(anyhow::Error::new(error)))?,
+        )
+        .to_vec()),
+    }
 }
 
 pub(super) fn exact(minor: i64, currency: &str) -> Result<ExactMoney, AppError> {
@@ -403,12 +450,178 @@ pub(super) fn validate_reservation(
     Ok(())
 }
 
-fn purchase_tags(convention_id: Uuid, convention_name: &str, checkout_id: Uuid) -> Vec<String> {
-    vec![
+async fn find_reserved_draft(
+    clients: &CheckoutClients<'_>,
+    checkout: &Checkout,
+) -> Result<String, AppError> {
+    let metadata = checkout.correlation_version == correlation::METADATA_VERSION;
+    let expected_tag = if metadata {
+        None
+    } else {
+        Some(recovery_tag(checkout).ok_or_else(draft_ambiguous)?)
+    };
+    let query = if metadata {
+        draft_recovery_query(checkout)?
+    } else {
+        format!(
+            "tag:'{}'",
+            expected_tag.as_deref().ok_or_else(draft_ambiguous)?
+        )
+    };
+    let mut found = Vec::new();
+    let mut requested_pages = 0;
+    let mut scanned = 0;
+    super::super::pagination::for_each_page(
+        None,
+        |after| {
+            requested_pages += 1;
+            let allowed = !metadata || requested_pages <= MAX_RECOVERY_PAGES;
+            let query = &query;
+            async move {
+                if !allowed {
+                    return Err(draft_ambiguous());
+                }
+                clients
+                    .shopify
+                    .draft_orders(
+                        PageRequest { first: 250, after },
+                        Some(query),
+                        metadata.then_some(crate::models::shopify::DraftOrderSortKey::CreatedAt),
+                    )
+                    .await
+                    .map_err(|error| upstream(error))
+            }
+        },
+        |drafts| {
+            scanned += drafts.len();
+            if metadata && scanned > MAX_RECOVERY_DRAFTS {
+                return Err(draft_ambiguous());
+            }
+            for draft in drafts {
+                let candidate = if metadata {
+                    draft.custom_attributes.iter().any(|attribute| {
+                        attribute.key == correlation::CHECKOUT_KEY
+                            && attribute.value == checkout.id.to_string()
+                    })
+                } else {
+                    expected_tag
+                        .as_ref()
+                        .is_some_and(|tag| draft.tags.contains(tag))
+                };
+                if !candidate {
+                    continue;
+                }
+                validate_recovered_draft(checkout, &draft, metadata)?;
+                found.push(draft.id.as_ref().to_owned());
+                if found.len() > 1 {
+                    return Err(draft_ambiguous());
+                }
+            }
+            Ok(())
+        },
+        |error| upstream(error),
+    )
+    .await?;
+    if found.len() != 1 {
+        return Err(draft_ambiguous());
+    }
+    found.pop().ok_or_else(draft_ambiguous)
+}
+
+fn validate_recovered_draft(
+    checkout: &Checkout,
+    draft: &CompletionDraft,
+    metadata: bool,
+) -> Result<(), AppError> {
+    if metadata {
+        let (from, through) = draft_recovery_window(checkout)?;
+        if draft
+            .created_at
+            .is_none_or(|created| created < from || created > through)
+        {
+            return Err(draft_ambiguous());
+        }
+    }
+    validate_purchase(checkout, draft).map_err(|error| {
+        super::recovery::manual(error, crate::models::checkout::RecoveryCode::DraftAmbiguous)
+    })?;
+    validate_reservation(checkout, draft).map_err(|error| {
+        super::recovery::manual(error, crate::models::checkout::RecoveryCode::DraftAmbiguous)
+    })
+}
+
+fn draft_recovery_window(
+    checkout: &Checkout,
+) -> Result<(chrono::DateTime<Utc>, chrono::DateTime<Utc>), AppError> {
+    let from = checkout
+        .created_at
+        .checked_sub_signed(Duration::minutes(5))
+        .ok_or_else(draft_ambiguous)?;
+    let through = checkout
+        .created_at
+        .checked_add_signed(Duration::minutes(5))
+        .ok_or_else(draft_ambiguous)?;
+    Ok((from, through))
+}
+
+fn draft_recovery_query(checkout: &Checkout) -> Result<String, AppError> {
+    let (from, through) = draft_recovery_window(checkout)?;
+    Ok(format!(
+        "created_at:>='{}' created_at:<='{}'",
+        from.to_rfc3339(),
+        through.to_rfc3339()
+    ))
+}
+
+fn draft_ambiguous() -> AppError {
+    super::recovery::manual(
+        conflict("Shopify draft creation requires reconciliation"),
+        crate::models::checkout::RecoveryCode::DraftAmbiguous,
+    )
+}
+
+fn purchase_tags(
+    convention_id: Uuid,
+    convention_name: &str,
+    checkout_id: Uuid,
+    slug: Option<&str>,
+) -> Vec<String> {
+    match slug {
+        Some(slug) => vec![slug.chars().take(40).collect()],
+        None => legacy_purchase_tags(convention_id, convention_name, checkout_id, None),
+    }
+}
+
+fn legacy_purchase_tags(
+    convention_id: Uuid,
+    convention_name: &str,
+    checkout_id: Uuid,
+    slug: Option<&str>,
+) -> Vec<String> {
+    let mut tags = vec![
         format!("cv:{convention_id}"),
-        convention_name.chars().take(40).collect(),
+        if slug.is_some() {
+            format!(
+                "name:{}",
+                convention_name.chars().take(35).collect::<String>()
+            )
+        } else {
+            convention_name.chars().take(40).collect()
+        },
         format!("co:{checkout_id}"),
-    ]
+    ];
+    if let Some(slug) = slug {
+        tags.push(if slug.chars().count() <= 35 {
+            format!("slug:{slug}")
+        } else {
+            use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+            format!(
+                "slug:{}",
+                URL_SAFE_NO_PAD.encode(&Sha256::digest(slug.as_bytes())[..24])
+            )
+        });
+    }
+    tags
 }
 
 fn recovery_tag(checkout: &Checkout) -> Option<String> {

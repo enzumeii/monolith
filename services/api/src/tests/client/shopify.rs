@@ -725,6 +725,7 @@ async fn draft_orders_reads_one_generic_page_with_full_purchase_evidence() {
                 after: Some("previous".into()),
             },
             Some("tag:'checkout:test'"),
+            None,
         )
         .await
         .unwrap();
@@ -761,10 +762,113 @@ async fn draft_orders_rejects_incomplete_response_and_wrong_resource_identity() 
                         first: 250,
                         after: None
                     },
+                    None,
                     None
                 )
                 .await
                 .is_err()
         );
     }
+}
+
+#[tokio::test]
+async fn manual_recording_omits_new_method_and_preserves_legacy_wire_without_replay() {
+    for method in [None, Some("Stripe Card Payments")] {
+        let fixture = Fixture::new(vec![Reply::json(json!({"data":{"orderCreateManualPayment":{"order":{"id":"gid://shopify/Order/1"},"userErrors":[]}}}))]).await;
+        assert_eq!(
+            client(&fixture)
+                .record_checkout_payment(&id("Order", 1), method)
+                .await
+                .unwrap()
+                .as_ref(),
+            "gid://shopify/Order/1"
+        );
+        let requests = fixture.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].2["operationName"], "RecordCheckoutPayment");
+        let mut expected = json!({"id":"gid://shopify/Order/1"});
+        if let Some(method) = method {
+            expected["paymentMethodName"] = json!(method);
+        }
+        assert_eq!(requests[0].2["variables"], expected);
+    }
+    let fixture = Fixture::new(vec![Reply::status(503)]).await;
+    assert!(
+        client(&fixture)
+            .record_checkout_payment(&id("Order", 1), None)
+            .await
+            .is_err()
+    );
+    assert_eq!(fixture.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn order_attribute_update_encodes_input_and_requires_exact_response_identity() {
+    let attributes = vec![crate::models::shopify::CustomAttribute {
+        key: "checkout_id".into(),
+        value: "00000000-0000-4000-8000-000000000001".into(),
+    }];
+    let fixture = Fixture::new(vec![Reply::json(
+        json!({"data":{"orderUpdate":{"order":{"id":"gid://shopify/Order/1"},"userErrors":[]}}}),
+    )])
+    .await;
+    assert_eq!(
+        client(&fixture)
+            .update_order_custom_attributes(&id("Order", 1), &attributes)
+            .await
+            .unwrap()
+            .as_ref(),
+        "gid://shopify/Order/1"
+    );
+    assert_eq!(
+        fixture.requests()[0].2["variables"],
+        json!({"input":{"id":"gid://shopify/Order/1","customAttributes":attributes}})
+    );
+    for payload in [
+        json!({"order":null,"userErrors":[]}),
+        json!({"order":{"id":"gid://shopify/Order/2"},"userErrors":[]}),
+        json!({"order":{"id":"gid://shopify/Product/1"},"userErrors":[]}),
+        json!({"order":null,"userErrors":[{"field":["customAttributes"],"message":"rejected"}]}),
+    ] {
+        let fixture =
+            Fixture::new(vec![Reply::json(json!({"data":{"orderUpdate":payload}}))]).await;
+        assert!(
+            client(&fixture)
+                .update_order_custom_attributes(&id("Order", 1), &attributes)
+                .await
+                .is_err()
+        );
+    }
+    let fixture = Fixture::new(vec![]).await;
+    assert!(
+        client(&fixture)
+            .update_order_custom_attributes(&id("Product", 1), &attributes)
+            .await
+            .is_err()
+    );
+    assert_eq!(fixture.requests().len(), 0);
+}
+
+#[tokio::test]
+async fn draft_recovery_created_sort_is_explicit_and_keeps_fixed_search() {
+    let fixture = Fixture::new(vec![Reply::json(
+        json!({"data":{"draftOrders":page(vec![],None)}}),
+    )])
+    .await;
+    let query = "created_at:>='2026-10-25T00:00:00+00:00' created_at:<='2026-10-25T00:10:00+00:00'";
+    client(&fixture)
+        .draft_orders(
+            PageRequest {
+                first: 250,
+                after: None,
+            },
+            Some(query),
+            Some(crate::models::shopify::DraftOrderSortKey::CreatedAt),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture.requests()[0].2["variables"],
+        json!({"first":250,"after":null,"query":query,"sortKey":"CREATED_AT"})
+    );
 }

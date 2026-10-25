@@ -123,3 +123,94 @@ async fn failed_completion_checkpoint_returns_original_persistence_error_without
     );
     assert_eq!(gateway.requests().len(), 4);
 }
+
+#[tokio::test]
+async fn v2_checkpoint_rechecks_current_draft_eligibility_before_conversion() {
+    use crate::services::checkout_completion::{CompletionProgress, CompletionStage};
+    let mut row = checkout();
+    row.completion_version = 2;
+    row.convention_slug = Some("qa-convention".into());
+    row.evidence_hash = Sha256::digest(
+        serde_json::to_vec(&(
+            "private@example.test",
+            money(),
+            BTreeMap::from([("gid://shopify/ProductVariant/2", 2)]),
+            "qa-convention",
+        ))
+        .unwrap(),
+    )
+    .to_vec();
+    let mut current = draft(&row);
+    current["customAttributes"] = json!([{"key":"convention_slug","value":"qa-convention"}]);
+    current["ready"] = json!(false);
+    let shop = Fixture::new(vec![Reply::json(json!({"data":{"draftOrder":current}}))]).await;
+    let shopify = client(&shop);
+    let clients = CheckoutClients {
+        shopify: &shopify,
+        stripe: None,
+        paypal: None,
+    };
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://fixture:fixture@127.0.0.1:1/fixture")
+        .unwrap();
+    pool.close().await;
+    let mut progress = CheckoutCompletionProgress {
+        pool: &pool,
+        clients: &clients,
+        checkout: &mut row,
+        token: Uuid::new_v4(),
+        attempted: false,
+        checkpoint_error: None,
+    };
+    assert!(
+        progress
+            .before_mutation(CompletionStage::ConvertDraft)
+            .await
+            .is_err()
+    );
+    assert!(!progress.attempted);
+    assert!(progress.checkpoint_error.is_none());
+    assert_eq!(row.completion_state, CompletionState::NotStarted);
+    assert_eq!(shop.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn unsupported_version_combination_stops_before_provider_effects_or_checkpoint_changes() {
+    let mut row = checkout();
+    row.completion_version = 1;
+    row.correlation_version = super::super::correlation::METADATA_VERSION;
+    row.provider_resource_id = None;
+    row.payment_state = PaymentState::NotStarted;
+    let shop = Fixture::new(vec![]).await;
+    let shopify = client(&shop);
+    let clients = CheckoutClients {
+        shopify: &shopify,
+        stripe: None,
+        paypal: None,
+    };
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://fixture:fixture@127.0.0.1:1/fixture")
+        .unwrap();
+    pool.close().await;
+    let result = advance(
+        &pool,
+        &clients,
+        &mut row,
+        &money(),
+        Uuid::new_v4(),
+        true,
+        false,
+    )
+    .await;
+    let Err(AdvanceError::Business(error)) = result else {
+        panic!("Unsupported versions advanced checkout");
+    };
+    assert!(
+        error
+            .find_source::<crate::models::checkout_completion::CompletionEvidenceConflict>()
+            .is_some()
+    );
+    assert_eq!(row.payment_state, PaymentState::NotStarted);
+    assert!(row.provider_resource_id.is_none());
+    assert_eq!(shop.requests(), Vec::new());
+}

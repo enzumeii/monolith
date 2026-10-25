@@ -1,0 +1,42 @@
+$kind: graphql-request
+description: >-
+  Idempotently replaces the exact order custom-attribute list. First read the
+  same order, preserve unrelated attributes, reject conflicting owned checkout
+  keys, merge only verified external references, then write and read back.
+  Requires write_orders. This does not record or capture a payment. Success is
+  HTTP200 with matching order ID and no userErrors; HTTP200 can also contain
+  mutation rejection errors. Synthetic metadata and IDs must be replaced only
+  for an explicitly authorized owned test order.
+url: "{{shopify}}/graphql.json"
+query: |
+  mutation UpdateOrderCustomAttributes($input: OrderInput!) {
+    orderUpdate(input: $input) {
+      order {
+        id
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+variables: |-
+  {
+    "input": {
+      "id": "gid://shopify/Order/123",
+      "customAttributes": [
+        {"key":"checkout_correlation_version","value":"2"},
+        {"key":"checkout_id","value":"00000000-0000-4000-8000-000000000001"},
+        {"key":"convention_id","value":"00000000-0000-4000-8000-000000000002"},
+        {"key":"convention_slug","value":"example-convention"},
+        {"key":"payment_provider","value":"stripe"},
+        {"key":"stripe_checkout_session_id","value":"cs_test_example"},
+        {"key":"stripe_payment_intent_id","value":"pi_example"},
+        {"key":"stripe_charge_id","value":"ch_example"}
+      ]
+    }
+  }
+settings: {}
+schema:
+  source: auto
+order: 3604

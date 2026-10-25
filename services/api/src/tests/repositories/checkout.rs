@@ -45,6 +45,10 @@ impl Fixture {
         let now = Utc::now();
         let checkout = Checkout {
             id: Uuid::new_v4(),
+            completion_version: 1,
+            correlation_version: 1,
+            convention_slug: None,
+            payment_recording_state: crate::models::checkout::PaymentRecordingState::NotStarted,
             guest_secret_hash: vec![1; 32],
             owner_expires_at: now + Duration::days(7),
             request_fingerprint: vec![2; 32],
@@ -578,6 +582,118 @@ async fn late_authoritative_payment_rearms_previously_unpaid_checkout() {
             (0, None, false, None, Some(recovery))
         );
         release(&fixture.pool, row.id, recovery).await.unwrap();
+    }
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn versioned_payment_recording_roundtrips_and_expired_fence_preserves_recorded_phase() {
+    use crate::models::checkout::PaymentRecordingState;
+    let mut fixture = Fixture::new().await;
+    let legacy = fixture.checkout().await;
+    assert_eq!(legacy.completion_version, 1);
+    assert_eq!(legacy.correlation_version, 1);
+    assert!(legacy.convention_slug.is_none());
+    assert_eq!(
+        legacy.payment_recording_state,
+        PaymentRecordingState::NotStarted
+    );
+    let mut row = legacy.clone();
+    row.id = Uuid::new_v4();
+    row.completion_version = 2;
+    row.correlation_version = 2;
+    row.convention_slug = Some("qa-exact-convention-slug".into());
+    insert(&mut fixture.pool.acquire().await.unwrap(), &row)
+        .await
+        .unwrap();
+    fixture.ids.push(row.id);
+    let token = Uuid::new_v4();
+    row = claim(&fixture.pool, row.id, token).await.unwrap().unwrap();
+    assert_eq!(row.completion_version, 2);
+    assert_eq!(row.correlation_version, 2);
+    assert_eq!(
+        row.created_at.timestamp_micros(),
+        legacy.created_at.timestamp_micros()
+    );
+    assert_eq!(
+        row.convention_slug.as_deref(),
+        Some("qa-exact-convention-slug")
+    );
+    for state in [
+        PaymentRecordingState::Recording,
+        PaymentRecordingState::Uncertain,
+        PaymentRecordingState::Recorded,
+    ] {
+        row.payment_recording_state = state;
+        save(&fixture.pool, &row, token).await.unwrap();
+        assert_eq!(
+            find(&fixture.pool, row.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .payment_recording_state,
+            state
+        );
+    }
+    sqlx::query("UPDATE checkouts\n                 SET claim_expires_at = clock_timestamp() - INTERVAL '1 second'\n                 WHERE id = $1")
+        .bind(row.id)
+        .execute(&fixture.pool)
+        .await.unwrap();
+    row.payment_recording_state = PaymentRecordingState::NotStarted;
+    assert!(save(&fixture.pool, &row, token).await.is_err());
+    assert_eq!(
+        find(&fixture.pool, row.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .payment_recording_state,
+        PaymentRecordingState::Recorded
+    );
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn correlation_version_is_independent_and_omitted_values_keep_legacy_contract() {
+    let mut fixture = Fixture::new().await;
+    let legacy = fixture.checkout().await;
+    let default_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO checkouts (
+             id, guest_secret_hash, owner_expires_at, request_fingerprint,
+             convention_id, provider, provider_account_id, provider_environment,
+             evidence_hash, required_tag_hashes
+         )
+         SELECT $1, guest_secret_hash, owner_expires_at, request_fingerprint,
+                convention_id, provider, provider_account_id, provider_environment,
+                evidence_hash, required_tag_hashes
+         FROM checkouts
+         WHERE id = $2",
+    )
+    .bind(default_id)
+    .bind(legacy.id)
+    .execute(&fixture.pool)
+    .await
+    .unwrap();
+    fixture.ids.push(default_id);
+    let default = find(&fixture.pool, default_id).await.unwrap().unwrap();
+    assert_eq!(default.correlation_version, 1);
+    assert_eq!(default.completion_version, 1);
+    assert_eq!(default.required_tag_hashes, legacy.required_tag_hashes);
+    for (completion, correlation) in [(2, 1), (1, 2)] {
+        let mut row = legacy.clone();
+        row.id = Uuid::new_v4();
+        row.completion_version = completion;
+        row.correlation_version = correlation;
+        row.convention_slug = Some("independent-version".into());
+        insert(&mut fixture.pool.acquire().await.unwrap(), &row)
+            .await
+            .unwrap();
+        fixture.ids.push(row.id);
+        let stored = find(&fixture.pool, row.id).await.unwrap().unwrap();
+        assert_eq!(stored.completion_version, completion);
+        assert_eq!(stored.correlation_version, correlation);
+        assert_eq!(stored.evidence_hash, legacy.evidence_hash);
+        assert_eq!(stored.required_tag_hashes, legacy.required_tag_hashes);
     }
     fixture.cleanup().await;
 }

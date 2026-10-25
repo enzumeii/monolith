@@ -5,6 +5,28 @@ query CheckoutOrder($id: ID!) {
     displayFinancialStatus
     cancelledAt
     tags
+    customAttributes {
+      key
+      value
+    }
+    totalOutstandingSet {
+      presentmentMoney {
+        amount
+        currencyCode
+      }
+    }
+    transactions(first: 101) {
+      id
+      gateway
+      kind
+      status
+      amountSet {
+        presentmentMoney {
+          amount
+          currencyCode
+        }
+      }
+    }
     totalPriceSet {
       presentmentMoney {
         amount

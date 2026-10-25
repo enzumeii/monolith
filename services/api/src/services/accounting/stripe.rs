@@ -2,7 +2,12 @@ use super::{Payment, cents, empty_transaction, iso_utc, protocol};
 use crate::{
     client::stripe::StripeClient,
     error::{AppError, upstream},
-    models::stripe::{BalanceTransaction, BalanceTransactionKind, FeeKind, Payout},
+    models::{
+        checkout_completion::{ExactMoney, currency_precision},
+        stripe::{
+            BalanceTransaction, BalanceTransactionKind, Charge, ChargeStatus, FeeKind, Payout,
+        },
+    },
     services::pagination::{CursorPage, collect_cursor_pages},
     validations::accounting::AccountingDateRange,
 };
@@ -76,7 +81,7 @@ async fn collect_payout(client: &StripeClient, payout: &Payout) -> Result<Vec<Pa
                     .as_deref()
                     .ok_or_else(|| protocol("Stripe accounting source missing"))?;
                 let (net, fee, vat, gross) = amounts(&balance)?;
-                let (reference, created, description, currency) =
+                let (reference, created, description, currency, source_money) =
                     reference(client, &balance, source, refund).await?;
                 let rate = exchange_rate(&balance, &currency)?;
                 let mut transaction = empty_transaction(
@@ -101,6 +106,7 @@ async fn collect_payout(client: &StripeClient, payout: &Payout) -> Result<Vec<Pa
                 payments.push(Payment {
                     transaction,
                     currency,
+                    source_money,
                 });
             }
             Ok(payments)
@@ -115,7 +121,7 @@ async fn reference(
     balance: &BalanceTransaction,
     source: &str,
     refund: bool,
-) -> Result<(String, i64, String, String), AppError> {
+) -> Result<(String, i64, String, String, Option<ExactMoney>), AppError> {
     if refund {
         let refund = client
             .get_refund(source)
@@ -131,12 +137,14 @@ async fn reference(
             refund.created,
             balance.description.clone().unwrap_or_default(),
             refund.currency,
+            None,
         ));
     }
     let charge = client
         .get_charge(source)
         .await
         .map_err(|error| upstream(error))?;
+    let source_money = source_money(&charge)?;
     let reference = balance
         .description
         .as_deref()
@@ -156,7 +164,32 @@ async fn reference(
             .or(balance.description.clone())
             .unwrap_or_default()
     };
-    Ok((reference, charge.created, description, charge.currency))
+    Ok((
+        reference,
+        charge.created,
+        description,
+        charge.currency,
+        source_money,
+    ))
+}
+
+fn source_money(charge: &Charge) -> Result<Option<ExactMoney>, AppError> {
+    if charge.status != Some(ChargeStatus::Succeeded)
+        || !charge.payment_status.paid
+        || !charge.payment_status.captured
+        || charge.payment_status.refunded
+        || charge.disputed
+        || charge.amount_refunded != 0
+        || charge.amount_captured <= 0
+        || charge.amount != Some(charge.amount_captured)
+    {
+        return Ok(None);
+    }
+    let currency = charge.currency.to_ascii_uppercase();
+    let Some(precision) = currency_precision(&currency) else {
+        return Ok(None);
+    };
+    ExactMoney::new(charge.amount_captured, &currency, precision).map(Some)
 }
 
 fn exchange_rate(balance: &BalanceTransaction, currency: &str) -> Result<f64, AppError> {

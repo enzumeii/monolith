@@ -4,6 +4,7 @@ use crate::{
     error::{AppError, upstream},
     models::{
         CurrencyCode,
+        checkout_completion::{ExactMoney, currency_precision},
         paypal::{TransactionDetail, TransactionEvent},
     },
     services::pagination::{NumberedPage, for_each_numbered_page},
@@ -145,10 +146,36 @@ fn payment(detail: &TransactionDetail) -> Result<Payment, AppError> {
     transaction.fee = fee;
     transaction.gross_paid = gross;
     transaction.shipping_fee = shipping;
+    let source_money = source_money(detail)?;
     Ok(Payment {
         transaction,
         currency: currency.as_str().to_owned(),
+        source_money,
     })
+}
+
+fn source_money(detail: &TransactionDetail) -> Result<Option<ExactMoney>, AppError> {
+    let info = &detail.transaction;
+    if info.transaction_status != "S"
+        || !matches!(
+            info.transaction_event_code,
+            TransactionEvent::GeneralPayment
+                | TransactionEvent::MobilePayment
+                | TransactionEvent::ExpressCheckoutPayment
+        )
+    {
+        return Ok(None);
+    }
+    let currency = info.transaction_amount.currency_code.as_str();
+    let Some(precision) = currency_precision(currency) else {
+        return Ok(None);
+    };
+    let mut source = ExactMoney::new(0, currency, precision)?;
+    let Ok(minor) = source.parse_amount(&info.transaction_amount.value) else {
+        return Ok(None);
+    };
+    source.minor = minor;
+    Ok((source.minor > 0).then_some(source))
 }
 
 fn precision_factor(currency: &CurrencyCode) -> Result<f64, AppError> {

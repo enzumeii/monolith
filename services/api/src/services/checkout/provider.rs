@@ -3,7 +3,9 @@ use super::{
 };
 use crate::{
     error::AppError,
-    models::checkout::{Checkout, CompletionState, DraftState, PaymentState, RecoveryCode},
+    models::checkout::{
+        Checkout, CompletionState, DraftState, PaymentRecordingState, PaymentState, RecoveryCode,
+    },
 };
 use crate::{
     error::upstream,
@@ -36,6 +38,7 @@ pub(super) async fn advance(
     reservation_safe: bool,
     report_diagnostics: bool,
 ) -> Result<RecoveryOutcome, AdvanceError> {
+    validate_version_combination(checkout)?;
     if checkout.provider_resource_id.is_none() {
         if !reservation_safe {
             checkout.payment_state = if checkout.payment_state == PaymentState::NotStarted {
@@ -129,6 +132,7 @@ pub(super) async fn bind_authenticated_resource(
     token: Uuid,
     resource: &str,
 ) -> Result<(), AdvanceError> {
+    validate_version_combination(checkout)?;
     if !matches!(
         checkout.payment_state,
         PaymentState::Creating | PaymentState::Uncertain
@@ -212,6 +216,17 @@ pub(super) fn initiation_fingerprint(
         serde_json::to_vec(&value).map_err(|error| AppError::from(anyhow::Error::new(error)))?,
     )
     .to_vec())
+}
+
+fn validate_version_combination(checkout: &Checkout) -> Result<(), AppError> {
+    match (checkout.completion_version, checkout.correlation_version) {
+        (1 | 2, super::correlation::LEGACY_VERSION) | (2, super::correlation::METADATA_VERSION) => {
+            Ok(())
+        }
+        _ => Err(crate::models::checkout_completion::evidence_conflict(
+            "Checkout completion and correlation versions are unsupported",
+        )),
+    }
 }
 
 async fn reconcile_stripe_payment(
@@ -609,6 +624,9 @@ async fn complete(
             .await
         }
         result => {
+            if checkout.payment_recording_state == PaymentRecordingState::Recording {
+                checkout.payment_recording_state = PaymentRecordingState::Uncertain;
+            }
             checkout.completion_state = if mutation_started || mode == CompletionMode::ReconcileOnly
             {
                 CompletionState::Uncertain
@@ -641,6 +659,7 @@ async fn complete_with_checkpoint(
     payment: PaymentContext<'_>,
     mode: CompletionMode,
 ) -> Result<CompletionAttempt, AdvanceError> {
+    validate_version_combination(checkout)?;
     let draft = ShopifyId::new(
         checkout
             .draft_id
@@ -648,6 +667,12 @@ async fn complete_with_checkpoint(
             .ok_or_else(|| conflict("Checkout draft is missing"))?,
     )
     .map_err(|error| upstream(error))?;
+    if checkout.completion_version == 2 {
+        return complete_external_with_checkpoint(
+            pool, clients, checkout, token, payment, mode, &draft,
+        )
+        .await;
+    }
     let mut attempted = false;
     let mut checkpoint_error = None;
     let result = {
@@ -704,6 +729,156 @@ async fn complete_with_checkpoint(
     })
 }
 
+async fn complete_external_with_checkpoint(
+    pool: &PgPool,
+    clients: &CheckoutClients<'_>,
+    checkout: &mut Checkout,
+    token: Uuid,
+    payment: PaymentContext<'_>,
+    mode: CompletionMode,
+    draft: &ShopifyId,
+) -> Result<CompletionAttempt, AdvanceError> {
+    let required_tag_hashes = checkout.required_tag_hashes.clone();
+    let slug = checkout
+        .convention_slug
+        .clone()
+        .ok_or_else(|| conflict("Checkout convention binding is missing"))?;
+    let resource = checkout.provider_resource_id.clone();
+    let identity = match checkout.correlation_version {
+        super::correlation::LEGACY_VERSION => None,
+        super::correlation::METADATA_VERSION => {
+            Some(super::correlation::Identity::from_checkout(checkout)?)
+        }
+        _ => {
+            return Err(crate::models::checkout_completion::evidence_conflict(
+                "Unsupported checkout correlation version",
+            )
+            .into());
+        }
+    };
+    let recording = checkout_completion::ExternalPaymentRecording {
+        state: checkout.payment_recording_state,
+        required_tag_hashes: &required_tag_hashes,
+        convention_slug: &slug,
+        identity,
+        provider_resource_id: resource.as_deref(),
+    };
+    let mut progress = CheckoutCompletionProgress {
+        pool,
+        clients,
+        checkout,
+        token,
+        attempted: false,
+        checkpoint_error: None,
+    };
+    let result = checkout_completion::complete_external_paid_draft(
+        clients.shopify,
+        draft,
+        payment,
+        mode,
+        recording,
+        &mut progress,
+    )
+    .await;
+    if let Some(error) = progress.checkpoint_error {
+        return Err(AdvanceError::Persistence(error));
+    }
+    Ok(CompletionAttempt {
+        result,
+        mutation_started: progress.attempted,
+    })
+}
+
+struct CheckoutCompletionProgress<'a, 'clients> {
+    pool: &'a PgPool,
+    clients: &'a CheckoutClients<'clients>,
+    checkout: &'a mut Checkout,
+    token: Uuid,
+    attempted: bool,
+    checkpoint_error: Option<AppError>,
+}
+impl checkout_completion::CompletionProgress for CheckoutCompletionProgress<'_, '_> {
+    async fn before_mutation(
+        &mut self,
+        stage: checkout_completion::CompletionStage,
+    ) -> Result<(), AppError> {
+        let current = purchase::read(self.clients, self.checkout).await?;
+        match stage {
+            checkout_completion::CompletionStage::ConvertDraft => {
+                purchase::validate_payable(&current)?;
+                purchase::validate_reservation(self.checkout, &current)
+                    .map_err(|error| recovery::manual(error, RecoveryCode::ReservationUnsafe))?;
+                if self
+                    .checkout
+                    .reservation_expires_at
+                    .is_none_or(|expiry| expiry <= Utc::now())
+                {
+                    return Err(recovery::manual(
+                        conflict("Checkout reservation expired before completion"),
+                        RecoveryCode::ReservationUnsafe,
+                    ));
+                }
+                self.checkout.completion_state = CompletionState::Completing;
+            }
+            checkout_completion::CompletionStage::RecordExternalPayment => {
+                if !matches!(
+                    current.status,
+                    crate::models::shopify::CompletionDraftStatus::Completed
+                ) {
+                    return Err(crate::models::checkout_completion::evidence_conflict(
+                        "Checkout draft is not converted before payment recording",
+                    ));
+                }
+                let order = current
+                    .order
+                    .ok_or_else(|| conflict("Converted checkout order is unavailable"))?;
+                order
+                    .id
+                    .require_kind("Order")
+                    .map_err(|error| upstream(error))?;
+                if self
+                    .checkout
+                    .order_id
+                    .as_deref()
+                    .is_some_and(|id| id != order.id.as_ref())
+                {
+                    return Err(crate::models::checkout_completion::evidence_conflict(
+                        "Checkout order identity changed before payment recording",
+                    ));
+                }
+                if self.checkout.payment_recording_state != PaymentRecordingState::NotStarted {
+                    return Err(conflict(
+                        "Checkout payment recording requires reconciliation",
+                    ));
+                }
+                self.checkout.order_id = Some(order.id.as_ref().to_owned());
+                self.checkout.payment_recording_state = PaymentRecordingState::Recording;
+            }
+        }
+        if let Err(error) =
+            crate::repositories::checkout::save(self.pool, self.checkout, self.token).await
+        {
+            self.checkpoint_error = Some(error);
+            return Err(conflict(
+                "Checkout completion checkpoint could not be saved",
+            ));
+        }
+        if stage == checkout_completion::CompletionStage::ConvertDraft
+            && self
+                .checkout
+                .reservation_expires_at
+                .is_none_or(|expiry| expiry <= Utc::now())
+        {
+            return Err(recovery::manual(
+                conflict("Checkout reservation expired before completion"),
+                RecoveryCode::ReservationUnsafe,
+            ));
+        }
+        self.attempted = true;
+        Ok(())
+    }
+}
+
 async fn save_completed_order(
     pool: &PgPool,
     clients: &CheckoutClients<'_>,
@@ -726,10 +901,43 @@ async fn save_completed_order(
             ));
         }
     };
+    if checkout.completion_version == 2 {
+        let draft = match purchase::read(clients, checkout).await {
+            Ok(draft) => draft,
+            Err(error) => {
+                return Ok(completion_failure(
+                    "Checkout final purchase readback",
+                    &error,
+                    report_diagnostics,
+                ));
+            }
+        };
+        let money = purchase::validate_purchase(checkout, &draft)?;
+        let recording = checkout_completion::ExternalPaymentRecording::from_checkout(checkout)?;
+        if let Err(error) = checkout_completion::validate_external_paid_order(
+            &order,
+            &purchase::exact(money.minor, &money.currency)?,
+            &recording,
+            if checkout.provider == "stripe" {
+                "Stripe Card Payments"
+            } else {
+                "paypal"
+            },
+        ) {
+            return Ok(completion_failure(
+                "Checkout final external payment readback",
+                &error,
+                report_diagnostics,
+            ));
+        }
+    }
     if let Some(outcome) = order_confirmation(checkout, &order) {
         return Ok(outcome);
     }
     checkout.completion_state = CompletionState::Completed;
+    if checkout.completion_version == 2 {
+        checkout.payment_recording_state = PaymentRecordingState::Recorded;
+    }
     super::save(pool, checkout, token).await?;
     Ok(RecoveryOutcome::Observed(RecoveryCode::Observed))
 }
@@ -744,7 +952,13 @@ fn order_confirmation(
         .is_none_or(|name| name.trim().is_empty())
     {
         Some(RecoveryOutcome::Retry(RecoveryCode::CompletionUncertain))
-    } else if !purchase::tags_match(checkout, &order.tags) {
+    } else if !purchase::tags_match(checkout, &order.tags)
+        || (checkout.correlation_version == 2
+            && !super::correlation::identity_matches(checkout, &order.custom_attributes))
+        || (checkout.correlation_version == 1
+            && checkout.completion_version == 2
+            && !purchase::slug_matches(checkout, &order.custom_attributes))
+    {
         Some(RecoveryOutcome::Manual(RecoveryCode::EvidenceConflict))
     } else {
         None

@@ -1,9 +1,14 @@
 query CheckoutDraft($id: ID!) {
   draftOrder(id: $id) {
     id
+    createdAt
     ready
     status
     tags
+    customAttributes {
+      key
+      value
+    }
     email
     reserveInventoryUntil
     lineItems(first: 100) {

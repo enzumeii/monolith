@@ -801,6 +801,70 @@ async fn transactions_paypal_preserves_zero_and_signed_shipping_over_shopify() {
     assert_eq!(server.finish().await.len(), count);
 }
 
+#[tokio::test]
+async fn external_checkout_payments_link_the_created_order_and_items_in_accounting_over_tcp() {
+    use crate::common::checkout::{
+        SECRET, accepted, configured, providers::Providers, purchase, verify,
+    };
+    let fixture = fixture().await;
+    for provider in ["stripe", "paypal"] {
+        let upstream = Providers::start().await;
+        let client = configured(&upstream).await;
+        let input = purchase(&fixture, provider).await;
+        accepted(&client, &input).await;
+        upstream.pay();
+        let response = client
+            .send(verify(
+                input["operation_id"].as_str().unwrap(),
+                Some(SECRET),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let completed = body_json(response).await;
+        assert_eq!(completed["status"], "completed");
+        let order_id: u64 = completed["order"]["id"]
+            .as_str()
+            .unwrap()
+            .rsplit('/')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let response = client
+            .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
+            .await
+            .unwrap();
+        let status = response.status();
+        let report = body_json(response).await;
+        assert_eq!(status, 200, "{provider}: {report}");
+        let rows = report["transactions"][provider].as_array().unwrap();
+        assert_eq!(rows.len(), 1, "{provider}: {report}");
+        let row = &rows[0];
+        assert_eq!(row["shopify_order_id"], order_id);
+        assert_eq!(row["shopify_order_number"], 1234);
+        let tags = row["shopify_order_tags"].as_array().unwrap();
+        assert_eq!(tags.len(), 1);
+        assert!(!tags[0].as_str().unwrap().contains(':'));
+        assert_eq!(upstream.count("EditOrderTags"), 0);
+        assert_eq!(upstream.count("UpdateOrderCustomAttributes"), 1);
+        assert_eq!(report["items"].as_array().unwrap().len(), 1);
+        let item = &report["items"][0];
+        assert_eq!(item["shopify_order_id"], order_id);
+        assert_eq!(item["payment_reference"], row["payment_reference"]);
+        assert_eq!(item["quantity"], 2);
+        assert_eq!(item["currency"], "AUD");
+        assert_eq!(item["price"], 26.0);
+        assert_eq!(
+            row["currency"],
+            if provider == "stripe" { "THB" } else { "SGD" }
+        );
+        assert_eq!(upstream.count("CompleteCheckoutDraft"), 1);
+        assert_eq!(upstream.count("RecordCheckoutPayment"), 1);
+        assert_eq!(upstream.payment_creates(), 1);
+    }
+}
+
 #[derive(Clone)]
 enum Reply {
     Json(Value),

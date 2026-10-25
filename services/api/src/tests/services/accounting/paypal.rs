@@ -261,3 +261,30 @@ fn newly_named_convention_currencies_remain_unsupported_for_accounting() {
         );
     }
 }
+
+#[test]
+fn only_successful_paypal_sale_events_have_external_source_money() {
+    for (event, status, eligible) in [
+        ("T0006", "S", true),
+        ("T0000", "S", true),
+        ("T0011", "S", true),
+        ("T0006", "P", false),
+        ("T0006", "D", false),
+        ("T1107", "S", false),
+        ("T9999", "S", false),
+        ("T2105", "S", false),
+    ] {
+        let mut value = json!({"transaction_info":{"transaction_id":"capture-source", "transaction_event_code":event,
+            "transaction_initiation_date":"2026-10-01T00:00:00Z", "transaction_updated_date":"2026-10-01T00:00:00Z",
+            "transaction_status":status, "transaction_amount":{"currency_code":"AUD","value":"4.00"}}});
+        let row = super::payment(&serde_json::from_value(value.clone()).unwrap()).unwrap();
+        assert_eq!(row.source_money.is_some(), eligible, "{event}/{status}");
+        if let Some(source) = row.source_money {
+            assert_eq!(source.minor, 400);
+            assert_eq!(source.currency, "AUD");
+        }
+        value["transaction_info"]["transaction_amount"]["value"] = json!("0.00");
+        let row = super::payment(&serde_json::from_value(value).unwrap()).unwrap();
+        assert!(row.source_money.is_none());
+    }
+}

@@ -23,6 +23,11 @@ pub async fn configured(providers: &Providers) -> TestClient {
 }
 
 pub async fn purchase(fixture: &TestFixture, provider: &str) -> Value {
+    let slug = format!("{}-{}", fixture.prefix(), Uuid::new_v4().simple());
+    purchase_with_slug(fixture, provider, &slug).await
+}
+
+pub async fn purchase_with_slug(fixture: &TestFixture, provider: &str, slug: &str) -> Value {
     let convention = Uuid::new_v4();
     let variant = Uuid::new_v4();
     sqlx::query(
@@ -34,7 +39,7 @@ pub async fn purchase(fixture: &TestFixture, provider: &str) -> Value {
                  'Synthetic checkout fixture', TRUE, 'SGD', ARRAY['stripe', 'paypal'])",
     )
     .bind(convention)
-    .bind(format!("{}-{}", fixture.prefix(), Uuid::new_v4().simple()))
+    .bind(slug)
     .execute(&fixture.pool())
     .await
     .unwrap();

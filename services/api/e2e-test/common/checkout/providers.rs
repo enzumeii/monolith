@@ -46,6 +46,8 @@ struct Scenario {
     missing_order_name: bool,
     search_mode: String,
     draft_input: Value,
+    draft_created_at: String,
+    order_attributes: Option<Vec<Value>>,
     stripe_input: Value,
     paypal_input: Value,
     id: String,
@@ -56,6 +58,8 @@ struct Scenario {
     approved: bool,
     captured: bool,
     completed: bool,
+    payment_recorded: bool,
+    recorded_method: Option<String>,
     tags: Vec<Value>,
     fault: Option<(String, String)>,
     stock: i64,
@@ -145,7 +149,9 @@ impl Providers {
     }
 
     pub fn complete(&self) {
-        self.state.lock().unwrap().completed = true;
+        let mut scenario = self.state.lock().unwrap();
+        scenario.completed = true;
+        scenario.payment_recorded = true;
     }
 
     pub fn expire_during_completion_read(&self) -> chrono::DateTime<chrono::Utc> {
@@ -394,16 +400,57 @@ async fn reply(
         barrier.wait().await;
     }
     if let Some(failure) = failure {
+        if operation == "RecordCheckoutPayment" {
+            if failure == "gateway_rejected" {
+                return axum::Json(json!({"data":{"orderCreateManualPayment":{
+                    "order":null,"userErrors":[{"field":["paymentMethodName"],"message":"Synthetic configured gateway unavailable","code":"GATEWAY_NOT_FOUND"}]
+                }}})).into_response();
+            }
+            if failure == "wrong_record_identity" {
+                return axum::Json(json!({"data":{"orderCreateManualPayment":{
+                    "order":{"id":"gid://shopify/Order/999"},"userErrors":[]
+                }}}))
+                .into_response();
+            }
+            if failure == "recorded_other" {
+                let mut scenario = state.lock().unwrap();
+                scenario.payment_recorded = true;
+                scenario.recorded_method = Some("unrelated offline gateway".to_owned());
+                return axum::Json(json!({"data":{"orderCreateManualPayment":{
+                    "order":{"id":order_id(&scenario)},"userErrors":[]
+                }}}))
+                .into_response();
+            }
+        }
         if failure == "lost" {
             let mut scenario = state.lock().unwrap();
             match operation.as_str() {
                 "CreateDraftOrder" => {
                     scenario.draft_input = body["variables"]["input"].clone();
-                    scenario
-                        .tags
-                        .clone_from(body["variables"]["input"]["tags"].as_array().unwrap());
+                    scenario.draft_created_at = chrono::Utc::now().to_rfc3339();
+                    scenario.tags = shopify_tags(&body["variables"]["input"]["tags"]);
                 }
-                "CompleteCheckoutDraft" => scenario.completed = true,
+                "CompleteCheckoutDraft" => {
+                    scenario.completed = true;
+                    scenario.payment_recorded = body["variables"]["paymentPending"] == false;
+                }
+                "RecordCheckoutPayment" => {
+                    scenario.payment_recorded = true;
+                    scenario.recorded_method = Some(
+                        body["variables"]["paymentMethodName"]
+                            .as_str()
+                            .unwrap_or("manual")
+                            .to_owned(),
+                    );
+                }
+                "UpdateOrderCustomAttributes" => {
+                    scenario.order_attributes = Some(
+                        body["variables"]["input"]["customAttributes"]
+                            .as_array()
+                            .unwrap()
+                            .clone(),
+                    );
+                }
                 "/stripe/checkout/sessions" => scenario.stripe_input = body,
                 "/v2/checkout/orders" => scenario.paypal_input = body,
                 _ if path.ends_with("/capture") => scenario.captured = true,
@@ -455,9 +502,8 @@ async fn reply(
             }
             scenario.reserved = true;
             scenario.draft_input = body["variables"]["input"].clone();
-            scenario
-                .tags
-                .clone_from(body["variables"]["input"]["tags"].as_array().unwrap());
+            scenario.draft_created_at = chrono::Utc::now().to_rfc3339();
+            scenario.tags = shopify_tags(&body["variables"]["input"]["tags"]);
             json!({"draftOrderCreate":{"draftOrder":{
                 "id":draft_id(&scenario),"name":"#D1","email":scenario.draft_input["email"],
                 "phone":null,"tags":scenario.tags,"reserveInventoryUntil":scenario.draft_input["reserveInventoryUntil"]},"userErrors":[]}})
@@ -465,13 +511,56 @@ async fn reply(
         "CheckoutDraft" => draft(&scenario),
         "DraftOrders" => draft_search(&scenario, &body),
         "CompleteCheckoutDraft" => {
-            assert_eq!(body["variables"]["paymentPending"], false);
+            assert!(body["variables"]["paymentPending"].is_boolean());
             scenario.completed = true;
+            scenario.payment_recorded = body["variables"]["paymentPending"] == false;
             json!({"draftOrderComplete":{"draftOrder":{"id":draft_id(&scenario),"order":{"id":order_id(&scenario)}},"userErrors":[]}})
         }
+        "RecordCheckoutPayment" => {
+            assert!(
+                scenario.completed,
+                "payment recording requires the linked order"
+            );
+            assert!(
+                !scenario.payment_recorded,
+                "duplicate external payment recording"
+            );
+            let expected = if metadata_mode(&scenario) {
+                "manual"
+            } else if scenario.stripe_input.is_object() {
+                "Stripe Card Payments"
+            } else {
+                "paypal"
+            };
+            assert_eq!(body["variables"]["id"], order_id(&scenario));
+            if metadata_mode(&scenario) {
+                assert!(body["variables"].get("paymentMethodName").is_none());
+            } else {
+                assert_eq!(body["variables"]["paymentMethodName"], expected);
+            }
+            assert!(body["variables"].get("amount").is_none());
+            scenario.payment_recorded = true;
+            scenario.recorded_method = Some(expected.to_owned());
+            json!({"orderCreateManualPayment":{"order":{"id":order_id(&scenario)},"userErrors":[]}})
+        }
         "CheckoutOrder" => {
-            json!({"order":{"id":order_id(&scenario),"name":if scenario.missing_order_name {Value::Null} else {json!("#E2E-ORDER")},"displayFinancialStatus":"PAID","cancelledAt":null,
+            let gateway = recorded_gateway(&scenario);
+            json!({"order":{"id":order_id(&scenario),"name":if scenario.missing_order_name {Value::Null} else {json!("#E2E-ORDER")},
+            "displayFinancialStatus":if scenario.payment_recorded {"PAID"} else {"PENDING"},"cancelledAt":null,
+            "customAttributes":order_attributes(&scenario),
+            "totalOutstandingSet":{"presentmentMoney":{"amount":if scenario.payment_recorded {"0.00"} else {"40.00"},"currencyCode":"SGD"}},
+            "transactions":if scenario.payment_recorded {vec![json!({"id":"gid://shopify/OrderTransaction/1","gateway":gateway,"kind":"SALE","status":"SUCCESS","amountSet":{"presentmentMoney":{"amount":"40.00","currencyCode":"SGD"}}})]} else {vec![]},
             "tags":scenario.tags,"totalPriceSet":{"presentmentMoney":{"amount":"40.00","currencyCode":"SGD"}}}})
+        }
+        "UpdateOrderCustomAttributes" => {
+            assert_eq!(body["variables"]["input"]["id"], order_id(&scenario));
+            scenario.order_attributes = Some(
+                body["variables"]["input"]["customAttributes"]
+                    .as_array()
+                    .unwrap()
+                    .clone(),
+            );
+            json!({"orderUpdate":{"order":{"id":order_id(&scenario)},"userErrors":[]}})
         }
         "EditOrderTags" => {
             for tag in body["variables"]["tags"].as_array().unwrap() {
@@ -486,6 +575,33 @@ async fn reply(
             stripe_session(&scenario)
         }
         "/stripe/account" => json!({"id":"acct_e2e","object":"account"}),
+        "/stripe/payouts" => {
+            json!({"data":if scenario.stripe_input.is_object() && scenario.payment_recorded {
+            vec![json!({"id":format!("po_{}",scenario.id),"arrival_date":1_790_985_600})]
+        } else {vec![]},"has_more":false})
+        }
+        "/stripe/balance_transactions" => json!({"data":[{
+            "id":format!("txn_{}",scenario.id),"amount":100_000,"net":95000,"fee":5000,
+            "currency":"thb","created":1_790_985_600,"available_on":1_790_985_600,"object":"balance_transaction",
+            "reporting_category":"charge","status":"available","type":"charge","source":format!("ch_{}",scenario.id),
+            "exchange_rate":25.0,"description":"External convention checkout",
+            "fee_details":[{"amount":5000,"currency":"thb","type":"stripe_fee","description":null,"application":null}]
+        }],"has_more":false}),
+        "/v1/reporting/transactions" => {
+            json!({"transaction_details":if scenario.paypal_input.is_object() && scenario.payment_recorded {
+            vec![json!({"transaction_info":{
+                "transaction_id":format!("CAPTURE{}",scenario.id),"transaction_event_code":"T0006",
+                "transaction_amount":{"currency_code":"SGD","value":"40.00"},
+                "transaction_initiation_date":"2026-10-02T00:00:00Z","transaction_updated_date":"2026-10-02T00:00:00Z",
+                "transaction_status":"S","fee_amount":{"currency_code":"SGD","value":"-1.20"}
+            }})]
+        } else {vec![]},"page":1,"total_items":u64::from(scenario.paypal_input.is_object() && scenario.payment_recorded),"total_pages":1})
+        }
+        "OrdersByPayment" => {
+            json!({"orders":{"nodes":if scenario.completed && scenario.payment_recorded {
+            vec![accounting_order(&scenario)]
+        } else {vec![]},"pageInfo":{"hasNextPage":false,"endCursor":null}}})
+        }
         "/v1/oauth2/token" => {
             json!({"access_token":"synthetic-access","token_type":"Bearer","expires_in":3600})
         }
@@ -578,8 +694,9 @@ fn draft(scenario: &Scenario) -> Value {
         .iter()
         .map(|line| json!({"quantity":line["quantity"],"variant":{"id":line["variantId"]}}))
         .collect();
-    json!({"draftOrder":{"id":draft_id(scenario),"ready":true,"status":if scenario.completed {"COMPLETED"} else {"OPEN"},
-        "tags":scenario.tags,"email":scenario.draft_input["email"],"reserveInventoryUntil":reservation,
+    json!({"draftOrder":{"id":draft_id(scenario),"createdAt":scenario.draft_created_at,"ready":true,"status":if scenario.completed {"COMPLETED"} else {"OPEN"},
+        "tags":scenario.tags,"customAttributes":scenario.draft_input["customAttributes"].as_array().cloned().unwrap_or_default(),
+        "email":scenario.draft_input["email"],"reserveInventoryUntil":reservation,
         "lineItems":{"nodes":lines,"pageInfo":{"hasNextPage":false,"endCursor":null}},
         "order":if scenario.completed {json!({"id":order_id(scenario)})} else {Value::Null},"paymentTerms":null,
         "totalPriceSet":{"presentmentMoney":{"amount":if scenario.total_valid {"40.00"} else {"41.00"},"currencyCode":"SGD"}}}})
@@ -587,19 +704,31 @@ fn draft(scenario: &Scenario) -> Value {
 
 fn draft_search(scenario: &Scenario, body: &Value) -> Value {
     assert_eq!(body["variables"]["first"], 250);
-    assert!(
-        body["variables"]["query"]
-            .as_str()
-            .unwrap()
-            .starts_with("tag:'co:")
-    );
-    if scenario.draft_input.is_object() {
-        let checkout = scenario
-            .tags
-            .iter()
-            .find_map(|tag| tag.as_str().filter(|tag| tag.starts_with("co:")))
-            .unwrap();
-        assert_eq!(body["variables"]["query"], format!("tag:'{checkout}'"));
+    let query = body["variables"]["query"].as_str().unwrap();
+    let metadata = if scenario.draft_input.is_object() {
+        metadata_mode(scenario)
+    } else {
+        query.starts_with("created_at:>=")
+    };
+    if metadata {
+        assert!(query.starts_with("created_at:>="));
+        assert!(query.contains("created_at:<=") && !query.contains("tag:"));
+        assert_eq!(body["variables"]["sortKey"], "CREATED_AT");
+    } else {
+        assert!(
+            body["variables"]["query"]
+                .as_str()
+                .unwrap()
+                .starts_with("tag:'co:")
+        );
+        if scenario.draft_input.is_object() {
+            let checkout = scenario
+                .tags
+                .iter()
+                .find_map(|tag| tag.as_str().filter(|tag| tag.starts_with("co:")))
+                .unwrap();
+            assert_eq!(body["variables"]["query"], format!("tag:'{checkout}'"));
+        }
     }
     let later = body["variables"]["after"].as_str().is_some();
     if scenario.search_mode == "later_http" && later {
@@ -614,6 +743,38 @@ fn draft_search(scenario: &Scenario, body: &Value) -> Value {
     let mut next = false;
     let mut cursor = Value::Null;
     match scenario.search_mode.as_str() {
+        "missing_schema" => expected[0]["customAttributes"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|attribute| attribute["key"] != "checkout_correlation_version"),
+        "duplicate_identity" => {
+            let duplicate = expected[0]["customAttributes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|attribute| attribute["key"] == "checkout_id")
+                .unwrap()
+                .clone();
+            expected[0]["customAttributes"]
+                .as_array_mut()
+                .unwrap()
+                .push(duplicate);
+        }
+        "old_created" => expected[0]["createdAt"] = json!("2020-01-01T00:00:00Z"),
+        "missing_created" => {
+            expected[0].as_object_mut().unwrap().remove("createdAt");
+        }
+        "scan_cap" => {
+            expected.clear();
+            next = true;
+            let page = body["variables"]["after"]
+                .as_str()
+                .and_then(|value| value.strip_prefix("cap-"))
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(0);
+            cursor = json!(format!("cap-{}", page + 1));
+        }
+
         "empty" => expected.clear(),
         "repeated_cursor" => {
             next = true;
@@ -630,6 +791,7 @@ fn draft_search(scenario: &Scenario, body: &Value) -> Value {
             let mut noise = expected[0].clone();
             noise["id"] = json!("gid://shopify/DraftOrder/999999999999999998");
             noise["tags"] = json!(["checkout:unrelated"]);
+            noise["customAttributes"] = json!([]);
             if scenario.search_mode == "noisy" {
                 expected.insert(0, noise);
             } else {
@@ -666,4 +828,71 @@ fn paypal_capture(scenario: &Scenario) -> Value {
     json!({"id":format!("CAPTURE{}",scenario.id),"status":"COMPLETED","amount":{"value":"40.00","currency_code":"SGD"},
         "final_capture":true,"payee":{"merchant_id":"merchant_e2e"},"custom_id":scenario.paypal_input["purchase_units"][0]["custom_id"],
         "supplementary_data":{"related_ids":{"order_id":format!("ORDER{}",scenario.id),"capture_id":format!("CAPTURE{}",scenario.id)}}})
+}
+
+fn accounting_order(scenario: &Scenario) -> Value {
+    let gateway = recorded_gateway(scenario);
+    json!({
+        "id":order_id(scenario),"number":1234,"tags":scenario.tags,"customAttributes":order_attributes(scenario),"phone":null,"shippingAddress":null,
+        "displayFinancialStatus":"PAID","cancelledAt":null,
+        "currentTotalPriceSet":{"shopMoney":{"amount":"52.00","currencyCode":"AUD"},"presentmentMoney":{"amount":"40.00","currencyCode":"SGD"}},
+        "totalOutstandingSet":{"shopMoney":{"amount":"0.00","currencyCode":"AUD"},"presentmentMoney":{"amount":"0.00","currencyCode":"SGD"}},
+        "transactions":[{"id":"gid://shopify/OrderTransaction/1","paymentId":"shopify-external-record-id",
+            "gateway":gateway,"kind":"SALE","status":"SUCCESS","receiptJson":null,
+            "amountSet":{"shopMoney":{"amount":"52.00","currencyCode":"AUD"},"presentmentMoney":{"amount":"40.00","currencyCode":"SGD"}}}],
+        "lineItems":{"nodes":[{"title":"Synthetic product","variantTitle":"Blue","sku":"ABCKEY001",
+            "quantity":2,"originalUnitPriceSet":{"shopMoney":{"amount":"26.00","currencyCode":"AUD"}}}],
+            "pageInfo":{"hasNextPage":false,"endCursor":null}},
+        "shippingLines":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}},"refunds":[]
+    })
+}
+
+fn recorded_gateway(scenario: &Scenario) -> &str {
+    scenario.recorded_method.as_deref().unwrap_or_else(|| {
+        if metadata_mode(scenario) {
+            "manual"
+        } else if scenario.stripe_input.is_object() {
+            "Stripe Card Payments"
+        } else {
+            "paypal"
+        }
+    })
+}
+
+fn metadata_mode(scenario: &Scenario) -> bool {
+    scenario.draft_input["customAttributes"]
+        .as_array()
+        .is_some_and(|attributes| {
+            attributes.iter().any(|attribute| {
+                attribute["key"] == "checkout_correlation_version" && attribute["value"] == "2"
+            })
+        })
+}
+
+fn order_attributes(scenario: &Scenario) -> Vec<Value> {
+    scenario.order_attributes.clone().unwrap_or_else(|| {
+        scenario.draft_input["customAttributes"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+    })
+}
+
+fn shopify_tags(tags: &Value) -> Vec<Value> {
+    let mut seen = std::collections::HashSet::new();
+    tags.as_array()
+        .unwrap()
+        .iter()
+        .filter(|tag| {
+            let key: String = tag
+                .as_str()
+                .unwrap()
+                .chars()
+                .filter(|character| character.is_alphanumeric())
+                .flat_map(char::to_lowercase)
+                .collect();
+            seen.insert(key)
+        })
+        .cloned()
+        .collect()
 }

@@ -39,10 +39,11 @@ pub(crate) async fn insert(c: &mut PgConnection, checkout: &Checkout) -> Result<
         "INSERT INTO checkouts (
              id, guest_secret_hash, owner_expires_at, request_fingerprint,
              convention_id, provider, provider_account_id, provider_environment,
-             evidence_hash, required_tag_hashes, success_url, cancel_url, next_recovery_at
+             evidence_hash, required_tag_hashes, success_url, cancel_url, next_recovery_at,
+             completion_version, convention_slug, payment_recording_state, correlation_version, created_at
          )
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                 CURRENT_TIMESTAMP + INTERVAL '60 seconds')
+                 $17::TIMESTAMPTZ + INTERVAL '60 seconds', $13, $14, $15, $16, $17)
          ON CONFLICT (id) DO NOTHING",
     )
     .bind(checkout.id)
@@ -57,6 +58,11 @@ pub(crate) async fn insert(c: &mut PgConnection, checkout: &Checkout) -> Result<
     .bind(&checkout.required_tag_hashes)
     .bind(&checkout.success_url)
     .bind(&checkout.cancel_url)
+    .bind(checkout.completion_version)
+    .bind(&checkout.convention_slug)
+    .bind(checkout.payment_recording_state)
+    .bind(checkout.correlation_version)
+    .bind(checkout.created_at)
     .execute(c)
     .await?
     .rows_affected()
@@ -108,6 +114,7 @@ pub(crate) async fn save(pool: &PgPool, checkout: &Checkout, token: Uuid) -> Res
              success_url = $10,
              cancel_url = $11,
              gateway_request_fingerprint = $12,
+             payment_recording_state = $13,
              next_recovery_at = CASE WHEN $5 = 'completed' OR $3 = 'unpaid'
                  THEN NULL
                  WHEN c.payment_state = 'unpaid' THEN clock_timestamp() + INTERVAL '60 seconds'
@@ -136,6 +143,7 @@ pub(crate) async fn save(pool: &PgPool, checkout: &Checkout, token: Uuid) -> Res
     .bind(&checkout.success_url)
     .bind(&checkout.cancel_url)
     .bind(&checkout.gateway_request_fingerprint)
+    .bind(checkout.payment_recording_state)
     .execute(pool)
     .await?
     .rows_affected();

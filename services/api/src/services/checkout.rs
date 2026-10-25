@@ -1,3 +1,4 @@
+pub(crate) mod correlation;
 pub(crate) mod notification;
 mod provider;
 mod purchase;
@@ -53,8 +54,16 @@ pub(crate) async fn create(
             return advance(pool, clients, id, false, None, settings).await;
         }
     }
-    let (checkout, prepared) =
-        purchase::prepare(pool, settings, clients, request, guest_hash, fingerprint).await?;
+    let (checkout, prepared) = purchase::prepare(
+        pool,
+        settings,
+        clients,
+        request,
+        guest_hash,
+        fingerprint,
+        existing.as_ref(),
+    )
+    .await?;
     let mut transaction = pool.begin().await?;
     repo::insert(&mut transaction, &checkout).await?;
     transaction.commit().await?;
@@ -62,7 +71,9 @@ pub(crate) async fn create(
         .await?
         .ok_or_else(|| conflict("Checkout could not be recovered"))?;
     authorize(&stored, guest_hash)?;
-    if stored.request_fingerprint != checkout.request_fingerprint
+    if stored.completion_version != checkout.completion_version
+        || stored.correlation_version != checkout.correlation_version
+        || stored.request_fingerprint != checkout.request_fingerprint
         || stored.evidence_hash != checkout.evidence_hash
         || stored.required_tag_hashes != checkout.required_tag_hashes
     {
@@ -359,6 +370,18 @@ async fn hydrate_response(
             .await
             .map_err(|error| crate::error::upstream(error))?
             .ok_or_else(|| conflict("Completed checkout order is missing"))?;
+        if checkout.completion_version == 2 {
+            super::checkout_completion::validate_external_paid_order(
+                &order,
+                &purchase::exact(money.minor, &money.currency)?,
+                &super::checkout_completion::ExternalPaymentRecording::from_checkout(checkout)?,
+                if checkout.provider == "stripe" {
+                    "Stripe Card Payments"
+                } else {
+                    "paypal"
+                },
+            )?;
+        }
         let actual = &order.total_price_set.presentment_money;
         if !purchase::tags_match(checkout, &order.tags)
             || actual.currency_code != money.currency

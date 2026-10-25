@@ -27,6 +27,12 @@ async fn both_gateways_complete_without_browser_or_webhook_with_reports_disabled
         let completed = stored(&fixture, checkout).await;
         assert_eq!(completed["completion_state"], "completed", "{completed}");
         assert_eq!(completed["payment_state"], "paid");
+        assert_eq!(completed["completion_version"], 2);
+        assert_eq!(completed["correlation_version"], 2);
+        assert_eq!(upstream.count("EditOrderTags"), 0);
+        assert_eq!(upstream.count("UpdateOrderCustomAttributes"), 1);
+        assert_eq!(completed["payment_recording_state"], "recorded");
+        assert_eq!(upstream.count("RecordCheckoutPayment"), 1);
         assert_eq!(
             completed["provider_resource_id"],
             original["provider_resource_id"]
@@ -122,6 +128,13 @@ async fn vps_recovery_runs_with_reports_disabled_and_shutdown_stops_owned_work()
     assert!(success, "{logs}");
     assert!(logs.contains("Cron runtime tasks stopped"));
     assert_eq!(upstream.count("CompleteCheckoutDraft"), 1);
+    assert_eq!(upstream.count("RecordCheckoutPayment"), 1);
+    assert_eq!(upstream.count("EditOrderTags"), 0);
+    assert_eq!(upstream.count("UpdateOrderCustomAttributes"), 1);
+    assert_eq!(
+        stored(&fixture, checkout).await["payment_recording_state"],
+        "recorded"
+    );
     let before = upstream.calls().len();
     let saved = stored(&fixture, checkout).await;
     tokio::time::sleep(Duration::from_millis(1200)).await;
@@ -592,7 +605,12 @@ async fn ambiguous_draft_search_binds_one_exact_match_and_never_creates_second_d
 #[tokio::test]
 async fn ambiguous_capture_and_completion_reconcile_without_repeated_mutation() {
     let fixture = common::fixture().await;
-    for operation in ["PaypalCaptureOrder", "CompleteCheckoutDraft"] {
+    for operation in [
+        "PaypalCaptureOrder",
+        "CompleteCheckoutDraft",
+        "RecordCheckoutPayment",
+        "UpdateOrderCustomAttributes",
+    ] {
         let upstream = Providers::start().await;
         let client = configured(&upstream, ProviderConfig::default()).await;
         let input = purchase(&fixture, "paypal").await;
