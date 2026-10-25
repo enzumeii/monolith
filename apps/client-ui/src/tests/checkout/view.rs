@@ -36,7 +36,11 @@ fn completed_view_renders_real_shopify_reference_and_confirmation_pickup_instruc
     assert!(html.contains("Congratulations!"));
     assert!(html.contains("checkout-site-logo"));
     assert!(html.contains("#1234"));
-    assert!(html.contains("Check your email for your order confirmation. Show that email at the convention to confirm your preorder."));
+    assert!(html.contains("Congratulations! Your order #1234 is confirmed."));
+    assert!(html.contains("checkout-confirmation"));
+    assert!(html.contains("Check your email for your order confirmation."));
+    assert!(html.contains("<br"));
+    assert!(html.contains("Show that email at the convention to pick up your order."));
     assert!(!html.contains("gid://shopify"));
 }
 

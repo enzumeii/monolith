@@ -297,10 +297,15 @@ fn StatusContent(response: CheckoutResponse, provider: CheckoutProvider) -> Elem
                 .order
                 .expect("completed response checked before rendering");
             rsx! {
-                img { class: "checkout-site-logo", src: ui::SITE_LOGO, alt: "Enzumeii" }
-                Heading { title: "Congratulations! Your order is confirmed." }
-                p { class: "checkout-order-reference", "Shopify order ", strong { "{order.name}" } }
-                p { "Check your email for your order confirmation. Show that email at the convention to confirm your preorder." }
+                div { class: "checkout-confirmation",
+                    img { class: "checkout-site-logo", src: ui::SITE_LOGO, alt: "Enzumeii" }
+                    Heading { title: format!("Congratulations! Your order {} is confirmed.", order.name) }
+                    p {
+                        "Check your email for your order confirmation."
+                        br {}
+                        "Show that email at the convention to pick up your order."
+                    }
+                }
             }
         }
         CheckoutStatus::RequiresAction => rsx! {

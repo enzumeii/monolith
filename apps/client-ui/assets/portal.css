@@ -102,7 +102,8 @@
 .checkout-paypal-mark { flex-shrink: 0; }
 .checkout-payment-button:disabled svg { filter: grayscale(1); }
 .checkout-status { max-width: 48rem; margin-block: 1rem; }
-.checkout-order-reference { font-size: 1.3rem; }
+.checkout-confirmation { text-align: center; }
+.checkout-confirmation .content-heading-title { justify-content: center; }
 .checkout-site-logo { display: block; width: 88px; height: 88px; object-fit: contain; margin: 0 auto 1rem; }
 .checkout-processing { text-align: center; }
 .checkout-progress { position: relative; overflow: hidden; height: .4rem; max-width: 20rem; margin: 1rem auto; border-radius: 999px; background: var(--panel-border); }
