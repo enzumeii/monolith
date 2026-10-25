@@ -137,5 +137,5 @@ fn quote_amounts_round_trip_as_exact_strings_including_zero_shipping() {
 fn missing_checkout_capabilities_fail_closed_for_older_catalogue_responses() {
     let wire = json!({"convention":{"id":"id","slug":"fair","name":"Fair","logo_preview_url":null,"logo_preview_url_expires_at":null,"country_code":"TH","event_starts_on":"2026-10-26","event_ends_on":"2026-10-27","description_markdown":"","currency_code":"THB"},"products":[]});
     let response: PublicCatalogueResponse = serde_json::from_value(wire).unwrap();
-    assert!(response.payment_methods.is_empty());
+    assert_eq!(response.payment_methods, []);
 }

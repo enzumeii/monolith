@@ -3048,7 +3048,7 @@ async fn checkout_stripe_thb_minimum_precedes_checkout_and_draft_mutations() {
         if !accepted_total {
             assert_eq!(
                 body_json(response).await,
-                json!({"error":"Stripe requires a minimum payment of THB 10.00"})
+                json!({"error":"Payment cannot be started for this order. Please contact the shop."})
             );
             let rows: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*)
@@ -3200,7 +3200,7 @@ async fn checkout_old_creating_minimum_rejection_preserves_original_operation() 
     assert_eq!(response.status(), 422);
     assert_eq!(
         body_json(response).await,
-        json!({"error":"Stripe requires a minimum payment of THB 10.00"})
+        json!({"error":"Payment cannot be started for this order. Please contact the shop."})
     );
     let after: Value = sqlx::query_scalar(
         "SELECT to_jsonb(c) - 'claim_token' - 'claim_expires_at' - 'updated_at'

@@ -209,3 +209,54 @@ mod mounted {
         assert!(requests[6].contains(r#""logo_url":"conventions/event-two/key.png""#));
     }
 }
+
+#[test]
+fn stripe_minimum_guidance_covers_all_selected_stripe_currencies() {
+    fn app(props: (String, Vec<ConventionPaymentMethod>)) -> Element {
+        let draft = use_signal(|| Metadata {
+            currency: props.0,
+            methods: props.1,
+            ..Default::default()
+        });
+        rsx! { MetadataFields { draft, options: ConventionOptionsResponse::default(), editing: true } }
+    }
+    for (currency, methods, visible) in [
+        ("THB", vec![ConventionPaymentMethod::Stripe], true),
+        (
+            "THB",
+            vec![
+                ConventionPaymentMethod::Stripe,
+                ConventionPaymentMethod::Paypal,
+            ],
+            true,
+        ),
+        ("THB", vec![ConventionPaymentMethod::Paypal], false),
+        ("THB", vec![], false),
+        ("AUD", vec![ConventionPaymentMethod::Stripe], true),
+        ("SGD", vec![ConventionPaymentMethod::Stripe], true),
+        ("USD", vec![ConventionPaymentMethod::Stripe], true),
+        ("EUR", vec![ConventionPaymentMethod::Stripe], true),
+        ("JPY", vec![ConventionPaymentMethod::Stripe], true),
+        ("USD", vec![ConventionPaymentMethod::Paypal], false),
+    ] {
+        let mut dom = VirtualDom::new_with_props(app, (currency.into(), methods));
+        dom.rebuild_in_place();
+        let html = dioxus_ssr::render(&dom);
+        assert_eq!(
+            html.contains("Stripe minimum payment amounts"),
+            visible,
+            "{html}"
+        );
+        assert!(!html.contains("THB 10.00"));
+        if visible {
+            assert!(html.contains("payment total"));
+            assert!(html.contains("settlement currency"));
+            assert!(html.contains("after conversion"));
+            assert!(
+                html.contains(
+                    "https://docs.stripe.com/currencies#minimum-and-maximum-charge-amounts"
+                )
+            );
+        }
+    }
+}
