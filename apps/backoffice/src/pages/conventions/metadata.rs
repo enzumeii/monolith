@@ -260,8 +260,12 @@ pub fn MetadataFields(
                 }
             }
         }
-        if current.currency == "THB" && current.methods.contains(&ConventionPaymentMethod::Stripe) {
-            p { class: "hint", "Stripe requires a minimum payment total of THB 10.00 when the Stripe account settles in THB. Consider this when setting convention prices." }
+        if current.methods.contains(&ConventionPaymentMethod::Stripe) {
+            p { class: "hint",
+                "Stripe's minimum payment total depends on your payout bank account's settlement currency. Payments in another currency must meet that minimum after conversion. Check "
+                a { href: "https://docs.stripe.com/currencies#minimum-and-maximum-charge-amounts", target: "_blank", rel: "noopener noreferrer", "Stripe minimum payment amounts" }
+                " when setting convention prices."
+            }
         }
         if unsupported_country { p { class: "error", "The saved country is unsupported. Choose an available country before saving metadata." } }
         if unsupported_currency { p { class: "error", "The saved currency is unsupported. You can edit metadata or disable preorders. Choose a supported currency before enabling or changing payment methods." } }
