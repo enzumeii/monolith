@@ -51,7 +51,7 @@ pub(crate) async fn create(
                 "Checkout operation was used with different purchase details",
             ));
         }
-        if row.draft_state != DraftState::NotStarted {
+        if terminal_unpaid(row) || row.draft_state != DraftState::NotStarted {
             return advance(pool, clients, id, false, None, settings).await;
         }
     }
@@ -229,7 +229,7 @@ async fn advance(
         let row = repositories::checkout::find(pool, id)
             .await?
             .ok_or_else(unauthorized)?;
-        if row.draft_id.is_none() {
+        if row.draft_id.is_none() && !terminal_unpaid(&row) {
             return Err(AppError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Checkout purchase is being prepared",
@@ -267,6 +267,11 @@ async fn advance_claimed(
     prepared: Option<&purchase::PreparedPurchase>,
     report_diagnostics: bool,
 ) -> Result<RecoveryOutcome, AdvanceError> {
+    if terminal_unpaid(checkout) {
+        return Ok(RecoveryOutcome::Observed(
+            crate::models::checkout::RecoveryCode::Observed,
+        ));
+    }
     if matches!(
         checkout.draft_state,
         DraftState::Creating | DraftState::Uncertain
@@ -281,6 +286,11 @@ async fn advance_claimed(
             )
         })?;
         purchase::reserve(pool, settings, clients, checkout, prepared, token).await?;
+        if terminal_unpaid(checkout) {
+            return Ok(RecoveryOutcome::Observed(
+                crate::models::checkout::RecoveryCode::Observed,
+            ));
+        }
     }
     let draft = purchase::read(clients, checkout).await?;
     let shopify_money = purchase::validate_purchase(checkout, &draft)?;
@@ -333,6 +343,18 @@ async fn hydrate_response(
     checkout: &Checkout,
     busy: bool,
 ) -> Result<CheckoutResponse, AppError> {
+    if terminal_unpaid(checkout) && checkout.correlation_version == correlation::INDEPENDENT_VERSION
+    {
+        let money = correlation::payment_money(checkout)?
+            .ok_or_else(|| conflict("Checkout payment snapshot is missing"))?;
+        return Ok(transformers::checkout::response(
+            checkout,
+            CheckoutStatus::Unpaid,
+            money,
+            None,
+            None,
+        ));
+    }
     let draft = purchase::read(clients, checkout).await?;
     let shopify_money = purchase::validate_purchase(checkout, &draft)?;
     let money = purchase::payment_money(checkout, &shopify_money)?;
@@ -476,8 +498,17 @@ fn provider_name(provider: CheckoutProvider) -> &'static str {
         CheckoutProvider::Paypal => "paypal",
     }
 }
+fn terminal_unpaid(checkout: &Checkout) -> bool {
+    checkout.payment_state == PaymentState::Unpaid
+        && checkout.provider_resource_id.is_none()
+        && checkout.completion_state == CompletionState::NotStarted
+        && checkout.payment_recording_state
+            == crate::models::checkout::PaymentRecordingState::NotStarted
+}
 fn response_status(checkout: &Checkout, busy: bool) -> CheckoutStatus {
-    if checkout.completion_state == CompletionState::Completed {
+    if terminal_unpaid(checkout) {
+        CheckoutStatus::Unpaid
+    } else if checkout.completion_state == CompletionState::Completed {
         CheckoutStatus::Completed
     } else if checkout.draft_state == DraftState::Uncertain
         || checkout.payment_state == PaymentState::Uncertain

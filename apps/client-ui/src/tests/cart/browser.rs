@@ -87,25 +87,31 @@ async fn bridge_saves_json_as_string_and_surfaces_failed_or_missing_storage_ackn
     assert_eq!(
         scoped(
             TestDocument::new(vec![serde_json::json!(["2099-01-01", "TH"])]),
-            visitor()
+            visitor(&crate::config::tests::settings().visitor)
         )
         .await
         .expect("controlled visitor date and country"),
         ("2099-01-01".into(), Some("TH".into()))
     );
     assert!(
-        scoped(TestDocument::new(vec![]), visitor())
-            .await
-            .expect_err("controlled browser failure")
-            .contains("local date")
+        scoped(
+            TestDocument::new(vec![]),
+            visitor(&crate::config::tests::settings().visitor)
+        )
+        .await
+        .expect_err("controlled browser failure")
+        .contains("local date")
     );
 }
 
 #[tokio::test]
 async fn browser_failures_offer_specific_guidance_without_reload_requests() {
-    let error = scoped(TestDocument::new(vec![]), visitor())
-        .await
-        .expect_err("date failure");
+    let error = scoped(
+        TestDocument::new(vec![]),
+        visitor(&crate::config::tests::settings().visitor),
+    )
+    .await
+    .expect_err("date failure");
     assert!(error.contains("JavaScript"));
     assert!(!error.contains("reload"));
     let error = scoped(TestDocument::new(vec![]), restore("event"))
@@ -123,4 +129,23 @@ async fn browser_failures_offer_specific_guidance_without_reload_requests() {
         .expect("identifier failure");
     assert!(error.contains("secure browser"));
     assert!(!error.contains("reload"));
+}
+
+#[tokio::test]
+async fn visitor_bridge_injects_only_typed_lookup_settings_into_one_browser_evaluation() {
+    let settings = crate::config::tests::settings().visitor;
+    let document = TestDocument::new(vec![serde_json::json!(["2099-01-01", "TH"])]);
+    let visitor = scoped(document.clone(), visitor(&settings))
+        .await
+        .expect("controlled visitor lookup");
+    assert_eq!(visitor.1.as_deref(), Some("TH"));
+    let scripts = document.scripts.borrow();
+    assert_eq!(scripts.len(), 1);
+    assert!(
+        scripts[0]
+            .contains(&serde_json::to_string(&settings.country_lookup_url).expect("JSON URL"))
+    );
+    assert!(scripts[0].contains(&settings.timeout_ms.to_string()));
+    assert!(!scripts[0].contains("__LOOKUP_URL__"));
+    assert!(!scripts[0].contains("__TIMEOUT_MS__"));
 }

@@ -15,14 +15,18 @@ struct StorageRead {
     blocked: bool,
 }
 
-pub async fn visitor() -> Result<(String, Option<String>), String> {
-    document::eval(include_str!("visitor.js"))
-        .recv()
-        .await
-        .map_err(|_| {
-            "Unable to determine your local date. Check that JavaScript is enabled in your browser."
-                .into()
-        })
+pub async fn visitor(
+    settings: &crate::config::VisitorConfig,
+) -> Result<(String, Option<String>), String> {
+    let url = serde_json::to_string(&settings.country_lookup_url)
+        .map_err(|_| "Unable to configure country detection")?;
+    let script = include_str!("visitor.js")
+        .replace("__LOOKUP_URL__", &url)
+        .replace("__TIMEOUT_MS__", &settings.timeout_ms.to_string());
+    document::eval(&script).recv().await.map_err(|_| {
+        "Unable to determine your local date. Check that JavaScript is enabled in your browser."
+            .into()
+    })
 }
 
 pub async fn restore(convention_id: &str) -> Result<Restored, String> {

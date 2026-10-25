@@ -36,6 +36,7 @@ async fn products_are_selected_current_grouped_and_use_only_saved_prices() {
     let (c, upstream) = common::client_with_upstream_script(vec![wire], "http").await;
     let body = get(&c, &format!("{URI}/{slug}/products")).await;
     assert_eq!(body["convention"]["currency_code"], "THB");
+    assert_eq!(body["payment_methods"], json!(["stripe"]));
     assert_eq!(body["products"].as_array().unwrap().len(), 1);
     let product = &body["products"][0];
     assert_eq!(product["title"], "Fresh title");
@@ -192,5 +193,23 @@ async fn batch_position_and_duplicate_identities_are_not_partial_success() {
             502,
         )
         .await;
+    }
+}
+
+#[tokio::test]
+async fn catalogue_payment_capabilities_follow_saved_method_updates() {
+    let f = fixture().await;
+    let (id, slug) = event(&f).await;
+    let c = common::client().await;
+    for methods in [vec!["stripe"], vec!["paypal"], vec!["stripe", "paypal"]] {
+        sqlx::query("UPDATE conventions SET payment_methods = $1 WHERE id = $2")
+            .bind(&methods)
+            .bind(id)
+            .execute(&f.pool())
+            .await
+            .unwrap();
+        let body = get(&c, &format!("{URI}/{slug}/products")).await;
+        assert_eq!(body["payment_methods"], json!(methods));
+        assert!(body["convention"].get("payment_methods").is_none());
     }
 }

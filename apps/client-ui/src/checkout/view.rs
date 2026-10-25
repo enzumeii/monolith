@@ -5,7 +5,7 @@ use super::{
 use crate::{api, cart::Cart, pages::ConventionFrame, route::Route};
 use dioxus::prelude::*;
 use domain::dto::{
-    ConventionQuote,
+    ConventionPaymentMethod, ConventionQuote,
     checkout::{CheckoutProvider, CheckoutResponse, CheckoutStatus},
 };
 use ui::{ErrorMessage, Heading, LoadingMessage};
@@ -42,6 +42,7 @@ pub fn CheckoutControls(
     slug: String,
     snapshot: Cart,
     quote: Option<ConventionQuote>,
+    payment_methods: Vec<ConventionPaymentMethod>,
     busy: Signal<bool>,
 ) -> Element {
     let mut email = use_signal(String::new);
@@ -137,6 +138,7 @@ pub fn CheckoutControls(
             p { id: "checkout-note-hint", class: "hint", "Anything we should know about your order? Up to 2,000 characters." }
             if let Some(message) = note_error { p { id: "checkout-note-error", class: "hint", role: "alert", "{message}" } }
             div { class: "checkout-payment-methods",
+                if payment_methods.contains(&ConventionPaymentMethod::Paypal) {
                 button { id: "checkout-paypal", class: "checkout-payment-button checkout-paypal", disabled: unavailable,
                     onclick: move |_| {
                         if *busy.peek() { return; }
@@ -148,6 +150,8 @@ pub fn CheckoutControls(
                     span { class: "checkout-payment-marks", PaymentMarks { provider: CheckoutProvider::Paypal } }
                     span { "{paypal_label}" }
                 }
+                }
+                if payment_methods.contains(&ConventionPaymentMethod::Stripe) {
                 button { id: "checkout-card", class: "checkout-payment-button checkout-card", disabled: unavailable,
                     onclick: move |_| {
                         if *busy.peek() { return; }
@@ -159,6 +163,7 @@ pub fn CheckoutControls(
                     span { class: "checkout-payment-marks", PaymentMarks { provider: CheckoutProvider::Stripe } }
                     span { "{card_label}" }
                 }
+            }
             }
             p { class: "hint", "Wallet availability depends on your device and the payment gateway." }
             if *busy.read() { LoadingMessage { message: "Preparing your secure payment…" } }
@@ -323,8 +328,8 @@ fn StatusContent(response: CheckoutResponse, provider: CheckoutProvider) -> Elem
         },
         CheckoutStatus::Processing => rsx! { ProcessingPayment {} },
         CheckoutStatus::Unpaid => rsx! {
-            Heading { title: "Payment was not completed" }
-            p { "The payment gateway confirmed this payment is unpaid. Your cart is saved. Return to your cart when you are ready to try again." }
+            Heading { title: "Payment could not be completed" }
+            p { "This checkout is unpaid. Your cart is saved. Return to your cart to review your order." }
         },
         CheckoutStatus::ReconciliationRequired => rsx! {
             Heading { title: "Your order needs a payment check" }
@@ -385,7 +390,6 @@ async fn begin(
     provider: CheckoutProvider,
     state: SubmissionState,
 ) {
-    let _loading = ui::loading_guard();
     let SubmissionState {
         mut busy,
         mut error,
@@ -446,7 +450,6 @@ async fn begin(
 }
 
 async fn inspect(attempt: &Attempt) -> Result<CheckoutResponse, AttemptError> {
-    let _loading = ui::loading_guard();
     let (ownership, started) = browser::recover(attempt).await.map_err(recovery_error)?;
     let result = advance(started).await;
     let status = result
@@ -510,6 +513,8 @@ fn request_error(error: &api::ApiError, fresh: bool) -> AttemptError {
     AttemptError {
         message: if expired {
             "This browser can no longer verify this checkout. Keep your payment receipt and contact the shop before paying again."
+        } else if error.status == 422 {
+            &error.message
         } else if rejected && fresh {
             "Payment could not be started. Review your confirmation email and current cart details before paying."
         } else if retryable {
@@ -540,7 +545,6 @@ async fn hosted_redirect(
     response: &CheckoutResponse,
     provider: CheckoutProvider,
 ) -> Result<(), String> {
-    let _loading = ui::loading_guard();
     let settings = try_consume_context::<crate::config::Settings>();
     let mut page = document::eval("dioxus.send(window.location.href);");
     let page = page

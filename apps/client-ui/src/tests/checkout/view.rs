@@ -64,9 +64,7 @@ fn pending_and_manual_recovery_do_not_offer_another_payment_or_claim_success() {
 
 #[test]
 fn unpaid_and_requires_action_render_distinct_payment_guidance() {
-    assert!(
-        render(CheckoutStatus::Unpaid, None).contains("gateway confirmed this payment is unpaid")
-    );
+    assert!(render(CheckoutStatus::Unpaid, None).contains("This checkout is unpaid"));
     let actionable = render(CheckoutStatus::RequiresAction, None);
     assert!(actionable.contains("Continue payment"));
     assert!(!actionable.contains("Congratulations"));
@@ -176,6 +174,69 @@ mod mounted {
             order: None,
         })
         .expect("valid checkout fixture")
+    }
+
+    #[tokio::test]
+    async fn confirmation_progress_stays_visible_during_its_own_inspection() {
+        #[component]
+        fn Probe() -> Element {
+            let attempt = use_context::<Attempt>();
+            let inspection = use_resource(move || {
+                let attempt = attempt.clone();
+                async move { inspect(&attempt).await }
+            });
+            rsx! { ProcessingPayment {} if inspection.read().is_some() { p { "Inspection finished" } } }
+        }
+        fn app() -> Element {
+            rsx! { ui::LoadingBoundary { Probe {} } }
+        }
+        let attempt = attempt(CheckoutProvider::Stripe);
+        let document = TestDocument::new(vec![boot(&attempt, false, "")]);
+        let server = crate::api::tests::delayed_loading_server(
+            200,
+            r#"{"checkout_id":"f79b7e64-8e36-4aca-9e21-ecb7cb513700","status":"processing","money":{"minor":2460,"currency":"USD"},"reservation_expires_at":null,"next_action":null}"#,
+            false,
+        );
+        let mut settings = crate::config::tests::settings();
+        settings.api.base_url = server.url.clone();
+        let mut dom = VirtualDom::new(app)
+            .with_root_context(attempt)
+            .with_root_context(settings)
+            .with_root_context(document as std::rc::Rc<dyn dioxus::document::Document>);
+        dom.rebuild_in_place();
+        let mut seen = false;
+        for _ in 0..200 {
+            let _ = dom.wait_for_work().now_or_never();
+            dom.render_immediate_to_vec();
+            if server.seen_rx.try_recv().is_ok() {
+                seen = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        assert!(seen, "inspection reached the real controlled HTTP server");
+        let before = dioxus_ssr::render(&dom);
+        server.headers_tx.send(()).expect("release headers");
+        for _ in 0..10 {
+            let _ = dom.wait_for_work().now_or_never();
+            dom.render_immediate_to_vec();
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        let during = dioxus_ssr::render(&dom);
+        server.body_tx.send(()).expect("release body");
+        until(&mut dom, "Inspection finished").await;
+        server.server.join().expect("controlled server");
+        for html in [before, during] {
+            assert!(html.contains("checkout-progress"), "{html}");
+            assert!(
+                !html.contains("page-loading"),
+                "confirmation must own its progress: {html}"
+            );
+            assert!(
+                !html.contains("inert=\"inert\""),
+                "confirmation must remain visible: {html}"
+            );
+        }
     }
 
     fn request_body(request: &str) -> Value {
@@ -755,7 +816,7 @@ mod mounted {
                     cart(),
                     doc,
                 );
-                let html = until(&mut dom, "Payment was not completed").await;
+                let html = until(&mut dom, "Payment could not be completed").await;
                 assert!(html.contains("Return to cart"));
                 assert!(!html.contains("Check status"));
                 assert!(!html.contains("We could not confirm this payment yet"));
@@ -853,7 +914,7 @@ mod mounted {
                 cart(),
                 doc,
             );
-            let html = until(&mut dom, "Payment was not completed").await;
+            let html = until(&mut dom, "Payment could not be completed").await;
             assert!(!html.contains("Check status"));
             assert!(!html.contains("We could not confirm this payment yet"));
         })
@@ -895,7 +956,15 @@ mod mounted {
                     cart(),
                     doc,
                 );
-                let html = until(&mut dom, "contact the shop").await;
+                let html = until(
+                    &mut dom,
+                    if status == 422 {
+                        "Stop"
+                    } else {
+                        "contact the shop"
+                    },
+                )
+                .await;
                 assert!(!html.contains("Check status"));
             })
             .await;
@@ -1151,6 +1220,8 @@ mod mounted {
                     click(&mut dom, "id", "checkout-card");
                     let expected = if status == 409 {
                         "Payment recovery could not continue"
+                    } else if status == 422 {
+                        "Checkout cannot proceed"
                     } else {
                         "Payment could not be started"
                     };
@@ -1309,4 +1380,20 @@ mod mounted {
             }));
         }
     }
+}
+
+#[test]
+fn safe_minimum_validation_is_visible_without_releasing_an_uncertain_attempt() {
+    let error = api::ApiError::new(
+        reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+        "Card payments require a total of at least THB 10.00.",
+    );
+    let fresh = request_error(&error, true);
+    assert_eq!(fresh.message, error.message);
+    assert_eq!(fresh.disposition, Some("rejected"));
+    assert!(!fresh.retryable);
+    let recovery = request_error(&error, false);
+    assert_eq!(recovery.message, error.message);
+    assert_eq!(recovery.disposition, None);
+    assert!(!recovery.retryable);
 }

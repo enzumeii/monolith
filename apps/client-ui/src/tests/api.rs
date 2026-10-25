@@ -108,6 +108,10 @@ pub(crate) fn convention(id: &str) -> domain::dto::PublicConvention {
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn catalogue() -> domain::dto::PublicCatalogueResponse {
     domain::dto::PublicCatalogueResponse {
+        payment_methods: vec![
+            domain::dto::ConventionPaymentMethod::Stripe,
+            domain::dto::ConventionPaymentMethod::Paypal,
+        ],
         convention: convention("a"),
         products: vec![crate::tests::product()],
     }
@@ -355,7 +359,7 @@ async fn interrupted_success_body_recovers_but_complete_malformed_json_stops() {
 #[derive(Clone)]
 struct LoadingProbeRequest {
     url: String,
-    unit: bool,
+    background: bool,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -365,7 +369,15 @@ fn LoadingProbe() -> Element {
     let response = use_resource(move || {
         let request = request.clone();
         async move {
-            let _ = request.unit;
+            if request.background {
+                return crate::api::orders::verify(
+                    "f79b7e64-8e36-4aca-9e21-ecb7cb513700",
+                    &"ab".repeat(32),
+                )
+                .await
+                .map(|_| ())
+                .map_err(|error| error.status);
+            }
             decode::<serde_json::Value>(reqwest::Client::new().get(request.url))
                 .await
                 .map(|_| ())
@@ -378,20 +390,30 @@ fn LoadingProbe() -> Element {
 #[cfg(not(target_arch = "wasm32"))]
 #[tokio::test]
 async fn loading_covers_delayed_headers_and_body_then_releases_for_every_outcome() {
-    for (status, body, interrupted, cancelled, unit) in [
-        (200, r#"{"ready":true}"#, false, false, false),
+    for (status, body, interrupted, cancelled) in [
+        (200, r#"{"ready":true}"#, false, false),
+        (400, r#"{"error":"Controlled rejection"}"#, false, false),
+        (200, "malformed JSON", false, false),
+        (200, "interrupted", true, false),
+        (200, r#"{"ready":true}"#, false, true),
+    ] {
+        loading_case(status, body, interrupted, cancelled, false).await;
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[tokio::test]
+async fn checkout_confirmation_requests_do_not_open_global_loading_overlay() {
+    for (status, body, interrupted) in [
         (
-            400,
-            r#"{"error":"Controlled rejection"}"#,
-            false,
-            false,
+            200,
+            r#"{"checkout_id":"f79b7e64-8e36-4aca-9e21-ecb7cb513700","status":"processing","money":{"minor":10000,"currency":"THB"},"reservation_expires_at":null,"next_action":null}"#,
             false,
         ),
-        (200, "malformed JSON", false, false, false),
-        (200, "interrupted", true, false, false),
-        (200, r#"{"ready":true}"#, false, true, false),
+        (503, r#"{"error":"Temporarily unavailable"}"#, false),
+        (200, "interrupted", true),
     ] {
-        loading_case(status, body, interrupted, cancelled, unit).await;
+        loading_case(status, body, interrupted, false, true).await;
     }
 }
 
@@ -401,7 +423,7 @@ async fn loading_case(
     body: &'static str,
     interrupted: bool,
     cancelled: bool,
-    unit: bool,
+    background: bool,
 ) {
     use futures::FutureExt;
     use std::time::Duration;
@@ -422,7 +444,11 @@ async fn loading_case(
         body_tx,
         server,
     } = delayed_loading_server(status, body, interrupted);
-    let mut dom = VirtualDom::new(app).with_root_context(LoadingProbeRequest { url, unit });
+    let mut settings = crate::config::tests::settings();
+    settings.api.base_url = url.clone();
+    let mut dom = VirtualDom::new(app)
+        .with_root_context(settings)
+        .with_root_context(LoadingProbeRequest { url, background });
     dom.rebuild_in_place();
     let mut seen = false;
     for _ in 0..200 {
@@ -436,22 +462,14 @@ async fn loading_case(
     assert!(seen, "mounted operation reached controlled HTTP server");
     pump(&mut dom);
     let html = dioxus_ssr::render(&dom);
-    assert!(
-        html.contains("page-loading"),
-        "loading before headers: {html}"
-    );
-    assert!(html.contains("inert"), "underlying page is blocked: {html}");
+    let before_headers = html;
+
     headers_tx.send(()).expect("headers");
     for _ in 0..10 {
         pump(&mut dom);
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
-    if !unit {
-        assert!(
-            dioxus_ssr::render(&dom).contains("page-loading"),
-            "body transfer retains guard"
-        );
-    }
+    let during_body = dioxus_ssr::render(&dom);
     if cancelled {
         drop(dom);
         body_tx.send(()).expect("body");
@@ -471,6 +489,21 @@ async fn loading_case(
     let html = dioxus_ssr::render(&dom);
     server.join().expect("server");
     assert!(finished, "operation completed: {html}");
+    assert_eq!(
+        before_headers.contains("page-loading"),
+        !background,
+        "overlay before headers: {before_headers}"
+    );
+    assert_eq!(
+        before_headers.contains("inert=\"inert\""),
+        !background,
+        "underlying page: {before_headers}"
+    );
+    assert_eq!(
+        during_body.contains("page-loading"),
+        !background,
+        "overlay during body: {during_body}"
+    );
     assert!(
         !html.contains("page-loading"),
         "success/error releases the overlay: {html}"
@@ -482,16 +515,16 @@ async fn loading_case(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-struct DelayedLoadingServer {
-    url: String,
-    seen_rx: std::sync::mpsc::Receiver<()>,
-    headers_tx: std::sync::mpsc::Sender<()>,
-    body_tx: std::sync::mpsc::Sender<()>,
-    server: std::thread::JoinHandle<()>,
+pub(crate) struct DelayedLoadingServer {
+    pub(crate) url: String,
+    pub(crate) seen_rx: std::sync::mpsc::Receiver<()>,
+    pub(crate) headers_tx: std::sync::mpsc::Sender<()>,
+    pub(crate) body_tx: std::sync::mpsc::Sender<()>,
+    pub(crate) server: std::thread::JoinHandle<()>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn delayed_loading_server(
+pub(crate) fn delayed_loading_server(
     status: u16,
     body: &'static str,
     interrupted: bool,

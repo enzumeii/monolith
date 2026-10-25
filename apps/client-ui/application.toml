@@ -1,5 +1,5 @@
 [api]
-base_url = "http://localhost:3000/v1"
+base_url = "/api/v1"
 
 [contact]
 email = "order@enzumeii.com"
@@ -7,3 +7,7 @@ facebook_url = "https://www.facebook.com/enzumeii"
 instagram_url = "http://instagram.com/enzumeii"
 x_url = "https://twitter.com/enzumeii"
 tiktok_url = "https://www.tiktok.com/@enzumei"
+
+[visitor]
+country_lookup_url = "https://api.country.is/"
+timeout_ms = 2000

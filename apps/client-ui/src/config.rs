@@ -14,6 +14,12 @@ pub struct ApiConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct VisitorConfig {
+    pub country_lookup_url: String,
+    pub timeout_ms: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct ContactConfig {
     pub email: String,
     pub facebook_url: String,
@@ -26,6 +32,7 @@ pub struct ContactConfig {
 pub struct Settings {
     pub api: ApiConfig,
     pub contact: ContactConfig,
+    pub visitor: VisitorConfig,
 }
 
 impl Settings {
@@ -67,7 +74,30 @@ impl Settings {
         settings.api.base_url =
             resolve_api_url(&settings.api.base_url, page_url).map_err(invalid)?;
         settings.contact.validate().map_err(invalid)?;
+        settings.visitor.validate().map_err(invalid)?;
         Ok(settings)
+    }
+}
+
+impl VisitorConfig {
+    fn validate(&self) -> Result<(), String> {
+        let url = reqwest::Url::parse(&self.country_lookup_url)
+            .map_err(|_| "Invalid country lookup URL")?;
+        if !matches!(url.scheme(), "http" | "https")
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || self.country_lookup_url.trim() != self.country_lookup_url
+            || self.country_lookup_url.chars().any(char::is_control)
+        {
+            return Err("Invalid country lookup URL".into());
+        }
+        if !(1..=10_000).contains(&self.timeout_ms) {
+            return Err("Country lookup timeout must be between 1 and 10000 milliseconds".into());
+        }
+        Ok(())
     }
 }
 

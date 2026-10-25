@@ -20,45 +20,55 @@ fn products(nodes: Vec<Value>, next: Option<&str>) -> Value {
     json!({"products":page(nodes,next)})
 }
 
-#[tokio::test]
-async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
-    let fixture = fixture().await;
+fn stock_policy_responses() -> Vec<Value> {
     let mut missing = variant();
     missing["inventoryItem"]["inventoryLevel"] = Value::Null;
     let mut inactive = variant();
     inactive["inventoryItem"]["inventoryLevel"]["isActive"] = json!(false);
     let mut untracked = variant();
     untracked["inventoryItem"]["tracked"] = json!(false);
+    let mut positive = variant();
+    positive["inventoryItem"]["inventoryLevel"]["quantities"][0]["quantity"] = json!(1);
+    let mut negative = variant();
+    negative["inventoryItem"]["inventoryLevel"]["quantities"][0]["quantity"] = json!(-1);
     let mut continuing = variant();
     continuing["inventoryPolicy"] = json!("CONTINUE");
+    let mut continuing_negative = negative.clone();
+    continuing_negative["inventoryPolicy"] = json!("CONTINUE");
     let mut only_untracked = variant();
     only_untracked["inventoryItem"]["tracked"] = json!(false);
-    let (client, upstream) = client_with_upstream_script(
-        vec![
-            location(),
-            products(
-                vec![
-                    product(vec![
-                        variant(),
-                        missing.clone(),
-                        inactive.clone(),
-                        untracked,
-                        continuing,
-                    ]),
-                    product(vec![missing.clone(), inactive.clone()]),
-                    product(vec![only_untracked]),
-                ],
-                Some("next"),
-            ),
-            location(),
-            products(
-                vec![product(vec![missing, inactive])],
-                Some("filtered-next"),
-            ),
-        ],
-        "http",
-    )
-    .await;
+    vec![
+        location(),
+        products(
+            vec![
+                product(vec![
+                    positive,
+                    variant(),
+                    negative.clone(),
+                    missing.clone(),
+                    inactive.clone(),
+                    untracked,
+                    continuing,
+                    continuing_negative,
+                ]),
+                product(vec![variant(), negative.clone()]),
+                product(vec![missing.clone(), inactive.clone()]),
+                product(vec![only_untracked]),
+            ],
+            Some("next"),
+        ),
+        location(),
+        products(
+            vec![product(vec![variant(), negative, missing, inactive])],
+            Some("filtered-next"),
+        ),
+    ]
+}
+
+#[tokio::test]
+async fn catalogue_filters_stock_policy_and_preserves_content_search_and_cursor() {
+    let fixture = fixture().await;
+    let (client, upstream) = client_with_upstream_script(stock_policy_responses(), "http").await;
     let response = client
         .send(authed(
             "GET",
@@ -84,18 +94,21 @@ async fn catalogue_preserves_content_zero_and_forwards_raw_search_and_cursor() {
     let v = &p["variants"][0];
     assert_eq!(
         *v,
-        json!({"id":"gid://shopify/ProductVariant/2","inventory_item_id":"gid://shopify/InventoryItem/3","title":"Large","sku":"SKU-2","image":null,"selected_options":[{"name":"Size","value":"Large"}],"price":{"amount":"123.4500","currency_code":"THB"},"tracked":true,"inventory_policy":"DENY","available_quantity":0,"eligible":true})
+        json!({"id":"gid://shopify/ProductVariant/2","inventory_item_id":"gid://shopify/InventoryItem/3","title":"Large","sku":"SKU-2","image":null,"selected_options":[{"name":"Size","value":"Large"}],"price":{"amount":"123.4500","currency_code":"THB"},"tracked":true,"inventory_policy":"DENY","available_quantity":1,"eligible":true})
     );
     assert_eq!(p["variants"][1]["inventory_policy"], "CONTINUE");
     assert_eq!(p["variants"][1]["eligible"], true);
     assert!(p["variants"][1].get("unavailable_reason").is_none());
     assert_eq!(p["variants"][1]["available_quantity"], 0);
+    assert_eq!(p["variants"][2]["inventory_policy"], "CONTINUE");
+    assert_eq!(p["variants"][2]["available_quantity"], -1);
+    assert_eq!(p["variants"][2]["eligible"], true);
     assert_eq!(
         p["featured_image"],
         json!({"url":"https://example.test/shirt.jpg"})
     );
     assert_eq!(body["products"].as_array().unwrap().len(), 1);
-    assert_eq!(p["variants"].as_array().unwrap().len(), 2);
+    assert_eq!(p["variants"].as_array().unwrap().len(), 3);
     assert!(!body.to_string().contains("unitCost"));
     let response = client
         .send(authed("GET", URI, fixture.root_id(), AdminRole::SuperAdmin))

@@ -3,6 +3,9 @@ use super::resolve_config_url;
 const VALID_CONFIG: &str = r#"
 [api]
 base_url = "/api/v1"
+[visitor]
+country_lookup_url = "https://country.example.test/"
+timeout_ms = 1500
 [contact]
 email = "orders@example.test"
 facebook_url = "https://facebook.example.test/shop"
@@ -48,23 +51,38 @@ fn config_asset_rejects_invalid_page_url() {
 
 #[test]
 fn deployment_configs_select_public_api_without_changing_local_urls() {
-    let local: super::Settings =
-        toml::from_str(include_str!("../../application.toml")).expect("local settings");
-    let mut merged: toml::Value =
-        toml::from_str(include_str!("../../application.toml")).expect("base TOML");
-    let production: toml::Value =
-        toml::from_str(include_str!("../../application.prod.toml")).expect("production TOML");
-    for (key, value) in production.as_table().expect("override table") {
-        merged
-            .as_table_mut()
-            .expect("base table")
-            .insert(key.clone(), value.clone());
+    let base = include_str!("../../application.toml");
+    let production = super::Settings::parse(base, "https://convention.example.test/")
+        .expect("production-like baseline");
+    assert_eq!(
+        production.api.base_url,
+        "https://convention.example.test/api/v1"
+    );
+    for (overlay, expected) in [
+        (
+            include_str!("../../application.qa.toml"),
+            "https://qa.enzumeii.com/api/v1",
+        ),
+        (
+            include_str!("../../application.local.toml"),
+            "http://localhost:3000/v1",
+        ),
+        (include_str!("../../application.prod.toml"), "/api/v1"),
+    ] {
+        let mut merged: toml::Value = toml::from_str(base).expect("base TOML");
+        let overrides: toml::Value = toml::from_str(overlay).expect("override TOML");
+        for (key, value) in overrides.as_table().expect("override table") {
+            merged
+                .as_table_mut()
+                .expect("base table")
+                .insert(key.clone(), value.clone());
+        }
+        let settings: super::Settings = merged.try_into().expect("merged settings");
+        assert_eq!(settings.api.base_url, expected);
+        assert_eq!(settings.contact, production.contact);
+        assert_eq!(settings.visitor, production.visitor);
+        settings.visitor.validate().expect("valid visitor config");
     }
-    let production: super::Settings = merged.try_into().expect("merged production settings");
-    assert_eq!(local.api.base_url, "http://localhost:3000/v1");
-    assert_eq!(production.api.base_url, "/api/v1");
-    assert_eq!(production.contact, local.contact);
-    local.contact.validate().expect("valid published contact");
 }
 
 #[test]
@@ -337,4 +355,43 @@ async fn startup_configuration_retry_delay_releases_page_loading_overlay() {
         "retry delay is not active network work: {html}"
     );
     assert!(!html.contains("inert="));
+}
+
+#[test]
+fn visitor_settings_require_safe_endpoint_and_bounded_timeout() {
+    let original = settings().visitor;
+    for url in [
+        "",
+        "//country.test",
+        "javascript:alert(1)",
+        "https://name:secret@country.test",
+        "https://country.test/?token=secret",
+        "https://country.test/#fragment",
+        " https://country.test",
+    ] {
+        assert!(
+            super::VisitorConfig {
+                country_lookup_url: url.into(),
+                ..original.clone()
+            }
+            .validate()
+            .is_err()
+        );
+    }
+    for timeout_ms in [0, 10_001, u32::MAX] {
+        assert!(
+            super::VisitorConfig {
+                timeout_ms,
+                ..original.clone()
+            }
+            .validate()
+            .is_err()
+        );
+    }
+    let mut missing: toml::Value = toml::from_str(VALID_CONFIG).expect("fixture config");
+    missing
+        .as_table_mut()
+        .expect("config table")
+        .remove("visitor");
+    assert!(missing.try_into::<super::Settings>().is_err());
 }

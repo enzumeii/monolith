@@ -15,6 +15,7 @@ pub(super) fn DeleteConvention(
     mut request: Signal<RequestState>,
     on_deleted: EventHandler<()>,
     #[props(default)] disabled: bool,
+    #[props(default)] quiet: bool,
 ) -> Element {
     let owner = use_owner();
     let mut confirmation = use_signal(|| false);
@@ -27,7 +28,7 @@ pub(super) fn DeleteConvention(
     let confirm_id = id.clone();
     rsx! {
         div { class: "convention-delete-action",
-            button { id: "delete-convention-{id}", r#type: "button", class: "danger", aria_label: "Delete {name}", disabled: disabled || request.read().pending() || owner().is_none(), onclick: move |_| { error.set(None); confirmation.set(true); }, if request.read().pending() { "Deleting…" } else { "Delete" } }
+            button { id: "delete-convention-{id}", r#type: "button", class: if quiet { "ghost" } else { "danger" }, aria_label: "Delete {name}", disabled: disabled || request.read().pending() || owner().is_none(), onclick: move |_| { error.set(None); confirmation.set(true); }, if request.read().pending() { "Deleting…" } else { "Delete" } }
             ErrorMessage { message: error() }
         }
         Confirm {

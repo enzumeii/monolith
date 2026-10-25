@@ -50,10 +50,6 @@ fn Editor(record: ConventionDTO, options: ConventionOptionsResponse) -> Element 
         } else {
             Heading { title: metadata.saved.read().name.clone(),
                 back: rsx! { Link { to: Route::Conventions { query: String::new() }, class: "back-link", aria_label: "Back to conventions", title: "Back to conventions", "<" } },
-                super::delete::DeleteConvention {
-                    id: record.id.clone(), name: metadata.saved.read().name.clone(),
-                    request: delete_request, disabled: saving, on_deleted: move |()| deleted.set(true),
-                }
             }
             fieldset { disabled: delete_request.read().pending(),
                 metadata::EditMetadata { id: record.id.clone(), options, editor: metadata }
@@ -61,6 +57,14 @@ fn Editor(record: ConventionDTO, options: ConventionOptionsResponse) -> Element 
                 super::catalogue::SelectionEditor {
                     id: record.id.clone(), currency: record.currency_code, enabled: metadata.saved.read().enabled,
                     on_dirty: move |value| selection_dirty.set(value),
+                }
+            }
+            details { class: "convention-advanced-actions",
+                summary { "Advanced actions" }
+                super::delete::DeleteConvention {
+                    id: record.id.clone(), name: metadata.saved.read().name.clone(),
+                    request: delete_request, disabled: saving, quiet: true,
+                    on_deleted: move |()| deleted.set(true),
                 }
             }
             DraftDepartureGuard { dirty, warning: "Your unsaved convention changes will be lost if you leave this page.".to_string() }

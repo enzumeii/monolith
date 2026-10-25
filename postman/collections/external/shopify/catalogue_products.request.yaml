@@ -1,5 +1,5 @@
 $kind: graphql-request
-description: "Read one catalogue product page with up to 250 variants per product. Supply a Location GID and the business search: status:active AND tracks_inventory:true, with optional raw user search grouped in parentheses. Product.variants has no tracked query argument, so the service also filters nested tracked variants and preserves the root page metadata. No cost scope is required. Inspect nested pageInfo: this API rejects overflow instead of returning a partial variant selection."
+description: "Read one catalogue product page with up to 250 variants per product. Supply a Location GID and the business search: status:active AND tracks_inventory:true, with optional raw user search grouped in parentheses. Product.variants has no tracked query argument, so the service also filters nested tracked variants to active location levels where available quantity is positive or inventoryPolicy is CONTINUE, omits empty products, and preserves the root page metadata. CONTINUE retains zero/negative available quantities; DENY does not. No cost scope is required. Inspect nested pageInfo: this API rejects overflow instead of returning a partial variant selection."
 url: "{{shopify}}/graphql.json"
 query: |
   query CatalogueProducts(

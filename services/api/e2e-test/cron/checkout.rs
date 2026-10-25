@@ -965,3 +965,44 @@ fn assert_private_diagnostics(logs: &str, row: &Value) {
         }
     }
 }
+
+#[tokio::test]
+async fn terminal_rejected_checkouts_are_skipped_by_vercel_and_vps_cron() {
+    let fixture = common::fixture().await;
+    for provider in ["stripe", "paypal"] {
+        let upstream = Providers::start().await;
+        let creator = configured(&upstream, ProviderConfig::default()).await;
+        let input = purchase(&fixture, provider).await;
+        upstream.fault(
+            if provider == "stripe" {
+                "/stripe/checkout/sessions"
+            } else {
+                "/v2/checkout/orders"
+            },
+            "status_422",
+        );
+        assert_eq!(accepted(&creator, &input).await["status"], "unpaid");
+        let checkout = id(&input);
+        assert!(stored(&fixture, checkout).await["next_recovery_at"].is_null());
+        upstream.clear_fault();
+        due(&fixture, checkout).await;
+        let calls = upstream.calls().len();
+        tick(&creator).await;
+        assert_eq!(upstream.calls().len(), calls);
+        drop(creator);
+        let client = configured(
+            &upstream,
+            ProviderConfig {
+                vps_cron: true,
+                recovery_wake_secs: Some(1),
+                ..Default::default()
+            },
+        )
+        .await;
+        tokio::time::sleep(Duration::from_millis(1300)).await;
+        let (success, logs) = client.shutdown();
+        assert!(success, "{logs}");
+        assert_eq!(upstream.calls().len(), calls);
+        assert_eq!(stored(&fixture, checkout).await["payment_state"], "unpaid");
+    }
+}

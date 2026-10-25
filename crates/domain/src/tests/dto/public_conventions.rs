@@ -44,6 +44,7 @@ fn public_catalogue_preserves_final_price_stock_and_selected_options() {
             "country_code": "TH", "event_starts_on": "2026-10-24",
             "event_ends_on": "2026-10-25", "description_markdown": "", "currency_code": "THB"
         },
+        "payment_methods": ["stripe", "paypal"],
         "products": [{
             "id": "gid://shopify/Product/1", "title": "Print", "description": "Art print",
             "product_type": "Prints", "featured_image": {"url": "https://images.test/print.png"},
@@ -130,4 +131,11 @@ fn quote_amounts_round_trip_as_exact_strings_including_zero_shipping() {
         }))
         .is_err()
     );
+}
+
+#[test]
+fn missing_checkout_capabilities_fail_closed_for_older_catalogue_responses() {
+    let wire = json!({"convention":{"id":"id","slug":"fair","name":"Fair","logo_preview_url":null,"logo_preview_url_expires_at":null,"country_code":"TH","event_starts_on":"2026-10-26","event_ends_on":"2026-10-27","description_markdown":"","currency_code":"THB"},"products":[]});
+    let response: PublicCatalogueResponse = serde_json::from_value(wire).unwrap();
+    assert!(response.payment_methods.is_empty());
 }

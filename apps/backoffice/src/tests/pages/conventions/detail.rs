@@ -385,3 +385,104 @@ async fn metadata_save_retains_edits_made_after_the_submitted_snapshot() {
     assert_eq!(requests.len(), 2);
     assert!(requests[1].ends_with(r#"{"name":"Submitted event"}"#));
 }
+
+#[tokio::test]
+async fn deletion_is_collapsed_and_preserves_edits_through_cancel_pending_and_failure() {
+    let ((), requests) = crate::api::tests::metadata_responses(
+        &[(200, MEMBERSHIPS), (409, r#"{"error":"Delete failed"}"#)],
+        async {
+            dioxus::html::set_event_converter(Box::new(FormEventConverter));
+            let settings = consume_context::<crate::config::Settings>();
+            let mut dom = VirtualDom::new(editor).with_root_context(settings);
+            dom.in_scope(ScopeId::ROOT, || {
+                *session::SESSION.write() = Some(session::Session {
+                    admin_id: 1,
+                    username: "fixture".into(),
+                    role: domain::AdminRole::Admin,
+                    expires_at: u64::MAX,
+                });
+            });
+            dom.rebuild_in_place();
+            settled(&mut dom).await;
+            let html = dioxus_ssr::render(&dom);
+            let disclosure = html
+                .find("<details class=\"convention-advanced-actions\"")
+                .expect("collapsed advanced actions");
+            assert!(
+                !html[disclosure..]
+                    .split('>')
+                    .next()
+                    .expect("advanced actions opening tag")
+                    .contains("open")
+            );
+            assert!(
+                html.find("Save selected variants")
+                    .expect("selection save control")
+                    < disclosure
+            );
+            assert!(html.find("</h2>").expect("editor heading") < disclosure);
+            assert!(html.contains("<summary>Advanced actions</summary>"));
+            assert!(html.contains("class=\"ghost\" aria-label=\"Delete Loaded event\""));
+            form_event(
+                &dom,
+                crate::test_events::element_id(&dom, "convention-name"),
+                "input",
+                "Unsaved event",
+            );
+            form_event(
+                &dom,
+                crate::test_events::element_id(
+                    &dom,
+                    "delete-convention-da41d46b-f1ca-4a76-a774-62c269d28731",
+                ),
+                "click",
+                "",
+            );
+            render_changes(&mut dom);
+            form_event(
+                &dom,
+                crate::test_events::dialog_button(&dom, "ghost"),
+                "click",
+                "",
+            );
+            settled(&mut dom).await;
+            assert!(dioxus_ssr::render(&dom).contains("Unsaved event"));
+            form_event(
+                &dom,
+                crate::test_events::element_id(
+                    &dom,
+                    "delete-convention-da41d46b-f1ca-4a76-a774-62c269d28731",
+                ),
+                "click",
+                "",
+            );
+            render_changes(&mut dom);
+            form_event(
+                &dom,
+                crate::test_events::dialog_button(&dom, "danger"),
+                "click",
+                "",
+            );
+            render_changes(&mut dom);
+            let pending = dioxus_ssr::render(&dom);
+            assert!(pending.contains("Deleting…"));
+            assert!(pending.contains("<fieldset disabled"));
+            settled(&mut dom).await;
+            let failed = dioxus_ssr::render(&dom);
+            assert!(failed.contains("Delete failed"));
+            assert!(failed.contains("Unsaved event"));
+            assert!(!failed.contains("Deleting…"));
+            assert!(
+                failed.contains("autofocus"),
+                "Cancel retains native dialog focus"
+            );
+        },
+    )
+    .await;
+    assert_eq!(
+        requests.len(),
+        2,
+        "Cancel and repeated pending actions must not send DELETE"
+    );
+    assert!(requests[1].starts_with("DELETE /v1/admin/conventions/"));
+}

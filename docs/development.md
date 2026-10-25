@@ -471,3 +471,14 @@ Never copy `.env` or local credentials into images or static output. Local valid
 | Production runtime | Configure Vercel's production `DATABASE_URL` separately for the same Supabase database; the migration secret is not copied to Vercel |
 
 Connection modes and network support follow [Supabase's PostgreSQL connection guide](https://supabase.com/docs/guides/database/connecting-to-postgres). These local checks do not establish live Supabase connectivity or permissions.
+
+
+### Customer country and checkout verification
+
+| Concern | Operation |
+| --- | --- |
+| Client public configuration | `application.toml` is production-like. `just --justfile apps/client-ui/justfile serve` composes the local override; pass `qa` or `prod` to serve/build recipes for those environments. The wrapper restores the base after exit/failure and publishes one complete public TOML |
+| IP country | Typed `[visitor]` sets `country_lookup_url` and `timeout_ms`. Country.is returns the browser network country without credentials/GPS; timeout, invalid data and unavailable service fall back to language region/date. Valid Vercel metadata still takes precedence. VPN/proxy country may differ from physical location |
+| Provider minimum | Check the accepted payment snapshot independently of Shopify catalogue money. For the currently validated same-THB settlement case, card checkout requires THB10.00; a THB1.00 test must use a valid total before expecting a Stripe redirect |
+| Failure evidence | Only a proven uncharged initial rejection becomes terminal unpaid. Keep original attempt identity for ambiguous creates and payment evidence for captured transactions. Do not test recovery by issuing a fresh charge or editing an old merchant order |
+| Visible progress | Status/recovery requests run without the shared blocking overlay because the checkout view renders progress. Ordinary configuration/directory/catalogue requests retain their normal loading feedback |

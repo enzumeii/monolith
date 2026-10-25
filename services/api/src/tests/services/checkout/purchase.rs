@@ -622,3 +622,29 @@ fn independent_purchase_keeps_payment_evidence_and_pins_shopify_catalogue_money(
     row.payment_amount_minor = Some(4001);
     assert!(validate_purchase(&row, &parsed).is_err());
 }
+
+#[test]
+fn stripe_minimum_uses_only_known_matching_settlement_currency() {
+    for (settlement, payment, minor, accepted) in [
+        (Some("thb"), "THB", 999, false),
+        (Some("thb"), "THB", 1000, true),
+        (None, "THB", 1, true),
+        (Some("usd"), "THB", 1, true),
+        (Some("unknown"), "UNKNOWN", 1, true),
+    ] {
+        let result = validate_stripe_minimum(
+            settlement,
+            &CheckoutMoney {
+                minor,
+                currency: payment.into(),
+            },
+        );
+        assert_eq!(result.is_ok(), accepted);
+        if let Err(error) = result {
+            assert_eq!(
+                axum::response::IntoResponse::into_response(error).status(),
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY
+            );
+        }
+    }
+}

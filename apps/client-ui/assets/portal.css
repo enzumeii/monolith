@@ -93,6 +93,7 @@
 .checkout-controls input, .checkout-controls textarea { width: 100%; box-sizing: border-box; }
 .checkout-controls textarea { font: inherit; resize: vertical; }
 .checkout-payment-methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+.checkout-payment-methods > button:only-child { grid-column: 1 / -1; }
 .checkout-payment-button { display: grid; grid-template-rows: 2rem 1fr; align-items: center; justify-items: center; gap: .6rem; padding: .9rem .75rem; min-width: 0; min-height: 6rem; white-space: normal; text-align: center; line-height: 1.4; overflow-wrap: anywhere; }
 .checkout-payment-marks { display: flex; align-items: center; justify-content: center; height: 2rem; }
 .checkout-paypal { color: #003087; background: #ffc439; border-color: #ffc439; }

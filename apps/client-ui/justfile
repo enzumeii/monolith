@@ -25,13 +25,13 @@ _test:
     cargo test --locked -p client-ui
     node --test src/tests/browser.mjs src/tests/checkout/browser.mjs
 
-# Build the client-only web bundle for local use.
-build:
-    dx build --web --package client-ui
+# Build the client-only web bundle with a composed local, qa or prod public configuration.
+build environment="local":
+    bash ../../scripts/run-client-ui.sh build {{quote(environment)}}
 
-# Serve the client shell using the local public application.toml.
-serve:
-    dx serve --web --addr 127.0.0.1 --port 8085
+# Serve the client shell with composed local, qa or prod settings; restore the baseline on exit.
+serve environment="local":
+    bash ../../scripts/run-client-ui.sh serve {{quote(environment)}}
 
 # Check pinned Dioxus and the installed WASM target before local development.
 setup:
