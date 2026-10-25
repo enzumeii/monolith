@@ -255,6 +255,95 @@ async fn transactions_empty_results_and_both_admin_roles_over_tcp() {
 }
 
 #[tokio::test]
+async fn transactions_paypal_explicit_empty_page_without_details_preserves_stripe_over_tcp() {
+    let fixture = fixture().await;
+    for stripe in [false, true] {
+        let mut steps = flow(
+            stripe,
+            false,
+            false,
+            if stripe { Rows::Populated } else { Rows::Empty },
+        );
+        let report = steps
+            .iter_mut()
+            .find(|step| step.path == "/v1/reporting/transactions")
+            .unwrap();
+        report.reply = Reply::Json(json!({"page":1,"total_items":0,"total_pages":0}));
+        let count = steps.len();
+        let server = Server::start(steps).await;
+        let client = server.client().await;
+        let response = client
+            .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let report = body_json(response).await;
+        assert_eq!(report["transactions"]["paypal"], json!([]));
+        let stripe_rows = report["transactions"]["stripe"].as_array().unwrap();
+        assert_eq!(stripe_rows.len(), usize::from(stripe) * 2);
+        assert_eq!(
+            report["items"].as_array().unwrap().len(),
+            usize::from(stripe) * 2
+        );
+        if stripe {
+            assert!(stripe_rows.iter().all(|row| row["shopify_order_id"] == 123));
+            assert!(
+                stripe_rows
+                    .iter()
+                    .any(|row| row["payment_reference"] == "ch_123")
+            );
+            assert!(
+                stripe_rows
+                    .iter()
+                    .any(|row| row["payment_reference"] == "re_123")
+            );
+        } else {
+            assert_eq!(
+                report,
+                json!({"transactions":{"stripe":[],"paypal":[]},"items":[]})
+            );
+        }
+        assert_eq!(server.finish().await.len(), count);
+    }
+}
+
+#[tokio::test]
+async fn transactions_paypal_rejects_unproven_empty_or_malformed_details_over_tcp() {
+    let fixture = fixture().await;
+    for body in [
+        json!({"page":1,"total_items":1,"total_pages":1}),
+        json!({"page":1,"total_items":0,"total_pages":1}),
+        json!({"page":1,"total_items":1,"total_pages":0}),
+        json!({"page":2,"total_items":0,"total_pages":0}),
+        json!({"page":1,"total_pages":0}),
+        json!({"page":1,"total_items":0}),
+        json!({"total_items":0,"total_pages":0}),
+        json!({"page":1,"total_items":0,"total_pages":0,"transaction_details":null}),
+        json!({"page":1,"total_items":0,"total_pages":0,"transaction_details":{}}),
+    ] {
+        let mut steps = flow(false, true, false, Rows::Populated);
+        let stage = steps
+            .iter()
+            .position(|step| step.path == "/v1/reporting/transactions")
+            .unwrap();
+        steps.truncate(stage + 1);
+        steps[stage].reply = Reply::Json(body);
+        let server = Server::start(steps).await;
+        let client = server.client().await;
+        assert_report_error(
+            client
+                .send(authed("GET", URI, fixture.root_id(), AdminRole::Admin))
+                .await
+                .unwrap(),
+            502,
+            "Upstream request failed",
+        )
+        .await;
+        assert_eq!(server.finish().await.len(), stage + 1);
+    }
+}
+
+#[tokio::test]
 async fn transactions_rejects_each_query_rule_and_auth_before_provider_calls() {
     let fixture = fixture().await;
     let server = Server::start(vec![]).await;

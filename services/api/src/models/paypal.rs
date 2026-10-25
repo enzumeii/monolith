@@ -8,6 +8,7 @@ use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
+#[serde(try_from = "TransactionPageResponse")]
 pub struct TransactionPage {
     pub transaction_details: Vec<TransactionDetail>,
     pub page: u32,
@@ -160,6 +161,44 @@ impl From<TransactionEvent> for String {
     fn from(value: TransactionEvent) -> Self {
         value.as_str().to_owned()
     }
+}
+
+#[derive(Deserialize)]
+struct TransactionPageResponse {
+    #[serde(default, deserialize_with = "present_transaction_details")]
+    transaction_details: Option<Vec<TransactionDetail>>,
+    page: u32,
+    total_items: u64,
+    total_pages: u32,
+}
+
+impl TryFrom<TransactionPageResponse> for TransactionPage {
+    type Error = &'static str;
+
+    fn try_from(response: TransactionPageResponse) -> Result<Self, Self::Error> {
+        let transaction_details = match response.transaction_details {
+            Some(details) => details,
+            None if response.page == 1
+                && response.total_items == 0
+                && response.total_pages == 0 =>
+            {
+                Vec::new()
+            }
+            None => return Err("missing transaction details for a nonempty PayPal report"),
+        };
+        Ok(Self {
+            transaction_details,
+            page: response.page,
+            total_items: response.total_items,
+            total_pages: response.total_pages,
+        })
+    }
+}
+
+fn present_transaction_details<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Vec<TransactionDetail>>, D::Error> {
+    Vec::<TransactionDetail>::deserialize(deserializer).map(Some)
 }
 
 #[cfg(test)]
