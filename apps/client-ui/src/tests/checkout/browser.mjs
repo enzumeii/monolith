@@ -181,3 +181,93 @@ test('notes stay only in the immutable session request and recover without repla
     assert.equal(JSON.parse(boot.value.payload).note,note);
     recovered.finish(null); await recovered.done;
 });
+
+function paymentWindow({blocked = false, closed = false, refuseNavigation = false} = {}) {
+    let receive;
+    const events = [];
+    const messages = [];
+    const command = new Promise(resolve => { receive = resolve; });
+    const popup = {
+        closed,
+        opener: {},
+        location: {replace(url) { if (refuseNavigation) throw new Error('navigation denied'); events.push(['navigate', url]); }},
+        focus() { events.push(['focus']); },
+        close() { this.closed = true; events.push(['close']); },
+    };
+    const script = readFileSync(new URL('../../checkout/payment-window.js', import.meta.url), 'utf8');
+    const done = runInNewContext(`(async () => {${script}})()`, {
+        window: {open(...args) { events.push(['open', ...args]); return blocked ? null : popup; }},
+        dioxus: {send(message) { messages.push(message); }, recv() { return command; }},
+    });
+    return {popup, events, messages, done, command: value => receive(value)};
+}
+
+test('payment context is reserved before any await and handed off without replacing the original page or opener access', async () => {
+    const run = paymentWindow();
+    assert.deepEqual(run.events, [['open', 'about:blank', '_blank']]);
+    assert.equal(run.popup.opener, null);
+    assert.equal(run.messages[0].ok, true);
+    run.command({action:'open',url:'https://checkout.stripe.com/c/pay/test'});
+    await run.done;
+    assert.deepEqual(run.events, [['open', 'about:blank', '_blank'], ['navigate','https://checkout.stripe.com/c/pay/test'], ['focus']]);
+    assert.equal(run.messages[1].ok, true);
+    assert.equal(run.popup.closed, false);
+});
+
+test('blocked and closed payment contexts report recovery errors without navigating a fallback', async () => {
+    const blocked = paymentWindow({blocked:true});
+    await blocked.done;
+    assert.equal(blocked.messages[0].ok, false);
+    assert.match(blocked.messages[0].error, /allow.*popup|allow.*pop-up/i);
+    const closed = paymentWindow();
+    closed.popup.closed = true;
+    closed.command({action:'open',url:'https://www.paypal.com/checkoutnow?token=test'});
+    await closed.done;
+    assert.equal(closed.messages[1].ok, false);
+    assert.match(closed.messages[1].error, /closed|open/i);
+    assert.equal(closed.events.filter(event => event[0] === 'navigate').length, 0);
+});
+
+test('dropping an unused reservation closes it and failed handoff closes only its blank context', async () => {
+    const abort = paymentWindow();
+    abort.command({action:'abort'});
+    await abort.done;
+    assert.equal(abort.popup.closed, true);
+    assert.equal(abort.events.filter(event => event[0] === 'navigate').length, 0);
+    const failed = paymentWindow({refuseNavigation:true});
+    failed.command({action:'open',url:'https://checkout.stripe.com/test'});
+    await failed.done;
+    assert.equal(failed.messages[1].ok, false);
+    assert.equal(failed.popup.closed, true);
+});
+
+test('checking pause is scoped to this session and attempt without modifying recovery or releasing its guard', async () => {
+    const local = storage(); const session = storage();
+    const created = begin(input,local,{locks:locks()},session);
+    const {value:{attempt,payload}} = await created.boot;
+    created.finish('processing'); await created.done;
+    const original = [...local.map];
+    const action = type => begin({action:type,slug:attempt.slug,id:attempt.operation_id},local,{},session);
+    const paused = action('pause');
+    assert.equal((await paused.boot).ok, true); await paused.done;
+    const read = action('paused');
+    assert.equal((await read.boot).value, true); await read.done;
+    assert.deepEqual([...local.map],original);
+    assert.equal(session.getItem(`enzumeii.checkout.payload.v1.${attempt.operation_id}`),payload);
+    const otherTab = begin({action:'paused',slug:attempt.slug,id:attempt.operation_id},local,{},storage());
+    assert.equal((await otherTab.boot).value,false); await otherTab.done;
+    const resumed = action('resume');
+    assert.equal((await resumed.boot).ok,true); await resumed.done;
+    const again = action('paused');
+    assert.equal((await again.boot).value,false); await again.done;
+    assert.deepEqual([...local.map],original);
+});
+
+test('pause cannot target another convention or bypass unavailable session persistence', async () => {
+    const created = begin(input); const {value:{attempt}} = await created.boot;
+    created.finish(null); await created.done;
+    const wrong = begin({action:'pause',slug:'another',id:attempt.operation_id},created.localStorage,{},created.sessionStorage);
+    assert.equal((await wrong.boot).ok,false); await wrong.done;
+    const denied = begin({action:'pause',slug:attempt.slug,id:attempt.operation_id},created.localStorage,{}, {getItem(){return null;},setItem(){throw new Error('denied');}});
+    assert.equal((await denied.boot).ok,false); await denied.done;
+});

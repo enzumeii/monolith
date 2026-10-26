@@ -88,3 +88,142 @@ fn unmounting_checkout_resource_releases_browser_ownership_before_and_after_acqu
         assert_eq!(*document.sent.borrow(), vec![json!({"status":null})]);
     }
 }
+
+fn payment_response(url: &str) -> CheckoutResponse {
+    use domain::dto::checkout::{CheckoutMoney, CheckoutNextAction, CheckoutStatus};
+    CheckoutResponse {
+        checkout_id: attempt().operation_id,
+        status: CheckoutStatus::RequiresAction,
+        money: CheckoutMoney {
+            minor: 2460,
+            currency: "USD".into(),
+        },
+        reservation_expires_at: None,
+        next_action: Some(CheckoutNextAction::Redirect { url: url.into() }),
+        order: None,
+    }
+}
+
+#[test]
+fn payment_window_reservation_runs_before_polling_and_drop_closes_unused_context() {
+    let document = TestDocument::new(vec![json!({"__eval_pending":true})]);
+    let dom = VirtualDom::new(|| rsx! {})
+        .with_root_context(document.clone() as std::rc::Rc<dyn Document>);
+    let window = dom.in_scope(ScopeId::ROOT, PaymentWindow::reserve);
+    assert_eq!(document.scripts.borrow().len(), 1);
+    assert!(document.scripts.borrow()[0].contains("window.open('about:blank', '_blank')"));
+    drop(window);
+    assert_eq!(*document.sent.borrow(), vec![json!({"action":"abort"})]);
+}
+
+#[test]
+fn payment_window_handoff_validates_selected_provider_and_releases_without_closing() {
+    let document = TestDocument::new(vec![json!({"__eval_messages":[
+        {"ok":true,"value":null}, {"ok":true,"value":null}
+    ]})]);
+    let dom = VirtualDom::new(|| rsx! {})
+        .with_root_context(document.clone() as std::rc::Rc<dyn Document>);
+    let response = payment_response("https://checkout.stripe.com/c/pay/test");
+    let result = dom.in_scope(ScopeId::ROOT, || {
+        async {
+            let mut window = PaymentWindow::reserve();
+            window
+                .ready()
+                .await
+                .expect("reservation confirmed before creation");
+            window
+                .handoff(&response, CheckoutProvider::Stripe, None)
+                .await
+        }
+        .now_or_never()
+    });
+    assert_eq!(result, Some(Ok(true)));
+    assert_eq!(
+        *document.sent.borrow(),
+        vec![json!({"action":"open","url":"https://checkout.stripe.com/c/pay/test"})]
+    );
+}
+
+#[test]
+fn unsafe_or_wrong_provider_destination_aborts_reservation_without_handoff() {
+    for url in [
+        "https://evil.example/pay",
+        "https://www.paypal.com/checkoutnow?token=test",
+        "javascript:alert(1)",
+    ] {
+        let document = TestDocument::new(vec![json!({"ok":true,"value":null})]);
+        let dom = VirtualDom::new(|| rsx! {})
+            .with_root_context(document.clone() as std::rc::Rc<dyn Document>);
+        let response = payment_response(url);
+        let result = dom.in_scope(ScopeId::ROOT, || {
+            PaymentWindow::reserve()
+                .handoff(&response, CheckoutProvider::Stripe, None)
+                .now_or_never()
+        });
+        assert!(matches!(result, Some(Err(_))));
+        assert_eq!(*document.sent.borrow(), vec![json!({"action":"abort"})]);
+    }
+}
+
+#[test]
+fn blocked_window_is_not_ready_and_non_redirect_results_close_the_unused_context() {
+    let document = TestDocument::new(vec![
+        json!({"ok":false,"error":"Allow pop-ups for this shop."}),
+    ]);
+    let dom = VirtualDom::new(|| rsx! {})
+        .with_root_context(document.clone() as std::rc::Rc<dyn Document>);
+    let result = dom.in_scope(ScopeId::ROOT, || {
+        async {
+            let mut window = PaymentWindow::reserve();
+            window.ready().await
+        }
+        .now_or_never()
+    });
+    assert!(matches!(result, Some(Err(message)) if message.contains("Allow pop-ups")));
+    assert_eq!(*document.sent.borrow(), vec![json!({"action":"abort"})]);
+
+    let document = TestDocument::new(vec![]);
+    let dom = VirtualDom::new(|| rsx! {})
+        .with_root_context(document.clone() as std::rc::Rc<dyn Document>);
+    let mut response = payment_response("https://checkout.stripe.com/c/pay/test");
+    response.status = domain::dto::checkout::CheckoutStatus::Processing;
+    let result = dom.in_scope(ScopeId::ROOT, || {
+        PaymentWindow::reserve()
+            .handoff(&response, CheckoutProvider::Stripe, None)
+            .now_or_never()
+    });
+    assert_eq!(result, Some(Ok(false)));
+    assert_eq!(*document.sent.borrow(), vec![json!({"action":"abort"})]);
+}
+
+#[test]
+fn checking_preferences_pass_only_the_attempt_identity_without_changing_its_state() {
+    let document = TestDocument::new(vec![
+        json!({"ok":true,"value":true}),
+        json!({"ok":true,"value":null}),
+        json!({"ok":true,"value":null}),
+    ]);
+    let dom = VirtualDom::new(|| rsx! {})
+        .with_root_context(document.clone() as std::rc::Rc<dyn Document>);
+    let attempt = attempt();
+    dom.in_scope(ScopeId::ROOT, || {
+        async {
+            assert!(checking_paused(&attempt).await.expect("preference read"));
+            pause_checking(&attempt).await.expect("pause");
+            resume_checking(&attempt).await.expect("resume");
+        }
+        .now_or_never()
+    })
+    .expect("ready preferences");
+    for (script, action) in document
+        .scripts
+        .borrow()
+        .iter()
+        .zip(["paused", "pause", "resume"])
+    {
+        assert!(script.contains(&format!("\"action\":\"{action}\"")));
+        assert!(script.contains(&attempt.operation_id));
+        assert!(!script.contains(&attempt.secret));
+    }
+    assert!(document.sent.borrow().is_empty());
+}

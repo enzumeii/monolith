@@ -23,6 +23,7 @@ struct SubmissionState {
     attempt: Signal<Option<Attempt>>,
     delayed_recovery: Signal<bool>,
     submitting: Signal<bool>,
+    provider_open: Signal<bool>,
 }
 
 #[derive(Clone)]
@@ -51,6 +52,7 @@ pub fn CheckoutControls(
     let attempt = use_signal(|| None::<Attempt>);
     let delayed_recovery = use_signal(|| false);
     let mut submitting = use_signal(|| false);
+    let provider_open = use_signal(|| false);
     let saved_slug = slug.clone();
     let convention = snapshot.convention_id.clone();
     let saved = use_resource(move || {
@@ -86,10 +88,11 @@ pub fn CheckoutControls(
             section { class: "panel checkout-status",
                 if *submitting.read() {
                     LoadingMessage { message: "Preparing your secure payment…" }
-                } else if let Some(message) = error.read().clone() {
-                    ErrorMessage { message: Some(message) }
+                } else if *provider_open.read() {
+                    PaymentSession { key: "{existing.operation_id}", attempt: existing, cancelled: false, awaiting_provider: true }
                 } else {
-                    RecoverSavedPayment { key: "{existing.operation_id}", attempt: existing, delayed: *delayed_recovery.read() }
+                    ErrorMessage { key: "{existing.operation_id}", message: error.read().clone() }
+                    RecoverSavedPayment { attempt: existing, delayed: *delayed_recovery.read(), manual: error.read().is_some() }
                 }
             }
         };
@@ -142,10 +145,11 @@ pub fn CheckoutControls(
                 button { id: "checkout-paypal", class: "checkout-payment-button checkout-paypal", disabled: unavailable,
                     onclick: move |_| {
                         if *busy.peek() { return; }
+                        let window = browser::PaymentWindow::reserve();
                         busy.set(true);
                         submitting.set(true);
                         let slug = paypal_slug.clone(); let snapshot = paypal_snapshot.clone(); let quote = paypal_quote.clone(); let customer = paypal_customer.clone();
-                        spawn(async move { begin(slug, snapshot, quote, customer, CheckoutProvider::Paypal, SubmissionState { busy, error, attempt, delayed_recovery, submitting }).await; });
+                        spawn(async move { begin(slug, snapshot, quote, customer, CheckoutProvider::Paypal, SubmissionState { busy, error, attempt, delayed_recovery, submitting, provider_open }, window).await; });
                     },
                     span { class: "checkout-payment-marks", PaymentMarks { provider: CheckoutProvider::Paypal } }
                     span { "{paypal_label}" }
@@ -155,10 +159,11 @@ pub fn CheckoutControls(
                 button { id: "checkout-card", class: "checkout-payment-button checkout-card", disabled: unavailable,
                     onclick: move |_| {
                         if *busy.peek() { return; }
+                        let window = browser::PaymentWindow::reserve();
                         busy.set(true);
                         submitting.set(true);
                         let slug = slug.clone(); let snapshot = snapshot.clone(); let quote = quote.clone(); let customer = card_customer.clone();
-                        spawn(async move { begin(slug, snapshot, quote, customer, CheckoutProvider::Stripe, SubmissionState { busy, error, attempt, delayed_recovery, submitting }).await; });
+                        spawn(async move { begin(slug, snapshot, quote, customer, CheckoutProvider::Stripe, SubmissionState { busy, error, attempt, delayed_recovery, submitting, provider_open }, window).await; });
                     },
                     span { class: "checkout-payment-marks", PaymentMarks { provider: CheckoutProvider::Stripe } }
                     span { "{card_label}" }
@@ -214,39 +219,77 @@ fn CheckoutStatusPage(slug: String, query: String, cancelled: bool) -> Element {
 }
 
 #[component]
-fn RecoverSavedPayment(attempt: Attempt, delayed: bool) -> Element {
+fn RecoverSavedPayment(attempt: Attempt, delayed: bool, #[props(default)] manual: bool) -> Element {
+    let mut error = use_signal(|| None::<String>);
+    let mut resuming = use_signal(|| false);
+    let saved = attempt.clone();
     let navigation = use_resource(move || {
-        let attempt = attempt.clone();
+        let attempt = saved.clone();
         async move {
+            if manual || browser::checking_paused(&attempt).await? {
+                return Ok(true);
+            }
             if delayed && !browser::delay(api::backoff_seconds(1)).await {
                 return Err("Automatic payment recovery is unavailable in this browser. Keep your payment receipt and contact the shop before paying again.".to_string());
             }
-            browser::navigate(&format!(
-                "/{}/checkout/return?checkout_id={}",
-                attempt.slug, attempt.operation_id
-            ))
-            .await
+            browser::navigate(&payment_route(&attempt)).await?;
+            Ok(false)
         }
     });
-    let error = navigation.read().clone().and_then(Result::err);
+    let state = navigation.read().clone();
     rsx! {
-        if error.is_none() { LoadingMessage { message: "Opening your original payment…" } }
-        ErrorMessage { message: error }
+        if matches!(state, Some(Ok(true))) {
+            Heading { title: "Your cart is saved" }
+            p { "Your original payment may still complete. Your selections are kept while it is unresolved. Resume that payment before paying again." }
+            button { class: "primary", disabled: *resuming.read(), onclick: move |_| {
+                if *resuming.peek() { return; }
+                resuming.set(true);
+                error.set(None);
+                let attempt = attempt.clone();
+                spawn(async move {
+                    let result = async {
+                        browser::resume_checking(&attempt).await?;
+                        browser::navigate(&payment_route(&attempt)).await
+                    }.await;
+                    if let Err(message) = result { error.set(Some(message)); resuming.set(false); }
+                });
+            }, "Resume payment" }
+        } else if !matches!(state, Some(Err(_))) {
+            LoadingMessage { message: "Opening your original payment…" }
+        }
+        ErrorMessage { message: error.read().clone().or_else(|| state.and_then(Result::err)) }
     }
 }
 
 #[component]
-fn PaymentSession(attempt: Attempt, cancelled: bool) -> Element {
+fn PaymentSession(
+    attempt: Attempt,
+    cancelled: bool,
+    #[props(default)] awaiting_provider: bool,
+) -> Element {
     let mut observation = use_signal(Observation::default);
+    let mut provider_open = use_signal(|| awaiting_provider);
+    let mut leaving = use_signal(|| false);
+    let mut exit_error = use_signal(|| None::<String>);
     let polling_attempt = attempt.clone();
-    let _polling = use_resource(move || {
+    let mut polling = use_resource(move || {
         let attempt = polling_attempt.clone();
+        let awaiting_provider = *provider_open.read();
         async move {
             let mut failures = 0_u32;
+            if awaiting_provider && !browser::delay(api::backoff_seconds(0)).await {
+                observation.set(Observation {
+                    response: None,
+                    error: Some("Automatic payment recovery is unavailable in this browser. Keep your payment receipt and contact the shop before paying again.".into()),
+                });
+                return;
+            }
             loop {
                 let retrying = match inspect(&attempt).await {
                     Ok(response) => {
-                        let pending = response.status == CheckoutStatus::Processing;
+                        let pending = response.status == CheckoutStatus::Processing
+                            || (awaiting_provider
+                                && response.status == CheckoutStatus::RequiresAction);
                         observation.set(Observation {
                             response: Some(response),
                             error: None,
@@ -280,22 +323,53 @@ fn PaymentSession(attempt: Attempt, cancelled: bool) -> Element {
         }
     });
     let state = observation.read().clone();
+    let checking = state.error.is_none()
+        && state.response.as_ref().is_none_or(|response| {
+            response.status == CheckoutStatus::Processing
+                || (*provider_open.read() && response.status == CheckoutStatus::RequiresAction)
+        });
+    let cancellation_attempt = attempt.clone();
     rsx! {
         section { class: "panel checkout-status", aria_live: "polite",
             if cancelled { p { class: "portal-notice", "You left the payment page. That does not confirm cancellation. We are checking the original payment; an already approved PayPal payment may still complete." } }
             if let Some(response) = state.response {
-                StatusContent { response: response.clone(), provider: attempt.provider }
+                if checking && response.status == CheckoutStatus::RequiresAction {
+                    ProcessingPayment {}
+                } else {
+                    StatusContent { response: response.clone(), provider: attempt.provider, on_open: move |()| provider_open.set(true) }
+                }
                 if response.status == CheckoutStatus::Unpaid {
                     Link { to: Route::CartPage { slug: attempt.slug.clone(), checkout_id: attempt.snapshot.checkout_id.clone() }, class: "button-link ghost", "Return to cart" }
                 }
             } else if state.error.is_none() { ProcessingPayment {} }
-            ErrorMessage { message: state.error }
+            if checking {
+                button { class: "button-link ghost", disabled: *leaving.read(), onclick: move |_| {
+                    if *leaving.peek() { return; }
+                    leaving.set(true);
+                    exit_error.set(None);
+                    polling.cancel();
+                    let attempt = cancellation_attempt.clone();
+                    spawn(async move {
+                        let result = async {
+                            browser::pause_checking(&attempt).await?;
+                            browser::navigate(&format!("/{}/cart/{}", attempt.slug, attempt.snapshot.checkout_id)).await
+                        }.await;
+                        if let Err(message) = result { exit_error.set(Some(message)); leaving.set(false); }
+                    });
+                }, "Cancel and return to cart" }
+            }
+            ErrorMessage { message: state.error.or_else(|| exit_error.read().clone()) }
         }
     }
 }
 
 #[component]
-fn StatusContent(response: CheckoutResponse, provider: CheckoutProvider) -> Element {
+fn StatusContent(
+    response: CheckoutResponse,
+    provider: CheckoutProvider,
+    on_open: Option<EventHandler<()>>,
+) -> Element {
+    let mut opening = use_signal(|| false);
     let mut navigation_error = use_signal(|| None::<String>);
     match response.status {
         CheckoutStatus::Completed => {
@@ -317,11 +391,22 @@ fn StatusContent(response: CheckoutResponse, provider: CheckoutProvider) -> Elem
         CheckoutStatus::RequiresAction => rsx! {
             Heading { title: "Continue your payment" }
             p { "Your original checkout is ready. Continue with the same payment to finish your preorder." }
-            button { class: "primary", onclick: move |_| {
+            button { class: "primary", disabled: *opening.read(), onclick: move |_| {
+                if *opening.peek() { return; }
+                let mut window = browser::PaymentWindow::reserve();
+                opening.set(true);
+                navigation_error.set(None);
                 let response = response.clone();
                 spawn(async move {
-                    let result = hosted_redirect(&response, provider).await;
-                    if let Err(message) = result { navigation_error.set(Some(message)); }
+                    let result = async {
+                        window.ready().await?;
+                        hosted_redirect(&response, provider, window).await
+                    }.await;
+                    match result {
+                        Ok(()) => { if let Some(on_open) = on_open { on_open.call(()); } }
+                        Err(message) => navigation_error.set(Some(message)),
+                    }
+                    opening.set(false);
                 });
             }, "Continue payment" }
             ErrorMessage { message: navigation_error.read().clone() }
@@ -389,6 +474,7 @@ async fn begin(
     customer: CustomerDetails,
     provider: CheckoutProvider,
     state: SubmissionState,
+    mut window: browser::PaymentWindow,
 ) {
     let SubmissionState {
         mut busy,
@@ -396,6 +482,7 @@ async fn begin(
         mut attempt,
         mut delayed_recovery,
         mut submitting,
+        mut provider_open,
     } = state;
     error.set(None);
     let result = async {
@@ -407,6 +494,7 @@ async fn begin(
             &customer.note,
             provider,
         )?;
+        window.ready().await?;
         let (ownership, started) = browser::start(&slug, &snapshot, &request, &quote.total).await?;
         let mut saved = started.attempt.clone();
         let fresh = started.fresh;
@@ -427,13 +515,12 @@ async fn begin(
             result => result.map_err(|error| error.message)?,
         };
         if fresh && response.status == CheckoutStatus::RequiresAction {
-            hosted_redirect(&response, saved.provider).await?;
+            hosted_redirect(&response, saved.provider, window).await?;
+            provider_open.set(true);
+            submitting.set(false);
         } else {
-            browser::navigate(&format!(
-                "/{}/checkout/return?checkout_id={}",
-                saved.slug, saved.operation_id
-            ))
-            .await?;
+            drop(window);
+            browser::navigate(&payment_route(&saved)).await?;
         }
         Ok::<_, String>(true)
     }
@@ -542,6 +629,7 @@ fn invalidate_completed_cart(attempt: &Attempt) {
 async fn hosted_redirect(
     response: &CheckoutResponse,
     provider: CheckoutProvider,
+    window: browser::PaymentWindow,
 ) -> Result<(), String> {
     let settings = try_consume_context::<crate::config::Settings>();
     let mut page = document::eval("dioxus.send(window.location.href);");
@@ -568,9 +656,21 @@ async fn hosted_redirect(
                 && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
         })
         .map(|url| url.origin().ascii_serialization());
-    let url = model::redirect(response, provider, test_origin.as_deref())?
-        .ok_or("This payment does not require a redirect.")?;
-    browser::navigate(&url).await
+    if window
+        .handoff(response, provider, test_origin.as_deref())
+        .await?
+    {
+        Ok(())
+    } else {
+        Err("This payment does not require a redirect.".into())
+    }
+}
+
+fn payment_route(attempt: &Attempt) -> String {
+    format!(
+        "/{}/checkout/return?checkout_id={}",
+        attempt.slug, attempt.operation_id
+    )
 }
 
 fn status_name(status: CheckoutStatus) -> &'static str {
