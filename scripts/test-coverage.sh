@@ -32,8 +32,9 @@ coverage_env=$(cargo llvm-cov show-env --sh --remap-path-prefix)
 eval "$coverage_env"
 cargo llvm-cov clean --workspace
 just --justfile "$root/$module/justfile" _test
+# Shared Cargo build scripts are tooling, outside each runtime coverage scope.
 cargo llvm-cov report --locked --lcov --package "$crate" \
-  --ignore-filename-regex "($excluded|/tests/|/e2e-test/)" \
+  --ignore-filename-regex "($excluded|(^|/)scripts/|/tests/|/e2e-test/)" \
   --output-path "$report_dir/lcov.info"
 test -s "$report_dir/lcov.info"
 printf 'Coverage: %s\n' "$report_dir/lcov.info"

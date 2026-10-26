@@ -1130,3 +1130,13 @@ and the served public TOML uses localhost:3000/v1 while inheriting catalogue loc
 A temporary local TOML marker appeared in the served config after automatic rebuild;
 restored the overlay and verified both source hashes exactly match their originals.
 API port 3000 was not listening, so no sign-in or API-backed workflow was tested.
+
+### PR 77 coverage scope correction — 2026-10-26
+
+Actual `just test --coverage` ran for backoffice and client-ui with one shared
+CARGO_LLVM_COV_TARGET_DIR, matching CI's target reuse. Both generated reports passed
+`.github/scripts/coverage-report.cjs`; shared Cargo build tooling is excluded at export,
+while the strict runtime-source validator is unchanged. The exclusion regression failed
+before the fix for both frontends and passed afterward. Root `just check` passed all
+183 tooling tests. A fake-server readiness signal replaces its flaky two-second poll.
+Manual backoffice config fetch still returned localhost:3000/v1 plus inherited location.

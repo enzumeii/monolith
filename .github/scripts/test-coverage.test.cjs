@@ -14,7 +14,7 @@ function fixture(t) {
  fs.writeFileSync(path.join(root,'bin/cargo'),`#!/bin/bash
 case "$2" in
 show-env) printf 'export INSTRUMENTED=1\\n';;
-report) while [ "$1" != "--output-path" ]; do shift; done; shift; printf 'SF:%s\\nDA:1,1\\nend_of_record\\n' "$TEST_SOURCE" > "$1";;
+report) printf '%s\\n' "$@" > cargo-report-args; while [ "$1" != "--output-path" ]; do shift; done; shift; printf 'SF:%s\\nDA:1,1\\nend_of_record\\n' "$TEST_SOURCE" > "$1";;
 esac
 `,{mode:0o755});
  return {root,run:(...args)=>spawnSync('bash',[path.join(root,'scripts/test-coverage.sh'),...args],{encoding:'utf8',env:{...process.env,PATH:path.join(root,'bin')+':'+process.env.PATH,TEST_EXIT:'0',TEST_SOURCE:args[0]==='ui'?'crates/ui/src/lib.rs':'services/api/src/main.rs'}})};
@@ -31,3 +31,17 @@ test('test failure removes stale report and preserves other scopes',t=>{
 });
 
 test('shared UI coverage is a separate supported scope',t=>{const f=fixture(t);const r=f.run('ui','--coverage');assert.equal(r.status,0,r.stderr);assert.match(fs.readFileSync(path.join(f.root,'target/coverage/ui/lcov.info'),'utf8'),/SF:crates\/ui\/src/);});
+
+for (const crate of ['backoffice', 'client-ui']) {
+ test(`${crate} coverage excludes shared build tooling but retains runtime source`, t => {
+  const f=fixture(t);
+  const result=f.run(crate,'--coverage');
+  assert.equal(result.status,0,result.stderr);
+  const args=fs.readFileSync(path.join(f.root,'cargo-report-args'),'utf8').trim().split('\n');
+  const ignored=new RegExp(args[args.indexOf('--ignore-filename-regex')+1]);
+  for(const source of ['scripts/ui-config-build.rs','/home/runner/work/monolith/scripts/ui-config-build.rs']) {
+   assert.match(source,ignored);
+  }
+  assert.doesNotMatch(`apps/${crate}/src/config.rs`,ignored);
+ });
+}
