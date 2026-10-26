@@ -1,5 +1,6 @@
 [package]
 name = "client-ui"
+build = "../../scripts/ui-config-build.rs"
 default-run = "client-ui"
 version = "0.1.0"
 edition.workspace = true

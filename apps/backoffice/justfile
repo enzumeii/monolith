@@ -1,3 +1,5 @@
+set dotenv-load := true
+
 web_target := "wasm32-unknown-unknown"
 
 # List available backoffice commands.
@@ -18,8 +20,8 @@ setup:
     fi
 
 # Build the client-only web bundle.
-build:
-    dx build --web --package backoffice
+build environment="":
+    bash ../../scripts/run-ui.sh backoffice build {{quote(environment)}}
 
 # Check formatting and strict native/WASM lint.
 check:
@@ -33,9 +35,9 @@ fix:
     cargo clippy --locked -p backoffice --fix --allow-dirty --allow-staged -- -D warnings
     cargo clippy --locked -p backoffice --no-default-features --features web --target {{web_target}} --fix --allow-dirty --allow-staged -- -D warnings
 
-# Serve the client UI locally; configure the public API URL in application.toml.
-serve:
-    dx serve --web --addr 127.0.0.1 --port 8084
+# Serve with RUN_ENV from .env (default local), or pass an explicit environment.
+serve environment="":
+    bash ../../scripts/run-ui.sh backoffice serve {{quote(environment)}}
 
 # Run shared contracts, domain WASM check, and native tests; pass --coverage for backoffice LCOV.
 test coverage="":

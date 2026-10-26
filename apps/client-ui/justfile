@@ -1,3 +1,5 @@
+set dotenv-load := true
+
 web_target := "wasm32-unknown-unknown"
 
 # List available client commands.
@@ -26,12 +28,12 @@ _test:
     node --test src/tests/browser.mjs src/tests/checkout/browser.mjs
 
 # Build the client-only web bundle with a composed local, qa or prod public configuration.
-build environment="local":
-    bash ../../scripts/run-client-ui.sh build {{quote(environment)}}
+build environment="":
+    bash ../../scripts/run-ui.sh client-ui build {{quote(environment)}}
 
-# Serve the client shell with composed local, qa or prod settings; restore the baseline on exit.
-serve environment="local":
-    bash ../../scripts/run-client-ui.sh serve {{quote(environment)}}
+# Serve with RUN_ENV from .env (default local), or pass an explicit environment.
+serve environment="":
+    bash ../../scripts/run-ui.sh client-ui serve {{quote(environment)}}
 
 # Check pinned Dioxus and the installed WASM target before local development.
 setup:

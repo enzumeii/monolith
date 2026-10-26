@@ -72,6 +72,8 @@ jobs:
               - 'vercel.json'
               - 'Dockerfile.*.vercel'
               - 'scripts/*vercel*'
+              - 'scripts/ui-config-build.rs'
+              - 'scripts/run-ui.sh'
             backoffice:
               - 'apps/backoffice/**'
               - 'crates/ui/**'
@@ -85,6 +87,8 @@ jobs:
               - 'vercel.json'
               - 'Dockerfile.*.vercel'
               - 'scripts/*vercel*'
+              - 'scripts/ui-config-build.rs'
+              - 'scripts/run-ui.sh'
             client-ui:
               - 'apps/client-ui/**'
               - 'crates/ui/**'
@@ -97,6 +101,8 @@ jobs:
               - 'vercel.json'
               - 'Dockerfile.*.vercel'
               - 'scripts/*vercel*'
+              - 'scripts/ui-config-build.rs'
+              - 'scripts/run-ui.sh'
       - name: Install API formatter
         if: steps.changes.outputs.api == 'true'
         working-directory: services/api

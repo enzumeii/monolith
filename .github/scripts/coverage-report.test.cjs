@@ -10,3 +10,9 @@ test('shared UI report owns only its production source',()=>{
  assert.throws(()=>validateCoverage('SF:crates/ui/src/markdown.rs\nDA:1,1\nend_of_record\n','backoffice'));
  assert.throws(()=>validateCoverage('SF:crates/ui/src/tests/markdown.rs\nDA:1,1\nend_of_record\n','ui'));
 });
+
+for (const crate of ['backoffice','client-ui']) {
+ test(`${crate} validator continues rejecting leaked shared build script coverage`,()=>{
+  assert.throws(()=>validateCoverage('SF:scripts/ui-config-build.rs\nDA:1,1\nend_of_record\n',crate),/Unexpected/);
+ });
+}

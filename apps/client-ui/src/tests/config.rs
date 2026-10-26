@@ -58,17 +58,10 @@ fn deployment_configs_select_public_api_without_changing_local_urls() {
         production.api.base_url,
         "https://convention.example.test/api/v1"
     );
-    for (overlay, expected) in [
-        (
-            include_str!("../../application.qa.toml"),
-            "https://qa.enzumeii.com/api/v1",
-        ),
-        (
-            include_str!("../../application.local.toml"),
-            "http://localhost:3000/v1",
-        ),
-        (include_str!("../../application.prod.toml"), "/api/v1"),
-    ] {
+    for (overlay, expected) in [(
+        include_str!("../../application.local.toml"),
+        "http://localhost:3000/v1",
+    )] {
         let mut merged: toml::Value = toml::from_str(base).expect("base TOML");
         let overrides: toml::Value = toml::from_str(overlay).expect("override TOML");
         for (key, value) in overrides.as_table().expect("override table") {

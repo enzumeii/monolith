@@ -2,8 +2,14 @@ use dioxus::prelude::*;
 use serde::Deserialize;
 
 const CONFIG_ASSET: Asset = asset!(
-    "/application.toml",
+    env!("PUBLIC_CONFIG_ASSET"),
     AssetOptions::builder().with_hash_suffix(false)
+);
+
+// Include both sources so Dioxus watches configuration changes.
+const _: (&[u8], &[u8]) = (
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/application.toml")),
+    include_bytes!(env!("PUBLIC_CONFIG_OVERLAY_SOURCE")),
 );
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]

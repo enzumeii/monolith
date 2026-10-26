@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
-const { setTimeout: delay } = require('node:timers/promises');
+const { once } = require('node:events');
 const test = require('node:test');
 
 function fixture(t, app) {
@@ -18,7 +18,7 @@ function fixture(t, app) {
 cp application.toml observed-baseline.toml
 printf '%s\\n' "$@" > arguments.txt
 printf '%s\\n' "$RUN_ENV" > selected-environment.txt
-if [ "\${DX_WAIT:-0}" = 1 ]; then while :; do sleep 1; done; fi
+if [ "\${DX_WAIT:-0}" = 1 ]; then printf 'ready\\n'; while :; do sleep 1; done; fi
 exit "$DX_EXIT"
 `, { mode: 0o755 });
   const env = { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, DX_EXIT: '0' };
@@ -51,15 +51,18 @@ for (const [app, port] of [['client-ui', '8085'], ['backoffice', '8084']]) {
       }
     }
   }
-  test(`${app} serve interruption leaves production source untouched`, async t => {
+  test(`${app} serve interruption leaves production source untouched`, { timeout: 30000 }, async t => {
     const f = fixture(t, app);
     const child = spawn('bash', ['scripts/run-ui.sh', app, 'serve'], {
-      cwd: f.root, env: { ...f.env, DX_WAIT: '1' }, detached: true, stdio: 'ignore',
+      cwd: f.root, env: { ...f.env, DX_WAIT: '1' }, detached: true, stdio: ['ignore', 'pipe', 'ignore'],
     });
     t.after(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; } });
     const exited = new Promise((resolve, reject) => { child.once('exit', (code, signal) => resolve({ code, signal })); child.once('error', reject); });
-    for (let attempt = 0; attempt < 100 && !fs.existsSync(path.join(f.appRoot, 'arguments.txt')); attempt += 1) await delay(20);
-    assert.equal(fs.existsSync(path.join(f.appRoot, 'arguments.txt')), true, 'fake dx started');
+    const [ready] = await Promise.race([
+      once(child.stdout, 'data'),
+      exited.then(result => { throw new Error(`fake dx exited before readiness: ${JSON.stringify(result)}`); }),
+    ]);
+    assert.match(ready.toString(), /ready/);
     process.kill(-child.pid, 'SIGTERM');
     const result = await exited;
     assert.ok(result.code === 143 || result.signal === 'SIGTERM', JSON.stringify(result));

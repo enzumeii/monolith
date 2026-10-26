@@ -6,6 +6,12 @@ const path=require('node:path');
 const net=require('node:net');
 const {spawn,spawnSync}=require('node:child_process');
 const {setTimeout:delay}=require('node:timers/promises');
+const {after}=require('node:test');
+const compilerRoot=fs.mkdtempSync(path.join(os.tmpdir(),'ui-build-script-'));
+after(()=>fs.rmSync(compilerRoot,{recursive:true,force:true}));
+const executable=path.join(compilerRoot,'build-script');
+const compilation=spawnSync('rustc',['--edition=2024','scripts/ui-config-build.rs','-o',executable],{encoding:'utf8'});
+assert.equal(compilation.status,0,compilation.stderr);
 const {parse}=require('smol-toml');
 
 async function server(t, service) {
@@ -75,7 +81,7 @@ test('backoffice asset and SPA behavior survives root portal hosting',async t=>{
 });
 
 for(const [app,prefix,basePath] of [['client-ui','root','/'],['backoffice','backoffice','backoffice']]) {
- test(`${app} build publishes config and assets at its intended mount and restores local config`,t=>{
+ test(`${app} build publishes composed production config without rewriting source`,t=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'monolith-ui-build-'));
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   for(const dir of ['scripts',`apps/${app}`,'bin']) fs.mkdirSync(path.join(root,dir),{recursive:true});
@@ -84,13 +90,15 @@ for(const [app,prefix,basePath] of [['client-ui','root','/'],['backoffice','back
   fs.symlinkSync(path.resolve('node_modules'),path.join(root,'node_modules'),'dir');
   const local=fs.readFileSync(`apps/${app}/application.toml`,'utf8')+'\n[build_fixture]\nretained = true\n';
   fs.writeFileSync(path.join(root,`apps/${app}/application.toml`),local);
-  fs.copyFileSync(`apps/${app}/application.prod.toml`,path.join(root,`apps/${app}/application.prod.toml`));
+
   fs.writeFileSync(path.join(root,'bin/dx'),`#!/bin/sh
 if [ "$1" = --version ]; then echo 'dioxus 0.7.10 fixture'; exit 0; fi
 printf '%s\\n' "$@" > dx-args
 mkdir -p "$CARGO_TARGET_DIR/dx/${app}/release/web/public/assets"
 printf '<html>built</html>' > "$CARGO_TARGET_DIR/dx/${app}/release/web/public/index.html"
-cp application.toml "$CARGO_TARGET_DIR/dx/${app}/release/web/public/assets/application.toml"
+CARGO_MANIFEST_DIR="$PWD" PROFILE=release "${executable}" > build-script-output || exit 1
+asset=$(sed -n 's/^cargo:rustc-env=PUBLIC_CONFIG_ASSET=//p' build-script-output)
+cp ".$asset" "$CARGO_TARGET_DIR/dx/${app}/release/web/public/assets/application.toml"
 exit "\${TEST_BUILD_EXIT:-0}"
 `);
   fs.chmodSync(path.join(root,'bin/dx'),0o755);
@@ -118,7 +126,7 @@ exit "\${TEST_BUILD_EXIT:-0}"
   assert.equal(fs.readFileSync(source,'utf8'),local);
   assert.equal(fs.existsSync(path.join(output,'assets/application.toml')),false,'failed composition publishes no asset');
   fs.unlinkSync(path.join(root,`apps/${app}/application.prod.toml`));
-  assert.notEqual(run({}).status,0,'missing override fails');
+  assert.notEqual(run({},'missing.toml').status,0,'missing explicit override fails');
   assert.equal(fs.readFileSync(source,'utf8'),local);
   assert.equal(fs.existsSync(path.join(output,'assets/application.toml')),false);
  });

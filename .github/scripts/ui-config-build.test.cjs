@@ -139,3 +139,18 @@ for (const app of ['client-ui', 'backoffice']) {
     assert.equal(fs.statSync(generated, { bigint: true }).mtimeNs, before);
   });
 }
+
+for (const app of ['client-ui', 'backoffice']) {
+  test(`${app} connects generated configuration to its real build and serve recipes`, () => {
+    const manifest = parse(fs.readFileSync(`apps/${app}/Cargo.toml`, 'utf8'));
+    assert.equal(manifest.package.build, '../../scripts/ui-config-build.rs');
+    const config = fs.readFileSync(`apps/${app}/src/config.rs`, 'utf8');
+    assert.match(config, /asset!\(\s*env!\("PUBLIC_CONFIG_ASSET"\)/);
+    assert.match(config, /include_bytes!\(env!\("PUBLIC_CONFIG_OVERLAY_SOURCE"\)\)/);
+    const recipes = fs.readFileSync(`apps/${app}/justfile`, 'utf8');
+    assert.match(recipes, /set dotenv-load := true/);
+    for (const mode of ['build', 'serve']) {
+      assert.ok(recipes.includes(`bash ../../scripts/run-ui.sh ${app} ${mode} {{quote(environment)}}`));
+    }
+  });
+}

@@ -2,7 +2,7 @@
 set -euo pipefail
 package=${1:?Expected UI package}
 prefix=${2:?Expected public prefix}
-config=${3:-application.prod.toml}
+config=${3:-}
 root=$(cd "$(dirname "$0")/.." && pwd)
 export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 case "$package:$prefix" in
@@ -16,17 +16,12 @@ else
   dx_command="${VERCEL_DX_ROOT:-$root/.tools/vercel-dx}/bin/dx"
 fi
 cd "$root/apps/$package"
-test -f "$config"
-backup=$(mktemp)
-cp application.toml "$backup"
-restore_config() {
-  cp "$backup" application.toml
-  rm -f "$backup"
-}
-trap restore_config EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-node "$root/scripts/compose-vercel-ui-config.mjs" "$backup" "$config" application.toml
+export RUN_ENV=prod
+unset UI_CONFIG_OVERRIDE
+if [[ -n "$config" ]]; then
+  test -f "$config"
+  export UI_CONFIG_OVERRIDE="$config"
+fi
 export CARGO_TARGET_DIR="$PWD/target/vercel"
 bundle="$CARGO_TARGET_DIR/dx/$package/release/web/public"
 rm -rf "${bundle%/public}"
