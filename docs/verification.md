@@ -1140,3 +1140,16 @@ while the strict runtime-source validator is unchanged. The exclusion regression
 before the fix for both frontends and passed afterward. Root `just check` passed all
 183 tooling tests. A fake-server readiness signal replaces its flaky two-second poll.
 Manual backoffice config fetch still returned localhost:3000/v1 plus inherited location.
+
+
+### ENZ-53 payment windows and checking exit — 2026-10-26
+
+| Area | Verified result |
+| --- | --- |
+| Client regression | Final combined client recipe passed128 Rust and37 JavaScript tests, zero failed/ignored/skipped. Strict native/WASM all-target checks, client bundle, workspace formatting and whitespace checks passed. Independent success/uncertain-response/cancel review found no actionable regression |
+| Payment window | Real rebuilt client and API with owned PostgreSQL/S3 and controlled provider HTTP services opened separate synthetic HTTPS pages for both PayPal and Stripe. The original page stayed checking with repeat activation disabled. A card double click produced one provider creation |
+| Checking exit and resume | Cancel returned each unchanged two-item SGD40 cart without automatic recovery bounce; selections stayed read-only and Resume/Continue reused the original attempt. PayPal Cancel was keyboard activated. Closing the first card provider page and continuing opened another context without another payment creation |
+| Verified results | Controlled provider payment evidence drove the actual API through Stripe completion and PayPal capture/completion; both original pages displayed the synthetic order name. Each successful flow created one draft/payment and recorded/completed it once. Card completion cleared the exact cart in the visible UI |
+| Failure | A separate controlled draft-create HTTP failure closed its unused reserved window and displayed safe recovery guidance. No additional provider payment was created and no false confirmation appeared |
+| Browser bounds | Synthetic HTTPS provider pages rendered without a manual certificate-warning bypass or trust change. This does not establish production TLS, real gateway payments, wallets or email delivery. Native blocked-popup/pre-handoff-close behavior and opener isolation are supported by bridge/mounted regressions; mobile viewport and native cross-tab/reload variants were not separately exercised. The available browser capabilities offered no viewport control. Screenshots were visually inspected without a local image export |
+| Delivery bounds | Hosted checks are tracked against the published source on the PR. No merge, release, deployment, genuine provider action or merchant settings change accompanies this work |

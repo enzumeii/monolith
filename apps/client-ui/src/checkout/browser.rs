@@ -1,9 +1,9 @@
 pub use crate::api::delay;
 
-use super::model::Attempt;
+use super::model::{self, Attempt};
 use crate::cart::Cart;
 use dioxus::{document::Eval, prelude::*};
-use domain::dto::checkout::CreateCheckoutRequest;
+use domain::dto::checkout::{CheckoutProvider, CheckoutResponse, CreateCheckoutRequest};
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
@@ -20,6 +20,12 @@ pub struct Started {
     pub attempt: Attempt,
     pub payload: Option<String>,
     pub fresh: bool,
+}
+
+pub struct PaymentWindow {
+    eval: Eval,
+    ready: bool,
+    released: bool,
 }
 
 pub struct Ownership {
@@ -51,6 +57,18 @@ pub async fn recover(attempt: &Attempt) -> Result<(Ownership, Started), String> 
     own(&json!({"action":"recover","slug":attempt.slug,"convention_id":attempt.snapshot.convention_id,"id":attempt.operation_id})).await
 }
 
+pub async fn checking_paused(attempt: &Attempt) -> Result<bool, String> {
+    checking_preference(attempt, "paused").await
+}
+
+pub async fn pause_checking(attempt: &Attempt) -> Result<(), String> {
+    checking_preference(attempt, "pause").await
+}
+
+pub async fn resume_checking(attempt: &Attempt) -> Result<(), String> {
+    checking_preference(attempt, "resume").await
+}
+
 pub async fn navigate(url: &str) -> Result<(), String> {
     let url = serde_json::to_string(url).map_err(|_| "Unable to open the payment page.")?;
     document::eval(&format!(
@@ -62,6 +80,50 @@ pub async fn navigate(url: &str) -> Result<(), String> {
         "Unable to open the payment page in this browser. Keep any payment receipt and contact the shop if the payment page remains unavailable.".to_string()
     })?;
     Ok(())
+}
+
+impl PaymentWindow {
+    pub fn reserve() -> Self {
+        Self {
+            eval: document::eval(include_str!("payment-window.js")),
+            ready: false,
+            released: false,
+        }
+    }
+
+    pub async fn ready(&mut self) -> Result<(), String> {
+        if !self.ready {
+            receive::<()>(&mut self.eval).await?;
+            self.ready = true;
+        }
+        Ok(())
+    }
+
+    pub async fn handoff(
+        mut self,
+        response: &CheckoutResponse,
+        provider: CheckoutProvider,
+        test_origin: Option<&str>,
+    ) -> Result<bool, String> {
+        let Some(url) = model::redirect(response, provider, test_origin)? else {
+            return Ok(false);
+        };
+        self.ready().await?;
+        self.eval
+            .send(json!({"action":"open","url":url}))
+            .map_err(|_| "Unable to open the payment window. Resume this payment to try again.")?;
+        self.released = true;
+        receive::<()>(&mut self.eval).await?;
+        Ok(true)
+    }
+}
+
+impl Drop for PaymentWindow {
+    fn drop(&mut self) {
+        if !self.released {
+            let _ = self.eval.send(json!({"action":"abort"}));
+        }
+    }
 }
 
 impl Ownership {
@@ -80,6 +142,15 @@ impl Drop for Ownership {
             let _ = self.eval.send(json!({"status":null}));
         }
     }
+}
+
+async fn checking_preference<T: DeserializeOwned>(
+    attempt: &Attempt,
+    action: &str,
+) -> Result<T, String> {
+    let mut eval =
+        evaluate(&json!({"action":action,"slug":attempt.slug,"id":attempt.operation_id}))?;
+    receive(&mut eval).await
 }
 
 async fn own(input: &Value) -> Result<(Ownership, Started), String> {

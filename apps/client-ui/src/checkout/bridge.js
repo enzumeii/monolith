@@ -2,6 +2,7 @@ const input = __INPUT__;
 const recordKey = id => `enzumeii.checkout.v1.${id}`;
 const activeKey = convention => `enzumeii.checkout.active.v1.${convention}`;
 const payloadKey = id => `enzumeii.checkout.payload.v1.${id}`;
+const pausedKey = id => `enzumeii.checkout.paused.v1.${id}`;
 const fail = message => dioxus.send({ok: false, error: message});
 function read(id) {
     if (!id) return null;
@@ -36,7 +37,19 @@ function sameCart(current, snapshot) {
         });
 }
 try {
-    if (input.action === 'read') {
+    if (['pause', 'resume', 'paused'].includes(input.action)) {
+        const attempt = read(input.id);
+        if (!attempt || attempt.slug !== input.slug) throw new Error('Recovery belongs to another convention');
+        const key = pausedKey(attempt.operation_id);
+        if (input.action === 'pause') {
+            sessionStorage.setItem(key, 'true');
+            if (sessionStorage.getItem(key) !== 'true') throw new Error('Session storage unavailable');
+        } else if (input.action === 'resume') {
+            sessionStorage.removeItem(key);
+            if (sessionStorage.getItem(key) !== null) throw new Error('Session storage unavailable');
+        }
+        dioxus.send({ok: true, value: input.action === 'paused' ? sessionStorage.getItem(key) === 'true' : null});
+    } else if (input.action === 'read') {
         const id = input.id || localStorage.getItem(activeKey(input.convention_id));
         const attempt = read(id);
         if (attempt && attempt.slug !== input.slug) throw new Error('Recovery belongs to another convention');
