@@ -1,11 +1,21 @@
 use super::Cart;
-use dioxus::prelude::*;
+use dioxus::{document::Eval, prelude::*};
 use serde::Deserialize;
 
 #[derive(Clone, PartialEq)]
 pub struct Restored {
     pub cart: Cart,
     pub notice: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SaveRead {
+    raw: Option<String>,
+}
+
+struct Saving {
+    eval: Eval,
+    released: bool,
 }
 
 #[derive(Deserialize)]
@@ -62,24 +72,49 @@ pub async fn restore(convention_id: &str) -> Result<Restored, String> {
     })
 }
 
-pub async fn save(cart: &Cart) -> Result<(), String> {
-    let key = serde_json::to_string(&storage_key(&cart.convention_id))
-        .map_err(|_| "Unable to save your cart")?;
+pub async fn save(cart: &Cart) -> Result<Cart, String> {
+    let key = serde_json::to_string(&storage_key(&cart.convention_id)).map_err(|_| save_error())?;
+    let convention = serde_json::to_string(&cart.convention_id).map_err(|_| save_error())?;
     let value = serde_json::to_string(cart)
         .and_then(|value| serde_json::to_string(&value))
-        .map_err(|_| "Unable to save your cart")?;
-    let script = format!(
-        "try {{ localStorage.setItem({key}, {value}); dioxus.send(true); }} catch (_) {{ dioxus.send(false); }}"
-    );
-    if document::eval(&script)
-        .recv::<bool>()
-        .await
-        .unwrap_or(false)
-    {
-        Ok(())
+        .map_err(|_| save_error())?;
+    let script = include_str!("save.js")
+        .replace("__STORAGE_KEY__", &key)
+        .replace("__CONVENTION_ID__", &convention)
+        .replace("__CART_JSON__", &value);
+    let mut saving = Saving {
+        eval: document::eval(&script),
+        released: false,
+    };
+    let read: SaveRead = saving.eval.recv().await.map_err(|_| save_error())?;
+    let accepted = read
+        .raw
+        .as_deref()
+        .and_then(|raw| Cart::restore(raw, &cart.convention_id))
+        .filter(|saved| saved.checkout_id != cart.checkout_id)
+        .unwrap_or_else(|| cart.clone());
+    saving
+        .eval
+        .send(accepted.checkout_id == cart.checkout_id)
+        .map_err(|_| save_error())?;
+    saving.released = true;
+    if saving.eval.recv::<bool>().await.unwrap_or(false) {
+        Ok(accepted)
     } else {
-        Err("Browser storage is unavailable. Changes remain in this tab while it is open.".into())
+        Err(save_error())
     }
+}
+
+impl Drop for Saving {
+    fn drop(&mut self) {
+        if !self.released {
+            let _ = self.eval.send(false);
+        }
+    }
+}
+
+fn save_error() -> String {
+    "Browser storage is unavailable. Changes remain in this tab while it is open.".into()
 }
 
 fn storage_key(convention_id: &str) -> String {

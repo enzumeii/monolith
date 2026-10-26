@@ -394,16 +394,22 @@ async fn checkout_paid_return_and_authenticated_duplicate_webhook_complete_same_
                 paypal_webhook(&event)
             }
         };
-        let (verified, delivered) = tokio::join!(
+        let (verified, second_verified, delivered) = tokio::join!(
+            client.send(verify(id, Some(SECRET))),
             client.send(verify(id, Some(SECRET))),
             client.send(callback())
         );
-        assert_eq!(verified.unwrap().status(), 200);
+        for verified in [verified, second_verified] {
+            let response = verified.unwrap();
+            assert_eq!(response.status(), 200);
+            assert_eq!(body_json(response).await["checkout_id"], id);
+        }
         let delivered = delivered.unwrap();
         assert!(matches!(delivered.status().as_u16(), 200 | 503));
         let response = client.send(verify(id, Some(SECRET))).await.unwrap();
         assert_eq!(response.status(), 200);
         let result = body_json(response).await;
+        assert_eq!(result["checkout_id"], id);
         assert_eq!(result["status"], "completed", "{provider}: {result}");
         assert_eq!(result["order"]["name"], "#E2E-ORDER");
         assert!(
@@ -425,6 +431,7 @@ async fn checkout_paid_return_and_authenticated_duplicate_webhook_complete_same_
         );
         assert_eq!(client.send(callback()).await.unwrap().status(), 200);
         assert_eq!(upstream.count("CompleteCheckoutDraft"), completes);
+        assert_eq!(upstream.count("RecordCheckoutPayment"), 1);
         if provider == "paypal" {
             assert_eq!(
                 upstream

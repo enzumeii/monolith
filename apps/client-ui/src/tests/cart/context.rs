@@ -95,3 +95,99 @@ pub(crate) fn context(
 ) -> CartContext {
     CartContext { cart, cache }
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+mod refreshed_identity {
+    use super::*;
+    use crate::pages::tests::{TestDocument, until};
+    use dioxus::{
+        document::Document,
+        history::{MemoryHistory, provide_history_context},
+    };
+
+    type CapturedView = Rc<Cell<Option<Signal<ConventionView>>>>;
+
+    #[derive(Clone, PartialEq, Routable)]
+    enum ViewRoute {
+        #[route("/")]
+        CartContent {},
+    }
+
+    fn root() -> Element {
+        use_hook(|| provide_history_context(Rc::new(MemoryHistory::default())));
+        use_cart_cache();
+        rsx! { Router::<ViewRoute> {} }
+    }
+
+    #[component]
+    fn CartContent() -> Element {
+        let view = use_signal(|| ConventionView::Product {
+            product_id: crate::api::tests::catalogue().products[0].id.clone(),
+        });
+        use_context::<CapturedView>().set(Some(view));
+        rsx! { ReadyCart {
+            catalogue: crate::api::tests::catalogue(),
+            view: view.read().clone(),
+            restored: browser::Restored { cart: use_context::<Cart>(), notice: None },
+        } }
+    }
+
+    #[tokio::test]
+    async fn cached_product_to_cart_transition_refreshes_an_identity_rotated_in_another_tab() {
+        let mut old = Cart::new("a".into(), CHECKOUT.into());
+        old.add(&crate::tests::variant(), 2).expect("old selection");
+        let mut current = old.clone();
+        current.checkout_id = "b65bbebd-f990-4599-bc72-daa653abc900".into();
+        current.items[0].quantity = 3;
+        let raw = |cart: &Cart| serde_json::json!({"raw":serde_json::to_string(cart).expect("cart JSON")});
+        let document = TestDocument::new(vec![]);
+        document.script_messages(
+            "const convention =",
+            vec![
+                raw(&old),
+                serde_json::json!(true),
+                raw(&current),
+                serde_json::json!(true),
+                raw(&current),
+                serde_json::json!(true),
+                raw(&current),
+                serde_json::json!(true),
+            ],
+        );
+        let captured = CapturedView::default();
+        let mut dom = VirtualDom::new(root)
+            .with_root_context(old)
+            .with_root_context(captured.clone())
+            .with_root_context(document.clone() as Rc<dyn Document>)
+            .with_root_context(crate::config::tests::settings());
+        dom.rebuild_in_place();
+        until(&mut dom, "View cart (2 items)").await;
+        dom.in_scope(ScopeId::ROOT, || {
+            captured
+                .get()
+                .expect("view signal")
+                .set(ConventionView::Cart {
+                    checkout_id: CHECKOUT.into(),
+                });
+        });
+        let html = until(&mut dom, "Your cart changed in another tab").await;
+        assert!(html.contains("Browse products (3 items in cart)"));
+        assert!(html.contains("Open your current cart"));
+        assert!(html.contains(&current.checkout_id));
+        dom.in_scope(ScopeId::ROOT, || {
+            captured
+                .get()
+                .expect("view signal")
+                .set(ConventionView::Cart {
+                    checkout_id: current.checkout_id.clone(),
+                });
+        });
+        let html = until(
+            &mut dom,
+            "Review your selections and current total before paying",
+        )
+        .await;
+        assert!(!html.contains("Cart unavailable"));
+        assert!(document.sent.borrow().contains(&serde_json::json!(false)));
+    }
+}

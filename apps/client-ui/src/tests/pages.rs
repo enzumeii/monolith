@@ -13,7 +13,7 @@ use std::{
     cell::{Cell, RefCell},
     collections::{BTreeMap, VecDeque},
     rc::Rc,
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
 };
 
 #[path = "events.rs"]
@@ -24,6 +24,8 @@ pub(crate) struct TestDocument {
     pub replies: RefCell<VecDeque<serde_json::Value>>,
     pub scripts: RefCell<Vec<String>>,
     pub sent: Rc<RefCell<Vec<serde_json::Value>>>,
+    scripted: RefCell<Vec<(String, Rc<ScriptMessages>)>>,
+    script_replies: RefCell<Vec<(String, serde_json::Value)>>,
 }
 impl TestDocument {
     pub fn new(replies: Vec<serde_json::Value>) -> Rc<Self> {
@@ -32,11 +34,45 @@ impl TestDocument {
             replies: RefCell::new(replies.into()),
             scripts: RefCell::new(vec![]),
             sent: Rc::new(RefCell::new(vec![])),
+            scripted: RefCell::new(vec![]),
+            script_replies: RefCell::new(vec![]),
         })
+    }
+    pub fn script_reply(&self, needle: &str, value: serde_json::Value) {
+        let mut replies = self.script_replies.borrow_mut();
+        replies.retain(|(key, _)| key != needle);
+        replies.push((needle.into(), value));
+    }
+    pub fn script_messages(
+        &self,
+        needle: &str,
+        values: Vec<serde_json::Value>,
+    ) -> Rc<ScriptMessages> {
+        let messages = Rc::new(ScriptMessages {
+            values: RefCell::new(values.into()),
+            waker: RefCell::new(None),
+        });
+        self.scripted.borrow_mut().retain(|(key, _)| key != needle);
+        self.scripted
+            .borrow_mut()
+            .push((needle.into(), messages.clone()));
+        messages
+    }
+}
+pub(crate) struct ScriptMessages {
+    values: RefCell<VecDeque<serde_json::Value>>,
+    waker: RefCell<Option<Waker>>,
+}
+impl ScriptMessages {
+    pub fn push(&self, value: serde_json::Value) {
+        self.values.borrow_mut().push_back(value);
+        if let Some(waker) = self.waker.borrow_mut().take() {
+            waker.wake();
+        }
     }
 }
 struct Message {
-    values: VecDeque<serde_json::Value>,
+    values: Rc<ScriptMessages>,
     pending: bool,
     sent: Rc<RefCell<Vec<serde_json::Value>>>,
 }
@@ -45,10 +81,13 @@ impl Evaluator for Message {
         self.sent.borrow_mut().push(value);
         Ok(())
     }
-    fn poll_recv(&mut self, _: &mut Context<'_>) -> Poll<Result<serde_json::Value, EvalError>> {
-        match self.values.pop_front() {
+    fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Result<serde_json::Value, EvalError>> {
+        match self.values.values.borrow_mut().pop_front() {
             Some(value) => Poll::Ready(Ok(value)),
-            None if self.pending => Poll::Pending,
+            None if self.pending => {
+                self.values.waker.replace(Some(cx.waker().clone()));
+                Poll::Pending
+            }
             None => Poll::Ready(Err(EvalError::Unsupported)),
         }
     }
@@ -58,8 +97,26 @@ impl Evaluator for Message {
 }
 impl Document for TestDocument {
     fn eval(&self, script: String) -> Eval {
-        self.scripts.borrow_mut().push(script);
-        let next = self.replies.borrow_mut().pop_front();
+        self.scripts.borrow_mut().push(script.clone());
+        if let Some((_, values)) = self
+            .scripted
+            .borrow()
+            .iter()
+            .find(|(needle, _)| script.contains(needle))
+        {
+            return Eval::new(self.owner.insert(Box::new(Message {
+                values: values.clone(),
+                pending: true,
+                sent: self.sent.clone(),
+            })));
+        }
+        let next = self
+            .script_replies
+            .borrow()
+            .iter()
+            .find(|(needle, _)| script.contains(needle))
+            .map(|(_, value)| value.clone())
+            .or_else(|| self.replies.borrow_mut().pop_front());
         let pending = next
             .as_ref()
             .and_then(|value| value.get("__eval_pending"))
@@ -77,7 +134,10 @@ impl Document for TestDocument {
             next.into_iter().collect()
         };
         Eval::new(self.owner.insert(Box::new(Message {
-            values: messages,
+            values: Rc::new(ScriptMessages {
+                values: RefCell::new(messages),
+                waker: RefCell::new(None),
+            }),
             pending,
             sent: self.sent.clone(),
         })))

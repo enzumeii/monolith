@@ -71,10 +71,10 @@ fn ReadyCart(
     restored: browser::Restored,
 ) -> Element {
     let mut cache = use_context::<Signal<BTreeMap<String, browser::Restored>>>();
-    let cart = use_signal(|| restored.cart);
+    let mut cart = use_signal(|| restored.cart);
     let mut notice = use_signal(|| restored.notice);
     use_context_provider(|| CartContext { cart, cache });
-    let _saving = use_resource(move || {
+    let _saving = use_resource(use_reactive((&view,), move |(_view,)| {
         let snapshot = cart.read().clone();
         cache.write().insert(
             snapshot.convention_id.clone(),
@@ -84,11 +84,18 @@ fn ReadyCart(
             },
         );
         async move {
-            if let Err(message) = browser::save(&snapshot).await {
-                notice.set(Some(message));
+            match browser::save(&snapshot).await {
+                Ok(saved) if saved.checkout_id != snapshot.checkout_id => {
+                    if cart.peek().checkout_id == snapshot.checkout_id {
+                        cart.set(saved);
+                        notice.set(Some("Your cart changed in another tab. Review your current selections before continuing.".into()));
+                    }
+                }
+                Err(message) => notice.set(Some(message)),
+                Ok(_) => {}
             }
         }
-    });
+    }));
     rsx! { ConventionContent { catalogue, view, notice: notice.read().clone() } }
 }
 
