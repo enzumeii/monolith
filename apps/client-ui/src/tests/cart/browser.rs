@@ -62,7 +62,9 @@ async fn bridge_restores_only_valid_owned_carts_and_reports_corruption_storage_a
 #[tokio::test]
 async fn bridge_saves_json_as_string_and_surfaces_failed_or_missing_storage_acknowledgement() {
     let cart = Cart::new("event\"quoted".into(), CHECKOUT.into());
-    let document = TestDocument::new(vec![serde_json::json!(true)]);
+    let document = TestDocument::new(vec![
+        serde_json::json!({"__eval_messages":[{"raw":null},true]}),
+    ]);
     scoped(document.clone(), save(&cart))
         .await
         .expect("browser acknowledged cart save");
@@ -76,7 +78,11 @@ async fn bridge_saves_json_as_string_and_surfaces_failed_or_missing_storage_ackn
                 .expect("encode cart JSON as script string")
         )
     );
-    for replies in [vec![serde_json::json!(false)], vec![]] {
+    for replies in [
+        vec![serde_json::json!(false)],
+        vec![serde_json::json!({"__eval_messages":[{"raw":null},false]})],
+        vec![],
+    ] {
         assert!(
             scoped(TestDocument::new(replies), save(&cart))
                 .await
@@ -148,4 +154,47 @@ async fn visitor_bridge_injects_only_typed_lookup_settings_into_one_browser_eval
     assert!(scripts[0].contains(&settings.timeout_ms.to_string()));
     assert!(!scripts[0].contains("__LOOKUP_URL__"));
     assert!(!scripts[0].contains("__TIMEOUT_MS__"));
+}
+
+#[tokio::test]
+async fn stale_cart_save_returns_current_owned_cart_without_persisting_old_identity() {
+    let mut old = Cart::new("event".into(), CHECKOUT.into());
+    old.add(&crate::tests::variant(), 1).expect("old selection");
+    let mut current = old.clone();
+    current.checkout_id = "b65bbebd-f990-4599-bc72-daa653abc900".into();
+    current.items[0].quantity = 3;
+    let document = TestDocument::new(vec![serde_json::json!({"__eval_messages":[
+        {"raw":serde_json::to_string(&current).expect("current cart JSON")},true
+    ]})]);
+    assert_eq!(
+        scoped(document.clone(), save(&old))
+            .await
+            .expect("preserve current cart"),
+        current
+    );
+    assert_eq!(*document.sent.borrow(), vec![serde_json::json!(false)]);
+    assert!(document.scripts.borrow()[0].contains("enzumeii.cart.v1.${convention}"));
+}
+
+#[tokio::test]
+async fn malformed_cart_is_replaced_and_cancelled_save_releases_without_writing() {
+    use futures::FutureExt;
+    let cart = Cart::new("event".into(), CHECKOUT.into());
+    let document = TestDocument::new(vec![
+        serde_json::json!({"__eval_messages":[{"raw":"{"},true]}),
+    ]);
+    assert_eq!(
+        scoped(document.clone(), save(&cart))
+            .await
+            .expect("replace malformed cart"),
+        cart
+    );
+    assert_eq!(*document.sent.borrow(), vec![serde_json::json!(true)]);
+    let document = TestDocument::new(vec![serde_json::json!({"__eval_pending":true})]);
+    assert!(
+        scoped(document.clone(), save(&cart))
+            .now_or_never()
+            .is_none()
+    );
+    assert_eq!(*document.sent.borrow(), vec![serde_json::json!(false)]);
 }

@@ -2,7 +2,8 @@ const input = __INPUT__;
 const recordKey = id => `enzumeii.checkout.v1.${id}`;
 const activeKey = convention => `enzumeii.checkout.active.v1.${convention}`;
 const payloadKey = id => `enzumeii.checkout.payload.v1.${id}`;
-const pausedKey = id => `enzumeii.checkout.paused.v1.${id}`;
+const ignoredKey = id => `enzumeii.checkout.ignored.v1.${id}`;
+const ignored = id => localStorage.getItem(ignoredKey(id)) === 'true';
 const fail = message => dioxus.send({ok: false, error: message});
 function read(id) {
     if (!id) return null;
@@ -36,33 +37,62 @@ function sameCart(current, snapshot) {
                 && item.accepted_unit_price === saved.accepted_unit_price;
         });
 }
+function checkedWrite(key, raw) {
+    localStorage.setItem(key, raw);
+    if (localStorage.getItem(key) !== raw) throw new Error('Recovery storage unavailable');
+}
+function currentCart(attempt) {
+    const raw = localStorage.getItem(`enzumeii.cart.v1.${attempt.snapshot.convention_id}`);
+    const cart = raw ? JSON.parse(raw) : {...attempt.snapshot, checkout_id: crypto.randomUUID(), items: []};
+    if (cart.version !== 1 || cart.convention_id !== attempt.snapshot.convention_id
+        || typeof cart.checkout_id !== 'string' || !Array.isArray(cart.items)) throw new Error('Invalid saved cart');
+    return cart;
+}
 try {
-    if (['pause', 'resume', 'paused'].includes(input.action)) {
+    if (['abandon', 'ignored'].includes(input.action)) {
         const attempt = read(input.id);
         if (!attempt || attempt.slug !== input.slug) throw new Error('Recovery belongs to another convention');
-        const key = pausedKey(attempt.operation_id);
-        if (input.action === 'pause') {
-            sessionStorage.setItem(key, 'true');
-            if (sessionStorage.getItem(key) !== 'true') throw new Error('Session storage unavailable');
-        } else if (input.action === 'resume') {
-            sessionStorage.removeItem(key);
-            if (sessionStorage.getItem(key) !== null) throw new Error('Session storage unavailable');
+        if (input.action === 'ignored') {
+            dioxus.send({ok: true, value: ignored(attempt.operation_id)});
+        } else {
+            if (!navigator.locks || !crypto.randomUUID) throw new Error('Secure browser ownership is unavailable');
+            // Publish the fence before waiting for an in-flight request to release ownership.
+            checkedWrite(ignoredKey(attempt.operation_id), 'true');
+            window.dispatchEvent(new Event('enzumeii-checkout-change'));
+            await navigator.locks.request(`enzumeii.checkout.${attempt.snapshot.convention_id}`, async () => {
+                const cart = await navigator.locks.request(`enzumeii.cart.v1.${attempt.snapshot.convention_id}`, () => {
+                    const current = currentCart(attempt);
+                    if (current.checkout_id === attempt.snapshot.checkout_id) current.checkout_id = crypto.randomUUID();
+                    checkedWrite(`enzumeii.cart.v1.${attempt.snapshot.convention_id}`, JSON.stringify(current));
+                    return current;
+                });
+                const key = activeKey(attempt.snapshot.convention_id);
+                if (localStorage.getItem(key) === attempt.operation_id) {
+                    localStorage.removeItem(key);
+                    if (localStorage.getItem(key) !== null) throw new Error('Recovery storage unavailable');
+                }
+                sessionStorage.removeItem(payloadKey(attempt.operation_id));
+                if (sessionStorage.getItem(payloadKey(attempt.operation_id)) !== null) throw new Error('Session storage unavailable');
+                dioxus.send({ok: true, value: cart});
+            });
         }
-        dioxus.send({ok: true, value: input.action === 'paused' ? sessionStorage.getItem(key) === 'true' : null});
     } else if (input.action === 'read') {
         const id = input.id || localStorage.getItem(activeKey(input.convention_id));
         const attempt = read(id);
         if (attempt && attempt.slug !== input.slug) throw new Error('Recovery belongs to another convention');
-        dioxus.send({ok: true, value: attempt});
+        dioxus.send({ok: true, value: !input.id && attempt && ignored(attempt.operation_id) ? null : attempt});
     } else {
         if (!navigator.locks || !crypto.randomUUID || !crypto.getRandomValues) throw new Error('Secure browser ownership is unavailable');
         const lockName = `enzumeii.checkout.${input.convention_id || input.id}`;
         await navigator.locks.request(lockName, async () => {
             let attempt = read(input.id || localStorage.getItem(activeKey(input.convention_id)));
+            if (attempt && ignored(attempt.operation_id)) throw new Error('Checkout was abandoned');
             let payload = null;
             let fresh = false;
             if (attempt && attempt.slug !== input.slug) throw new Error('Recovery belongs to another convention');
             if (input.action === 'start' && (!attempt || ['unpaid', 'completed', 'rejected'].includes(attempt.state))) {
+                const current = localStorage.getItem(`enzumeii.cart.v1.${input.convention_id}`);
+                if (current && JSON.parse(current).checkout_id !== input.snapshot.checkout_id) throw new Error('Cart identity changed');
                 const id = crypto.randomUUID();
                 const secret = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('');
                 payload = input.payload.replace('"operation_id":""', `"operation_id":"${id}"`);
@@ -82,18 +112,25 @@ try {
             persist(attempt);
             dioxus.send({ok: true, value: {attempt, payload, fresh}});
             const command = await dioxus.recv();
+            if (ignored(attempt.operation_id)) {
+                sessionStorage.removeItem(payloadKey(attempt.operation_id));
+                dioxus.send({ok: true, value: false});
+                return;
+            }
             if (command.status) attempt.state = command.status;
             persist(attempt);
             let cleared = false;
             if (attempt.state === 'completed') {
-                sessionStorage.removeItem(payloadKey(attempt.operation_id));
-                if (localStorage.getItem(activeKey(attempt.snapshot.convention_id)) === attempt.operation_id) localStorage.removeItem(activeKey(attempt.snapshot.convention_id));
-                const key = `enzumeii.cart.v1.${attempt.snapshot.convention_id}`;
-                const raw = localStorage.getItem(key);
-                if (raw && sameCart(JSON.parse(raw), attempt.snapshot)) {
-                    localStorage.setItem(key, JSON.stringify({...attempt.snapshot, checkout_id: crypto.randomUUID(), items: []}));
-                    cleared = true;
-                }
+                cleared = await navigator.locks.request(`enzumeii.cart.v1.${attempt.snapshot.convention_id}`, () => {
+                    sessionStorage.removeItem(payloadKey(attempt.operation_id));
+                    if (ignored(attempt.operation_id)) return false;
+                    if (localStorage.getItem(activeKey(attempt.snapshot.convention_id)) === attempt.operation_id) localStorage.removeItem(activeKey(attempt.snapshot.convention_id));
+                    const key = `enzumeii.cart.v1.${attempt.snapshot.convention_id}`;
+                    const raw = localStorage.getItem(key);
+                    if (!raw || !sameCart(JSON.parse(raw), attempt.snapshot)) return false;
+                    checkedWrite(key, JSON.stringify({...attempt.snapshot, checkout_id: crypto.randomUUID(), items: []}));
+                    return true;
+                });
             } else if (['unpaid', 'rejected', 'expired'].includes(attempt.state)) {
                 sessionStorage.removeItem(payloadKey(attempt.operation_id));
             }

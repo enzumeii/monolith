@@ -10,6 +10,7 @@ try {
         const command = await dioxus.recv();
         if (command.action === 'open') {
             if (paymentWindow.closed) throw new Error('Payment window closed');
+            if (localStorage.getItem(`enzumeii.checkout.ignored.v1.${command.checkout_id}`) === 'true') throw new Error('Checkout was cancelled');
             paymentWindow.location.replace(command.url);
             handedOff = true;
             try { paymentWindow.focus(); } catch (_) {}

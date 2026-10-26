@@ -140,7 +140,9 @@ fn payment_window_handoff_validates_selected_provider_and_releases_without_closi
     assert_eq!(result, Some(Ok(true)));
     assert_eq!(
         *document.sent.borrow(),
-        vec![json!({"action":"open","url":"https://checkout.stripe.com/c/pay/test"})]
+        vec![
+            json!({"action":"open","url":"https://checkout.stripe.com/c/pay/test","checkout_id":response.checkout_id})
+        ]
     );
 }
 
@@ -197,33 +199,109 @@ fn blocked_window_is_not_ready_and_non_redirect_results_close_the_unused_context
 }
 
 #[test]
-fn checking_preferences_pass_only_the_attempt_identity_without_changing_its_state() {
+fn abandonment_and_ignore_status_pass_only_the_attempt_identity() {
+    let cart = attempt().snapshot;
     let document = TestDocument::new(vec![
         json!({"ok":true,"value":true}),
-        json!({"ok":true,"value":null}),
-        json!({"ok":true,"value":null}),
+        json!({"ok":true,"value":cart}),
     ]);
     let dom = VirtualDom::new(|| rsx! {})
         .with_root_context(document.clone() as std::rc::Rc<dyn Document>);
     let attempt = attempt();
     dom.in_scope(ScopeId::ROOT, || {
         async {
-            assert!(checking_paused(&attempt).await.expect("preference read"));
-            pause_checking(&attempt).await.expect("pause");
-            resume_checking(&attempt).await.expect("resume");
+            assert!(ignored(&attempt).await.expect("ignore decision read"));
+            assert_eq!(abandon(&attempt).await.expect("cart fork"), cart);
         }
         .now_or_never()
     })
-    .expect("ready preferences");
-    for (script, action) in document
-        .scripts
-        .borrow()
-        .iter()
-        .zip(["paused", "pause", "resume"])
-    {
+    .expect("ready actions");
+    for (script, action) in document.scripts.borrow().iter().zip(["ignored", "abandon"]) {
         assert!(script.contains(&format!("\"action\":\"{action}\"")));
         assert!(script.contains(&attempt.operation_id));
         assert!(!script.contains(&attempt.secret));
     }
     assert!(document.sent.borrow().is_empty());
+}
+
+#[test]
+fn checking_session_waits_then_owns_and_releases_once_when_disposed() {
+    let document = TestDocument::new(vec![json!({"__eval_messages":[
+        {"ok":true,"value":"passive"}, {"ok":true,"value":"owner"}
+    ]})]);
+    let dom = VirtualDom::new(|| rsx! {})
+        .with_root_context(document.clone() as std::rc::Rc<dyn Document>);
+    dom.in_scope(ScopeId::ROOT, || {
+        async {
+            let mut session = CheckingSession::new(&attempt()).expect("checking session");
+            assert_eq!(
+                session.next().await.expect("passive"),
+                CheckingState::Passive
+            );
+            assert_eq!(session.next().await.expect("owner"), CheckingState::Owner);
+            drop(session);
+        }
+        .now_or_never()
+    })
+    .expect("ready events");
+    assert_eq!(*document.sent.borrow(), vec![json!({"action":"release"})]);
+}
+
+#[test]
+fn checking_session_disposal_aborts_pending_acquisition_and_ignore_is_already_released() {
+    for ignored in [false, true] {
+        let reply = if ignored {
+            json!({"ok":true,"value":"ignored"})
+        } else {
+            json!({"__eval_pending":true})
+        };
+        let document = TestDocument::new(vec![reply]);
+        let dom = VirtualDom::new(|| rsx! {})
+            .with_root_context(document.clone() as std::rc::Rc<dyn Document>);
+        let mut future = Box::pin(async {
+            let mut session = CheckingSession::new(&attempt()).expect("session");
+            session.next().await
+        });
+        let result = dom.in_scope(ScopeId::ROOT, || future.as_mut().now_or_never());
+        if ignored {
+            assert_eq!(result, Some(Ok(CheckingState::Ignored)));
+        } else {
+            assert!(result.is_none());
+        }
+        drop(future);
+        let expected = if ignored {
+            Vec::new()
+        } else {
+            vec![json!({"action":"release"})]
+        };
+        assert_eq!(*document.sent.borrow(), expected);
+    }
+}
+
+#[test]
+fn malformed_checking_event_still_releases_ownership() {
+    let document = TestDocument::new(vec![json!({"ok":true,"value":"unexpected"})]);
+    let dom = VirtualDom::new(|| rsx! {})
+        .with_root_context(document.clone() as std::rc::Rc<dyn Document>);
+    dom.in_scope(ScopeId::ROOT, || {
+        async {
+            let mut session = CheckingSession::new(&attempt()).expect("session");
+            assert!(session.next().await.is_err());
+        }
+        .now_or_never()
+    })
+    .expect("ready malformed event");
+    assert_eq!(*document.sent.borrow(), vec![json!({"action":"release"})]);
+}
+
+#[test]
+fn dropping_an_unpolled_checking_session_releases_its_pending_acquisition() {
+    let document = TestDocument::new(vec![json!({"__eval_pending":true})]);
+    let dom = VirtualDom::new(|| rsx! {})
+        .with_root_context(document.clone() as std::rc::Rc<dyn Document>);
+    let session = dom
+        .in_scope(ScopeId::ROOT, || CheckingSession::new(&attempt()))
+        .expect("checking session");
+    drop(session);
+    assert_eq!(*document.sent.borrow(), vec![json!({"action":"release"})]);
 }

@@ -121,3 +121,59 @@ test('cart focus refreshes once per foreground transition and removes listeners 
     assert.equal(windowListeners.size, 0);
     assert.equal(documentListeners.size, 0);
 });
+
+const cartSave = readFileSync(new URL('../cart/save.js', import.meta.url), 'utf8');
+const cartId = 'f79b7e64-8e36-4aca-9e21-ecb7cb513700';
+const nextCartId = 'b65bbebd-f990-4599-bc72-daa653abc900';
+const cartRecord = id => ({version: 1, convention_id: 'event', checkout_id: id, items: []});
+async function saveCartScript(current, proposed, persist, beforeLock, holdRequest = false) {
+    let raw = current && JSON.stringify(current);
+    const messages = [];
+    const locks = [];
+    let written = 0;
+    const script = cartSave
+        .replace('__STORAGE_KEY__', JSON.stringify('enzumeii.cart.v1.event'))
+        .replace('__CONVENTION_ID__', JSON.stringify('event'))
+        .replace('__CART_JSON__', JSON.stringify(JSON.stringify(proposed)));
+    const task = runInNewContext(`(async () => {${script}})()`, {
+        localStorage: {
+            getItem() { return raw; },
+            setItem(_key, value) { written++; raw = value; },
+        },
+        navigator: {locks: {async request(name, work) { locks.push(name); if (holdRequest && name === 'enzumeii.checkout.event') await new Promise(() => {}); if (beforeLock) raw = JSON.stringify(beforeLock); await work(); }}},
+        dioxus: {send: value => messages.push(value), recv: async () => persist},
+    });
+    await task;
+    return {cart: JSON.parse(raw), messages, locks, written};
+}
+
+test('stale cart save cannot restore the identity abandoned by another tab', async () => {
+    const current = {...cartRecord(nextCartId), items: [{variant_id: 'newer', quantity: 3}]};
+    const actual = await saveCartScript(current, cartRecord(cartId), false);
+    assert.deepEqual(actual.cart, current);
+    assert.equal(actual.written, 0);
+});
+
+test('cart save reads and writes under its short cart lock', async () => {
+    const actual = await saveCartScript(cartRecord(cartId), cartRecord(cartId), true);
+    assert.deepEqual(actual.locks, ['enzumeii.cart.v1.event']);
+    assert.equal(actual.written, 1);
+});
+
+test('queued cart save inspects the identity persisted before lock acquisition', async () => {
+    const current = cartRecord(nextCartId);
+    const actual = await saveCartScript(cartRecord(cartId), cartRecord(cartId), false, current);
+    assert.deepEqual(actual.cart, current);
+    assert.equal(actual.messages[0].raw, JSON.stringify(current));
+});
+
+
+test('a new cart edit persists while checkout request ownership is held', async () => {
+    const proposed = {...cartRecord(cartId), items: [{variant_id: 'newer', quantity: 3}]};
+    const actual = await Promise.race([
+        saveCartScript(cartRecord(cartId), proposed, true, null, true),
+        new Promise((_resolve, reject) => setTimeout(() => reject(new Error('cart edit waited for payment request')), 100)),
+    ]);
+    assert.deepEqual(actual.cart, proposed);
+    assert.equal(actual.written, 1);
+});

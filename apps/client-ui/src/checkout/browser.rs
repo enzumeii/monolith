@@ -28,6 +28,19 @@ pub struct PaymentWindow {
     released: bool,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckingState {
+    Passive,
+    Owner,
+    Ignored,
+}
+
+pub struct CheckingSession {
+    eval: Eval,
+    released: bool,
+}
+
 pub struct Ownership {
     eval: Eval,
     released: bool,
@@ -57,16 +70,12 @@ pub async fn recover(attempt: &Attempt) -> Result<(Ownership, Started), String> 
     own(&json!({"action":"recover","slug":attempt.slug,"convention_id":attempt.snapshot.convention_id,"id":attempt.operation_id})).await
 }
 
-pub async fn checking_paused(attempt: &Attempt) -> Result<bool, String> {
-    checking_preference(attempt, "paused").await
+pub async fn ignored(attempt: &Attempt) -> Result<bool, String> {
+    attempt_action(attempt, "ignored").await
 }
 
-pub async fn pause_checking(attempt: &Attempt) -> Result<(), String> {
-    checking_preference(attempt, "pause").await
-}
-
-pub async fn resume_checking(attempt: &Attempt) -> Result<(), String> {
-    checking_preference(attempt, "resume").await
+pub async fn abandon(attempt: &Attempt) -> Result<Cart, String> {
+    attempt_action(attempt, "abandon").await
 }
 
 pub async fn navigate(url: &str) -> Result<(), String> {
@@ -110,7 +119,7 @@ impl PaymentWindow {
         };
         self.ready().await?;
         self.eval
-            .send(json!({"action":"open","url":url}))
+            .send(json!({"action":"open","url":url,"checkout_id":response.checkout_id}))
             .map_err(|_| "Unable to open the payment window. Resume this payment to try again.")?;
         self.released = true;
         receive::<()>(&mut self.eval).await?;
@@ -122,6 +131,33 @@ impl Drop for PaymentWindow {
     fn drop(&mut self) {
         if !self.released {
             let _ = self.eval.send(json!({"action":"abort"}));
+        }
+    }
+}
+
+impl CheckingSession {
+    pub fn new(attempt: &Attempt) -> Result<Self, String> {
+        let input = serde_json::to_string(&json!({"id":attempt.operation_id,"slug":attempt.slug}))
+            .map_err(|_| "Unable to prepare payment checking.")?;
+        Ok(Self {
+            eval: document::eval(&include_str!("checking-session.js").replace("__INPUT__", &input)),
+            released: false,
+        })
+    }
+
+    pub async fn next(&mut self) -> Result<CheckingState, String> {
+        let state = receive(&mut self.eval).await;
+        if matches!(state, Ok(CheckingState::Ignored)) {
+            self.released = true;
+        }
+        state
+    }
+}
+
+impl Drop for CheckingSession {
+    fn drop(&mut self) {
+        if !self.released {
+            let _ = self.eval.send(json!({"action":"release"}));
         }
     }
 }
@@ -144,10 +180,7 @@ impl Drop for Ownership {
     }
 }
 
-async fn checking_preference<T: DeserializeOwned>(
-    attempt: &Attempt,
-    action: &str,
-) -> Result<T, String> {
+async fn attempt_action<T: DeserializeOwned>(attempt: &Attempt, action: &str) -> Result<T, String> {
     let mut eval =
         evaluate(&json!({"action":action,"slug":attempt.slug,"id":attempt.operation_id}))?;
     receive(&mut eval).await
