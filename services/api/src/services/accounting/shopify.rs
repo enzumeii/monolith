@@ -544,6 +544,14 @@ fn reference(tx: &OrderTransaction) -> Result<Option<(u8, String)>, AppError> {
     Ok(value
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
+        .or_else(|| {
+            (gateway == "paypal"
+                && (tx.kind.eq_ignore_ascii_case("sale")
+                    || tx.kind.eq_ignore_ascii_case("capture")))
+            .then(|| receipt.get("id").and_then(Value::as_str))
+            .flatten()
+            .filter(|id| !id.is_empty())
+        })
         .map(|id| (key, id.to_owned())))
 }
 
