@@ -5,7 +5,10 @@ use crate::{
     models::{
         accounting::AccountingDateRange,
         checkout_completion::{ExactMoney, currency_precision},
-        shopify::{CompletionFinancialStatus, Money, Order, OrderTransaction, PageRequest},
+        shopify::{
+            CompletionFinancialStatus, Money, Order, OrderTransaction, OrderTransactionKind,
+            PageRequest,
+        },
     },
     services, transformers,
 };
@@ -140,7 +143,7 @@ fn native_index(orders: &[Order]) -> Result<OrderIndex, AppError> {
                 continue;
             }
             if let Some((gateway, reference)) = reference(tx)? {
-                let key = (gateway, tx.kind.eq_ignore_ascii_case("refund"), reference);
+                let key = (gateway, tx.kind == OrderTransactionKind::Refund, reference);
                 if let Some(previous) = index.native.insert(key, position)
                     && previous != position
                 {
@@ -312,7 +315,7 @@ fn external_sale_transaction(order: &Order, payment: &Payment) -> Result<Option<
         return Ok(None);
     };
     if successful.next().is_some()
-        || !tx.kind.eq_ignore_ascii_case("sale")
+        || tx.kind != OrderTransactionKind::Sale
         || !tx
             .gateway
             .as_deref()
@@ -351,7 +354,7 @@ fn external_gateway(
             || order
                 .transactions
                 .iter()
-                .any(|tx| !tx.kind.eq_ignore_ascii_case("sale"))
+                .any(|tx| tx.kind != OrderTransactionKind::Sale)
         {
             return None;
         }
@@ -533,7 +536,7 @@ fn reference(tx: &OrderTransaction) -> Result<Option<(u8, String)>, AppError> {
     };
     let receipt: Value =
         serde_json::from_str(raw).map_err(|_| protocol("invalid Shopify payment receipt"))?;
-    let refund = tx.kind.eq_ignore_ascii_case("refund");
+    let refund = tx.kind == OrderTransactionKind::Refund;
     let value = match (gateway.as_str(), refund) {
         ("stripe", false) => receipt.pointer("/charges/data/0/id"),
         ("stripe", true) => receipt.get("id"),
@@ -544,6 +547,16 @@ fn reference(tx: &OrderTransaction) -> Result<Option<(u8, String)>, AppError> {
     Ok(value
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
+        .or_else(|| {
+            (gateway == "paypal"
+                && matches!(
+                    tx.kind,
+                    OrderTransactionKind::Sale | OrderTransactionKind::Capture
+                ))
+            .then(|| receipt.get("id").and_then(Value::as_str))
+            .flatten()
+            .filter(|id| !id.is_empty())
+        })
         .map(|id| (key, id.to_owned())))
 }
 
@@ -697,7 +710,10 @@ fn sale_details(order: &Order, payment: &Payment) -> Result<SaleAllocation, AppE
         .iter()
         .filter(|tx| {
             tx.status.eq_ignore_ascii_case("success")
-                && (tx.kind.eq_ignore_ascii_case("capture") || tx.kind.eq_ignore_ascii_case("sale"))
+                && matches!(
+                    tx.kind,
+                    OrderTransactionKind::Capture | OrderTransactionKind::Sale
+                )
         })
         .collect::<Vec<_>>();
     let external =

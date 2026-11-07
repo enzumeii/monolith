@@ -3,7 +3,7 @@ use super::{apply, complete, matching_position, native_index, reference, thb};
 use crate::{
     models::{
         SkuCategory,
-        shopify::{Money, OrderTransaction},
+        shopify::{Money, OrderTransaction, OrderTransactionKind},
     },
     services::accounting::tests::{order, order_value, page, payment, transaction},
 };
@@ -47,6 +47,43 @@ fn all_legacy_gateway_references_use_receipt_fields() {
     value["receiptJson"] = json!("{");
     assert!(reference(&serde_json::from_value(value).unwrap()).is_err());
 }
+#[test]
+fn paypal_receipt_id_fallback_is_limited_to_sales_and_captures() {
+    for kind in ["SALE", "CAPTURE", "sale", "capture"] {
+        for receipt in [
+            json!({"id":"capture"}),
+            json!({"transaction_id":"", "id":"capture"}),
+            json!({"transaction_id":null, "id":"capture"}),
+        ] {
+            let tx = serde_json::from_value(transaction("paypal", kind, receipt)).unwrap();
+            assert_eq!(reference(&tx).unwrap(), Some((1, "capture".into())));
+        }
+        for id in [json!(null), json!(""), json!(42)] {
+            let tx = serde_json::from_value(transaction("paypal", kind, json!({"id":id}))).unwrap();
+            assert!(reference(&tx).unwrap().is_none());
+        }
+        let tx = serde_json::from_value(transaction(
+            "paypal",
+            kind,
+            json!({"transaction_id":"legacy", "id":"different"}),
+        ))
+        .unwrap();
+        assert_eq!(reference(&tx).unwrap(), Some((1, "legacy".into())));
+    }
+    for kind in ["AUTHORIZATION", "VOID", "REFUND", "future_kind"] {
+        let tx =
+            serde_json::from_value(transaction("paypal", kind, json!({"id":"order"}))).unwrap();
+        assert!(reference(&tx).unwrap().is_none());
+    }
+    let tx = serde_json::from_value(transaction(
+        "paypal",
+        "REFUND",
+        json!({"refund_transaction_id":"refund", "transaction_id":"sale", "id":"other"}),
+    ))
+    .unwrap();
+    assert_eq!(reference(&tx).unwrap(), Some((1, "refund".into())));
+}
+
 #[test]
 fn sales_ship_once_and_use_the_receipt_reference() {
     let mut payment = payment(AccountingGateway::Stripe, AccountingKind::Sale, "ch_1");
@@ -543,6 +580,71 @@ async fn enrich_orders(
 }
 
 #[tokio::test]
+async fn paypal_capture_receipt_id_links_the_order_and_allocates_its_items() {
+    let capture = "82565679F72743924";
+    let mut value = order_value();
+    value["id"] = json!("gid://shopify/Order/7108615012523");
+    value["number"] = json!(5607);
+    let mut sale = transaction("paypal", "CAPTURE", json!({"id":capture}));
+    sale["paymentId"] = json!("a55nqMs4bo9TVmq6y2gP6nDCV");
+    value["transactions"] = json!([
+        transaction("paypal", "AUTHORIZATION", json!({"id":"0DV07673KC6557106"})),
+        sale
+    ]);
+    let order: crate::models::shopify::Order = serde_json::from_value(value).unwrap();
+    let mut row = payment(AccountingGateway::Paypal, AccountingKind::Sale, capture);
+    row.transaction.currency = "USD".into();
+    let response = enrich_orders(vec![order.clone()], vec![row]).await.unwrap();
+    let row = &response.transactions.paypal[0];
+    assert_eq!(row.shopify_order_id, 7_108_615_012_523);
+    assert_eq!(row.shopify_order_number, 5607);
+    assert_eq!(row.payment_reference, capture);
+    assert_eq!(row.shipping_fee, Some(5.0));
+    assert_eq!(response.items.len(), 1);
+    assert_eq!(response.items[0].price, 95.0);
+
+    let authorization = payment(
+        AccountingGateway::Paypal,
+        AccountingKind::Sale,
+        "0DV07673KC6557106",
+    );
+    let response = enrich_orders(vec![order.clone()], vec![authorization])
+        .await
+        .unwrap();
+    assert_eq!(response.transactions.paypal[0].shopify_order_id, 0);
+    assert!(response.items.is_empty());
+
+    let mut duplicate = order.clone();
+    duplicate.id = serde_json::from_value(json!("gid://shopify/Order/2")).unwrap();
+    assert!(native_index(&[order, duplicate]).is_err());
+}
+
+#[tokio::test]
+async fn unknown_transaction_kinds_keep_legacy_references_without_captured_items() {
+    for kind in ["AUTHORIZATION", "future_kind"] {
+        let mut value = order_value();
+        value["transactions"] = json!([transaction(
+            "paypal",
+            kind,
+            json!({"transaction_id":"legacy", "id":"different"})
+        )]);
+        let response = enrich_orders(
+            vec![serde_json::from_value(value).unwrap()],
+            vec![payment(
+                AccountingGateway::Paypal,
+                AccountingKind::Sale,
+                "legacy",
+            )],
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.transactions.paypal[0].shopify_order_id, 1);
+        assert_eq!(response.transactions.paypal[0].shipping_fee, None);
+        assert!(response.items.is_empty());
+    }
+}
+
+#[tokio::test]
 async fn external_sale_rejects_distinct_provider_claims_for_one_shopify_transaction() {
     for (gateway, kind, first, second) in [
         (
@@ -978,7 +1080,7 @@ async fn metadata_sale_rejects_refund_intents_and_a_saturated_transaction_connec
         let mut pending = order.transactions[0].clone();
         pending.status = "PENDING".into();
         if mode == "pending_refund" {
-            pending.kind = "REFUND".into();
+            pending.kind = OrderTransactionKind::Refund;
             order.transactions.push(pending);
         } else {
             order.transactions.extend(std::iter::repeat_n(pending, 99));

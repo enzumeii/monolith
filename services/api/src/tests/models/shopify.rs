@@ -378,3 +378,64 @@ fn checkout_draft_reservation_projection_requires_complete_line_metadata() {
     assert!(draft.email.is_none());
     assert!(draft.reserve_inventory_until.is_none());
 }
+
+#[test]
+fn order_transaction_kinds_decode_known_cases_and_preserve_unknown_identity() {
+    for (raw, expected, wire) in [
+        ("SALE", OrderTransactionKind::Sale, "SALE"),
+        ("sale", OrderTransactionKind::Sale, "SALE"),
+        ("SaLe", OrderTransactionKind::Sale, "SALE"),
+        ("CAPTURE", OrderTransactionKind::Capture, "CAPTURE"),
+        ("capture", OrderTransactionKind::Capture, "CAPTURE"),
+        ("CaPtUrE", OrderTransactionKind::Capture, "CAPTURE"),
+        ("REFUND", OrderTransactionKind::Refund, "REFUND"),
+        ("refund", OrderTransactionKind::Refund, "REFUND"),
+        ("ReFuNd", OrderTransactionKind::Refund, "REFUND"),
+    ] {
+        let kind: OrderTransactionKind = serde_json::from_value(serde_json::json!(raw)).unwrap();
+        assert_eq!(kind, expected);
+        assert_eq!(serde_json::to_value(kind).unwrap(), serde_json::json!(wire));
+    }
+    for raw in [
+        "AUTHORIZATION",
+        "authorization",
+        "VOID",
+        "future_kind",
+        "sale ",
+        "",
+    ] {
+        let kind: OrderTransactionKind = serde_json::from_value(serde_json::json!(raw)).unwrap();
+        assert_eq!(kind, OrderTransactionKind::Other(raw.into()));
+        assert_eq!(serde_json::to_value(kind).unwrap(), serde_json::json!(raw));
+    }
+    assert_ne!(
+        OrderTransactionKind::from("AUTHORIZATION".to_owned()),
+        OrderTransactionKind::from("authorization".to_owned())
+    );
+}
+
+#[test]
+fn order_transaction_kind_remains_a_required_string_field() {
+    let mut value = serde_json::json!({
+        "gateway":"paypal", "kind":"capture", "status":"SUCCESS",
+        "amountSet":{"shopMoney":{"amount":"100","currencyCode":"USD"}}
+    });
+    assert_eq!(
+        serde_json::from_value::<OrderTransaction>(value.clone())
+            .unwrap()
+            .kind,
+        OrderTransactionKind::Capture
+    );
+    for invalid in [
+        serde_json::Value::Null,
+        serde_json::json!(42),
+        serde_json::json!(true),
+        serde_json::json!({}),
+        serde_json::json!([]),
+    ] {
+        value["kind"] = invalid;
+        assert!(serde_json::from_value::<OrderTransaction>(value.clone()).is_err());
+    }
+    value.as_object_mut().unwrap().remove("kind");
+    assert!(serde_json::from_value::<OrderTransaction>(value).is_err());
+}

@@ -319,12 +319,46 @@ pub struct Address {
     pub country_code_v2: Option<String>,
     pub phone: Option<String>,
 }
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(from = "String", into = "String")]
+pub enum OrderTransactionKind {
+    Sale,
+    Capture,
+    Refund,
+    Other(String),
+}
+
+impl From<String> for OrderTransactionKind {
+    fn from(value: String) -> Self {
+        if value.eq_ignore_ascii_case("SALE") {
+            Self::Sale
+        } else if value.eq_ignore_ascii_case("CAPTURE") {
+            Self::Capture
+        } else if value.eq_ignore_ascii_case("REFUND") {
+            Self::Refund
+        } else {
+            Self::Other(value)
+        }
+    }
+}
+
+impl From<OrderTransactionKind> for String {
+    fn from(value: OrderTransactionKind) -> Self {
+        match value {
+            OrderTransactionKind::Sale => "SALE".into(),
+            OrderTransactionKind::Capture => "CAPTURE".into(),
+            OrderTransactionKind::Refund => "REFUND".into(),
+            OrderTransactionKind::Other(value) => value,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrderTransaction {
     pub payment_id: Option<String>,
     pub gateway: Option<String>,
-    pub kind: String,
+    pub kind: OrderTransactionKind,
     pub status: String,
     pub amount_set: MoneyBag,
     pub receipt_json: Option<String>,
