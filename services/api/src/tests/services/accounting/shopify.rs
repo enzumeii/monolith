@@ -3,7 +3,7 @@ use super::{apply, complete, matching_position, native_index, reference, thb};
 use crate::{
     models::{
         SkuCategory,
-        shopify::{Money, OrderTransaction},
+        shopify::{Money, OrderTransaction, OrderTransactionKind},
     },
     services::accounting::tests::{order, order_value, page, payment, transaction},
 };
@@ -70,7 +70,7 @@ fn paypal_receipt_id_fallback_is_limited_to_sales_and_captures() {
         .unwrap();
         assert_eq!(reference(&tx).unwrap(), Some((1, "legacy".into())));
     }
-    for kind in ["AUTHORIZATION", "VOID", "REFUND"] {
+    for kind in ["AUTHORIZATION", "VOID", "REFUND", "future_kind"] {
         let tx =
             serde_json::from_value(transaction("paypal", kind, json!({"id":"order"}))).unwrap();
         assert!(reference(&tx).unwrap().is_none());
@@ -620,6 +620,31 @@ async fn paypal_capture_receipt_id_links_the_order_and_allocates_its_items() {
 }
 
 #[tokio::test]
+async fn unknown_transaction_kinds_keep_legacy_references_without_captured_items() {
+    for kind in ["AUTHORIZATION", "future_kind"] {
+        let mut value = order_value();
+        value["transactions"] = json!([transaction(
+            "paypal",
+            kind,
+            json!({"transaction_id":"legacy", "id":"different"})
+        )]);
+        let response = enrich_orders(
+            vec![serde_json::from_value(value).unwrap()],
+            vec![payment(
+                AccountingGateway::Paypal,
+                AccountingKind::Sale,
+                "legacy",
+            )],
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.transactions.paypal[0].shopify_order_id, 1);
+        assert_eq!(response.transactions.paypal[0].shipping_fee, None);
+        assert!(response.items.is_empty());
+    }
+}
+
+#[tokio::test]
 async fn external_sale_rejects_distinct_provider_claims_for_one_shopify_transaction() {
     for (gateway, kind, first, second) in [
         (
@@ -1055,7 +1080,7 @@ async fn metadata_sale_rejects_refund_intents_and_a_saturated_transaction_connec
         let mut pending = order.transactions[0].clone();
         pending.status = "PENDING".into();
         if mode == "pending_refund" {
-            pending.kind = "REFUND".into();
+            pending.kind = OrderTransactionKind::Refund;
             order.transactions.push(pending);
         } else {
             order.transactions.extend(std::iter::repeat_n(pending, 99));
